@@ -1,0 +1,66 @@
+{
+    "name": "minddiary",
+    "version": "1.0.0",
+    "description": "考研日记桌面应用",
+    "author": "MindDiary Team",
+    "main": "electron/main.js",
+    "scripts": {
+        "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "electron:dev": "electron .",
+        "postinstall": "electron-builder install-app-deps",
+        "build": "vite build && electron-builder",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "better-sqlite3": "^11.0.0",
+        "dompurify": "^3.3.2",
+        "marked": "^17.0.4",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
+    },
+    "devDependencies": {
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0",
+        "@vitejs/plugin-react": "^4.3.1",
+        "concurrently": "^8.2.2",
+        "electron": "^28.3.3",
+        "electron-builder": "^24.13.3",
+        "electron-updater": "^6.8.3",
+        "png-to-ico": "^3.0.1",
+        "vite": "^5.4.0",
+        "wait-on": "^7.2.0"
+    },
+    "build": {
+        "appId": "com.minddiary.app",
+        "productName": "MindDiary",
+        "directories": {
+            "output": "release",
+            "buildResources": "build"
+        },
+        "files": [
+            "dist/**/*",
+            "electron/**/*",
+            "package.json"
+        ],
+        "win": {
+            "target": [
+                "nsis",
+                "portable"
+            ],
+            "icon": "build/icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "MindDiary"
+        },
+        "mac": {
+            "target": [
+                "dmg"
+            ],
+            "icon": "build/icon.png"
+        }
+    }
+}
