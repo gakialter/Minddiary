@@ -18,6 +18,18 @@ export const DiaryProvider = ({ children }) => {
     const [subjects, setSubjects] = useState([])
     const [initialized, setInitialized] = useState(false)
 
+    // ─── System dark mode detection ───────────────────────────────────────────
+    const [systemDark, setSystemDark] = useState(
+        () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+    )
+    useEffect(() => {
+        const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+        if (!mq) return
+        const handler = (e) => setSystemDark(e.matches)
+        mq.addEventListener('change', handler)
+        return () => mq.removeEventListener('change', handler)
+    }, [])
+
     // ─── Initialization ───────────────────────────────────────────────────────
     useEffect(() => {
         if (IS_ELECTRON) {
@@ -219,6 +231,13 @@ export const DiaryProvider = ({ children }) => {
             return { ...settings, [key]: value }
         },
     }
+
+    // ─── Theme helpers ────────────────────────────────────────────────────────
+    // 'system' | 'light' | 'dark'  (note: legacy value 'auto' treated as 'system')
+    const currentTheme = settings?.theme === 'auto' ? 'system' : (settings?.theme || 'system')
+    const isDarkMode = currentTheme === 'dark' || (currentTheme === 'system' && systemDark)
+    const changeTheme = (newTheme) => settingsAPI.update('theme', newTheme)
+
 
     // ─── Mistakes API ─────────────────────────────────────────────────────────
     const mistakesAPI = {
@@ -428,6 +447,9 @@ export const DiaryProvider = ({ children }) => {
         // Raw reactive settings snapshot — use for synchronous render-time access
         // (e.g. Pomodoro custom work time, theme changes) instead of calling getAll()
         settingsData: settings,
+        theme: currentTheme,
+        isDarkMode,
+        changeTheme,
 
         entries: {
             getAll: entriesAPI.getAll,
