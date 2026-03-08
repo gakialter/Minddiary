@@ -36,6 +36,7 @@ const VIEW_TITLES = {
 
 function AppContent() {
   const diary = useDiary()
+  const { isDarkMode } = diary
   const [activeView, setActiveView] = useState('editor')
   const [selectedDate, setSelectedDate] = useState(getTodayStr())
   const [entry, setEntry] = useState(null)
@@ -62,23 +63,14 @@ function AppContent() {
     loadEntry(selectedDate)
   }, [selectedDate])
 
-  // Initialize theme on app load
+  // Reactively apply dark mode whenever isDarkMode changes (settings change or system preference change)
   useEffect(() => {
-    diary.settings.getAll().then(settings => {
-      const savedTheme = settings?.theme || 'auto'
-      if (savedTheme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark')
-      } else if (savedTheme === 'light') {
-        document.documentElement.removeAttribute('data-theme')
-      } else {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.setAttribute('data-theme', 'dark')
-        } else {
-          document.documentElement.removeAttribute('data-theme')
-        }
-      }
-    }).catch(err => console.error('Failed to load theme:', err))
-  }, [])
+    if (isDarkMode) {
+      document.documentElement.setAttribute('data-theme', 'dark')
+    } else {
+      document.documentElement.removeAttribute('data-theme')
+    }
+  }, [isDarkMode])
 
   const loadEntry = async (date) => {
     setLoading(true)

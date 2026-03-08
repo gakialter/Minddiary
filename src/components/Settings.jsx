@@ -8,7 +8,6 @@ function Settings() {
   const [aiEndpoint, setAiEndpoint] = useState('')
   const [aiApiKey, setAiApiKey] = useState('')
   const [aiModel, setAiModel] = useState('gpt-3.5-turbo')
-  const [theme, setTheme] = useState('dark')
   const [autoSave, setAutoSave] = useState(true)
   const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
   const [saving, setSaving] = useState(false)
@@ -25,7 +24,6 @@ function Settings() {
       setAiEndpoint(settings.aiEndpoint || '')
       setAiApiKey(settings.aiApiKey || '')
       setAiModel(settings.aiModel || 'gpt-3.5-turbo')
-      setTheme(settings.theme || 'dark')
       setAutoSave(settings.autoSave !== false)
       setPomodoroMinutes(parseInt(settings.pomodoroMinutes) || 25)
     } catch (error) {
@@ -40,7 +38,6 @@ function Settings() {
       await diary.settings.update('aiEndpoint', aiEndpoint)
       await diary.settings.update('aiApiKey', aiApiKey)
       await diary.settings.update('aiModel', aiModel)
-      await diary.settings.update('theme', theme)
       await diary.settings.update('autoSave', autoSave)
       await diary.settings.update('pomodoroMinutes', pomodoroMinutes)
       showToast('设置已保存', 'success')
@@ -222,26 +219,10 @@ function Settings() {
             </div>
             <div>
               <label style={labelStyle}>主题</label>
-              <select className="input w-full" value={theme} onChange={(e) => {
-                const newTheme = e.target.value
-                setTheme(newTheme)
-
-                // Instant preview
-                if (newTheme === 'dark') {
-                  document.documentElement.setAttribute('data-theme', 'dark')
-                } else if (newTheme === 'light') {
-                  document.documentElement.removeAttribute('data-theme')
-                } else {
-                  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                    document.documentElement.setAttribute('data-theme', 'dark')
-                  } else {
-                    document.documentElement.removeAttribute('data-theme')
-                  }
-                }
-              }}>
+              <select className="input w-full" value={diary.theme} onChange={(e) => diary.changeTheme(e.target.value)}>
+                <option value="system">跟随系统</option>
                 <option value="light">亮色模式</option>
                 <option value="dark">暗色模式</option>
-                <option value="auto">跟随系统</option>
               </select>
             </div>
             <div>

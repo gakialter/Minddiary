@@ -13,7 +13,9 @@
     },
     "dependencies": {
         "better-sqlite3": "^11.0.0",
+        "dom-to-image-more": "^3.7.2",
         "dompurify": "^3.3.2",
+        "file-saver": "^2.0.5",
         "marked": "^17.0.4",
         "react": "^18.3.1",
         "react-dom": "^18.3.1"
@@ -58,7 +60,8 @@
         },
         "mac": {
             "target": [
-                "dmg"
+                "dmg",
+                "zip"
             ],
             "icon": "build/icon.png"
         }

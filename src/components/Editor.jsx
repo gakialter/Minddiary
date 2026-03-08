@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { calculateWordCount } from '../utils/helpers'
+import { useDiary } from '../contexts/DiaryContext'
+import domToImage from 'dom-to-image-more'
+import { saveAs } from 'file-saver'
+import ShareCard from './ShareCard'
 
 const defaultTemplate = `## 今日学了什么
 -
@@ -14,12 +18,25 @@ const defaultTemplate = `## 今日学了什么
 `
 
 function Editor({ entry, onSave, loading }) {
+  const diary = useDiary()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState(defaultTemplate)
   const [wordCount, setWordCount] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const [pomodoros, setPomodoros] = useState([])
   const isDirty = useRef(false)
   const entryRef = useRef(null)
+  const shareCardRef = useRef(null)
+
+  // Load daily pomodoro total when the entry date changes
+  useEffect(() => {
+    if (!entry?.date) return
+    diary.pomodoro.getDailyTotal(entry.date).then(totalMinutes => {
+      // getDailyTotal returns minutes; ShareCard expects { duration } in seconds
+      setPomodoros(totalMinutes > 0 ? [{ duration: totalMinutes * 60 }] : [])
+    }).catch(() => setPomodoros([]))
+  }, [entry?.date])
 
   // Sync from entry prop (only when entry changes reference)
   useEffect(() => {
@@ -43,6 +60,19 @@ function Editor({ entry, onSave, loading }) {
     }
     setSaving(false)
   }, [entry, title, content, onSave])
+
+  const handleShare = useCallback(async () => {
+    if (!shareCardRef.current) return
+    setSharing(true)
+    try {
+      const blob = await domToImage.toBlob(shareCardRef.current, { scale: 2 })
+      saveAs(blob, 'MindDiary-Share.png')
+    } catch (err) {
+      console.error('Share image generation failed:', err)
+    } finally {
+      setSharing(false)
+    }
+  }, [])
 
   // Auto-save after 2 seconds of inactivity (only when dirty)
   useEffect(() => {
@@ -132,6 +162,14 @@ function Editor({ entry, onSave, loading }) {
           <div className="text-sm text-muted">
             字数: <span className="font-medium">{wordCount}</span>
           </div>
+          <button
+            className="button button-secondary text-sm"
+            onClick={handleShare}
+            disabled={sharing}
+            title="生成分享图片"
+          >
+            {sharing ? '生成中...' : '🖼️ 分享'}
+          </button>
           <button
             className="button button-secondary text-sm"
             onClick={handleSave}
@@ -227,6 +265,7 @@ function Editor({ entry, onSave, loading }) {
           <span style={{ opacity: 0.7 }}><kbd style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-tertiary)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--border)' }}>⌘/Ctrl + K</kbd></span>
         </div>
       </div>
+      <ShareCard ref={shareCardRef} diary={entry} pomodoros={pomodoros} />
     </div>
   )
 }

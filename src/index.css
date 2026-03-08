@@ -365,7 +365,7 @@ body {
 
 .input {
   padding: var(--space-sm) var(--space);
-  background: #FFFFFF;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
@@ -386,7 +386,7 @@ body {
 }
 
 .card {
-  background: #FFFFFF;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
@@ -824,4 +824,83 @@ textarea.input {
     transform: scale(1.05);
     box-shadow: 0 12px 24px rgba(139, 92, 246, 0.4);
   }
+}
+
+/* ==================== Share Card Export Styling ==================== */
+.share-card-wrapper {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  /* A nice subtle background pattern for the card */
+  background-image: radial-gradient(circle at top right, rgba(139, 92, 246, 0.05), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(10, 132, 255, 0.05), transparent 40%);
+}
+
+.share-card-header {
+  border-bottom: 2px solid var(--border-light);
+  padding-bottom: var(--space-md);
+}
+
+.share-card-header h2 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: var(--space-xs);
+  background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.share-card-date {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.share-card-body {
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.share-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.footer-stats {
+  font-size: 15px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  padding: var(--space-sm) var(--space);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 500;
+}
+
+.footer-stats strong {
+  color: var(--accent);
+  font-size: 18px;
+}
+
+.footer-brand {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  opacity: 0.8;
 }
