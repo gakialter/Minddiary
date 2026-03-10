@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, Notification, dialog, session } = require('electron');
-const { autoUpdater } = require('electron-updater');
+let autoUpdater = null;
+try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
 const fs = require('fs');
 const db = require('./database');
@@ -36,6 +37,7 @@ function createWindow() {
 
 // ==================== Auto Updater ====================
 function initAutoUpdater() {
+    if (!autoUpdater) return;
     autoUpdater.checkForUpdatesAndNotify();
     autoUpdater.on('update-available', () => {
         dialog.showMessageBox({

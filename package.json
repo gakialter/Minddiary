@@ -1,6 +1,6 @@
 {
     "name": "minddiary",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "考研日记桌面应用",
     "author": "MindDiary Team",
     "main": "electron/main.js",
