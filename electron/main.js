@@ -58,13 +58,41 @@ function initAutoUpdater() {
     });
 }
 
+ipcMain.handle('updater:check', async () => {
+    if (!autoUpdater) return { success: false, message: '环境不支持自动更新' };
+    
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { success: true, info: result?.updateInfo };
+    } catch (e) {
+        console.error('Update check failed:', e);
+        return { success: false, message: '检查更新失败: ' + e.message };
+    }
+});
+
 app.whenReady().then(() => {
     // Add Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const isDev = !app.isPackaged;
+        // In development, Vite injects inline scripts; allow 'unsafe-inline'
+        // only for script-src in dev mode.  In production, lock down everything.
+        const scriptSrc = isDev
+            ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+            : "script-src 'self'";
+        const csp = [
+            "default-src 'self'",
+            scriptSrc,
+            "style-src 'self' 'unsafe-inline'",   // CSS-in-JS components need this
+            "img-src 'self' data: file: blob:",
+            "connect-src 'self' https://*",
+            "font-src 'self' data:",
+            "object-src 'none'",
+            "base-uri 'self'",
+        ].join('; ');
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
-                'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' data:; img-src 'self' data: file: blob:; connect-src 'self' https://*;"]
+                'Content-Security-Policy': [csp]
             }
         });
     });
@@ -96,8 +124,15 @@ ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized());
 // ==================== Entries ====================
 ipcMain.handle('entries:create', (_, entry) => db.createEntry(entry));
 ipcMain.handle('entries:update', (_, id, entry) => db.updateEntry(id, entry));
-ipcMain.handle('entries:delete', (_, id) => db.deleteEntry(id));
+ipcMain.handle('entries:delete', (_, id) => {
+    // Phase 11.1 fix: physically remove attachment files BEFORE the SQL DELETE,
+    // because ON DELETE CASCADE will kill the attachment *records* but NOT the disk files.
+    fileManager.deleteAttachmentsForEntry(id);
+    return db.deleteEntry(id);
+});
+
 ipcMain.handle('entries:getByDate', (_, date) => db.getEntryByDate(date));
+ipcMain.handle('entries:getById', (_, id) => db.getEntryById(id));
 ipcMain.handle('entries:getAll', (_, filters) => db.getAllEntries(filters));
 ipcMain.handle('entries:search', (_, query) => db.searchEntries(query));
 ipcMain.handle('entries:getDatesWithEntries', (_, yearMonth) => db.getDatesWithEntries(yearMonth));
@@ -195,4 +230,76 @@ ipcMain.handle('export:toPDF', async (_, { htmlContent, savePath }) => {
     win.close();
     await fs.promises.writeFile(savePath, pdfBuffer);
     await fs.promises.unlink(tmpPath).catch(() => { }); // best-effort cleanup
+});
+
+// ==================== Auto Backup ====================
+
+const runAutoBackup = async () => {
+    try {
+        const autoBackup = db.getSetting('autoBackup');
+        const backupPath = db.getSetting('backupPath');
+        if (String(autoBackup) !== 'true' || !backupPath) return;
+
+        if (!fs.existsSync(backupPath)) {
+            fs.mkdirSync(backupPath, { recursive: true });
+        }
+
+        const entries = db.getAllEntries({ includeContent: true });
+        const tags = db.getAllTags();
+        const subjects = db.getAllSubjects();
+        const mistakes = db.getAllMistakes({});
+        const pomodoro = db.getPomodoroRange('1970-01-01', '2099-12-31');
+        const allSettings = db.getAllSettings();
+
+        const payload = {
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            data: {
+                entries,
+                tags,
+                subjects,
+                mistakes,
+                pomodoro,
+                settings: allSettings || {},
+            }
+        };
+
+        const today = new Date().toISOString().split('T')[0];
+        const filename = `MindDiary_AutoBackup_${today}.json`;
+        const fullPath = path.join(backupPath, filename);
+
+        await fs.promises.writeFile(fullPath, JSON.stringify(payload, null, 2), 'utf8');
+
+        const files = await fs.promises.readdir(backupPath);
+        const backupFiles = [];
+        for (const file of files) {
+            if (file.startsWith('MindDiary_AutoBackup_') && file.endsWith('.json')) {
+                const stat = await fs.promises.stat(path.join(backupPath, file));
+                backupFiles.push({ name: file, time: stat.mtimeMs });
+            }
+        }
+
+        backupFiles.sort((a, b) => b.time - a.time);
+
+        if (backupFiles.length > 7) {
+            const toDelete = backupFiles.slice(7);
+            for (const file of toDelete) {
+                await fs.promises.unlink(path.join(backupPath, file.name)).catch(() => {});
+            }
+        }
+    } catch (e) {
+        console.error('Auto backup failed:', e);
+    }
+};
+
+setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
+setTimeout(runAutoBackup, 10000);
+
+ipcMain.handle('settings:selectBackupFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: '选择自动备份目录',
+        buttonLabel: '选择',
+    });
+    return result.canceled ? null : result.filePaths[0];
 });

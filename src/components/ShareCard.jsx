@@ -6,9 +6,20 @@ const ShareCard = forwardRef(({ diary, pomodoros = [] }, ref) => {
   // 计算今天总专注时长 (分钟)
   const totalFocusMinutes = pomodoros.reduce((total, p) => total + (p.duration / 60), 0);
 
-  // 安全渲染 Markdown
+  // 安全渲染 Markdown（Phase 11.3：防御性 try-catch，阻止 marked() 边缘异常引发白屏雪崩）
   const renderMarkdown = (content) => {
-    return { __html: DOMPurify.sanitize(marked(content || '今天没有记录任何感悟。')) };
+    try {
+      const raw = content || '今天没有记录任何感悟。';
+      return { __html: DOMPurify.sanitize(marked(raw)) };
+    } catch (err) {
+      console.error('[ShareCard] renderMarkdown failed, using plain-text fallback:', err);
+      // Escape HTML to neutralise any injection, then display as preformatted plain text
+      const escaped = (content || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return { __html: `<pre style="white-space:pre-wrap;word-break:break-word">${escaped}</pre>` };
+    }
   };
 
   return (
