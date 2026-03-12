@@ -4,7 +4,14 @@ const { app } = require('electron');
 
 let db;
 
+let customDbPath = null;
+
+function setCustomDbPath(p) {
+    customDbPath = p;
+}
+
 function getDbPath() {
+    if (customDbPath) return customDbPath;
     const userDataPath = app.getPath('userData');
     return path.join(userDataPath, 'minddiary.db');
 }
@@ -125,7 +132,12 @@ function getEntryByDate(date) {
 }
 
 function getAllEntries(filters = {}) {
-    let query = 'SELECT * FROM entries';
+    // Phase 11.2: By default, strip heavy `content` field from list queries.
+    // Pass { includeContent: true } when full text is needed (e.g. export/backup).
+    const columns = filters.includeContent
+        ? '*'
+        : 'id, date, title, mood, word_count, created_at, updated_at';
+    let query = `SELECT ${columns} FROM entries`;
     const conditions = [];
     const params = [];
 
@@ -161,8 +173,9 @@ function getAllEntries(filters = {}) {
 
 function searchEntries(query) {
     const searchTerm = `%${query}%`;
+    // Return metadata + a content snippet indicator; full content loaded via getEntryById
     return db.prepare(
-        'SELECT * FROM entries WHERE content LIKE ? OR title LIKE ? ORDER BY date DESC'
+        'SELECT id, date, title, mood, word_count, created_at, updated_at, SUBSTR(content, 1, 200) AS content_snippet FROM entries WHERE content LIKE ? OR title LIKE ? ORDER BY date DESC'
     ).all(searchTerm, searchTerm);
 }
 
@@ -429,4 +442,5 @@ module.exports = {
     addPomodoroSession, getPomodoroStats, getDailyStudyMinutes,
     getPomodoroRange, getEntryDatesRange, getStudyStreak,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
+    setCustomDbPath, getDb: () => db
 };

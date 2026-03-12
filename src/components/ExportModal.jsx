@@ -42,7 +42,7 @@ export default function ExportModal({ onClose }) {
         try {
             // 1. Fetch all data needed
             const [entries, subjects, mistakes] = await Promise.all([
-                entriesAPI.getAll({}),
+                entriesAPI.getAll({ includeContent: true }),
                 subjectsAPI.getAll(),
                 mistakesAPI.getAll({}),
             ])

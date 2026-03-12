@@ -212,7 +212,7 @@ function SearchPanel({ onSelectEntry }) {
                   marginBottom: 4, overflow: 'hidden',
                   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical'
                 }}>
-                  {entry.content?.substring(0, 200)}
+                  {entry.content_snippet || entry.content?.substring(0, 200)}
                 </div>
                 <div className="flex items-center gap-sm">
                   {entry.mood && <MoodIcon mood={entry.mood} size={20} />}

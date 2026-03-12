@@ -16,6 +16,7 @@ const mockApi = {
         update: async (id, entry) => ({ id, ...entry, word_count: (entry.content || '').replace(/\s/g, '').length }),
         delete: noop,
         getByDate: async (date) => mockEntries[date] || null,
+        getById: async (id) => null,
         getAll: noopArr,
         search: noopArr,
         getDatesWithEntries: noopArr,

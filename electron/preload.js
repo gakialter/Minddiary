@@ -9,12 +9,18 @@ contextBridge.exposeInMainWorld('api', {
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     },
 
+    // Updater
+    updater: {
+        check: () => ipcRenderer.invoke('updater:check'),
+    },
+
     // Entries
     entries: {
         create: (entry) => ipcRenderer.invoke('entries:create', entry),
         update: (id, entry) => ipcRenderer.invoke('entries:update', id, entry),
         delete: (id) => ipcRenderer.invoke('entries:delete', id),
         getByDate: (date) => ipcRenderer.invoke('entries:getByDate', date),
+        getById: (id) => ipcRenderer.invoke('entries:getById', id),
         getAll: (filters) => ipcRenderer.invoke('entries:getAll', filters),
         search: (query) => ipcRenderer.invoke('entries:search', query),
         getDatesWithEntries: (yearMonth) => ipcRenderer.invoke('entries:getDatesWithEntries', yearMonth),
@@ -35,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
         get: (key) => ipcRenderer.invoke('settings:get', key),
         set: (key, value) => ipcRenderer.invoke('settings:set', key, value),
         getAll: () => ipcRenderer.invoke('settings:getAll'),
+        selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
     },
 
     // Attachments

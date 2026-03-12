@@ -43,8 +43,41 @@ function deleteAttachment(id) {
     return { success: true };
 }
 
+/**
+ * Physically delete every attachment file belonging to an entry.
+ * Must be called BEFORE db.deleteEntry() so the attachment records
+ * are still queryable. Errors on individual files are logged but do
+ * NOT abort the delete (e.g. file already manually removed).
+ *
+ * @param {number} entryId
+ * @returns {{ deleted: number, errors: number }}
+ */
+function deleteAttachmentsForEntry(entryId) {
+    const attachments = db.getAttachmentsByEntry(entryId);
+    let deleted = 0;
+    let errors = 0;
+
+    for (const attachment of attachments) {
+        try {
+            const filepath = path.join(attachmentsDir, attachment.filepath);
+            if (fs.existsSync(filepath)) {
+                fs.unlinkSync(filepath);
+            }
+            deleted++;
+        } catch (err) {
+            console.error(
+                `[fileManager] Failed to delete physical file for attachment id=${attachment.id}:`,
+                err.message
+            );
+            errors++;
+        }
+    }
+
+    return { deleted, errors };
+}
+
 function getAttachmentPath(filepath) {
     return path.join(attachmentsDir, filepath);
 }
 
-module.exports = { initialize, saveAttachment, deleteAttachment, getAttachmentPath };
+module.exports = { initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath };

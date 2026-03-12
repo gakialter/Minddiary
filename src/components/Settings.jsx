@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 
@@ -10,7 +10,12 @@ function Settings() {
   const [aiModel, setAiModel] = useState('gpt-3.5-turbo')
   const [autoSave, setAutoSave] = useState(true)
   const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
+  const [autoBackup, setAutoBackup] = useState(false)
+  const [backupPath, setBackupPath] = useState('')
   const [saving, setSaving] = useState(false)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const saveTimerRef = useRef(null)
 
   useEffect(() => {
     loadSettings()
@@ -26,10 +31,23 @@ function Settings() {
       setAiModel(settings.aiModel || 'gpt-3.5-turbo')
       setAutoSave(settings.autoSave !== false)
       setPomodoroMinutes(parseInt(settings.pomodoroMinutes) || 25)
+      setAutoBackup(settings.autoBackup === 'true' || settings.autoBackup === true)
+      setBackupPath(settings.backupPath || '')
+      setSettingsLoaded(true)  // mark as loaded before triggering auto-save
     } catch (error) {
       console.error('Failed to load settings:', error)
     }
   }
+
+  // Auto-save: debounced 500ms after any setting change (only after initial load)
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings()
+    }, 500)
+    return () => clearTimeout(saveTimerRef.current)
+  }, [examDate, aiEndpoint, aiApiKey, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -40,6 +58,8 @@ function Settings() {
       await diary.settings.update('aiModel', aiModel)
       await diary.settings.update('autoSave', autoSave)
       await diary.settings.update('pomodoroMinutes', pomodoroMinutes)
+      await diary.settings.update('autoBackup', autoBackup)
+      await diary.settings.update('backupPath', backupPath)
       showToast('设置已保存', 'success')
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -54,19 +74,21 @@ function Settings() {
       showToast('正在准备数据...', 'info')
       setSaving(true)
 
-      const [entries, tags, subjects, mistakes, pomodoro] = await Promise.all([
-        diary.entries.getAll({}),
+      const [entries, tags, subjects, mistakes, pomodoro, allSettings] = await Promise.all([
+        diary.entries.getAll({ includeContent: true }),
         diary.tags.getAll(),
         diary.subjects.getAll(),
         diary.mistakes.getAll({}),
         diary.pomodoro.getRange('1970-01-01', '2099-12-31'),
-      ]).catch(() => [[], [], [], [], []])
+        diary.settings.getAll(),
+      ]).catch(() => [[], [], [], [], [], {}])
 
       const backup = {
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         data: {
-          entries, tags, subjects, mistakes, pomodoro
+          entries, tags, subjects, mistakes, pomodoro,
+          settings: allSettings || {},
         }
       }
 
@@ -184,6 +206,30 @@ function Settings() {
     input.click()
   }
 
+  const checkForUpdates = async () => {
+    if (!window.api?.updater?.check) {
+      showToast('此功能仅在桌面客户端可用', 'error')
+      return
+    }
+    
+    setCheckingUpdate(true)
+    showToast('正在检查更新...', 'info')
+    try {
+      const res = await window.api.updater.check()
+      if (res.success) {
+        // Electron auto-updater events will handle the actual notification
+        // but we can show that the check has completed
+        showToast('检查完毕，若有新版本将在后台下载', 'success', 3000)
+      } else {
+        showToast(res.message || '环境不支持自动更新', 'error')
+      }
+    } catch (e) {
+      showToast('更新检查失败，请重试', 'error')
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
   const sectionStyle = {
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
@@ -286,10 +332,42 @@ function Settings() {
           </div>
         </div>
 
-        {/* Data management */}
+        {/* Data management & Backup */}
         <div style={sectionStyle}>
-          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>💾 数据管理</h3>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>💾 数据管理与备份</h3>
           <div style={fieldGroupStyle}>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer', marginBottom: 'var(--space-sm)' }}>
+                <input
+                  type="checkbox" checked={autoBackup}
+                  onChange={(e) => setAutoBackup(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                <span className="text-sm font-semibold">开启静默自动备份</span>
+              </label>
+              <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-sm)' }}>
+                开启后，每24小时及启动时自动在指定目录备份 JSON 文件。
+              </div>
+
+              <div style={{ opacity: autoBackup ? 1 : 0.5, pointerEvents: autoBackup ? 'auto' : 'none', transition: 'opacity 0.2s', marginBottom: 'var(--space-md)' }}>
+                <label style={labelStyle}>自动备份目录</label>
+                <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+                  <input
+                    type="text" className="input" style={{ flex: 1, fontSize: 12 }}
+                    placeholder="选择文件夹..."
+                    value={backupPath}
+                    readOnly
+                  />
+                  <button className="button button-secondary" style={{ padding: '0 var(--space-md)' }} onClick={async () => {
+                    if (!window.api?.settings?.selectBackupFolder) return showToast('此功能仅在客户端可用', 'error')
+                    const path = await window.api.settings.selectBackupFolder()
+                    if (path) setBackupPath(path)
+                  }}>选择</button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: 'var(--border)', margin: 'var(--space-sm) 0' }} />
             <div>
               <label style={labelStyle}>导出数据</label>
               <button className="button button-secondary w-full" onClick={exportData}>
@@ -320,6 +398,15 @@ function Settings() {
             </div>
             <div className="text-sm">
               <span className="text-muted">隐私：</span> <span>数据完全本地存储，无网络请求</span>
+            </div>
+            <div style={{ marginTop: 'var(--space-md)' }}>
+              <button 
+                className="button button-secondary w-full" 
+                onClick={checkForUpdates}
+                disabled={checkingUpdate}
+              >
+                {checkingUpdate ? '正在检查...' : '🔄 检查更新'}
+              </button>
             </div>
             <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
               MindDiary · 专为考研学生设计的日记应用
