@@ -1,6 +1,13 @@
-import { createContext, useContext, useState, useEffect } from 'react'
-import { mockEntries, mockTags, mockSettings, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
-import { IS_ELECTRON } from '../utils/apiAdapter'
+/**
+ * DiaryContext.jsx — Backward-compatible aggregation layer.
+ *
+ * Settings and data concerns have been split into SettingsContext and DataContext
+ * respectively.  This file combines them into a single `useDiary()` hook so that
+ * existing consumer components need ZERO import changes.
+ */
+import { createContext, useContext } from 'react'
+import { SettingsProvider, useSettings } from './SettingsContext'
+import { DataProvider, useData } from './DataContext'
 
 const DiaryContext = createContext()
 
@@ -10,485 +17,37 @@ export const useDiary = () => {
     return context
 }
 
-export const DiaryProvider = ({ children }) => {
-    const [entries, setEntries] = useState([])
-    const [tags, setTags] = useState([])
-    const [settings, setSettings] = useState(mockSettings)
-    const [mistakes, setMistakes] = useState([])
-    const [subjects, setSubjects] = useState([])
-    const [initialized, setInitialized] = useState(false)
-
-    // ─── System dark mode detection ───────────────────────────────────────────
-    const [systemDark, setSystemDark] = useState(
-        () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-    )
-    useEffect(() => {
-        const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
-        if (!mq) return
-        const handler = (e) => setSystemDark(e.matches)
-        mq.addEventListener('change', handler)
-        return () => mq.removeEventListener('change', handler)
-    }, [])
-
-    // ─── Initialization ───────────────────────────────────────────────────────
-    useEffect(() => {
-        if (IS_ELECTRON) {
-            // Electron: SQLite is the single source of truth
-            Promise.all([
-                window.api.entries.getAll({}),
-                window.api.tags.getAll(),
-                window.api.settings.getAll(),
-                window.api.mistakes.getAll({}),
-                window.api.subjects.getAll(),
-            ]).then(([e, t, s, m, sub]) => {
-                setEntries(e || [])
-                setTags(t || [])
-                if (s && Object.keys(s).length) setSettings(s)
-                setMistakes(m || [])
-                setSubjects(sub || [])
-            }).catch(err => {
-                console.error('[DiaryContext] Electron init failed:', err)
-            }).finally(() => setInitialized(true))
-        } else {
-            // Browser: localStorage with mock data fallback
-            const load = (key, fallback, setter) => {
-                const raw = localStorage.getItem(key)
-                const val = raw ? JSON.parse(raw) : fallback
-                setter(val)
-                if (!raw) localStorage.setItem(key, JSON.stringify(fallback))
-            }
-            load(STORAGE_KEYS.ENTRIES, mockEntries, setEntries)
-            load(STORAGE_KEYS.TAGS, mockTags, setTags)
-            load(STORAGE_KEYS.SETTINGS, mockSettings, setSettings)
-            load(STORAGE_KEYS.MISTAKES, mockMistakes, setMistakes)
-            load(STORAGE_KEYS.SUBJECTS, mockSubjects, setSubjects)
-            setInitialized(true)
-        }
-    }, [])
-
-    // ─── Browser-only localStorage persistence ────────────────────────────────
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries))
-    }, [entries, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(tags))
-    }, [tags, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings))
-    }, [settings, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify(mistakes))
-    }, [mistakes, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(subjects))
-    }, [subjects, initialized])
-
-    // ─── Entries API ──────────────────────────────────────────────────────────
-    const entriesAPI = {
-        getAll: async (filters = {}) => {
-            if (IS_ELECTRON) return window.api.entries.getAll(filters)
-            let result = [...entries]
-            if (filters.mood) result = result.filter(e => e.mood === filters.mood)
-            if (filters.tagId) result = result.filter(e => e.tags && e.tags.includes(Number(filters.tagId)))
-            if (filters.startDate) result = result.filter(e => e.date >= filters.startDate)
-            if (filters.endDate) result = result.filter(e => e.date <= filters.endDate)
-            if (filters.limit) result = result.slice(0, filters.limit)
-            return result.sort((a, b) => b.date.localeCompare(a.date))
-        },
-
-        getByDate: async (date) => {
-            if (IS_ELECTRON) return window.api.entries.getByDate(date)
-            return entries.find(e => e.date === date) || null
-        },
-
-        getDatesWithEntries: async (yearMonth) => {
-            if (IS_ELECTRON) return window.api.entries.getDatesWithEntries(yearMonth)
-            return entries
-                .filter(e => e.date.startsWith(yearMonth))
-                .map(e => ({ date: e.date, mood: e.mood }))
-        },
-
-        search: async (query) => {
-            if (IS_ELECTRON) return window.api.entries.search(query)
-            const lowerQuery = query.toLowerCase()
-            return entries
-                .filter(e => e.title?.toLowerCase().includes(lowerQuery) || e.content?.toLowerCase().includes(lowerQuery))
-                .sort((a, b) => b.date.localeCompare(a.date))
-        },
-
-        create: async (data) => {
-            if (IS_ELECTRON) {
-                const newEntry = await window.api.entries.create(data)
-                setEntries(prev => [newEntry, ...prev])
-                return newEntry
-            }
-            const newEntry = {
-                ...data,
-                id: Math.max(0, ...entries.map(e => e.id)) + 1,
-                word_count: data.content ? data.content.length : 0,
-                images: data.images || [],
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            }
-            setEntries(prev => [...prev, newEntry])
-            return newEntry
-        },
-
-        update: async (id, data) => {
-            if (IS_ELECTRON) {
-                const updated = await window.api.entries.update(id, data)
-                setEntries(prev => prev.map(e => e.id === id ? updated : e))
-                return updated
-            }
-            const updatedEntry = {
-                ...data, id,
-                word_count: data.content ? data.content.length : 0,
-                updated_at: new Date().toISOString(),
-            }
-            setEntries(prev => prev.map(e => e.id === id ? { ...e, ...updatedEntry } : e))
-            return updatedEntry
-        },
-
-        delete: async (id) => {
-            if (IS_ELECTRON) {
-                await window.api.entries.delete(id)
-                setEntries(prev => prev.filter(e => e.id !== id))
-                return true
-            }
-            setEntries(prev => prev.filter(e => e.id !== id))
-            return true
-        },
-    }
-
-    // ─── Tags API ─────────────────────────────────────────────────────────────
-    const tagsAPI = {
-        getAll: async () => {
-            if (IS_ELECTRON) return window.api.tags.getAll()
-            return tags.sort((a, b) => a.name.localeCompare(b.name))
-        },
-
-        create: async (data) => {
-            if (IS_ELECTRON) {
-                const newTag = await window.api.tags.create(data)
-                setTags(prev => [...prev, newTag])
-                return newTag
-            }
-            const newTag = { ...data, id: Math.max(0, ...tags.map(t => t.id)) + 1 }
-            setTags(prev => [...prev, newTag])
-            return newTag
-        },
-
-        update: async (id, data) => {
-            if (IS_ELECTRON) {
-                await window.api.tags.update(id, data)
-                setTags(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
-                return data
-            }
-            setTags(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
-            return data
-        },
-
-        delete: async (id) => {
-            if (IS_ELECTRON) {
-                await window.api.tags.delete(id)
-                setTags(prev => prev.filter(t => t.id !== id))
-                return true
-            }
-            setTags(prev => prev.filter(t => t.id !== id))
-            setEntries(prev => prev.map(e => ({ ...e, tags: e.tags ? e.tags.filter(tid => tid !== id) : [] })))
-            return true
-        },
-    }
-
-    // ─── Settings API ─────────────────────────────────────────────────────────
-    const settingsAPI = {
-        getAll: async () => {
-            if (IS_ELECTRON) {
-                const s = await window.api.settings.getAll()
-                // Sync to local React state so settingsData stays reactive
-                if (s) setSettings(s)
-                return s
-            }
-            return settings
-        },
-
-        update: async (key, value) => {
-            if (IS_ELECTRON) {
-                await window.api.settings.set(key, String(value))
-                setSettings(prev => ({ ...prev, [key]: value }))
-                return true
-            }
-            setSettings(prev => ({ ...prev, [key]: value }))
-            return { ...settings, [key]: value }
-        },
-    }
-
-    // ─── Theme helpers ────────────────────────────────────────────────────────
-    // 'system' | 'light' | 'dark'  (note: legacy value 'auto' treated as 'system')
-    const currentTheme = settings?.theme === 'auto' ? 'system' : (settings?.theme || 'system')
-    const isDarkMode = currentTheme === 'dark' || (currentTheme === 'system' && systemDark)
-    const changeTheme = (newTheme) => settingsAPI.update('theme', newTheme)
-
-
-    // ─── Mistakes API ─────────────────────────────────────────────────────────
-    const mistakesAPI = {
-        getAll: async (filters = {}) => {
-            if (IS_ELECTRON) return window.api.mistakes.getAll(filters)
-            let result = mistakes.map(m => {
-                const subject = subjects.find(s => s.id === m.subject_id)
-                return { ...m, subject_name: subject?.name, subject_color: subject?.color }
-            })
-            if (filters.subject_id) result = result.filter(m => m.subject_id === filters.subject_id)
-            if (filters.mastered !== undefined) result = result.filter(m => m.mastered === filters.mastered)
-            if (filters.search) {
-                const query = filters.search.toLowerCase()
-                result = result.filter(m =>
-                    m.question?.toLowerCase().includes(query) ||
-                    m.answer?.toLowerCase().includes(query) ||
-                    m.notes?.toLowerCase().includes(query)
-                )
-            }
-            return result.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-        },
-
-        create: async (data) => {
-            if (IS_ELECTRON) {
-                const { id } = await window.api.mistakes.create(data)
-                const newMistake = { ...data, id, mastered: 0, created_at: new Date().toISOString() }
-                setMistakes(prev => [newMistake, ...prev])
-                return newMistake
-            }
-            const newMistake = {
-                ...data,
-                id: Math.max(0, ...mistakes.map(m => m.id)) + 1,
-                mastered: false,
-                created_at: new Date().toISOString(),
-            }
-            setMistakes(prev => [...prev, newMistake])
-            return newMistake
-        },
-
-        update: async (id, data) => {
-            if (IS_ELECTRON) {
-                await window.api.mistakes.update(id, data)
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m))
-                return data
-            }
-            setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m))
-            return data
-        },
-
-        delete: async (id) => {
-            if (IS_ELECTRON) {
-                await window.api.mistakes.delete(id)
-                setMistakes(prev => prev.filter(m => m.id !== id))
-                return true
-            }
-            setMistakes(prev => prev.filter(m => m.id !== id))
-            return true
-        },
-
-        toggleMastered: async (id) => {
-            if (IS_ELECTRON) {
-                const { mastered } = await window.api.mistakes.toggleMastered(id)
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered } : m))
-                return { mastered }
-            }
-            setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m))
-            return true
-        },
-    }
-
-    // ─── Subjects API ─────────────────────────────────────────────────────────
-    const subjectsAPI = {
-        getAll: async () => {
-            if (IS_ELECTRON) return window.api.subjects.getAll()
-            return subjects.sort((a, b) => (a.order || 0) - (b.order || 0))
-        },
-
-        create: async (data) => {
-            if (IS_ELECTRON) {
-                const newSubject = await window.api.subjects.create(data)
-                setSubjects(prev => [...prev, newSubject])
-                return newSubject
-            }
-            const newSubject = {
-                ...data,
-                id: Math.max(0, ...subjects.map(s => s.id)) + 1,
-                order: subjects.length + 1,
-            }
-            setSubjects(prev => [...prev, newSubject])
-            return newSubject
-        },
-
-        update: async (id, data) => {
-            if (IS_ELECTRON) {
-                await window.api.subjects.update(id, data)
-                setSubjects(prev => prev.map(s => s.id === id ? { ...s, ...data } : s))
-                return data
-            }
-            setSubjects(prev => prev.map(s => s.id === id ? { ...s, ...data } : s))
-            return data
-        },
-
-        delete: async (id) => {
-            if (IS_ELECTRON) {
-                await window.api.subjects.delete(id)
-                setSubjects(prev => prev.filter(s => s.id !== id))
-                return true
-            }
-            setSubjects(prev => prev.filter(s => s.id !== id))
-            return true
-        },
-    }
-
-    // ─── Pomodoro API ─────────────────────────────────────────────────────────
-    const pomodoroAPI = {
-        getStats: async (date) => {
-            if (IS_ELECTRON) return window.api.pomodoro.getStats(date)
-            return [] // Mock browser
-        },
-        getRange: async (start, end) => {
-            if (IS_ELECTRON) return window.api.pomodoro.getRange(start, end)
-            return [] // Mock browser
-        },
-        addSession: async (session) => {
-            if (IS_ELECTRON) return window.api.pomodoro.addSession(session)
-            return true
-        },
-        getDailyTotal: async (date) => {
-            if (IS_ELECTRON) return window.api.pomodoro.getDailyTotal(date)
-            return 0
-        }
-    }
-
-    // ─── Dashboard API ────────────────────────────────────────────────────────
-    const dashboardAPI = {
-        streak: async () => {
-            if (IS_ELECTRON) return window.api.dashboard.streak()
-            return 0 // Mock browser
-        },
-        entryDatesRange: async (start, end) => {
-            if (IS_ELECTRON) return window.api.dashboard.entryDatesRange(start, end)
-            return [] // Mock browser
-        }
-    }
-
-    // ─── Export API ───────────────────────────────────────────────────────────
-    const exportAPI = {
-        showSaveDialog: async (options) => {
-            if (IS_ELECTRON) return window.api.export.showSaveDialog(options)
-            // Browser fake path
-            return options.defaultPath || 'minddiary_export.txt'
-        },
-        writeFile: async (path, content) => {
-            if (IS_ELECTRON) return window.api.export.writeFile(path, content)
-            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = path
-            a.click()
-            URL.revokeObjectURL(url)
-            return true
-        },
-        toPDF: async (html, path) => {
-            if (IS_ELECTRON) return window.api.export.toPDF(html, path)
-            window.print() // Fallback
-            return true
-        }
-    }
-
-    // ─── Notification API ─────────────────────────────────────────────────────
-    const notificationAPI = {
-        show: async (title, body) => {
-            if (IS_ELECTRON) return window.api.notification.show(title, body)
-            if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(title, { body, icon: '/favicon.ico' })
-            }
-        }
-    }
-
-    // ─── AI API ───────────────────────────────────────────────────────────────
-    const aiAPI = {
-        chat: async (messages, settings) => {
-            if (IS_ELECTRON) return window.api.ai.chat(messages, settings)
-            return { content: '浏览器端目前不支持直接调用 AI 接口哦，请使用 Electron 客户端体验完整功能。' }
-        }
-    }
-
-    // ─── Attachments API ──────────────────────────────────────────────────────
-    const attachmentsAPI = {
-        getByEntry: async (entryId) => {
-            if (IS_ELECTRON) return window.api.attachments.getByEntry(entryId)
-            return [] // Mock
-        },
-        save: async (entryId, data) => {
-            if (IS_ELECTRON) return window.api.attachments.save(entryId, data)
-            return true // Mock
-        },
-        delete: async (id) => {
-            if (IS_ELECTRON) return window.api.attachments.delete(id)
-            return true // Mock
-        }
-    }
+/**
+ * Inner bridge — merges useSettings() + useData() into a single value object
+ * that is identical in shape to the original DiaryContext.
+ */
+function DiaryBridge({ children }) {
+    const settingsCtx = useSettings()
+    const dataCtx = useData()
 
     const value = {
-        isReady: initialized,
-        // Raw reactive settings snapshot — use for synchronous render-time access
-        // (e.g. Pomodoro custom work time, theme changes) instead of calling getAll()
-        settingsData: settings,
-        theme: currentTheme,
-        isDarkMode,
-        changeTheme,
+        // Ready when BOTH sub-contexts are ready
+        isReady: settingsCtx.settingsReady && dataCtx.dataReady,
+        initErrors: dataCtx.initErrors,
 
-        entries: {
-            getAll: entriesAPI.getAll,
-            getByDate: entriesAPI.getByDate,
-            getDatesWithEntries: entriesAPI.getDatesWithEntries,
-            search: entriesAPI.search,
-            create: entriesAPI.create,
-            update: entriesAPI.update,
-            delete: entriesAPI.delete,
-        },
-        tags: {
-            getAll: tagsAPI.getAll,
-            create: tagsAPI.create,
-            update: tagsAPI.update,
-            delete: tagsAPI.delete,
-        },
-        settings: {
-            getAll: settingsAPI.getAll,
-            update: settingsAPI.update,
-        },
-        mistakes: {
-            getAll: mistakesAPI.getAll,
-            create: mistakesAPI.create,
-            update: mistakesAPI.update,
-            delete: mistakesAPI.delete,
-            toggleMastered: mistakesAPI.toggleMastered,
-        },
-        subjects: {
-            getAll: subjectsAPI.getAll,
-            create: subjectsAPI.create,
-            update: subjectsAPI.update,
-            delete: subjectsAPI.delete,
-        },
-        pomodoro: pomodoroAPI,
-        dashboard: dashboardAPI,
-        exportUtil: exportAPI,
-        notification: notificationAPI,
-        ai: aiAPI,
-        attachments: attachmentsAPI
+        // Settings surface
+        settingsData: settingsCtx.settingsData,
+        theme: settingsCtx.theme,
+        isDarkMode: settingsCtx.isDarkMode,
+        changeTheme: settingsCtx.changeTheme,
+        settings: settingsCtx.settings,
+
+        // Data surface
+        entries: dataCtx.entries,
+        tags: dataCtx.tags,
+        mistakes: dataCtx.mistakes,
+        subjects: dataCtx.subjects,
+        pomodoro: dataCtx.pomodoro,
+        dashboard: dataCtx.dashboard,
+        exportUtil: dataCtx.exportUtil,
+        notification: dataCtx.notification,
+        ai: dataCtx.ai,
+        attachments: dataCtx.attachments,
     }
 
     return (
@@ -497,3 +56,17 @@ export const DiaryProvider = ({ children }) => {
         </DiaryContext.Provider>
     )
 }
+
+/**
+ * DiaryProvider — drop-in replacement with identical API.
+ * Internally wraps SettingsProvider → DataProvider → DiaryBridge.
+ */
+export const DiaryProvider = ({ children }) => (
+    <SettingsProvider>
+        <DataProvider>
+            <DiaryBridge>
+                {children}
+            </DiaryBridge>
+        </DataProvider>
+    </SettingsProvider>
+)

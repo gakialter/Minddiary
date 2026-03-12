@@ -904,3 +904,21 @@ textarea.input {
   letter-spacing: 0.5px;
   opacity: 0.8;
 }
+
+/* ─── Global focus-visible styles (keyboard accessibility) ────────────── */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+}
+
+/* Remove default outline for mouse clicks */
+button:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}

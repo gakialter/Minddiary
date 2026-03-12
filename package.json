@@ -29,6 +29,7 @@
         "concurrently": "^8.2.2",
         "electron": "^28.3.3",
         "electron-builder": "^24.13.3",
+        "playwright": "^1.58.2",
         "png-to-ico": "^3.0.1",
         "vite": "^5.4.0",
         "vitest": "^4.0.18",

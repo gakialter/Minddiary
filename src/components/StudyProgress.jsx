@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
+import { showToast } from './Toast'
 
 export default function StudyProgress() {
     const { subjects: subjectsAPI, pomodoro: pomodoroAPI, mistakes: mistakesAPI } = useDiary()
@@ -106,7 +107,11 @@ export default function StudyProgress() {
             setShowForm(false)
             setEditingId(null)
             loadAllData()
-        } catch (e) { console.error(e) }
+            showToast(editingId ? '科目已更新' : '已添加新科目', 'success')
+        } catch (e) {
+            console.error(e)
+            showToast('保存失败', 'error')
+        }
     }
 
     const handleEdit = (subject) => {
@@ -120,7 +125,11 @@ export default function StudyProgress() {
         try {
             await subjectsAPI.delete(id)
             loadAllData()
-        } catch (e) { console.error(e) }
+            showToast('科目已删除', 'success')
+        } catch (e) {
+            console.error(e)
+            showToast('删除失败', 'error')
+        }
     }
 
     const updateProgress = async (subject, delta) => {

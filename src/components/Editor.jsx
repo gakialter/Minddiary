@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { calculateWordCount } from '../utils/helpers'
 import { useDiary } from '../contexts/DiaryContext'
-import domToImage from 'dom-to-image-more'
 import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
+import { showToast } from './Toast'
+
+// dom-to-image-more is only needed for share card export; lazy-load it on demand
+const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
 
 const defaultTemplate = `## 今日学了什么
 -
@@ -49,14 +52,16 @@ function Editor({ entry, onSave, loading }) {
     }
   }, [entry])
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (isManual = false) => {
     if (!entry) return
     setSaving(true)
     isDirty.current = false
     try {
       await onSave({ title, content })
+      if (isManual) showToast('保存成功', 'success')
     } catch (err) {
       console.error('Save failed:', err)
+      showToast('保存失败', 'error')
     }
     setSaving(false)
   }, [entry, title, content, onSave])
@@ -65,6 +70,7 @@ function Editor({ entry, onSave, loading }) {
     if (!shareCardRef.current) return
     setSharing(true)
     try {
+      const domToImage = await getDomToImage()
       const blob = await domToImage.toBlob(shareCardRef.current, { scale: 2 })
       saveAs(blob, 'MindDiary-Share.png')
     } catch (err) {
@@ -103,7 +109,7 @@ function Editor({ entry, onSave, loading }) {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
-        handleSave()
+        handleSave(true)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -172,7 +178,7 @@ function Editor({ entry, onSave, loading }) {
           </button>
           <button
             className="button button-secondary text-sm"
-            onClick={handleSave}
+            onClick={() => handleSave(true)}
             disabled={saving}
           >
             {saving ? '保存中...' : '💾 Ctrl+S'}

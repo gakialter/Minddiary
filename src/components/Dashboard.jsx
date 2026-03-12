@@ -14,6 +14,7 @@ export default function Dashboard() {
     const [weeklyData, setWeeklyData] = useState([]);
     const [heatmapData, setHeatmapData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         loadDashboardData();
@@ -21,6 +22,7 @@ export default function Dashboard() {
 
     const loadDashboardData = async () => {
         setLoading(true);
+        setError(null);
         try {
             const today = new Date();
 
@@ -95,6 +97,7 @@ export default function Dashboard() {
 
         } catch (error) {
             console.error('Failed to load dashboard:', error);
+            setError(error.message || '加载统计数据失败');
         } finally {
             setLoading(false);
         }
@@ -115,6 +118,19 @@ export default function Dashboard() {
 
     if (loading) {
         return <div className="p-8 text-center text-muted">正在聚合并分析学习图谱...</div>;
+    }
+
+    if (error) {
+        return (
+            <div className="empty-state p-8" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 'var(--space)' }}>📈</div>
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>数据聚合失败</h3>
+                <p className="text-muted mb-6">{error}</p>
+                <button className="button button-primary" onClick={loadDashboardData}>
+                    🔄 重新聚合
+                </button>
+            </div>
+        );
     }
 
     return (

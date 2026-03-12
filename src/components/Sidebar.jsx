@@ -103,6 +103,7 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--border)'}
           onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
           title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+          aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
           {isCollapsed ? '→' : '← 收起侧边栏'}
         </button>

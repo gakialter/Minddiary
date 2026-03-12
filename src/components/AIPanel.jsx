@@ -10,6 +10,7 @@ import {
     buildSprintPlanPrompt,
 } from '../utils/promptTemplates'
 import { useDiary } from '../contexts/DiaryContext'
+import { showToast } from './Toast'
 
 export default function AIPanel({ entry }) {
     const { settingsData, ai: aiAPI, mistakes: mistakesAPI } = useDiary()
@@ -17,6 +18,10 @@ export default function AIPanel({ entry }) {
     const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
     const messagesEndRef = useRef(null)
+    // Generation counter: incremented on each new request or cancel.
+    // sendMessage captures its value at call time; if it changes before the
+    // response arrives, the response is discarded (soft cancellation).
+    const generationRef = useRef(0)
     const settings = {
         endpoint: settingsData?.aiEndpoint || '',
         apiKey: settingsData?.aiApiKey || '',
@@ -31,14 +36,15 @@ export default function AIPanel({ entry }) {
         setMessages(prev => [...prev, { role, content, id: Date.now() + Math.random() }])
     }
 
+    const cancelRequest = () => {
+        generationRef.current++  // invalidate any in-flight request
+        setLoading(false)
+    }
+
     const sendMessage = async (textOverride = null) => {
         const raw = textOverride || input
         if (!raw.trim() || loading) return
 
-        // Sanitize free-form user input to strip prompt-injection attempts.
-        // Template-generated strings (textOverride from quick actions) are
-        // already built from sanitized fragments, but we sanitize them too
-        // for defence-in-depth.
         const textToUse = sanitizeUserInput(raw)
 
         if (!settings.endpoint || !settings.apiKey) {
@@ -47,27 +53,32 @@ export default function AIPanel({ entry }) {
             return
         }
 
-        appendMessage('user', raw) // show original text in UI (not the sanitized version, which may look odd)
+        appendMessage('user', raw)
         if (!textOverride) setInput('')
         setLoading(true)
+        const gen = ++generationRef.current
 
         try {
             const chatMessages = [
                 { role: 'system', content: SYSTEM_PROMPT },
-                // Sliding window: last 6 turns to limit context / cost
                 ...messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
                 { role: 'user', content: textToUse }
             ]
             const result = await aiAPI.chat(chatMessages, settings)
+            if (generationRef.current !== gen) return  // cancelled
             if (result.error) {
                 appendMessage('assistant', `❌ ${result.error}`)
+                showToast(result.error.split('\n')[0], 'error')
             } else {
                 appendMessage('assistant', result.content)
             }
         } catch (e) {
-            appendMessage('assistant', `🔌 网络异常: ${e.message}`)
+            if (generationRef.current !== gen) return
+            const msg = `🔌 网络异常: ${e.message}`
+            appendMessage('assistant', msg)
+            showToast('AI 请求失败，请检查网络', 'error')
         } finally {
-            setLoading(false)
+            if (generationRef.current === gen) setLoading(false)
         }
     }
 
@@ -198,7 +209,7 @@ export default function AIPanel({ entry }) {
 
                 {/* Loading State */}
                 {loading && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', animation: 'page-fade-in 0.3s ease-in' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-sm)', animation: 'page-fade-in 0.3s ease-in' }}>
                         <div style={{
                             padding: '16px 20px', borderRadius: 16, borderTopLeftRadius: 4,
                             background: 'var(--bg-tertiary)',
@@ -208,6 +219,13 @@ export default function AIPanel({ entry }) {
                             <div className="typing-dot" style={{ animationDelay: '0.2s' }}></div>
                             <div className="typing-dot" style={{ animationDelay: '0.4s' }}></div>
                         </div>
+                        <button
+                            className="button button-secondary"
+                            style={{ padding: '4px 12px', fontSize: 12 }}
+                            onClick={cancelRequest}
+                        >
+                            ✕ 取消请求
+                        </button>
                     </div>
                 )}
                 <div ref={messagesEndRef} style={{ height: 1 }} />

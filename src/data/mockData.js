@@ -506,6 +506,8 @@ export const mockSettings = {
   aiApiKey: '',
   aiModel: 'gpt-3.5-turbo',
   pomodoroMinutes: 25,
+  autoBackup: false,
+  backupPath: '',
 }
 
 export const mockSubjects = [
