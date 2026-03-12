@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
+import { PomodoroProvider } from './contexts/PomodoroContext'
 import Layout from './components/Layout'
 import Editor from './components/Editor'
 import Calendar from './components/Calendar'
@@ -33,6 +34,17 @@ const VIEW_TITLES = {
   mistakes: '📝 错题本',
   ai: '🤖 AI 助手',
 }
+
+const ViewErrorFallback = ({ error, resetErrorBoundary }) => (
+  <div style={{ padding: 'var(--space-2xl)', textAlign: 'center', color: 'var(--text-muted)' }}>
+    <div style={{ fontSize: 48, marginBottom: 'var(--space)' }}>😵</div>
+    <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>该区域加载失败</h3>
+    <p style={{ marginBottom: 'var(--space-lg)', fontSize: 13 }}>{error?.message || '发生了未知的渲染错误'}</p>
+    <button className="button button-primary" onClick={resetErrorBoundary}>
+      🔄 重试
+    </button>
+  </div>
+)
 
 function AppContent() {
   const diary = useDiary()
@@ -198,7 +210,9 @@ function AppContent() {
         )}
         <div style={{ flex: 1, overflow: 'auto', padding: activeView === 'editor' ? 0 : 'var(--space)' }}>
           <div key={activeView} className="view-transition">
-            {renderView()}
+            <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => {}}>
+              {renderView()}
+            </ErrorBoundary>
           </div>
         </div>
       </div>
@@ -224,7 +238,9 @@ function App() {
   return (
     <ErrorBoundary>
       <DiaryProvider>
-        <AppContent />
+        <PomodoroProvider>
+          <AppContent />
+        </PomodoroProvider>
       </DiaryProvider>
     </ErrorBoundary>
   )

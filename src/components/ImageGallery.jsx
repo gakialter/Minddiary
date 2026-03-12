@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { compressImages } from '../utils/imageCompressor'
 import { useDiary } from '../contexts/DiaryContext'
+import { showToast } from './Toast'
 
 export default function ImageGallery({ entryId, onImageInsert }) {
     const { attachments: attachmentsAPI } = useDiary()
@@ -9,6 +10,20 @@ export default function ImageGallery({ entryId, onImageInsert }) {
     const [loading, setLoading] = useState(false)
     const [isDragging, setIsDragging] = useState(false)
     const fileInputRef = useRef(null)
+
+    /**
+     * Sanitize attachment filepath to prevent path-traversal attacks.
+     * Rejects paths containing '..', and ensures the scheme is file://.
+     */
+    const safeFileUrl = (filepath) => {
+        if (!filepath || typeof filepath !== 'string') return ''
+        // Block any path traversal sequences
+        if (filepath.includes('..')) {
+            console.warn('[ImageGallery] Blocked path traversal attempt:', filepath)
+            return ''
+        }
+        return `file://${filepath}`
+    }
 
     useEffect(() => {
         if (entryId) loadAttachments()
@@ -40,6 +55,7 @@ export default function ImageGallery({ entryId, onImageInsert }) {
         for (const { file, result, error } of compressed) {
             if (error || !result) {
                 console.error('Compression failed for', file.name, error)
+                showToast(`图片 ${file.name} 处理失败`, 'error')
                 continue
             }
             try {
@@ -48,11 +64,17 @@ export default function ImageGallery({ entryId, onImageInsert }) {
                     data: result.base64,
                     mimetype: result.blob.type,
                 })
-            } catch (err) { console.error('Failed to upload:', err) }
+            } catch (err) { 
+                console.error('Failed to upload:', err) 
+                showToast(`图片 ${file.name} 上传失败`, 'error')
+            }
         }
 
         setLoading(false)
         loadAttachments()
+        if (compressed.some(c => !c.error && c.result)) {
+            showToast('图片上传成功', 'success')
+        }
         e.target.value = ''
     }
 
@@ -61,7 +83,11 @@ export default function ImageGallery({ entryId, onImageInsert }) {
             await attachmentsAPI.delete(id)
             if (preview?.id === id) setPreview(null)
             loadAttachments()
-        } catch (e) { console.error(e) }
+            showToast('图片已删除', 'success')
+        } catch (e) {
+            console.error(e)
+            showToast('删除失败', 'error')
+        }
     }
 
     const handleDrop = (e) => {
@@ -161,7 +187,7 @@ export default function ImageGallery({ entryId, onImageInsert }) {
                             background: 'var(--bg-tertiary)'
                         }}>
                             <img
-                                src={`file://${att.filepath}`}
+                                src={safeFileUrl(att.filepath)}
                                 alt={att.filename}
                                 onClick={() => setPreview(att)}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
@@ -182,6 +208,7 @@ export default function ImageGallery({ entryId, onImageInsert }) {
                                         backdropFilter: 'blur(4px)'
                                     }}
                                     title="删除图片"
+                                    aria-label="删除图片"
                                 >×</button>
                             </div>
                         </div>
@@ -202,6 +229,7 @@ export default function ImageGallery({ entryId, onImageInsert }) {
 
                             }}
                             title="上传更多"
+                            aria-label="上传更多图片"
                         >+</div>
                     )}
                 </div>
@@ -223,7 +251,7 @@ export default function ImageGallery({ entryId, onImageInsert }) {
                     }}
                 >
                     <img
-                        src={`file://${preview.filepath}`}
+                        src={safeFileUrl(preview.filepath)}
                         alt={preview.filename}
                         style={{ maxWidth: '90%', maxHeight: '90%', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)' }}
                     />

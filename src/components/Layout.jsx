@@ -51,6 +51,7 @@ function Layout({ children, isSidebarCollapsed }) {
             style={winBtnStyle}
             onClick={handleMinimize}
             title="最小化"
+            aria-label="最小化窗口"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
           >
@@ -62,6 +63,7 @@ function Layout({ children, isSidebarCollapsed }) {
             style={winBtnStyle}
             onClick={handleMaximize}
             title={isMaximized ? "还原" : "最大化"}
+            aria-label={isMaximized ? "还原窗口" : "最大化窗口"}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
           >
@@ -79,6 +81,7 @@ function Layout({ children, isSidebarCollapsed }) {
             style={winBtnStyle}
             onClick={handleClose}
             title="关闭"
+            aria-label="关闭窗口"
             onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; e.currentTarget.style.color = 'var(--danger)' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
           >

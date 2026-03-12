@@ -30,14 +30,19 @@ class ErrorBoundary extends React.Component {
   }
 
   handleReset = () => {
+    if (this.props.onReset) {
+      this.props.onReset()
+    }
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null
     })
 
-    // Reload the page to reset application state
-    window.location.reload()
+    if (!this.props.onReset) {
+      // Reload the page to reset application state only if no custom reset handler is provided
+      window.location.reload()
+    }
   }
 
   handleReportIssue = () => {
@@ -64,6 +69,14 @@ ${errorInfo?.componentStack}
     if (this.state.hasError) {
       const { error, errorInfo } = this.state
       const isDevelopment = process.env.NODE_ENV === 'development'
+
+      if (this.props.fallback) {
+        // Render custom fallback if provided
+        return React.cloneElement(this.props.fallback, {
+          error,
+          resetErrorBoundary: this.handleReset
+        })
+      }
 
       return (
         <div style={{

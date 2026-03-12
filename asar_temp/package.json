@@ -1,0 +1,17 @@
+{
+  "name": "minddiary",
+  "version": "1.0.5",
+  "description": "考研日记桌面应用",
+  "author": "MindDiary Team",
+  "main": "electron/main.js",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dom-to-image-more": "^3.7.2",
+    "dompurify": "^3.3.2",
+    "electron-updater": "^6.8.3",
+    "file-saver": "^2.0.5",
+    "marked": "^17.0.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
