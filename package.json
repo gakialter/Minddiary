@@ -1,6 +1,6 @@
 {
     "name": "minddiary",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "description": "考研日记桌面应用",
     "author": "MindDiary Team",
     "main": "electron/main.js",
@@ -9,7 +9,8 @@
         "electron:dev": "electron .",
         "postinstall": "electron-builder install-app-deps",
         "build": "vite build && electron-builder",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "test": "vitest"
     },
     "dependencies": {
         "better-sqlite3": "^11.0.0",
@@ -30,6 +31,7 @@
         "electron-builder": "^24.13.3",
         "png-to-ico": "^3.0.1",
         "vite": "^5.4.0",
+        "vitest": "^4.0.18",
         "wait-on": "^7.2.0"
     },
     "build": {
