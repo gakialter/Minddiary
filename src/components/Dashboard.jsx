@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getTodayStr } from '../utils/helpers';
 import { useDiary } from '../contexts/DiaryContext';
+import { BarChart2, Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
 
 export default function Dashboard() {
     const { pomodoro, dashboard, mistakes } = useDiary();
@@ -123,11 +124,11 @@ export default function Dashboard() {
     if (error) {
         return (
             <div className="empty-state p-8" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ fontSize: 48, marginBottom: 'var(--space)' }}>📈</div>
+                <TrendingUp size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2 }} />
                 <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>数据聚合失败</h3>
                 <p className="text-muted mb-6">{error}</p>
                 <button className="button button-primary" onClick={loadDashboardData}>
-                    🔄 重新聚合
+                    <RefreshCw size={15} /> 重新聚合
                 </button>
             </div>
         );
@@ -137,7 +138,9 @@ export default function Dashboard() {
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xl)' }}>
                 <div>
-                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px' }}>📊 数据统计</h2>
+                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <BarChart2 size={22} style={{ color: 'var(--accent)' }} /> 数据统计
+                    </h2>
                     <p className="text-muted mt-1 text-sm">洞察你的努力轨迹，看到每一滴汗水。</p>
                 </div>
             </div>
@@ -148,14 +151,18 @@ export default function Dashboard() {
                 gap: 'var(--space-md)', marginBottom: 'var(--space-2xl)'
             }}>
                 <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--accent)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">🔥 连续专注</div>
+                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
+                        <Flame size={14} style={{ color: 'var(--warning)' }} /> 连续专注
+                    </div>
                     <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: 'var(--accent)' }}>
                         {stats.streakDays} <span className="text-sm font-normal text-muted">天</span>
                     </div>
                 </div>
 
                 <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--success)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">⏱️ 历史总专注时间</div>
+                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
+                        <Clock3 size={14} style={{ color: 'var(--success)' }} /> 历史总专注时间
+                    </div>
                     <div className="text-3xl font-extrabold flex items-baseline gap-xs">
                         {Math.floor(stats.totalPomodoroMinutes / 60)} <span className="text-sm font-normal text-muted">h</span>
                         {stats.totalPomodoroMinutes % 60} <span className="text-sm font-normal text-muted">m</span>
@@ -163,7 +170,9 @@ export default function Dashboard() {
                 </div>
 
                 <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--warning)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">🎯 错题消灭率</div>
+                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
+                        <Target size={14} style={{ color: 'var(--warning)' }} /> 错题消灭率
+                    </div>
                     <div className="text-3xl font-extrabold flex items-baseline gap-xs">
                         {stats.totalMistakes > 0 ? Math.round((stats.masteredMistakes / stats.totalMistakes) * 100) : 0}
                         <span className="text-lg">%</span>
@@ -177,7 +186,9 @@ export default function Dashboard() {
 
                 {/* Left Col: Trend Chart */}
                 <div className="card" style={{ padding: 'var(--space-xl)' }}>
-                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-xl)' }}>📈 近 7 日专注趋势</h3>
+                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-xl)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <TrendingUp size={18} style={{ color: 'var(--accent)' }} /> 近 7 日专注趋势
+                    </h3>
 
                     <div style={{ height: 260, position: 'relative', marginTop: 'var(--space-xl)' }}>
                         {/* Y-Axis Guidelines */}
@@ -229,7 +240,9 @@ export default function Dashboard() {
 
                 {/* Right Col: 90-Day Contribution Heatmap */}
                 <div className="card" style={{ padding: 'var(--space-lg)' }}>
-                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-md)' }}>🗓️ 学习热力图 (近 90 天)</h3>
+                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CalendarDays size={18} style={{ color: 'var(--accent)' }} /> 学习热力图 (近 90 天)
+                    </h3>
                     <p className="text-xs text-muted mb-4">有写日记的日子会点亮板块。</p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, transform: 'rotate(90deg) scaleY(-1)', transformOrigin: 'center', margin: '20px auto 0', width: 140 }}>

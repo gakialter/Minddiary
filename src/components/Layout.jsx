@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-function Layout({ children, isSidebarCollapsed }) {
+function Layout({ children, isSidebarCollapsed, selectedDate }) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
@@ -44,7 +44,7 @@ function Layout({ children, isSidebarCollapsed }) {
           <span className="text-sm font-medium text-secondary">MindDiary</span>
         </div>
         <div className="text-sm text-muted">
-          考研日记 · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}
+          考研日记 · {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}
         </div>
         <div className="flex items-center">
           <button

@@ -14,6 +14,7 @@
   --bg-tertiary: #F2F2F7;
   /* Hover/secondary surfaces */
   --bg-overlay: rgba(0, 0, 0, 0.4);
+  --bg-glass: rgba(255, 255, 255, 0.75);
 
   --text-primary: #1D1D1F;
   /* Apple deep dark grey */
@@ -66,6 +67,7 @@
   --bg-tertiary: #2C2C2E;
   /* Secondary elevated areas */
   --bg-overlay: rgba(0, 0, 0, 0.7);
+  --bg-glass: rgba(28, 28, 30, 0.75);
 
   --text-primary: #FFFFFF;
   --text-secondary: #86868B;
@@ -325,16 +327,18 @@ body {
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   user-select: none;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  gap: var(--space-sm);
 }
 
 .button:hover {
   background: var(--bg-tertiary);
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
 }
 
 .button:active {
-  transform: translateY(0) scale(0.96);
+  transform: translateY(1px) scale(0.97);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
   background: var(--border-light);
 }
 
@@ -342,13 +346,13 @@ body {
   background: var(--accent);
   color: white;
   border-color: transparent;
-  box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+  box-shadow: 0 4px 10px rgba(0, 122, 255, 0.25);
 }
 
 .button-primary:hover {
-  background: var(--accent-dark);
+  background: var(--accent-light);
   color: white;
-  box-shadow: 0 4px 10px rgba(0, 122, 255, 0.3);
+  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.35);
 }
 
 .button-secondary {
@@ -361,6 +365,13 @@ body {
 .button-secondary:hover {
   background: rgba(142, 142, 147, 0.15);
   border-color: var(--border);
+}
+
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-light);
 }
 
 .input {

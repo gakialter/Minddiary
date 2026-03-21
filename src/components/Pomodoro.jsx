@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { usePomodoroContext } from '../contexts/PomodoroContext'
+import { Play, Pause, RotateCcw } from 'lucide-react'
 
 const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
 const STORAGE_KEY = 'pomodoro-widget-position'
@@ -127,7 +128,9 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }) {
               strokeDasharray={miniCircumference} strokeDashoffset={miniCircumference * (1 - progress)}
               style={{ transition: 'stroke-dashoffset 1s linear' }} />
           </svg>
-          <div style={{ fontSize: 14, opacity: 0.8 }}>{isRunning ? '⏸' : '▶'}</div>
+          <div style={{ fontSize: 14, opacity: 0.9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isRunning ? <Pause size={16} /> : <Play size={16} />}
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: mode.color, fontVariantNumeric: 'tabular-nums' }}>
@@ -197,7 +200,9 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }) {
           }}
           onClick={toggleTimer}
         >
-          {isRunning ? '⏸ 暂停' : '▶ 开始专注'}
+          {isRunning
+            ? <><Pause size={18} /> 暂停</>
+            : <><Play size={18} /> 开始专注</>}
         </button>
         <button
           className="button button-secondary"
@@ -206,7 +211,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }) {
           title="重置"
           aria-label="重置番茄钟"
         >
-          ↻
+          <RotateCcw size={18} />
         </button>
       </div>
 

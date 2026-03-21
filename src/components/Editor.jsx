@@ -4,6 +4,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
+import { ImagePlus, Save } from 'lucide-react'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
@@ -23,7 +24,7 @@ const defaultTemplate = `## 今日学了什么
 function Editor({ entry, onSave, loading }) {
   const diary = useDiary()
   const [title, setTitle] = useState('')
-  const [content, setContent] = useState(defaultTemplate)
+  const [content, setContent] = useState('')
   const [wordCount, setWordCount] = useState(0)
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
@@ -46,7 +47,7 @@ function Editor({ entry, onSave, loading }) {
     if (entry && entry !== entryRef.current) {
       entryRef.current = entry
       setTitle(entry.title || '')
-      setContent(entry.content || defaultTemplate)
+      setContent(entry.content || '')
       setWordCount(calculateWordCount(entry.content || ''))
       isDirty.current = false
     }
@@ -174,14 +175,14 @@ function Editor({ entry, onSave, loading }) {
             disabled={sharing}
             title="生成分享图片"
           >
-            {sharing ? '生成中...' : '🖼️ 分享'}
+            {sharing ? '生成中...' : <><ImagePlus size={15} /> 分享</>}
           </button>
           <button
             className="button button-secondary text-sm"
             onClick={() => handleSave(true)}
             disabled={saving}
           >
-            {saving ? '保存中...' : '💾 Ctrl+S'}
+            {saving ? '保存中...' : <><Save size={15} /> Ctrl+S</>}
           </button>
         </div>
       </div>
@@ -221,7 +222,7 @@ function Editor({ entry, onSave, loading }) {
 
       {/* Editor */}
       <div className="flex-1 min-h-0" style={{ position: 'relative' }}>
-        {content === defaultTemplate && (
+        {!content.trim() && (
           <div style={{
             position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
             pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center',

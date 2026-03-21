@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { Rocket, Target, Pencil, Trash2, Library, PlusCircle, Sparkles } from 'lucide-react'
 
 export default function StudyProgress() {
     const { subjects: subjectsAPI, pomodoro: pomodoroAPI, mistakes: mistakesAPI } = useDiary()
@@ -150,7 +151,9 @@ export default function StudyProgress() {
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xl)' }}>
                 <div>
-                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px' }}>🚀 学习全景追踪</h2>
+                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Rocket size={22} style={{ color: 'var(--accent)' }} /> 学习全景追踪
+                    </h2>
                     <p className="text-muted mt-1 text-sm">将大目标拆解为小章节，不积跬步无以至千里。</p>
                 </div>
                 {!showForm && (
@@ -168,7 +171,9 @@ export default function StudyProgress() {
             }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
                     <div className="flex items-center gap-sm">
-                        <div style={{ padding: 8, borderRadius: 12, background: 'var(--accent-light)', color: 'white' }}>🎯</div>
+                        <div style={{ padding: 8, borderRadius: 12, background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Target size={18} />
+                        </div>
                         <span className="font-semibold text-lg">备考大盘</span>
                     </div>
                     <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>{overallProgress}%</span>
@@ -199,7 +204,9 @@ export default function StudyProgress() {
             {/* Add/Edit Form */}
             {showForm && (
                 <div className="card" style={{ padding: 'var(--space-xl)', marginBottom: 'var(--space-xl)', animation: 'page-fade-in 0.3s ease-out' }}>
-                    <h3 style={{ marginBottom: 'var(--space-lg)', fontSize: 18 }}>{editingId ? '✍️ 编辑科目' : '✨ 创建新科目'}</h3>
+                    <h3 style={{ marginBottom: 'var(--space-lg)', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {editingId ? <><Pencil size={18} /> 编辑科目</> : <><Sparkles size={18} /> 创建新科目</>}
+                    </h3>
                     <div className="flex flex-col gap-md">
                         <div className="flex gap-md w-full">
                             <div style={{ flex: 2 }}>
@@ -277,8 +284,20 @@ export default function StudyProgress() {
                                     <h3 className="font-bold text-lg">{subject.name}</h3>
                                 </div>
                                 <div className="flex gap-xs" style={{ opacity: 0.6 }}>
-                                    <button className="icon-button" style={{ fontSize: 14 }} onClick={() => handleEdit(subject)}>✏️</button>
-                                    <button className="icon-button" style={{ fontSize: 14 }} onClick={() => handleDelete(subject.id)}>🗑️</button>
+                                    <button
+                                        className="icon-button"
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
+                                        onClick={() => handleEdit(subject)}
+                                        title="编辑科目"
+                                    ><Pencil size={14} /></button>
+                                    <button
+                                        className="icon-button"
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
+                                        onClick={() => handleDelete(subject.id)}
+                                        title="删除科目"
+                                        onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                                        onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
+                                    ><Trash2 size={14} /></button>
                                 </div>
                             </div>
 
@@ -335,7 +354,7 @@ export default function StudyProgress() {
 
                 {!loading && subjectMetrics.length === 0 && !showForm && (
                     <div className="empty-state" style={{ gridColumn: '1 / -1', padding: 'var(--space-3xl)' }}>
-                        <div style={{ fontSize: 48, marginBottom: 'var(--space)' }}>📚</div>
+                        <Library size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2, color: 'var(--text-secondary)' }} />
                         <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>尚未建立复习轨迹</h3>
                         <p className="text-muted" style={{ maxWidth: 400, margin: '0 auto', lineHeight: 1.6 }}>
                             添加您要报考的科目，拆分章节任务。我们将会结合番茄钟与错题本数据，为您生成精准的能力雷达。

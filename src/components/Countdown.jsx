@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
+import { CalendarDays, Trophy } from 'lucide-react'
 
 function Countdown() {
   const diary = useDiary()
@@ -36,7 +37,7 @@ function Countdown() {
   }, [examDate])
 
   const getMessage = (days) => {
-    if (days < 0) return '已结束 🎉'
+    if (days < 0) return <><Trophy size={14} /> 已结束</>
     if (days === 0) return '今天考试！'
     if (days < 10) return `只剩 ${days} 天！`
     if (days < 30) return `还有 ${days} 天`
@@ -54,8 +55,8 @@ function Countdown() {
       color: daysLeft < 30 ? 'var(--danger)' : 'var(--accent-light)',
       fontSize: 13
     }}>
-      <span>📅</span>
-      <span className="font-semibold">{getMessage(daysLeft)}</span>
+      <span style={{ display: 'flex', alignItems: 'center' }}><CalendarDays size={14} /></span>
+      <span className="font-semibold" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{getMessage(daysLeft)}</span>
     </div>
   )
 }

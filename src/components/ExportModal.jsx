@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { generateMarkdown, generateJSON, generatePdfHtml } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
+import { Download, FileDown, FileText, FileJson } from 'lucide-react'
 
 const FORMATS = [
     {
         id: 'pdf',
-        icon: '📄',
+        icon: <FileDown size={28} style={{ color: 'var(--text-secondary)' }} />,
         label: 'PDF 报告',
         desc: '带排版的可打印学习报告，中文字体原生渲染',
         ext: '.pdf',
@@ -13,7 +14,7 @@ const FORMATS = [
     },
     {
         id: 'markdown',
-        icon: '📝',
+        icon: <FileText size={28} style={{ color: 'var(--text-secondary)' }} />,
         label: 'Markdown',
         desc: '含 YAML Frontmatter，兼容 Obsidian / Notion 导入',
         ext: '.md',
@@ -21,7 +22,7 @@ const FORMATS = [
     },
     {
         id: 'json',
-        icon: '💾',
+        icon: <FileJson size={28} style={{ color: 'var(--text-secondary)' }} />,
         label: 'JSON 全站备份',
         desc: '包含日记、科目、错题的完整数据快照，可用于恢复',
         ext: '.json',
@@ -119,7 +120,7 @@ export default function ExportModal({ onClose }) {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                     <div>
-                        <h2 style={{ fontSize: 18, fontWeight: 700 }}>📤 导出数据</h2>
+                        <h2 style={{ fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><Download size={18} style={{ color: 'var(--text-primary)' }} /> 导出数据</h2>
                         <p className="text-muted text-sm mt-1">选择格式，一键导出全部日记</p>
                     </div>
                     <button
@@ -154,7 +155,7 @@ export default function ExportModal({ onClose }) {
                                 onChange={() => { setSelectedFormat(fmt.id); setStatus('idle'); setMessage('') }}
                                 style={{ display: 'none' }}
                             />
-                            <span style={{ fontSize: 26 }}>{fmt.icon}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32 }}>{fmt.icon}</span>
                             <div style={{ flex: 1 }}>
                                 <div style={{
                                     fontWeight: 600, fontSize: 15,

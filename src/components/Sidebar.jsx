@@ -1,15 +1,17 @@
+import { PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }) {
   const navItems = [
-    { id: 'editor', icon: '📝', label: '写日记' },
-    { id: 'calendar', icon: '📅', label: '日历' },
-    { id: 'dashboard', icon: '📊', label: '数据统计' },
-    { id: 'tags', icon: '🏷️', label: '标签管理' },
-    { id: 'search', icon: '🔍', label: '搜索' },
-    { id: 'pomodoro', icon: '🍅', label: '番茄钟' },
-    { id: 'progress', icon: '📖', label: '科目进度' },
-    { id: 'mistakes', icon: '📝', label: '错题本' },
-    { id: 'ai', icon: '🤖', label: 'AI 助手' },
-    { id: 'settings', icon: '⚙️', label: '设置' },
+    { id: 'editor', icon: <PenLine size={20} />, label: '写日记' },
+    { id: 'calendar', icon: <Calendar size={20} />, label: '日历' },
+    { id: 'dashboard', icon: <BarChart2 size={20} />, label: '数据统计' },
+    { id: 'tags', icon: <Tags size={20} />, label: '标签管理' },
+    { id: 'search', icon: <Search size={20} />, label: '搜索' },
+    { id: 'pomodoro', icon: <Timer size={20} />, label: '番茄钟' },
+    { id: 'progress', icon: <BookOpen size={20} />, label: '科目进度' },
+    { id: 'mistakes', icon: <BookX size={20} />, label: '错题本' },
+    { id: 'ai', icon: <Bot size={20} />, label: 'AI 助手' },
+    { id: 'settings', icon: <Settings size={20} />, label: '设置' },
   ]
 
   return (
@@ -64,7 +66,7 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
             }}
           >
             <span style={{
-              fontSize: 18,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: activeView === item.id ? 'var(--accent)' : 'inherit',
               flexShrink: 0,
               width: 24, textAlign: 'center'
@@ -105,7 +107,12 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
           title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
           aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
-          {isCollapsed ? '→' : '← 收起侧边栏'}
+          {isCollapsed ? <PanelLeftOpen size={18} /> : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <PanelLeftClose size={18} />
+              <span style={{ fontSize: 13 }}>收起侧边栏</span>
+            </div>
+          )}
         </button>
       </div>
     </div>

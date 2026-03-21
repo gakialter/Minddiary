@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen } from 'lucide-react'
 
 export default function MistakeBook() {
     const diary = useDiary()
@@ -114,7 +115,9 @@ export default function MistakeBook() {
         <div style={{ padding: 'var(--space-xl)' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-lg)' }}>
                 <div>
-                    <h2>📝 错题 / 知识点本</h2>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <BookX size={22} style={{ color: 'var(--accent)' }} /> 错题 / 知识点本
+                    </h2>
                     <span className="text-sm text-muted">
                         共 {totalCount} 条，已掌握 {masteredCount} 条
                     </span>
@@ -130,7 +133,7 @@ export default function MistakeBook() {
             {/* Filters */}
             <div className="flex gap-sm" style={{ marginBottom: 'var(--space-md)' }}>
                 <input
-                    className="input" placeholder="🔍 搜索..." style={{ flex: 1 }}
+                    className="input" placeholder="搜索..." style={{ flex: 1, paddingLeft: 12 }}
                     value={searchInput} onChange={handleSearchChange}
                 />
                 <select className="input" value={filter.subject_id}
@@ -202,18 +205,21 @@ export default function MistakeBook() {
                                     </span>
                                 )}
                                 {m.mastered
-                                    ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500 }}>✅ 已掌握</span>
-                                    : <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500 }}>⏳ 待复习</span>}
+                                    ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 已掌握</span>
+                                    : <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 待复习</span>}
                             </div>
                             <div className="flex gap-xs">
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12 }}
+                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
                                     onClick={() => toggleMastered(m.id)}>
-                                    {m.mastered ? '↩️ 重学' : '✅ 掌握'}
+                                    {m.mastered ? <><Undo2 size={13} /> 重学</> : <><CheckCircle2 size={13} /> 掌握</>}
                                 </button>
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12 }}
-                                    onClick={() => handleEdit(m)}>✏️</button>
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12 }}
-                                    onClick={() => handleDelete(m.id)}>🗑️</button>
+                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    onClick={() => handleEdit(m)}><Pencil size={13} /></button>
+                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    onClick={() => handleDelete(m.id)}
+                                    onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                                    onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
+                                ><Trash2 size={13} /></button>
                             </div>
                         </div>
                         <div style={{ marginBottom: 'var(--space-xs)' }}>
@@ -225,15 +231,15 @@ export default function MistakeBook() {
                             </div>
                         )}
                         {m.notes && (
-                            <div className="text-sm text-muted" style={{ fontStyle: 'italic' }}>
-                                📌 {m.notes}
+                            <div className="text-sm text-muted" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                                <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} /> {m.notes}
                             </div>
                         )}
                     </div>
                 ))}
                 {mistakes.length === 0 && (
                     <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }}>
-                        <div style={{ fontSize: 64, opacity: 0.9 }}>📚</div>
+                        <img src="/images/mistakebook_empty.png" alt="空错题本" style={{ width: 120, height: 120, objectFit: 'contain', opacity: 0.9, marginBottom: 'var(--space-sm)' }} />
                         <h3 className="text-lg font-medium">还没有错题记录</h3>
                         <p className="text-muted" style={{ maxWidth: 300 }}>
                             你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。

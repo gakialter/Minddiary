@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { sanitizeSettingsForExport, isSensitiveKey } from '../utils/sanitize'
+import { Settings as SettingsIcon, ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, Check } from 'lucide-react'
 
 function Settings() {
   const diary = useDiary()
@@ -88,7 +90,7 @@ function Settings() {
         timestamp: new Date().toISOString(),
         data: {
           entries, tags, subjects, mistakes, pomodoro,
-          settings: allSettings || {},
+          settings: sanitizeSettingsForExport(allSettings),
         }
       }
 
@@ -248,12 +250,16 @@ function Settings() {
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <h2 className="text-xl font-semibold" style={{ marginBottom: 'var(--space-lg)' }}>⚙️ 设置</h2>
+      <h2 className="text-xl font-semibold" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <SettingsIcon size={22} style={{ color: 'var(--accent)' }} /> 设置
+      </h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
         {/* General settings */}
         <div style={sectionStyle}>
-          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>📋 基本设置</h3>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClipboardList size={16} /> 基本设置
+          </h3>
           <div style={fieldGroupStyle}>
             <div>
               <label style={labelStyle}>考研日期</label>
@@ -295,7 +301,9 @@ function Settings() {
 
         {/* AI settings */}
         <div style={sectionStyle}>
-          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>🤖 AI 助手设置</h3>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Bot size={16} /> AI 助手设置
+          </h3>
           <div style={fieldGroupStyle}>
             <div>
               <label style={labelStyle}>API Endpoint</label>
@@ -334,7 +342,9 @@ function Settings() {
 
         {/* Data management & Backup */}
         <div style={sectionStyle}>
-          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>💾 数据管理与备份</h3>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Database size={16} /> 数据管理与备份
+          </h3>
           <div style={fieldGroupStyle}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer', marginBottom: 'var(--space-sm)' }}>
@@ -371,13 +381,13 @@ function Settings() {
             <div>
               <label style={labelStyle}>导出数据</label>
               <button className="button button-secondary w-full" onClick={exportData}>
-                📦 导出为 JSON
+                <Package size={15} /> 导出为 JSON
               </button>
             </div>
             <div>
               <label style={labelStyle}>导入数据</label>
               <button className="button button-secondary w-full" onClick={importData}>
-                📂 从 JSON 导入
+                <FolderOpen size={15} /> 从 JSON 导入
               </button>
             </div>
             <div className="text-xs text-muted">
@@ -388,7 +398,9 @@ function Settings() {
 
         {/* About */}
         <div style={sectionStyle}>
-          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16 }}>ℹ️ 关于</h3>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={16} /> 关于
+          </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
             <div className="text-sm">
               <span className="text-muted">版本：</span> <span>1.0.0</span>
@@ -405,7 +417,7 @@ function Settings() {
                 onClick={checkForUpdates}
                 disabled={checkingUpdate}
               >
-                {checkingUpdate ? '正在检查...' : '🔄 检查更新'}
+                {checkingUpdate ? '正在检查...' : <><RefreshCw size={15} /> 检查更新</>}
               </button>
             </div>
             <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
@@ -421,7 +433,7 @@ function Settings() {
           重置
         </button>
         <button className="button button-primary" onClick={saveSettings} disabled={saving}>
-          {saving ? '保存中...' : '✅ 保存设置'}
+           {saving ? '保存中...' : <><Check size={15} /> 保存设置</>}
         </button>
       </div>
     </div>

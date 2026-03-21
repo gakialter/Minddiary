@@ -11,6 +11,7 @@ import {
 } from '../utils/promptTemplates'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { Bot, Trash2, Sparkles, PenLine, Search, Coffee, Target, X } from 'lucide-react'
 
 export default function AIPanel({ entry }) {
     const { settingsData, ai: aiAPI, mistakes: mistakesAPI } = useDiary()
@@ -107,10 +108,10 @@ export default function AIPanel({ entry }) {
     }
 
     const quickPrompts = [
-        { icon: '📝', label: '总结今日日记', action: summarizeEntry },
-        { icon: '🔍', label: '错题规律分析', action: analyzeMistakes },
-        { icon: '☕', label: '心理按摩', action: () => sendMessage(buildMentalMassagePrompt()) },
-        { icon: '🎯', label: '制定复习冲刺', action: () => sendMessage(buildSprintPlanPrompt(30)) },
+        { icon: <PenLine size={20} />, label: '总结今日日记', action: summarizeEntry },
+        { icon: <Search size={20} />, label: '错题规律分析', action: analyzeMistakes },
+        { icon: <Coffee size={20} />, label: '心理按摩', action: () => sendMessage(buildMentalMassagePrompt()) },
+        { icon: <Target size={20} />, label: '制定复习冲刺', action: () => sendMessage(buildSprintPlanPrompt(30)) },
     ]
 
     const createMarkup = (text) => {
@@ -130,16 +131,16 @@ export default function AIPanel({ entry }) {
             {/* Header */}
             <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-secondary)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="flex items-center gap-sm">
-                    <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg, var(--accent), var(--accent-light))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                        🤖
+                    <div style={{ width: 36, height: 36, borderRadius: 12, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>
+                        <img src="/images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
                     <div>
                         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>小研</h2>
                         <span style={{ fontSize: 12, color: 'var(--success)' }}>● 在线待命</span>
                     </div>
                 </div>
-                <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setMessages([])}>
-                    🗑️ 清空历史
+                <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setMessages([])}>
+                    <Trash2 size={14} /> 清空历史
                 </button>
             </div>
 
@@ -151,9 +152,11 @@ export default function AIPanel({ entry }) {
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ height: '100%', animation: 'page-fade-in 0.5s ease-out' }}>
                         <div style={{
-                            width: 80, height: 80, borderRadius: 24, background: 'var(--bg-tertiary)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, marginBottom: 'var(--space-md)'
-                        }}>✨</div>
+                            width: 80, height: 80, borderRadius: 24, overflow: 'hidden',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)'
+                        }}>
+                            <img src="/images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
                         <h3 style={{ fontSize: 20, marginBottom: 'var(--space-sm)' }}>我是你的专属考研智囊</h3>
                         <p className="text-muted" style={{ maxWidth: 300, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
                             我可以直接读取你的日记、错题与学习进度，为你提供定制化的复习策略和情绪价值。
@@ -167,7 +170,7 @@ export default function AIPanel({ entry }) {
                                     onMouseEnter={e => Object.assign(e.currentTarget.style, { transform: 'translateY(-2px)', borderColor: 'var(--accent)', boxShadow: 'var(--shadow-sm)' })}
                                     onMouseLeave={e => Object.assign(e.currentTarget.style, { transform: 'translateY(0)', borderColor: 'var(--border)', boxShadow: 'none' })}
                                 >
-                                    <span style={{ fontSize: 20 }}>{p.icon}</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>{p.icon}</span>
                                     <span style={{ fontSize: 14, fontWeight: 500 }}>{p.label}</span>
                                 </button>
                             ))}
@@ -224,7 +227,7 @@ export default function AIPanel({ entry }) {
                             style={{ padding: '4px 12px', fontSize: 12 }}
                             onClick={cancelRequest}
                         >
-                            ✕ 取消请求
+                            <X size={14} /> 取消请求
                         </button>
                     </div>
                 )}

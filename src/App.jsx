@@ -1,39 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { Download } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider } from './contexts/PomodoroContext'
+import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation.jsx'
+import { useGlobalKeyboard } from './hooks/useGlobalKeyboard'
 import Layout from './components/Layout'
-import Editor from './components/Editor'
-import Calendar from './components/Calendar'
 import Sidebar from './components/Sidebar'
-import TagManager from './components/TagManager'
-import SearchPanel from './components/SearchPanel'
 import Countdown from './components/Countdown'
 import MoodPicker from './components/MoodPicker'
-import Settings from './components/Settings'
 import Pomodoro from './components/Pomodoro'
-import StudyProgress from './components/StudyProgress'
-import MistakeBook from './components/MistakeBook'
-import AIPanel from './components/AIPanel'
 import ImageGallery from './components/ImageGallery'
-import Dashboard from './components/Dashboard'
 import Welcome from './components/Welcome'
 import CommandPalette from './components/CommandPalette'
 import ExportModal from './components/ExportModal'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/Toast'
-import { getTodayStr } from './utils/helpers'
-
-const VIEW_TITLES = {
-  editor: '📝 写日记',
-  calendar: '📅 日历',
-  dashboard: '📊 数据统计',
-  tags: '🏷️ 标签管理',
-  search: '🔍 搜索',
-  pomodoro: '🍅 番茄钟',
-  progress: '📖 科目进度',
-  mistakes: '📝 错题本',
-  ai: '🤖 AI 助手',
-}
 
 const ViewErrorFallback = ({ error, resetErrorBoundary }) => (
   <div style={{ padding: 'var(--space-2xl)', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -49,8 +30,15 @@ const ViewErrorFallback = ({ error, resetErrorBoundary }) => (
 function AppContent() {
   const diary = useDiary()
   const { isDarkMode } = diary
-  const [activeView, setActiveView] = useState('editor')
-  const [selectedDate, setSelectedDate] = useState(getTodayStr())
+
+  // ─── Navigation (extracted hook) ───
+  const {
+    activeView, setActiveView,
+    selectedDate, setSelectedDate,
+    changeDate, viewTitle,
+  } = useNavigation()
+
+  // ─── Local UI state ───
   const [entry, setEntry] = useState(null)
   const [loading, setLoading] = useState(false)
   const [isFirstLaunch, setIsFirstLaunch] = useState(() => !localStorage.getItem('started'))
@@ -58,24 +46,13 @@ function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [showExport, setShowExport] = useState(false)
 
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Cmd+K or Ctrl+K to open Command Palette
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setShowCommandPalette(true)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  // ─── Global keyboard shortcuts (extracted hook) ───
+  const keyBindings = useMemo(() => ({
+    k: () => setShowCommandPalette(true),
+  }), [])
+  useGlobalKeyboard(keyBindings)
 
-  useEffect(() => {
-    loadEntry(selectedDate)
-  }, [selectedDate])
-
-  // Reactively apply dark mode whenever isDarkMode changes (settings change or system preference change)
+  // ─── Dark mode side-effect ───
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.setAttribute('data-theme', 'dark')
@@ -84,6 +61,11 @@ function AppContent() {
     }
   }, [isDarkMode])
 
+  // ─── Entry loading ───
+  useEffect(() => {
+    loadEntry(selectedDate)
+  }, [selectedDate])
+
   const loadEntry = async (date) => {
     setLoading(true)
     try {
@@ -91,13 +73,7 @@ function AppContent() {
       if (data) {
         setEntry(data)
       } else {
-        setEntry({
-          date,
-          title: '',
-          content: '',
-          mood: null,
-          tags: []
-        })
+        setEntry({ date, title: '', content: '', mood: null, tags: [] })
       }
     } catch (error) {
       console.error('Failed to load entry:', error)
@@ -121,50 +97,19 @@ function AppContent() {
     }
   }
 
-  const changeDate = (date) => {
-    setSelectedDate(date)
-    setActiveView('editor')
-  }
-
+  // ─── View rendering (data-driven) ───
   const renderView = () => {
-    switch (activeView) {
-      case 'editor':
-        return (
-          <div style={{ display: 'flex', gap: 0, height: '100%' }}>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 'var(--space)' }}>
-              <Editor entry={entry} onSave={saveEntry} loading={loading} />
-            </div>
-            <div style={{
-              width: 280, borderLeft: '1px solid var(--border)',
-              overflow: 'auto', flexShrink: 0, padding: 'var(--space-sm)'
-            }}>
-              <ImageGallery entryId={entry?.id} />
-            </div>
-          </div>
-        )
-      case 'calendar':
-        return <Calendar selectedDate={selectedDate} onSelectDate={changeDate} />
-      case 'dashboard':
-        return <Dashboard />
-      case 'tags':
-        return <TagManager />
-      case 'search':
-        return <SearchPanel onSelectEntry={(e) => { setSelectedDate(e.date); setActiveView('editor') }} />
-      case 'pomodoro':
-        return <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={isSidebarCollapsed} />
-      case 'progress':
-        return <StudyProgress />
-      case 'mistakes':
-        return <MistakeBook />
-      case 'ai':
-        return <AIPanel entry={entry} />
-      case 'settings':
-        return <Settings />
-      default:
-        return <Editor entry={entry} onSave={saveEntry} loading={loading} />
-    }
+    const config = VIEW_CONFIG[activeView] || VIEW_CONFIG.editor
+    return config.render({
+      entry, saveEntry, loading,
+      selectedDate, setSelectedDate,
+      changeDate, setActiveView,
+      isSidebarCollapsed,
+      ImageGallery,
+    })
   }
 
+  // ─── First-launch welcome screen ───
   if (isFirstLaunch) {
     return <Welcome onStart={() => {
       localStorage.setItem('started', 'true')
@@ -173,7 +118,7 @@ function AppContent() {
   }
 
   return (
-    <Layout isSidebarCollapsed={isSidebarCollapsed}>
+    <Layout isSidebarCollapsed={isSidebarCollapsed} selectedDate={selectedDate}>
       <Sidebar
         activeView={activeView}
         onViewChange={setActiveView}
@@ -189,7 +134,7 @@ function AppContent() {
           }}>
             <div className="flex items-center gap-md">
               <h1 style={{ fontSize: 22, fontWeight: 700 }}>
-                {VIEW_TITLES[activeView] || ''}
+                {viewTitle}
               </h1>
               <Countdown />
             </div>
@@ -199,11 +144,11 @@ function AppContent() {
               )}
               <button
                 className="button button-secondary"
-                style={{ borderRadius: 12, fontSize: 13, padding: '5px 12px' }}
+                style={{ borderRadius: 12, fontSize: 13, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
                 onClick={() => setShowExport(true)}
                 title="导出数据"
               >
-                📤 导出
+                <Download size={14} /> 导出
               </button>
             </div>
           </div>

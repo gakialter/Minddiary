@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { PenLine, Calendar, Search, BookOpen, BookX, Timer, Tags, Bot, Settings } from 'lucide-react'
 
 export default function CommandPalette({ isOpen, onClose, onNavigate }) {
     const [query, setQuery] = useState('')
@@ -6,15 +7,15 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }) {
     const inputRef = useRef(null)
 
     const commands = [
-        { id: 'editor', title: '写新日记', icon: '📝', description: '记录今天的生活' },
-        { id: 'calendar', title: '查看日历', icon: '📅', description: '按日期回顾历史记录' },
-        { id: 'search', title: '搜索日记', icon: '🔍', description: '全局搜索记忆' },
-        { id: 'progress', title: '学习进度', icon: '📖', description: '追踪考研各科目完成度' },
-        { id: 'mistakes', title: '错题本', icon: '📓', description: '复习整理的错题和知识点' },
-        { id: 'pomodoro', title: '专注番茄钟', icon: '🍅', description: '开启一段沉浸式学习' },
-        { id: 'tags', title: '管理标签', icon: '🏷️', description: '分类整理日记' },
-        { id: 'ai', title: 'AI 助手', icon: '🤖', description: '让 AI 帮你总结或答疑' },
-        { id: 'settings', title: '偏好设置', icon: '⚙️', description: '修改主题和高级选项' }
+        { id: 'editor', title: '写新日记', icon: <PenLine size={24} />, description: '记录今天的生活' },
+        { id: 'calendar', title: '查看日历', icon: <Calendar size={24} />, description: '按日期回顾历史记录' },
+        { id: 'search', title: '搜索日记', icon: <Search size={24} />, description: '全局搜索记忆' },
+        { id: 'progress', title: '学习进度', icon: <BookOpen size={24} />, description: '追踪考研各科目完成度' },
+        { id: 'mistakes', title: '错题本', icon: <BookX size={24} />, description: '复习整理的错题和知识点' },
+        { id: 'pomodoro', title: '专注番茄钟', icon: <Timer size={24} />, description: '开启一段沉浸式学习' },
+        { id: 'tags', title: '管理标签', icon: <Tags size={24} />, description: '分类整理日记' },
+        { id: 'ai', title: 'AI 助手', icon: <Bot size={24} />, description: '让 AI 帮你总结或答疑' },
+        { id: 'settings', title: '偏好设置', icon: <Settings size={24} />, description: '修改主题和高级选项' }
     ]
 
     const filteredCommands = commands.filter(c =>
@@ -117,7 +118,13 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }) {
                                         transition: 'none' // instant feedback for keyboard
                                     }}
                                 >
-                                    <span style={{ fontSize: 24 }}>{cmd.icon}</span>
+                                    <span style={{ 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 32, height: 32,
+                                        color: selected ? '#fff' : 'var(--text-secondary)'
+                                    }}>
+                                        {cmd.icon}
+                                    </span>
                                     <div>
                                         <div style={{ fontWeight: 500, fontSize: 15 }}>{cmd.title}</div>
                                         <div style={{ fontSize: 13, color: selected ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
