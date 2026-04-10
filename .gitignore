@@ -50,3 +50,9 @@ output.txt
 
 # One-off verification scripts
 verify-*.js
+
+# Debug/test screenshots (keep only semantic-named finals)
+docs/assets/media__*
+docs/assets/*_test_*
+docs/assets/*_load_state_*
+docs/assets/verification_*
