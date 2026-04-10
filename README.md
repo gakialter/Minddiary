@@ -1,112 +1,176 @@
-# MindDiary (考研日记) ✨
+<p align="center">
+  <img src="./docs/assets/app-icon.png" alt="MindDiary" width="120" />
+</p>
 
-> 📚 **考研人的终极本地知识与时间管理枢纽**
-> MindDiary 是一款专为重度学习者（考研、公考、长期备考）打造的桌面级本地 First 效率工具。它将**结构化日记、错题管理、番茄钟专属统计**以及**本地 AI 助教**融为一体。完全开源、数据本地存储、极致丝滑的跨平台体验。
+<h1 align="center">MindDiary · 考研日记</h1>
 
-![MindDiary App Icon](./build/icon.ico)
+<p align="center">
+  <strong>考研人的终极本地知识与时间管理枢纽</strong><br/>
+  结构化日记 · 番茄钟 · 错题管理 · AI 助教 — 全部数据本地存储
+</p>
 
-[![CI](https://github.com/gakialter/Minddiary/actions/workflows/ci.yml/badge.svg)](https://github.com/gakialter/Minddiary/actions/workflows/ci.yml)
-[![Release](https://github.com/gakialter/Minddiary/actions/workflows/release.yml/badge.svg)](https://github.com/gakialter/Minddiary/actions/workflows/release.yml)
-[![Version](https://img.shields.io/badge/version-1.1.0-blueviolet)](https://github.com/gakialter/Minddiary/releases/tag/v1.1.0)
-
----
-
-## 🌟 核心特性 (Features)
-
-### 1. 📝 沉浸式知识编辑与总结
-*   **富文本与 Markdown 双擎驱动**：支持语法高亮、快捷键 `Ctrl+K` 唤醒全局命令面板。
-*   **考研专属模板**：内置「考研模板」、「精简复盘模板」，帮你在每天结束时快速复盘当日各科进度和情绪。
-*   **本地图床支持**：所有的附件图片直接存入本地 SQLite，摆脱图床失效的烦恼。
-
-### 2. 🍅 与日记深度绑定的番茄钟
-*   **专注流线**：开始番茄钟时自动弹出悬浮 Widget，结束时可立刻一键将专注心得关联并记录到当天的日记中。
-*   **多维度追踪**：支持工作区科目选择，自动统计单科累计专注时间。
-
-### 3. 🧠 你的错题知识库
-*   不再是乱糟糟的纸质本。为错题打上标签、科目，随时通过搜索面板（全局全文检索）或 AI 抽查来复习薄弱环节，通过状态机管理「未解决」到「已掌握」。
-
-### 4. 📊 极客级数据透视
-*   **GitHub 风格学习热力图**：直观展示长达 90 天的学习贡献度和疲劳点。
-*   **多科耗时统计雷达**：一页看透你这周在英语、政治还是专课上花费了最多的时间。
-
-### 5. 🤖 离线优先的 AI 助教
-*   基于您配置的本地/云端 LLM 接口，MindDiary 提供了一位随时待命的 AI 辅导师。
-*   **无需手动喂前置 Context**：它能自动读取你当天的日记、各科番茄钟数据和错题集，直接为你提供「心理按摩」、「错题规律分析」和「明日复习冲刺大纲」。
-
-### 6. 🔒 数据主权绝对在握
-*   **0 云端强制依赖**：通过 `better-sqlite3` 实现全量数据强本地化，不联网也可完全独立使用全部核心功能。
-*   **导出安全加固**：导出 JSON 备份时自动剔除 AI API Key 等敏感字段，防止密钥意外泄露。
-*   **灵活备份与导入导出**：支持 JSON 全量备份与增量合并导入；支持 Markdown 和高清 PDF 导出。
+<p align="center">
+  <a href="https://github.com/gakialter/Minddiary/actions/workflows/ci.yml"><img src="https://github.com/gakialter/Minddiary/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/gakialter/Minddiary/actions/workflows/release.yml"><img src="https://github.com/gakialter/Minddiary/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <a href="https://github.com/gakialter/Minddiary/releases/latest"><img src="https://img.shields.io/github/v/release/gakialter/Minddiary?color=blueviolet" alt="Version" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License" /></a>
+</p>
 
 ---
 
-## 🛠️ 技术栈构架
+## ✨ 功能亮点
+
+<table>
+<tr>
+<td width="50%">
+
+### 📝 沉浸式日记编辑
+- Markdown 语法支持，`Ctrl+S` 一键保存
+- 内置考研 / 精简 / 详细三套复盘模板
+- 心情追踪 + 字数统计 + 分享卡片导出
+
+</td>
+<td width="50%">
+
+### 🍅 深度绑定的番茄钟
+- 专注时自动弹出悬浮 Widget
+- 按科目追踪累计专注时间
+- 完成后一键将心得写入当天日记
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🧠 结构化错题管理
+- 按科目分类，标签化管理
+- 状态机驱动「未解决 → 已掌握」
+- 全文检索 + AI 抽查复习
+
+</td>
+<td>
+
+### 📊 极客级数据透视
+- GitHub 风格 90 天学习热力图
+- 多科耗时雷达图
+- 连续打卡天数统计
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🤖 离线优先 AI 助教
+- 兼容 OpenAI 标准接口（本地/云端 LLM）
+- 自动读取日记、番茄钟、错题集生成建议
+- 内置 Prompt 注入防护
+
+</td>
+<td>
+
+### 🔒 数据主权在握
+- SQLite 全量本地化，无云端依赖
+- JSON 全量备份 + 增量合并导入
+- 导出时自动剔除 API Key 等敏感信息
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📸 界面预览
+
+<p align="center">
+  <img src="./docs/assets/editor.png" width="45%" alt="日记编辑器"/>
+  &nbsp;&nbsp;
+  <img src="./docs/assets/dashboard.png" width="45%" alt="数据统计面板"/>
+</p>
+
+<p align="center">
+  <img src="./docs/assets/pomodoro.png" width="45%" alt="番茄钟"/>
+  &nbsp;&nbsp;
+  <img src="./docs/assets/mistake-book.png" width="45%" alt="错题本"/>
+</p>
+
+---
+
+## 🛠️ 技术栈
 
 | 层次 | 技术 |
 |------|------|
-| **Application Shell** | [Electron](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
-| **Frontend Core** | [React 18](https://reactjs.org/) + [Vite](https://vitejs.dev/) |
-| **Database Engine** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) 同步本地 SQLite |
-| **UI/Styling** | 原生 Vanilla CSS3 变量 + 毛玻璃动效 |
-| **Testing** | [Vitest](https://vitest.dev/) + [@testing-library/react](https://testing-library.com/) |
-| **CI/CD** | GitHub Actions (自动跑测试 + 自动打包 Windows .exe) |
+| **应用外壳** | [Electron](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
+| **前端** | [React 18](https://reactjs.org/) + [Vite](https://vitejs.dev/) |
+| **数据库** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)（WAL 模式） |
+| **样式** | Vanilla CSS3 变量 + 毛玻璃动效，Apple HIG 设计风格 |
+| **图标** | [Lucide React](https://lucide.dev/) |
+| **测试** | [Vitest](https://vitest.dev/) + [Testing Library](https://testing-library.com/) |
+| **CI/CD** | GitHub Actions（自动测试 + 自动构建 Windows 安装包） |
 
 ---
 
-## 🚀 本地开发与构建 (Getting Started)
+## 🚀 快速开始
 
 ### 环境要求
-确保你已经安装了 `Node.js`（推荐 v18+）。
+- **Node.js** 18+
+- **npm** 或 **pnpm**
 
-### 1. 克隆代码并安装依赖
+### 安装与开发
+
 ```bash
+# 克隆并安装
 git clone https://github.com/gakialter/Minddiary.git
 cd Minddiary
 npm install
-```
 
-### 2. 开发模式体验
-```bash
+# 启动开发模式（Vite + Electron 同时运行）
 npm run dev
-```
-将同时启动 Vite 前端服务器与 Electron 主进程。
 
-### 3. 运行单元测试
-```bash
+# 运行测试
 npx vitest run
-```
 
-### 4. 构建发布产物 (Windows)
-```bash
+# 构建发布包（Windows）
 npm run build
+# 产物位于 release/ 目录
 ```
-输出目录位于 `/release/` 下。也可以直接从 [Releases](https://github.com/gakialter/Minddiary/releases) 页面下载最新安装包。
+
+也可以直接在 [Releases](https://github.com/gakialter/Minddiary/releases) 页面下载安装包。
 
 ---
 
-## 💡 使用说明
+## 💡 使用指南
 
-1. **第一次运行**：打开软件后会进入新手引导，完成后即可开始记录。
-2. **AI API 配置**：在设置 `⚙️` 面板填写标准 OpenAI 兼容的 URL 端点以及 Token（仅存于本地，不会被导出）。
-3. **数据跨设备迁移**：点击 `导出为 JSON` 并在另一台机器选择 `从 JSON 导入`，导入算法将智能执行增量去重比对。
-
----
-
-## 📋 更新日志 (Changelog)
-
-### v1.1.0 (2026-03-22) — Phase 11 稳定性与安全里程碑
-*   ✅ **安全加固**：JSON 备份导出时自动剔除 `aiApiKey` 等敏感字段（新增 `sanitize.js` 工具模块）。
-*   🏗️ **架构重构**：抽离 `useNavigation` 和 `useGlobalKeyboard` 自定义 Hook，`App.jsx` 精简化。
-*   🧪 **完善测试**：建立单元测试骨架（Vitest + React Testing Library），共 29 个测试全部通过。
-*   🤖 **CI/CD**：新增 GitHub Actions CI 工作流，每次 PR 自动验证测试通过。
-
-### v1.0.7 及更早
-*   日记编辑、番茄钟、错题本、AI 助手、数据统计等核心功能建立与打磨。
+1. **首次运行** — 完成新手引导后即可开始记录
+2. **AI 配置** — 在设置 `⚙️` 中填写 OpenAI 兼容端点和 Token（仅存于本地）
+3. **快捷键** — `Ctrl+S` 保存 · `Ctrl+K` 打开命令面板
+4. **数据迁移** — 「导出为 JSON」→ 换机后「从 JSON 导入」，支持智能增量去重
 
 ---
 
-## 🤝 贡献说明 (Contributing)
-如果你在备考的过程中发现了更好用的效率模式，或者想要修复一个视觉小 Bug，非常欢迎提交 Pull Request 或者 Issue。
+## 📋 更新日志
 
-## 📄 协议 (License)
-本项目代码基于 [MIT License](LICENSE) 开源。祝所有的考研/公考学子顺利上岸！🚀
+### v1.1.0 — 稳定性与安全里程碑
+- ✅ JSON 备份导出时自动剔除敏感字段
+- 🏗️ App.jsx 架构重构：抽离 `useNavigation` / `useGlobalKeyboard` Custom Hooks
+- 🧪 建立单元测试骨架（Vitest + React Testing Library）
+- 🤖 新增 GitHub Actions CI 工作流
+
+<details>
+<summary>更早版本</summary>
+
+### v1.0.x
+- 日记编辑、番茄钟、错题本、AI 助手等核心功能建立与打磨
+- 暗色模式、分享卡片、自动备份
+- CSP 安全策略、Prompt 注入防护
+
+</details>
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Pull Request 或 [Issue](https://github.com/gakialter/Minddiary/issues)。
+
+## 📄 许可证
+
+[MIT License](./LICENSE) — 祝所有考研 / 公考学子顺利上岸！🚀

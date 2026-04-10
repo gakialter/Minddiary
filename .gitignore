@@ -1,19 +1,52 @@
-node_modules
-dist
-release
-.vite
-.eslintcache
-*.log
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+release/
+asar_temp/
+*.exe
+*.blockmap
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
 .DS_Store
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 Thumbs.db
+
+# Environment / Secrets
+.env
+.env.*
+.baoyu-skills/
+
+# Test & Coverage artifacts
+coverage/
+*.log
+test-results.txt
+test-output*.log
+coverage*.log
+
+# Build resources (generated)
 build/icon.ico
 build/icon.png
 build/background.png
-coverage/
-.baoyu-skills/
-asar_temp/
+
+# Vite cache
+.vite/
+.eslintcache
+
+# Private planning docs (keep locally, never push)
+AI_PERSONA_PROMPT.md
+DUAL_AI_WORKFLOW_TEMPLATE.md
+PHASE_11_GSTACK_PLAN.md
+task_plan.md
+findings.md
+progress.md
+output.txt
+
+# One-off verification scripts
+verify-*.js
