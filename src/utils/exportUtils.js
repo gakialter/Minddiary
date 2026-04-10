@@ -12,6 +12,9 @@
  *   • No jsPDF dependency, no font subsetting, no canvas hacks
  */
 
+// App version — read from package.json so exports always reflect the current version
+const APP_VERSION = __APP_VERSION__ || '1.0.0'  // __APP_VERSION__ injected by Vite define
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
@@ -99,7 +102,7 @@ export function generateJSON(data) {
     const payload = {
         _meta: {
             app: 'MindDiary',
-            version: '1.0.0',
+            version: APP_VERSION,
             exportedAt: new Date().toISOString(),
             counts: {
                 entries: data.entries?.length ?? 0,

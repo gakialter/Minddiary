@@ -669,27 +669,6 @@ textarea.input {
   user-select: text;
 }
 
-/* Toast animation */
-@keyframes toast-in {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
 
 /* TagManager components */
 .tag-grid {
