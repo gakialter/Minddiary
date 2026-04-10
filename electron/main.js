@@ -7,6 +7,9 @@ const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
 
+// Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
+const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
+
 let mainWindow;
 
 function createWindow() {
@@ -251,6 +254,11 @@ const runAutoBackup = async () => {
         const pomodoro = db.getPomodoroRange('1970-01-01', '2099-12-31');
         const allSettings = db.getAllSettings();
 
+        // Strip sensitive keys (e.g. AI API key) before writing to disk
+        const safeSettings = Object.fromEntries(
+            Object.entries(allSettings || {}).filter(([key]) => !SENSITIVE_SETTINGS_KEYS.includes(key))
+        );
+
         const payload = {
             version: '1.0.0',
             timestamp: new Date().toISOString(),
@@ -260,7 +268,7 @@ const runAutoBackup = async () => {
                 subjects,
                 mistakes,
                 pomodoro,
-                settings: allSettings || {},
+                settings: safeSettings,
             }
         };
 

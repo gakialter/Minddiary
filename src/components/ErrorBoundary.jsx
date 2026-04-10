@@ -61,7 +61,7 @@ ${errorInfo?.componentStack}
 - 时间: ${new Date().toISOString()}
     `.trim()
 
-    const githubIssueUrl = `https://github.com/your-repo/issues/new?title=${encodeURIComponent('应用崩溃报告')}&body=${encodeURIComponent(issueBody)}`
+    const githubIssueUrl = `https://github.com/gakialter/Minddiary/issues/new?title=${encodeURIComponent('应用崩溃报告')}&body=${encodeURIComponent(issueBody)}`
     window.open(githubIssueUrl, '_blank')
   }
 
