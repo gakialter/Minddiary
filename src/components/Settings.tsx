@@ -1,0 +1,439 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useDiary } from '../contexts/DiaryContext'
+import { showToast } from './Toast'
+import { sanitizeSettingsForExport, isSensitiveKey } from '../utils/sanitize'
+import { Settings as SettingsIcon, ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, Check } from 'lucide-react'
+
+function Settings() {
+  const diary = useDiary()
+  const [examDate, setExamDate] = useState('2025-12-21')
+  const [aiEndpoint, setAiEndpoint] = useState('')
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [aiModel, setAiModel] = useState('gpt-3.5-turbo')
+  const [autoSave, setAutoSave] = useState(true)
+  const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
+  const [autoBackup, setAutoBackup] = useState(false)
+  const [backupPath, setBackupPath] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    loadSettings()
+  }, [])
+
+  const loadSettings = async () => {
+    try {
+      const settings = await diary.settings.getAll()
+      if (!settings) return
+      setExamDate((settings.examDate as string) || '2025-12-21')
+      setAiEndpoint((settings.aiEndpoint as string) || '')
+      setAiApiKey((settings.aiApiKey as string) || '')
+      setAiModel((settings.aiModel as string) || 'gpt-3.5-turbo')
+      setAutoSave(settings.autoSave !== false)
+      setPomodoroMinutes(parseInt(String(settings.pomodoroMinutes)) || 25)
+      setAutoBackup(settings.autoBackup === 'true' || settings.autoBackup === true)
+      setBackupPath((settings.backupPath as string) || '')
+      setSettingsLoaded(true)  // mark as loaded before triggering auto-save
+    } catch (error) {
+      console.error('Failed to load settings:', error)
+    }
+  }
+
+  // Auto-save: debounced 500ms after any setting change (only after initial load)
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings()
+    }, 500)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [examDate, aiEndpoint, aiApiKey, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath])
+
+  const saveSettings = async () => {
+    setSaving(true)
+    try {
+      await diary.settings.update('examDate', examDate)
+      await diary.settings.update('aiEndpoint', aiEndpoint)
+      await diary.settings.update('aiApiKey', aiApiKey)
+      await diary.settings.update('aiModel', aiModel)
+      await diary.settings.update('autoSave', autoSave)
+      await diary.settings.update('pomodoroMinutes', pomodoroMinutes)
+      await diary.settings.update('autoBackup', autoBackup)
+      await diary.settings.update('backupPath', backupPath)
+      showToast('设置已保存', 'success')
+    } catch (error) {
+      console.error('Failed to save settings:', error)
+      showToast('保存失败', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const exportData = async () => {
+    try {
+      showToast('正在准备数据...', 'info')
+      setSaving(true)
+
+      const [entries, tags, subjects, mistakes, pomodoro, allSettings] = await Promise.all([
+        diary.entries.getAll({ includeContent: true }),
+        diary.tags.getAll(),
+        diary.subjects.getAll(),
+        diary.mistakes.getAll({}),
+        diary.pomodoro.getRange('1970-01-01', '2099-12-31'),
+        diary.settings.getAll(),
+      ]).catch(() => [[], [], [], [], [], {}] as const) as [unknown, unknown, unknown, unknown, unknown, unknown]
+
+      const backup = {
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        data: {
+          entries, tags, subjects, mistakes, pomodoro,
+          settings: sanitizeSettingsForExport(allSettings as Record<string, unknown>),
+        }
+      }
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `MindDiary_Backup_${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      showToast('导出成功', 'success')
+    } catch (e: unknown) {
+      console.error(e)
+      showToast('导出失败: ' + (e instanceof Error ? e.message : String(e)), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const importData = async () => {
+    // 1. Create a hidden file input
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      const file = target.files?.[0]
+      if (!file) return
+
+      if (file.size > 50 * 1024 * 1024) {
+        showToast('文件过大（超过 50MB），请选择有效的备份文件', 'error')
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = async (event) => {
+        try {
+          const content = event.target?.result as string
+          const backup = JSON.parse(content)
+
+          if (!backup.data || (!backup.data.entries && !backup.data.mistakes)) {
+            throw new Error('无效的备份文件格式')
+          }
+
+          // Basic confirmation
+          const confirmImport = window.confirm(
+            `解析成功！检测到版本 ${backup.version || '未知'} 的备份文件。\n` +
+            `包含 ${backup.data.entries?.length || 0} 篇日记，${backup.data.mistakes?.length || 0} 道错题。\n\n` +
+            `是否要继续合并导入？(这将会追加不存在的记录，并覆盖相同ID的记录)`
+          )
+
+          if (!confirmImport) return
+
+          setSaving(true)
+          showToast('正在导入数据...', 'info')
+
+          const data = backup.data
+          let importCount = 0
+
+          if (data.entries) {
+            for (const entry of data.entries) {
+              const existing = await diary.entries.getByDate(entry.date)
+              if (existing) {
+                await diary.entries.update(existing.id, entry)
+              } else {
+                await diary.entries.create(entry)
+              }
+              importCount++
+            }
+          }
+
+          if (data.tags) {
+            for (const tag of data.tags) {
+              await diary.tags.create(tag).catch(() => { })
+            }
+          }
+
+          if (data.subjects) {
+            const existingSubjects = await diary.subjects.getAll()
+            for (const sub of data.subjects) {
+              const match = (existingSubjects || []).find((s: { name: string }) => s.name === sub.name)
+              if (match) {
+                await diary.subjects.update(match.id, sub).catch(() => { })
+              } else {
+                await diary.subjects.create(sub).catch(() => { })
+              }
+            }
+          }
+
+          if (data.mistakes) {
+            for (const mis of data.mistakes) {
+              await diary.mistakes.create(mis).catch(() => { })
+            }
+          }
+
+          showToast(`导入完成，处理了 ${importCount} 篇日记。请重启应用以刷新状态。`, 'success', 5000)
+
+        } catch (error: unknown) {
+          console.error('Import failed:', error)
+          showToast(`导入失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+        } finally {
+          setSaving(false)
+        }
+      }
+      reader.readAsText(file)
+    }
+
+    input.click()
+  }
+
+  const checkForUpdates = async () => {
+    if (!window.api?.updater?.check) {
+      showToast('此功能仅在桌面客户端可用', 'error')
+      return
+    }
+    
+    setCheckingUpdate(true)
+    showToast('正在检查更新...', 'info')
+    try {
+      const res = await window.api.updater.check()
+      if (res.success) {
+        showToast('检查完毕，若有新版本将在后台下载', 'success', 3000)
+      } else {
+        showToast(res.message || '环境不支持自动更新', 'error')
+      }
+    } catch (e) {
+      showToast('更新检查失败，请重试', 'error')
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const sectionStyle: React.CSSProperties = {
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    padding: 'var(--space-lg)',
+  }
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block', fontSize: 13, color: 'var(--text-muted)',
+    marginBottom: 'var(--space-sm)',
+  }
+
+  const fieldGroupStyle: React.CSSProperties = {
+    display: 'flex', flexDirection: 'column', gap: 'var(--space-md)',
+  }
+
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <h2 className="text-xl font-semibold" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <SettingsIcon size={22} style={{ color: 'var(--accent)' }} /> 设置
+      </h2>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+        {/* General settings */}
+        <div style={sectionStyle}>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClipboardList size={16} /> 基本设置
+          </h3>
+          <div style={fieldGroupStyle}>
+            <div>
+              <label style={labelStyle}>考研日期</label>
+              <input
+                type="date" className="input w-full"
+                value={examDate}
+                onChange={(e) => setExamDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>主题</label>
+              <select className="input w-full" value={diary.theme} onChange={(e) => diary.changeTheme(e.target.value)}>
+                <option value="system">跟随系统</option>
+                <option value="light">亮色模式</option>
+                <option value="dark">暗色模式</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>番茄钟时长（分钟）</label>
+              <input
+                type="number" className="input w-full"
+                min={1} max={120}
+                value={pomodoroMinutes}
+                onChange={(e) => setPomodoroMinutes(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox" checked={autoSave}
+                  onChange={(e) => setAutoSave(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                <span className="text-sm">启用自动保存</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* AI settings */}
+        <div style={sectionStyle}>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Bot size={16} /> AI 助手设置
+          </h3>
+          <div style={fieldGroupStyle}>
+            <div>
+              <label style={labelStyle}>API Endpoint</label>
+              <input
+                type="text" className="input w-full"
+                placeholder="https://api.openai.com/v1"
+                value={aiEndpoint}
+                onChange={(e) => setAiEndpoint(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>API Key</label>
+              <input
+                type="password" className="input w-full"
+                placeholder="sk-..."
+                value={aiApiKey}
+                onChange={(e) => setAiApiKey(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>模型</label>
+              <select className="input w-full" value={aiModel} onChange={(e) => setAiModel(e.target.value)}>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                <option value="gpt-4">GPT-4</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="deepseek-chat">DeepSeek Chat</option>
+                <option value="qwen-turbo">Qwen Turbo</option>
+              </select>
+            </div>
+            <div className="text-xs text-muted">
+              留空则不启用 AI 功能。支持 OpenAI 兼容的 API（DeepSeek、Qwen 等）。
+            </div>
+          </div>
+        </div>
+
+        {/* Data management & Backup */}
+        <div style={sectionStyle}>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Database size={16} /> 数据管理与备份
+          </h3>
+          <div style={fieldGroupStyle}>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer', marginBottom: 'var(--space-sm)' }}>
+                <input
+                  type="checkbox" checked={autoBackup}
+                  onChange={(e) => setAutoBackup(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                <span className="text-sm font-semibold">开启静默自动备份</span>
+              </label>
+              <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-sm)' }}>
+                开启后，每24小时及启动时自动在指定目录备份 JSON 文件。
+              </div>
+
+              <div style={{ opacity: autoBackup ? 1 : 0.5, pointerEvents: autoBackup ? 'auto' : 'none', transition: 'opacity 0.2s', marginBottom: 'var(--space-md)' }}>
+                <label style={labelStyle}>自动备份目录</label>
+                <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+                  <input
+                    type="text" className="input" style={{ flex: 1, fontSize: 12 }}
+                    placeholder="选择文件夹..."
+                    value={backupPath}
+                    readOnly
+                  />
+                  <button className="button button-secondary" style={{ padding: '0 var(--space-md)' }} onClick={async () => {
+                    if (!window.api?.settings?.selectBackupFolder) return showToast('此功能仅在客户端可用', 'error')
+                    const path = await window.api.settings.selectBackupFolder()
+                    if (path) setBackupPath(path)
+                  }}>选择</button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: 'var(--border)', margin: 'var(--space-sm) 0' }} />
+            <div>
+              <label style={labelStyle}>导出数据</label>
+              <button className="button button-secondary w-full" onClick={exportData}>
+                <Package size={15} /> 导出为 JSON
+              </button>
+            </div>
+            <div>
+              <label style={labelStyle}>导入数据</label>
+              <button className="button button-secondary w-full" onClick={importData}>
+                <FolderOpen size={15} /> 从 JSON 导入
+              </button>
+            </div>
+            <div className="text-xs text-muted">
+              数据全部存储在本地，导出可做备份。
+            </div>
+          </div>
+        </div>
+
+        {/* About */}
+        <div style={sectionStyle}>
+          <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={16} /> 关于
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+            <div className="text-sm">
+              <span className="text-muted">版本：</span> <span>1.0.0</span>
+            </div>
+            <div className="text-sm">
+              <span className="text-muted">存储：</span> <span>SQLite 本地数据库</span>
+            </div>
+            <div className="text-sm">
+              <span className="text-muted">隐私：</span> <span>数据完全本地存储，无网络请求</span>
+            </div>
+            <div style={{ marginTop: 'var(--space-md)' }}>
+              <button 
+                className="button button-secondary w-full" 
+                onClick={checkForUpdates}
+                disabled={checkingUpdate}
+              >
+                {checkingUpdate ? '正在检查...' : <><RefreshCw size={15} /> 检查更新</>}
+              </button>
+            </div>
+            <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
+              MindDiary · 专为考研学生设计的日记应用
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Save button */}
+      <div className="flex justify-end gap-sm" style={{ marginTop: 'var(--space-lg)' }}>
+        <button className="button button-secondary" onClick={loadSettings}>
+          重置
+        </button>
+        <button className="button button-primary" onClick={saveSettings} disabled={saving}>
+           {saving ? '保存中...' : <><Check size={15} /> 保存设置</>}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default Settings

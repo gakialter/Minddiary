@@ -1,6 +1,6 @@
 {
     "name": "minddiary",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "考研日记桌面应用",
     "engines": {
         "node": ">=20.12.0"
@@ -13,7 +13,8 @@
         "postinstall": "electron-builder install-app-deps",
         "build": "vite build && electron-builder",
         "preview": "vite preview",
-        "test": "vitest"
+        "test": "vitest",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "better-sqlite3": "^11.0.0",
@@ -30,6 +31,8 @@
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
+        "@types/dompurify": "^3.0.5",
+        "@types/file-saver": "^2.0.7",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.0",
         "@vitejs/plugin-react": "^4.3.1",
@@ -40,6 +43,7 @@
         "jsdom": "^29.0.1",
         "playwright": "^1.58.2",
         "png-to-ico": "^3.0.1",
+        "typescript": "^6.0.2",
         "vite": "^5.4.0",
         "vitest": "^4.0.18",
         "wait-on": "^7.2.0"

@@ -14,6 +14,7 @@
   <a href="https://github.com/gakialter/Minddiary/actions/workflows/release.yml"><img src="https://github.com/gakialter/Minddiary/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <a href="https://github.com/gakialter/Minddiary/releases/latest"><img src="https://img.shields.io/github/v/release/gakialter/Minddiary?color=blueviolet" alt="Version" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue?logo=typescript&logoColor=white" alt="TypeScript" /></a>
 </p>
 
 ---
@@ -99,20 +100,21 @@
 
 | 层次 | 技术 |
 |------|------|
-| **应用外壳** | [Electron](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
-| **前端** | [React 18](https://reactjs.org/) + [Vite](https://vitejs.dev/) |
+| **应用外壳** | [Electron 28](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
+| **前端** | [React 18](https://reactjs.org/) + [TypeScript](https://www.typescriptlang.org/) (strict) + [Vite](https://vitejs.dev/) |
 | **数据库** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)（WAL 模式） |
 | **样式** | Vanilla CSS3 变量 + 毛玻璃动效，Apple HIG 设计风格 |
 | **图标** | [Lucide React](https://lucide.dev/) |
-| **测试** | [Vitest](https://vitest.dev/) + [Testing Library](https://testing-library.com/) |
-| **CI/CD** | GitHub Actions（自动测试 + 自动构建 Windows 安装包） |
+| **类型安全** | 完整 `strict` 模式，50 个源文件全量类型化 |
+| **测试** | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/) |
+| **CI/CD** | GitHub Actions（Type Check → Unit Test → Build → Release） |
 
 ---
 
 ## 🚀 快速开始
 
 ### 环境要求
-- **Node.js** 18+
+- **Node.js** 20+
 - **npm** 或 **pnpm**
 
 ### 安装与开发
@@ -126,8 +128,11 @@ npm install
 # 启动开发模式（Vite + Electron 同时运行）
 npm run dev
 
+# 类型检查
+npm run typecheck
+
 # 运行测试
-npx vitest run
+npm run test
 
 # 构建发布包（Windows）
 npm run build
@@ -147,11 +152,42 @@ npm run build
 
 ---
 
+## 📂 项目结构
+
+```
+src/
+├── components/     # React UI 组件 (.tsx)
+├── contexts/       # 状态管理 — Settings / Data / Diary / Pomodoro
+├── hooks/          # Custom Hooks
+├── types/          # TypeScript 类型定义（数据模型 + API 签名）
+├── utils/          # 纯函数工具库
+└── data/           # Mock 数据（浏览器开发模式）
+
+electron/
+├── main.js         # Electron 主进程
+├── preload.js      # IPC Bridge (contextIsolation)
+├── database.js     # SQLite CRUD
+├── fileManager.js  # 附件文件管理
+└── aiService.js    # AI API 代理
+
+tests/              # Vitest 单元测试 + 组件测试
+```
+
+---
+
 ## 📋 更新日志
+
+### v1.2.0 — TypeScript 全量迁移
+
+- 🔷 **Renderer 层全量 TypeScript 化** — 50 个源文件从 JS/JSX 迁移至 TS/TSX，启用 `strict` 模式
+- 🏗️ 建立完整类型基础设施 — `src/types/` 包含数据模型接口、ElectronAPI 签名、全局类型声明
+- 🧹 仓库卫生治理 — 清除 22 个调试截图、临时脚本、内部规划文档
+- ⚡ CI 增加 `typecheck` 步骤，类型错误在合并前即被拦截
+- 📝 Node.js 最低版本要求提升至 20+
 
 ### v1.1.0 — 稳定性与安全里程碑
 - ✅ JSON 备份导出时自动剔除敏感字段
-- 🏗️ App.jsx 架构重构：抽离 `useNavigation` / `useGlobalKeyboard` Custom Hooks
+- 🏗️ App 架构重构：抽离 `useNavigation` / `useGlobalKeyboard` Custom Hooks
 - 🧪 建立单元测试骨架（Vitest + React Testing Library）
 - 🤖 新增 GitHub Actions CI 工作流
 
