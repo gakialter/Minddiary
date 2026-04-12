@@ -1,4 +1,4 @@
-import { PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface SidebarProps {
   activeView: string
@@ -16,6 +16,7 @@ interface NavItem {
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
   const navItems: NavItem[] = [
+    { id: 'home', icon: <Home size={20} />, label: '今日看板' },
     { id: 'editor', icon: <PenLine size={20} />, label: '写日记' },
     { id: 'calendar', icon: <Calendar size={20} />, label: '日历' },
     { id: 'dashboard', icon: <BarChart2 size={20} />, label: '数据统计' },

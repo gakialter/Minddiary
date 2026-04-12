@@ -43,10 +43,16 @@ build/background.png
 AI_PERSONA_PROMPT.md
 DUAL_AI_WORKFLOW_TEMPLATE.md
 PHASE_11_GSTACK_PLAN.md
+PROJECT_PLAN.md
 task_plan.md
 findings.md
 progress.md
 output.txt
+*-handoff.md
+*-handoff-*.md
+
+# AI brainstorm artifacts
+.superpowers/
 
 # One-off verification scripts
 verify-*.js

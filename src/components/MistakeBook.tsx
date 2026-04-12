@@ -3,6 +3,8 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen } from 'lucide-react'
 import type { Mistake, Subject, MistakeFilters } from '../types'
+import { calculateNextReview, isDueForReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
+import Latex from 'react-latex-next'
 
 interface MistakeFilter {
     subject_id: string
@@ -15,6 +17,7 @@ interface MistakeForm {
     question: string
     answer: string
     notes: string
+    image_path?: string | null
 }
 
 export default function MistakeBook() {
@@ -25,8 +28,9 @@ export default function MistakeBook() {
     const [editingId, setEditingId] = useState<number | null>(null)
     const [filter, setFilter] = useState<MistakeFilter>({ subject_id: '', mastered: '', search: '' })
     const [searchInput, setSearchInput] = useState('')
-    const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '' })
+    const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '', image_path: null })
     const [page, setPage] = useState(1)
+    const [isDragging, setIsDragging] = useState(false)
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -73,14 +77,15 @@ export default function MistakeBook() {
                 subject_id: form.subject_id ? Number(form.subject_id) : null,
                 question: form.question,
                 answer: form.answer,
-                notes: form.notes
+                notes: form.notes,
+                image_path: form.image_path || null
             }
             if (editingId) {
                 await diary.mistakes.update(editingId, payload)
             } else {
                 await diary.mistakes.create(payload)
             }
-            setForm({ subject_id: '', question: '', answer: '', notes: '' })
+            setForm({ subject_id: '', question: '', answer: '', notes: '', image_path: null })
             setShowForm(false)
             setEditingId(null)
             loadMistakes()
@@ -97,9 +102,67 @@ export default function MistakeBook() {
             subject_id: m.subject_id?.toString() || '',
             question: m.question,
             answer: m.answer || '',
-            notes: m.notes || ''
+            notes: m.notes || '',
+            image_path: m.image_path || null
         })
         setShowForm(true)
+    }
+
+    const handleImageFile = async (file: File) => {
+        if (!file.type.startsWith('image/') || !diary.mistakes.saveImage) return
+        
+        try {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+                const base64 = e.target?.result?.toString().split(',')[1]
+                if (base64) {
+                    const ext = file.name ? file.name.substring(file.name.lastIndexOf('.')) : '.png'
+                    const filename = await diary.mistakes.saveImage!({ data: base64, ext: ext || '.png' })
+                    setForm(f => ({ ...f, image_path: filename }))
+                    showToast('图片已上传', 'success')
+                }
+            }
+            reader.readAsDataURL(file)
+        } catch (e) {
+            console.error(e)
+            showToast('图片上传失败', 'error')
+        }
+    }
+
+    const handlePaste = (e: React.ClipboardEvent) => {
+        if (!showForm || !e.clipboardData || !e.clipboardData.items) return
+        const items = e.clipboardData.items
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i]
+            if (item && item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) handleImageFile(file)
+                break
+            }
+        }
+    }
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(true)
+    }
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(false)
+    }
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault()
+        setIsDragging(false)
+        if (!showForm || !e.dataTransfer || !e.dataTransfer.files) return
+        const files = e.dataTransfer.files
+        if (files.length > 0) {
+            const file = files.item(0)
+            if (file && file.type.startsWith('image/')) {
+                handleImageFile(file)
+            }
+        }
     }
 
     const handleDelete = async (id: number) => {
@@ -120,6 +183,24 @@ export default function MistakeBook() {
         } catch (e) { console.error(e) }
     }
 
+    const handleReview = async (m: Mistake, quality: number) => {
+        try {
+            const result = calculateNextReview(
+                quality,
+                m.ease_factor || 2.5,
+                m.review_interval || 1,
+                m.review_count || 0
+            )
+            await diary.mistakes.review(m.id, result)
+            loadMistakes()
+            if (quality >= 3) showToast('复习成功，已安排下次复习', 'success')
+            else showToast('没关系，已重置学习进度', 'info')
+        } catch (e) {
+            console.error(e)
+            showToast('复习记录失败', 'error')
+        }
+    }
+
     const masteredCount = mistakes.filter(m => m.mastered).length
     const totalCount = mistakes.length
     const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -138,7 +219,7 @@ export default function MistakeBook() {
                 </div>
                 <button className="button button-primary" onClick={() => {
                     setShowForm(!showForm); setEditingId(null);
-                    setForm({ subject_id: '', question: '', answer: '', notes: '' })
+                    setForm({ subject_id: '', question: '', answer: '', notes: '', image_path: null })
                 }}>
                     + 添加
                 </button>
@@ -165,8 +246,20 @@ export default function MistakeBook() {
 
             {/* Add/Edit Form */}
             {showForm && (
-                <div className="card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-md)' }}>
-                    <h3 style={{ marginBottom: 'var(--space)' }}>{editingId ? '编辑' : '添加错题/知识点'}</h3>
+                <div className="card" 
+                     style={{ 
+                         padding: 'var(--space-lg)', marginBottom: 'var(--space-md)',
+                         border: isDragging ? '2px dashed var(--accent)' : '1px solid var(--border)' 
+                     }}
+                     onPaste={handlePaste}
+                     onDragOver={handleDragOver}
+                     onDragLeave={handleDragLeave}
+                     onDrop={handleDrop}
+                >
+                    <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
+                        <h3>{editingId ? '编辑' : '添加错题/知识点'}</h3>
+                        <span className="text-xs text-muted">提示：支持 Ctrl+V 粘贴或拖拽图片</span>
+                    </div>
                     <div className="flex flex-col gap-sm">
                         <select className="input" value={form.subject_id}
                             onChange={e => setForm({ ...form, subject_id: e.target.value })}>
@@ -188,6 +281,19 @@ export default function MistakeBook() {
                             value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
+                        {form.image_path && (
+                            <div style={{ position: 'relative', display: 'inline-block', alignSelf: 'flex-start', marginTop: 'var(--space-xs)' }}>
+                                <img 
+                                    src={`local://${form.image_path}`} 
+                                    alt="Mistake" 
+                                    style={{ maxHeight: 200, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} 
+                                />
+                                <button 
+                                    onClick={() => setForm(f => ({ ...f, image_path: null }))}
+                                    style={{ position: 'absolute', top: -8, right: -8, background: 'var(--error)', color: 'white', borderRadius: '50%', width: 24, height: 24, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >✕</button>
+                            </div>
+                        )}
                         <div className="flex gap-sm">
                             <button className="button button-primary" onClick={handleSubmit}>
                                 {editingId ? '保存' : '添加'}
@@ -219,13 +325,16 @@ export default function MistakeBook() {
                                     </span>
                                 )}
                                 {m.mastered
-                                    ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 已掌握</span>
-                                    : <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 待复习</span>}
+                                    ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 斩首成功 (已掌握)</span>
+                                    : isDueForReview(m.next_review_date) 
+                                        ? <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
+                                        : <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 下次复习: {m.next_review_date}</span>
+                                }
                             </div>
                             <div className="flex gap-xs">
                                 <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
                                     onClick={() => toggleMastered(m.id)}>
-                                    {m.mastered ? <><Undo2 size={13} /> 重学</> : <><CheckCircle2 size={13} /> 掌握</>}
+                                    {m.mastered ? <><Undo2 size={13} /> 重新加入计划</> : <><CheckCircle2 size={13} /> 彻底掌握</>}
                                 </button>
                                 <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                     onClick={() => handleEdit(m)}><Pencil size={13} /></button>
@@ -236,17 +345,42 @@ export default function MistakeBook() {
                                 ><Trash2 size={13} /></button>
                             </div>
                         </div>
-                        <div style={{ marginBottom: 'var(--space-xs)' }}>
-                            <strong>Q：</strong>{m.question}
+                        <div style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
+                            <strong>Q：</strong><Latex>{m.question}</Latex>
                         </div>
+                        {m.image_path && (
+                            <div style={{ margin: 'var(--space-sm) 0' }}>
+                                <img 
+                                    src={`local://${m.image_path}`} 
+                                    alt="Mistake" 
+                                    style={{ maxHeight: 300, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} 
+                                />
+                            </div>
+                        )}
                         {m.answer && (
-                            <div className="text-secondary" style={{ marginBottom: 'var(--space-xs)' }}>
-                                <strong>A：</strong>{m.answer}
+                            <div className="text-secondary" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
+                                <strong>A：</strong><Latex>{m.answer}</Latex>
                             </div>
                         )}
                         {m.notes && (
                             <div className="text-sm text-muted" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                                 <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} /> {m.notes}
+                            </div>
+                        )}
+                        
+                        {/* Spaced Repetition Review Buttons */}
+                        {!m.mastered && isDueForReview(m.next_review_date) && (
+                            <div className="flex gap-sm" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)' }}>
+                                {REVIEW_QUALITIES.map(rq => (
+                                    <button 
+                                        key={rq.quality}
+                                        className="button button-secondary"
+                                        style={{ flex: 1, color: rq.color, borderColor: rq.color + '44' }}
+                                        onClick={() => handleReview(m, rq.quality)}
+                                    >
+                                        {rq.label}
+                                    </button>
+                                ))}
                             </div>
                         )}
                     </div>

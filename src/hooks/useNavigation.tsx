@@ -1,8 +1,9 @@
 import { useState, useCallback, type ReactNode } from 'react'
 import { getTodayStr } from '../utils/helpers'
-import { PenLine, CalendarDays, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot } from 'lucide-react'
+import { Home, PenLine, CalendarDays, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot } from 'lucide-react'
 import type { DiaryEntry } from '../types'
 
+import HomeDashboard from '../components/HomeDashboard'
 import Calendar from '../components/Calendar'
 import Editor from '../components/Editor'
 import Dashboard from '../components/Dashboard'
@@ -39,6 +40,10 @@ interface ViewConfig {
  *   - render: function(props) => JSX for the view content
  */
 export const VIEW_CONFIG: Record<string, ViewConfig> = {
+  home: {
+    title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Home size={22} style={{ color: 'var(--accent)' }} /> 今日看板</span>,
+    render: (props) => <HomeDashboard setActiveView={props.setActiveView} />,
+  },
   editor: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><PenLine size={22} style={{ color: 'var(--accent)' }} /> 写日记</span>,
     render: (props) => (
@@ -102,7 +107,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
  * useNavigation — manages active view state and date-based navigation.
  */
 export function useNavigation() {
-  const [activeView, setActiveView] = useState('editor')
+  const [activeView, setActiveView] = useState('home')
   const [selectedDate, setSelectedDate] = useState(getTodayStr())
 
   const changeDate = useCallback((date: string) => {

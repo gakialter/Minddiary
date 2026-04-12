@@ -10,6 +10,7 @@ interface DashboardStats {
     streakDays: number
     masteredMistakes: number
     totalMistakes: number
+    dueMistakes: number
 }
 
 interface WeeklyDataPoint {
@@ -32,6 +33,7 @@ export default function Dashboard() {
         streakDays: 0,
         masteredMistakes: 0,
         totalMistakes: 0,
+        dueMistakes: 0,
     });
     const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
     const [heatmapData, setHeatmapData] = useState<HeatmapDataPoint[]>([]);
@@ -64,13 +66,15 @@ export default function Dashboard() {
                 streak,
                 mistakesList,
                 heatmapEntries,
-                pomodoroAllTime // MOCK total using a wide range
+                pomodoroAllTime,
+                dueCount
             ] = await Promise.all([
                 pomodoro.getRange(startWeek, endWeek).catch(() => [] as PomodoroRangeEntry[]),
                 dashboard.streak().catch(() => 0),
                 mistakes.getAll({}).catch(() => [] as Mistake[]),
                 dashboard.entryDatesRange(startHeatmap, endWeek).catch(() => [] as Array<{ date: string; mood: string | null }>),
-                pomodoro.getRange('2000-01-01', endWeek).catch(() => [] as PomodoroRangeEntry[])
+                pomodoro.getRange('2000-01-01', endWeek).catch(() => [] as PomodoroRangeEntry[]),
+                mistakes.getDueCount(endWeek).catch(() => 0)
             ]);
 
             // Calculate overall stats
@@ -82,7 +86,8 @@ export default function Dashboard() {
                 sessionCount: totalSessions,
                 streakDays: streak as number,
                 masteredMistakes: (mistakesList as Mistake[]).filter(m => m.mastered === 1 as unknown as boolean).length,
-                totalMistakes: (mistakesList as Mistake[]).length
+                totalMistakes: (mistakesList as Mistake[]).length,
+                dueMistakes: dueCount as number
             });
 
             // Format Weekly Data (Ensure 7 days are represented even if 0)
@@ -198,7 +203,21 @@ export default function Dashboard() {
                         {stats.totalMistakes > 0 ? Math.round((stats.masteredMistakes / stats.totalMistakes) * 100) : 0}
                         <span className="text-lg">%</span>
                     </div>
-                    <div className="text-xs text-muted mt-1">已掌握 {stats.masteredMistakes} / {stats.totalMistakes}</div>
+                    <div className="text-sm text-muted mt-1">
+                        已掌握 {stats.masteredMistakes} / 共 {stats.totalMistakes}
+                    </div>
+                </div>
+
+                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--error)' }}>
+                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
+                        <RefreshCw size={14} style={{ color: 'var(--error)' }} /> 今日待复习错题
+                    </div>
+                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: stats.dueMistakes > 0 ? 'var(--error)' : 'var(--success)' }}>
+                        {stats.dueMistakes} <span className="text-sm font-normal text-muted">题</span>
+                    </div>
+                    <div className="text-sm text-muted mt-1">
+                        {stats.dueMistakes > 0 ? '赶紧去错题本消灭它们吧！' : '太棒了，今天没有欠债！'}
+                    </div>
                 </div>
             </div>
 

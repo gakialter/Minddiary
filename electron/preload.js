@@ -74,6 +74,11 @@ contextBridge.exposeInMainWorld('api', {
         streak: () => ipcRenderer.invoke('dashboard:streak'),
     },
 
+    // Today Dashboard (V3.0)
+    todayDashboard: {
+        getData: (date) => ipcRenderer.invoke('todayDashboard:getData', date),
+    },
+
     // Mistakes
     mistakes: {
         getAll: (filters) => ipcRenderer.invoke('mistakes:getAll', filters),
@@ -81,6 +86,11 @@ contextBridge.exposeInMainWorld('api', {
         update: (id, mistake) => ipcRenderer.invoke('mistakes:update', id, mistake),
         delete: (id) => ipcRenderer.invoke('mistakes:delete', id),
         toggleMastered: (id) => ipcRenderer.invoke('mistakes:toggleMastered', id),
+        review: (id, data) => ipcRenderer.invoke('mistakes:review', id, data),
+        getDueCount: (date) => ipcRenderer.invoke('mistakes:getDueCount', date),
+        getRandomDue: (date, subjectId) => ipcRenderer.invoke('mistakes:getRandomDue', date, subjectId),
+        saveImage: (data) => ipcRenderer.invoke('mistakes:saveImage', data),
+        getImagePath: (filename) => ipcRenderer.invoke('mistakes:getImagePath', filename),
     },
 
     // AI

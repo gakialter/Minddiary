@@ -76,6 +76,25 @@
 
 </td>
 </tr>
+<tr>
+<td>
+
+### 🏠 今日看板 (v1.3.0 NEW)
+- Bento 网格看板，一屏总览今日学习
+- AI 每日寄语 + 考研倒计时
+- 番茄钟/日记/错题/连续打卡 实时统计
+- 4 枚快捷入口按钮一键直达
+
+</td>
+<td>
+
+### 🔁 间隔重复 (v1.3.0 NEW)
+- SM-2 算法自动安排错题复习日期
+- 难度评分 → 动态计算 EF 因子
+- 番茄钟结束自动弹出待复习列表
+
+</td>
+</tr>
 </table>
 
 ---
@@ -105,8 +124,8 @@
 | **数据库** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)（WAL 模式） |
 | **样式** | Vanilla CSS3 变量 + 毛玻璃动效，Apple HIG 设计风格 |
 | **图标** | [Lucide React](https://lucide.dev/) |
-| **类型安全** | 完整 `strict` 模式，50 个源文件全量类型化 |
-| **测试** | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/) |
+| **类型安全** | 完整 `strict` 模式，55+ 个源文件全量类型化 |
+| **测试** | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/)，60+ tests |
 | **CI/CD** | GitHub Actions（Type Check → Unit Test → Build → Release） |
 
 ---
@@ -176,6 +195,16 @@ tests/              # Vitest 单元测试 + 组件测试
 ---
 
 ## 📋 更新日志
+
+### v1.3.0 — 今日看板 + 间隔重复
+
+- 🏠 **全新 Bento 看板着陆页** — 番茄钟/日记/错题/连续打卡一屏总览，4 枚快捷入口
+- 🧠 **SM-2 间隔重复** — 错题自动排期复习，番茄钟结束弹出待复习列表
+- ✨ **AI 每日寄语** — 30 条考研励志格言确定性轮播
+- 🎯 **考研倒计时** — 基于设置中的考研日期实时显示
+- 🏗️ **后端批量查询** — 单事务 6 合 1 `getTodayDashboard()` 消除数据瀑布
+- 🧪 新增 13 个 HomeDashboard 组件测试，总测试 60+
+- 🔒 安全审计：零 XSS 向量，IPC 输入校验，snake→camel 一致性通过
 
 ### v1.2.0 — TypeScript 全量迁移
 

@@ -168,3 +168,37 @@ export function buildSprintPlanPrompt(daysLeft: number, weakSubjects: string[] =
         `要求：计划要具体、可执行，避免空话。`
     )
 }
+
+/**
+ * 5.3-T5  Quiz Me ("考考我")
+ * Picks a random selection of unmastered mistakes and asks AI to create
+ * a NEW practice question (variant or MCQ) — NOT repeating the original.
+ * Answers are NOT stored to the mistake bank (ephemeral consumption only).
+ */
+export function buildQuizMePrompt(mistakes: MistakeInput[], count: number = 1): string {
+    if (!mistakes || mistakes.length === 0) {
+        return '我还没有错题记录，无法出题。请先去错题本添加几道题！'
+    }
+
+    // Randomly sample `count` mistakes
+    const shuffled = [...mistakes].sort(() => Math.random() - 0.5)
+    const selected = shuffled.slice(0, Math.min(count, 5, shuffled.length))
+
+    const list = selected
+        .map((m, i) => {
+            const q = sanitizeUserInput(m.question || '（无题目）')
+            const a = sanitizeUserInput(m.answer || '（无答案）')
+            const subject = sanitizeUserInput(m.subject_name || '未分类')
+            return `【${i + 1}】科目：${subject}\n题目核心：${q}\n正确知识点：${a}`
+        })
+        .join('\n\n')
+
+    return (
+        `请根据以下 ${selected.length} 条知识点，为我出 ${selected.length} 道变式练习题（不要直接复述原题，要换个角度或场景考查同一知识点）。\n\n` +
+        `${list}\n\n` +
+        `要求：\n` +
+        `- 每道题单独标号，先给题干，换行后给【答案】和【解析】\n` +
+        `- 可以是填空题、简答题或多选题，灵活运用\n` +
+        `- 难度中等偏上，贴近真实考研题风格`
+    )
+}

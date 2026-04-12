@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Download } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
-import { PomodoroProvider } from './contexts/PomodoroContext'
+import { PomodoroProvider, usePomodoroContext } from './contexts/PomodoroContext'
 import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation'
 import { useGlobalKeyboard } from './hooks/useGlobalKeyboard'
 import Layout from './components/Layout'
@@ -13,6 +13,7 @@ import ImageGallery from './components/ImageGallery'
 import Welcome from './components/Welcome'
 import CommandPalette from './components/CommandPalette'
 import ExportModal from './components/ExportModal'
+import BreakReviewModal from './components/BreakReviewModal'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/Toast'
 import type { DiaryEntry, MoodId } from './types'
@@ -51,6 +52,15 @@ function AppContent() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showBreakReview, setShowBreakReview] = useState(false)
+
+  // Register break-start handler with Pomodoro context
+  const pomodoro = usePomodoroContext()
+  useEffect(() => {
+    pomodoro.setOnBreakStart(() => setShowBreakReview(true))
+    return () => pomodoro.setOnBreakStart(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ─── Global keyboard shortcuts (extracted hook) ───
   const keyBindings = useMemo(() => ({
@@ -181,6 +191,7 @@ function AppContent() {
       )}
       <ToastContainer />
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+      {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}
     </Layout>
   )
 }

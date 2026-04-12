@@ -4,11 +4,16 @@ const { app } = require('electron');
 const db = require('./database');
 
 let attachmentsDir;
+let mistakeImagesDir;
 
 function initialize() {
     attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
     if (!fs.existsSync(attachmentsDir)) {
         fs.mkdirSync(attachmentsDir, { recursive: true });
+    }
+    if (!fs.existsSync(mistakeImagesDir)) {
+        fs.mkdirSync(mistakeImagesDir, { recursive: true });
     }
 }
 
@@ -80,4 +85,31 @@ function getAttachmentPath(filepath) {
     return path.join(attachmentsDir, filepath);
 }
 
-module.exports = { initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath };
+// ==================== Mistake Images ====================
+
+async function saveMistakeImage({ data, ext = '.png' }) {
+    // data is a base64 string from renderer
+    const buffer = Buffer.from(data, 'base64');
+    const timestamp = Date.now();
+    const safeFilename = `mistake_${timestamp}${ext}`;
+    const filepath = path.join(mistakeImagesDir, safeFilename);
+
+    fs.writeFileSync(filepath, buffer);
+    return safeFilename;
+}
+
+function deleteMistakeImage(filename) {
+    const filepath = path.join(mistakeImagesDir, filename);
+    if (fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+    }
+}
+
+function getMistakeImagePath(filename) {
+    return path.join(mistakeImagesDir, filename);
+}
+
+module.exports = { 
+    initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath,
+    saveMistakeImage, deleteMistakeImage, getMistakeImagePath 
+};

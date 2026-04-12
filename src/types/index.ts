@@ -66,6 +66,12 @@ export interface Mistake {
   answer: string
   notes: string
   mastered: boolean | number
+  // Spaced repetition (SM-2) fields
+  ease_factor: number
+  review_interval: number       // days until next review
+  next_review_date: string | null  // 'YYYY-MM-DD' or null if never reviewed
+  review_count: number
+  image_path?: string | null
   subject_name?: string
   subject_color?: string
   created_at: string
@@ -146,6 +152,27 @@ export interface AISettings {
 export interface AIResponse {
   content?: string
   error?: string
+}
+
+// ─── Today Dashboard ────────────────────────────────────────────────────────
+export interface TodayDashboardData {
+  todayEntry: {
+    id: number
+    title: string
+    wordCount: number
+    mood: MoodId | null
+  } | null
+  pomodoroToday: {
+    totalMinutes: number
+    sessionCount: number
+  }
+  dueReviewCount: number
+  mistakeOverview: {
+    total: number
+    mastered: number
+  }
+  streakDays: number
+  weeklyTrend: Array<{ date: string; totalMinutes: number }>
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────

@@ -28,6 +28,8 @@ interface PomodoroContextValue {
   formatTime: (seconds: number) => string
   loadSubjects: () => Promise<void>
   loadTodayStats: () => Promise<void>
+  onBreakStart: (() => void) | null
+  setOnBreakStart: (cb: (() => void) | null) => void
 }
 
 const PomodoroContext = createContext<PomodoroContextValue | null>(null)
@@ -56,6 +58,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [selectedSubject, setSelectedSubject] = useState<number | null>(null)
   const [todayStats, setTodayStats] = useState<PomodoroStat[]>([])
   const [todayTotal, setTodayTotal] = useState(0)
+  const [onBreakStart, setOnBreakStart] = useState<(() => void) | null>(null)
+  const onBreakStartRef = useRef<(() => void) | null>(null)
 
   const endTimeRef = useRef<number | null>(null)
 
@@ -120,6 +124,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         loadTodayStats()
         await notificationAPI.show('🍅 番茄钟完成！', '干得漂亮，休息几分钟吧～')
       } catch (e) { console.error(e) }
+      // Fire break-start callback so App can show BreakReviewModal
+      if (onBreakStartRef.current) {
+        onBreakStartRef.current()
+      }
       setMode(dynamicModes.SHORT_BREAK!)
     } else {
       await notificationAPI.show('⏰ 休息结束', '精力充沛，继续加油！').catch(() => { })
@@ -181,6 +189,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     // Actions
     toggleTimer, resetTimer, formatTime,
     loadSubjects, loadTodayStats,
+    onBreakStart,
+    setOnBreakStart: (cb) => {
+      onBreakStartRef.current = cb
+      setOnBreakStart(cb)
+    },
   }
 
   return (
