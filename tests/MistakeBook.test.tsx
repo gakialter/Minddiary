@@ -26,6 +26,8 @@ describe('MistakeBook Component', () => {
     update: ReturnType<typeof vi.fn>
     delete: ReturnType<typeof vi.fn>
     toggleMastered: ReturnType<typeof vi.fn>
+    review: ReturnType<typeof vi.fn>
+    saveImage: ReturnType<typeof vi.fn> | undefined
   }
   let subjectsApi: {
     getAll: ReturnType<typeof vi.fn>
@@ -38,6 +40,8 @@ describe('MistakeBook Component', () => {
       update: vi.fn().mockResolvedValue(true),
       delete: vi.fn().mockResolvedValue(true),
       toggleMastered: vi.fn().mockResolvedValue(true),
+      review: vi.fn().mockResolvedValue(true),
+      saveImage: undefined,
     }
 
     subjectsApi = {
@@ -78,8 +82,10 @@ describe('MistakeBook Component', () => {
     expect(screen.getByText('Apple means?')).toBeInTheDocument()
 
     // Should render the labels based on mastered status
-    expect(screen.getByText('待复习')).toBeInTheDocument()
-    expect(screen.getByText('已掌握', { selector: 'span' })).toBeInTheDocument()
+    // Phase 1 changed labels to include SM-2 review scheduling
+    expect(screen.getByText(/今日待复习/)).toBeInTheDocument()
+    // "已掌握" appears in both the stats header and the card label
+    expect(screen.getAllByText(/已掌握/).length).toBeGreaterThanOrEqual(1)
     
     // Notes should be present
     expect(screen.getByText('basic')).toBeInTheDocument()
@@ -127,7 +133,8 @@ describe('MistakeBook Component', () => {
       subject_id: null,
       question: 'New Q',
       answer: '',
-      notes: ''
+      notes: '',
+      image_path: null,
     })
   })
 

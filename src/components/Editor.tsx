@@ -4,8 +4,11 @@ import { useDiary } from '../contexts/DiaryContext'
 import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
-import { ImagePlus, Save } from 'lucide-react'
-import type { DiaryEntry } from '../types'
+import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
+import type { DiaryEntry, AIMessage } from '../types'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
@@ -40,6 +43,9 @@ function Editor({ entry, onSave, loading }: EditorProps) {
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [pomodoros, setPomodoros] = useState<PomodoroRecord[]>([])
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryExpanded, setSummaryExpanded] = useState(true)
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
   const shareCardRef = useRef<HTMLDivElement>(null)
@@ -77,6 +83,55 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     }
     setSaving(false)
   }, [entry, title, content, onSave])
+
+  const handleAiSummary = useCallback(async () => {
+    if (!content.trim()) {
+      showToast('请先写点内容再让 AI 总结吧！', 'info')
+      return
+    }
+    const settingsData = diary.settingsData as Record<string, string> | undefined
+    const aiSettings = {
+      endpoint: settingsData?.aiEndpoint || '',
+      apiKey: settingsData?.aiApiKey || '',
+      model: settingsData?.aiModel || 'gpt-3.5-turbo'
+    }
+    if (!aiSettings.endpoint || !aiSettings.apiKey) {
+      showToast('请先在「设置」中配置 AI Key', 'error')
+      return
+    }
+    setSummaryLoading(true)
+    setSummaryExpanded(true)
+    setAiSummary(null)
+    try {
+      const prompt = buildDiarySummaryPrompt(content, entry?.date || '')
+      const messages: AIMessage[] = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt }
+      ]
+      const result = await diary.ai.chat(messages, aiSettings)
+      if (result.error) {
+        showToast(result.error, 'error')
+      } else {
+        setAiSummary(result.content || '')
+        showToast('AI 汇总完成！', 'success')
+      }
+    } catch (e) {
+      console.error(e)
+      showToast('AI 请求失败，请检查网络', 'error')
+    } finally {
+      setSummaryLoading(false)
+    }
+  }, [content, entry?.date, diary])
+
+  const renderSummaryHtml = (text: string) => {
+    try {
+      const rendered = marked(text, { breaks: true })
+      const html = typeof rendered === 'string' ? rendered : ''
+      return DOMPurify.sanitize(html)
+    } catch {
+      return DOMPurify.sanitize(text)
+    }
+  }
 
   const handleShare = useCallback(async () => {
     if (!shareCardRef.current) return
@@ -182,6 +237,16 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           </div>
           <button
             className="button button-secondary text-sm"
+            onClick={handleAiSummary}
+            disabled={summaryLoading || !content.trim()}
+            title="AI 分析并汇总今日日记"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, color: summaryLoading ? 'var(--text-muted)' : 'var(--accent)' }}
+          >
+            <Sparkles size={15} style={{ flexShrink: 0 }} />
+            {summaryLoading ? '汇总中...' : 'AI 汇总'}
+          </button>
+          <button
+            className="button button-secondary text-sm"
             onClick={handleShare}
             disabled={sharing}
             title="生成分享图片"
@@ -197,6 +262,57 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           </button>
         </div>
       </div>
+
+      {/* AI Summary Card */}
+      {(aiSummary || summaryLoading) && (
+        <div style={{
+          borderRadius: 'var(--radius)',
+          border: '1px solid',
+          borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)',
+          background: 'color-mix(in srgb, var(--accent) 5%, var(--bg-secondary))',
+          overflow: 'hidden',
+          transition: 'all 0.3s ease'
+        }}>
+          <div
+            className="flex items-center justify-between"
+            style={{ padding: 'var(--space-sm) var(--space-md)', cursor: 'pointer', borderBottom: summaryExpanded ? '1px solid color-mix(in srgb, var(--accent) 20%, transparent)' : 'none' }}
+            onClick={() => setSummaryExpanded(e => !e)}
+          >
+            <div className="flex items-center gap-sm" style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 14 }}>
+              <Sparkles size={15} />
+              <span>AI 智能汇总</span>
+              {summaryLoading && <span className="text-muted" style={{ fontSize: 12, fontWeight: 400 }}>分析中...</span>}
+            </div>
+            <div className="flex items-center gap-xs">
+              <button
+                onClick={e => { e.stopPropagation(); setAiSummary(null) }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: 2 }}
+                title="关闭"
+              >
+                <X size={14} />
+              </button>
+              {summaryExpanded ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />}
+            </div>
+          </div>
+          {summaryExpanded && (
+            <div style={{ padding: 'var(--space-md)' }}>
+              {summaryLoading && !aiSummary && (
+                <div className="flex items-center gap-sm text-muted" style={{ fontSize: 14 }}>
+                  <div style={{ width: 16, height: 16, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  小研正在分析你的日记...
+                </div>
+              )}
+              {aiSummary && (
+                <div
+                  className="prose text-sm"
+                  style={{ lineHeight: 1.75, color: 'var(--text-secondary)' }}
+                  dangerouslySetInnerHTML={{ __html: renderSummaryHtml(aiSummary) }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Template buttons */}
       <div className="flex gap-sm">

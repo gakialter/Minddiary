@@ -60,10 +60,13 @@ const mockApi: ElectronAPI = {
     },
     mistakes: {
         getAll: async () => [],
-        create: async () => ({ id: Date.now() }),
+        create: async () => ({ id: Math.floor(Math.random() * 1000) }),
         update: async () => {},
         delete: async () => {},
         toggleMastered: async () => ({ mastered: 1 }),
+        review: async () => ({ success: true }),
+        getDueCount: async () => 0,
+        getRandomDue: async () => null,
     },
     ai: {
         chat: async () => ({ content: '请在 Electron 环境中使用 AI 功能' }),
@@ -75,6 +78,16 @@ const mockApi: ElectronAPI = {
     dashboard: {
         entryDatesRange: async () => [],
         streak: async () => 0,
+    },
+    todayDashboard: {
+        getData: async () => ({
+            todayEntry: null,
+            pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
+            dueReviewCount: 0,
+            mistakeOverview: { total: 0, mastered: 0 },
+            streakDays: 0,
+            weeklyTrend: [],
+        }),
     },
     export: {
         showSaveDialog: async () => null,

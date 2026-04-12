@@ -124,6 +124,10 @@ export const mockMistakes: Mistake[] = [
     notes: '两个重要极限必须记住',
     mastered: false,
     created_at: '2024-03-04T10:00:00Z',
+    ease_factor: 2.5,
+    review_interval: 0,
+    next_review_date: null,
+    review_count: 0,
   },
   {
     id: 2,
@@ -133,6 +137,10 @@ export const mockMistakes: Mistake[] = [
     notes: 'such 后面接名词，so 后面接形容词',
     mastered: false,
     created_at: '2024-03-05T14:30:00Z',
+    ease_factor: 2.5,
+    review_interval: 0,
+    next_review_date: null,
+    review_count: 0,
   },
   {
     id: 3,
@@ -142,6 +150,10 @@ export const mockMistakes: Mistake[] = [
     notes: '群众路线是党的建设的重要内容，不要记混',
     mastered: true,
     created_at: '2024-03-01T09:00:00Z',
+    ease_factor: 2.5,
+    review_interval: 1,
+    next_review_date: null,
+    review_count: 0,
   },
 ]
 

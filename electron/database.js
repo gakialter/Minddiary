@@ -97,6 +97,20 @@ function initialize() {
       value TEXT
     );
   `);
+
+    // ── v2.0 Migration: Spaced Repetition columns on mistakes ──
+    const srColumns = [
+        { name: 'ease_factor',      sql: 'ALTER TABLE mistakes ADD COLUMN ease_factor REAL DEFAULT 2.5' },
+        { name: 'review_interval',  sql: 'ALTER TABLE mistakes ADD COLUMN review_interval INTEGER DEFAULT 1' },
+        { name: 'next_review_date', sql: 'ALTER TABLE mistakes ADD COLUMN next_review_date TEXT' },
+        { name: 'review_count',     sql: 'ALTER TABLE mistakes ADD COLUMN review_count INTEGER DEFAULT 0' },
+        { name: 'image_path',       sql: 'ALTER TABLE mistakes ADD COLUMN image_path TEXT' },
+    ];
+    for (const col of srColumns) {
+        try { db.exec(col.sql); } catch { /* column already exists — safe to ignore */ }
+    }
+    // Index for due-review queries
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_mistakes_next_review ON mistakes(next_review_date)'); } catch { /* ignore */ }
 }
 
 // ==================== Entries ====================
@@ -378,6 +392,92 @@ function getStudyStreak() {
     return streak;
 }
 
+// ==================== Today Dashboard (V3.0 Batch Query) ====================
+/**
+ * Aggregate all "today" stats in a single transaction.
+ * This prevents the renderer from issuing 6+ individual IPC calls.
+ * Keys are returned in camelCase to match TypeScript interfaces.
+ *
+ * @param {string} date - ISO date string 'YYYY-MM-DD'
+ * @returns {object} TodayDashboardData shape
+ */
+function getTodayDashboard(date) {
+    // Validate date format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        throw new Error('Invalid date format. Expected YYYY-MM-DD');
+    }
+
+    const getTodayData = db.transaction(() => {
+        // 1. Today's diary entry (lightweight — no full content)
+        const todayEntry = db.prepare(
+            'SELECT id, title, word_count, mood FROM entries WHERE date = ?'
+        ).get(date) || null;
+
+        // 2. Today's pomodoro summary
+        const pomRow = db.prepare(`
+            SELECT COALESCE(SUM(duration), 0) as total_minutes,
+                   COUNT(id) as session_count
+            FROM pomodoro_sessions
+            WHERE DATE(completed_at) = ?
+        `).get(date);
+
+        // 3. Due review count
+        const dueRow = db.prepare(`
+            SELECT COUNT(*) as count FROM mistakes
+            WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
+        `).get(date);
+
+        // 4. Mistake overview (total + mastered)
+        const mistakeRow = db.prepare(`
+            SELECT COUNT(*) as total,
+                   SUM(CASE WHEN mastered = 1 THEN 1 ELSE 0 END) as mastered
+            FROM mistakes
+        `).get();
+
+        // 5. Consecutive study streak
+        const streak = getStudyStreak();
+
+        // 6. Weekly trend for sparkline (last 7 days)
+        const weekAgo = new Date(date + 'T00:00:00');
+        weekAgo.setDate(weekAgo.getDate() - 6);
+        const weekStart = weekAgo.toISOString().split('T')[0];
+        const weeklyRows = db.prepare(`
+            SELECT DATE(completed_at) as date,
+                   SUM(duration) as total_minutes
+            FROM pomodoro_sessions
+            WHERE DATE(completed_at) BETWEEN ? AND ?
+            GROUP BY DATE(completed_at)
+            ORDER BY date ASC
+        `).all(weekStart, date);
+
+        return {
+            // snake_case → camelCase mapping
+            todayEntry: todayEntry ? {
+                id: todayEntry.id,
+                title: todayEntry.title,
+                wordCount: todayEntry.word_count,
+                mood: todayEntry.mood,
+            } : null,
+            pomodoroToday: {
+                totalMinutes: pomRow.total_minutes,
+                sessionCount: pomRow.session_count,
+            },
+            dueReviewCount: dueRow.count,
+            mistakeOverview: {
+                total: mistakeRow.total,
+                mastered: mistakeRow.mastered || 0,
+            },
+            streakDays: streak,
+            weeklyTrend: weeklyRows.map(r => ({
+                date: r.date,
+                totalMinutes: r.total_minutes,
+            })),
+        };
+    });
+
+    return getTodayData();
+}
+
 // ==================== Mistakes ====================
 function getAllMistakes(filters = {}) {
     let query = 'SELECT m.*, s.name as subject_name, s.color as subject_color FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
@@ -405,22 +505,38 @@ function getAllMistakes(filters = {}) {
     return db.prepare(query).all(...params);
 }
 
-function createMistake({ subject_id, question, answer, notes }) {
+function createMistake({ subject_id, question, answer, notes, image_path }) {
     const stmt = db.prepare(
-        'INSERT INTO mistakes (subject_id, question, answer, notes) VALUES (?, ?, ?, ?)'
+        'INSERT INTO mistakes (subject_id, question, answer, notes, image_path) VALUES (?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(subject_id || null, question, answer || '', notes || '');
+    const result = stmt.run(subject_id || null, question || '', answer || '', notes || '', image_path || null);
     return { id: result.lastInsertRowid };
 }
 
-function updateMistake(id, { subject_id, question, answer, notes }) {
-    db.prepare(
-        'UPDATE mistakes SET subject_id=?, question=?, answer=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
-    ).run(subject_id || null, question, answer || '', notes || '', id);
+function updateMistake(id, { subject_id, question, answer, notes, mastered, image_path }) {
+    const updates = [];
+    const params = [];
+    if (subject_id !== undefined) { updates.push('subject_id = ?'); params.push(subject_id); }
+    if (question !== undefined) { updates.push('question = ?'); params.push(question); }
+    if (answer !== undefined) { updates.push('answer = ?'); params.push(answer); }
+    if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
+    if (mastered !== undefined) { updates.push('mastered = ?'); params.push(mastered ? 1 : 0); }
+    if (image_path !== undefined) { updates.push('image_path = ?'); params.push(image_path); }
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(id);
+    db.prepare(`UPDATE mistakes SET ${updates.join(', ')} WHERE id=?`).run(...params);
     return { success: true };
 }
 
 function deleteMistake(id) {
+    try {
+        const mistake = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id);
+        if (mistake && mistake.image_path) {
+            const fileManager = require('./fileManager');
+            fileManager.deleteMistakeImage(mistake.image_path);
+        }
+    } catch(e) { console.error('Failed to cleanup mistake image', e); }
+
     db.prepare('DELETE FROM mistakes WHERE id=?').run(id);
     return { success: true };
 }
@@ -429,6 +545,49 @@ function toggleMistakeMastered(id) {
     db.prepare('UPDATE mistakes SET mastered = 1 - mastered, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(id);
     const row = db.prepare('SELECT mastered FROM mistakes WHERE id=?').get(id);
     return { mastered: row.mastered };
+}
+
+/**
+ * Update a mistake's spaced-repetition fields after a review.
+ * @param {number} id - Mistake ID
+ * @param {{ease_factor: number, review_interval: number, next_review_date: string, review_count: number}} data
+ */
+function reviewMistake(id, { ease_factor, review_interval, next_review_date, review_count }) {
+    db.prepare(`
+        UPDATE mistakes
+        SET ease_factor = ?, review_interval = ?, next_review_date = ?, review_count = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(ease_factor, review_interval, next_review_date, review_count, id);
+    return { success: true };
+}
+
+/**
+ * Count mistakes due for review on or before the given date.
+ */
+function getDueForReviewCount(date) {
+    const row = db.prepare(`
+        SELECT COUNT(*) as count FROM mistakes
+        WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
+    `).get(date);
+    return row.count;
+}
+
+/**
+ * Get a random unmastered mistake, optionally filtered by subject.
+ */
+function getRandomDueMistake(date, subjectId) {
+    let query = `
+        SELECT m.*, s.name as subject_name, s.color as subject_color
+        FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id
+        WHERE m.mastered = 0 AND (m.next_review_date IS NULL OR m.next_review_date <= ?)
+    `;
+    const params = [date];
+    if (subjectId) {
+        query += ' AND m.subject_id = ?';
+        params.push(subjectId);
+    }
+    query += ' ORDER BY RANDOM() LIMIT 1';
+    return db.prepare(query).get(...params) || null;
 }
 
 module.exports = {
@@ -440,7 +599,8 @@ module.exports = {
     addAttachment, getAttachmentsByEntry, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
     addPomodoroSession, getPomodoroStats, getDailyStudyMinutes,
-    getPomodoroRange, getEntryDatesRange, getStudyStreak,
+    getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
+    reviewMistake, getDueForReviewCount, getRandomDueMistake,
     setCustomDbPath, getDb: () => db
 };

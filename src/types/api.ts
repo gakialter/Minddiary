@@ -4,6 +4,7 @@ import type {
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   AppSettings, AIMessage, AISettings, AIResponse,
+  TodayDashboardData,
 } from '.'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
@@ -68,12 +69,21 @@ export interface ElectronDashboardAPI {
   streak: () => Promise<number>
 }
 
+export interface ElectronTodayDashboardAPI {
+  getData: (date: string) => Promise<TodayDashboardData>
+}
+
 export interface ElectronMistakesAPI {
   getAll: (filters: MistakeFilters) => Promise<Mistake[]>
   create: (mistake: Partial<Mistake>) => Promise<{ id: number }>
   update: (id: number, mistake: Partial<Mistake>) => Promise<void>
   delete: (id: number) => Promise<void>
   toggleMastered: (id: number) => Promise<{ mastered: number }>
+  review: (id: number, data: { ease_factor: number; review_interval: number; next_review_date: string; review_count: number }) => Promise<{ success: boolean }>
+  getDueCount: (date: string) => Promise<number>
+  getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
+  saveImage?: (data: { data: string, ext?: string }) => Promise<string>
+  getImagePath?: (filename: string) => Promise<string>
 }
 
 export interface ElectronAIAPI {
@@ -105,6 +115,7 @@ export interface ElectronAPI {
   subjects: ElectronSubjectsAPI
   pomodoro: ElectronPomodoroAPI
   dashboard: ElectronDashboardAPI
+  todayDashboard: ElectronTodayDashboardAPI
   mistakes: ElectronMistakesAPI
   ai: ElectronAIAPI
   notification: ElectronNotificationAPI
@@ -137,6 +148,11 @@ export interface MistakesContextAPI {
   update: (id: number, data: Partial<Mistake>) => Promise<Partial<Mistake>>
   delete: (id: number) => Promise<boolean>
   toggleMastered: (id: number) => Promise<{ mastered: number | boolean }>
+  review: (id: number, data: { ease_factor: number; review_interval: number; next_review_date: string; review_count: number }) => Promise<{ success: boolean }>
+  getDueCount: (date: string) => Promise<number>
+  getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
+  saveImage?: (data: { data: string, ext?: string }) => Promise<string>
+  getImagePath?: (filename: string) => Promise<string>
 }
 
 export interface SubjectsContextAPI {
@@ -156,6 +172,10 @@ export interface PomodoroContextAPI {
 export interface DashboardContextAPI {
   streak: () => Promise<number>
   entryDatesRange: (start: string, end: string) => Promise<DateMood[]>
+}
+
+export interface TodayDashboardContextAPI {
+  getData: (date: string) => Promise<TodayDashboardData>
 }
 
 export interface ExportContextAPI {
@@ -201,6 +221,7 @@ export interface DiaryContextValue {
   subjects: SubjectsContextAPI
   pomodoro: PomodoroContextAPI
   dashboard: DashboardContextAPI
+  todayDashboard: TodayDashboardContextAPI
   exportUtil: ExportContextAPI
   notification: NotificationContextAPI
   ai: AIContextAPI

@@ -5,6 +5,7 @@ import type { DiaryEntry, Tag, Mistake, Subject, EntryFilters, MistakeFilters, D
 import type {
     EntriesContextAPI, TagsContextAPI, MistakesContextAPI,
     SubjectsContextAPI, PomodoroContextAPI, DashboardContextAPI,
+    TodayDashboardContextAPI,
     ExportContextAPI, NotificationContextAPI, AIContextAPI, AttachmentsContextAPI,
 } from '../types/api'
 
@@ -17,6 +18,7 @@ interface DataContextValue {
     subjects: SubjectsContextAPI
     pomodoro: PomodoroContextAPI
     dashboard: DashboardContextAPI
+    todayDashboard: TodayDashboardContextAPI
     exportUtil: ExportContextAPI
     notification: NotificationContextAPI
     ai: AIContextAPI
@@ -241,12 +243,17 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         create: async (data) => {
             if (IS_ELECTRON) {
                 const { id } = await window.api.mistakes.create(data)
-                const newMistake: Mistake = { question: '', answer: '', notes: '', subject_id: null, ...data, id, mastered: 0, created_at: new Date().toISOString() }
+                const newMistake: Mistake = { 
+                    question: '', answer: '', notes: '', subject_id: null, 
+                    ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
+                    ...data, id, mastered: 0, created_at: new Date().toISOString() 
+                }
                 setMistakes(prev => [newMistake, ...prev])
                 return newMistake
             }
             const newMistake: Mistake = {
                 question: '', answer: '', notes: '', subject_id: null,
+                ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
                 ...data,
                 id: Math.max(0, ...mistakes.map(m => m.id)) + 1,
                 mastered: false,
@@ -282,6 +289,38 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m))
             return { mastered: true }
         },
+        review: async (id: number, data) => {
+            if (IS_ELECTRON) {
+                await window.api.mistakes.review(id, data);
+                setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
+                return { success: true };
+            }
+            setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
+            return { success: true };
+        },
+        getDueCount: async (date: string) => {
+            if (IS_ELECTRON) return window.api.mistakes.getDueCount(date);
+            return mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length;
+        },
+        getRandomDue: async (date: string, subjectId?: number) => {
+            if (IS_ELECTRON) return window.api.mistakes.getRandomDue(date, subjectId);
+            let due = mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date));
+            if (subjectId) due = due.filter(m => m.subject_id === subjectId);
+            if (due.length === 0) return null;
+            return due[Math.floor(Math.random() * due.length)] || null;
+        },
+        saveImage: async (data) => {
+            if (IS_ELECTRON && window.api.mistakes.saveImage) {
+                return window.api.mistakes.saveImage(data);
+            }
+            return '';
+        },
+        getImagePath: async (filename) => {
+            if (IS_ELECTRON && window.api.mistakes.getImagePath) {
+                return window.api.mistakes.getImagePath(filename);
+            }
+            return filename;
+        }
     }
 
     // ─── Subjects API ─────────────────────────────────────────────────────────
@@ -357,6 +396,32 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         }
     }
 
+    // ─── Today Dashboard API ──────────────────────────────────────────────────
+    const todayDashboardAPI: TodayDashboardContextAPI = {
+        getData: async (date: string) => {
+            if (IS_ELECTRON) return window.api.todayDashboard.getData(date)
+            // Browser fallback: compute from local state
+            const todayEntry = entries.find(e => e.date === date)
+            const dueCount = mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length
+            return {
+                todayEntry: todayEntry ? {
+                    id: todayEntry.id,
+                    title: todayEntry.title,
+                    wordCount: todayEntry.word_count,
+                    mood: todayEntry.mood,
+                } : null,
+                pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
+                dueReviewCount: dueCount,
+                mistakeOverview: {
+                    total: mistakes.length,
+                    mastered: mistakes.filter(m => m.mastered).length,
+                },
+                streakDays: 0,
+                weeklyTrend: [],
+            }
+        }
+    }
+
     // ─── Export API ───────────────────────────────────────────────────────────
     const exportAPI: ExportContextAPI = {
         showSaveDialog: async (options) => {
@@ -424,6 +489,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         subjects: subjectsAPI,
         pomodoro: pomodoroAPI,
         dashboard: dashboardAPI,
+        todayDashboard: todayDashboardAPI,
         exportUtil: exportAPI,
         notification: notificationAPI,
         ai: aiAPI,

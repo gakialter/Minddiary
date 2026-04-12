@@ -8,10 +8,11 @@ import {
     buildMistakeAnalysisPrompt,
     buildMentalMassagePrompt,
     buildSprintPlanPrompt,
+    buildQuizMePrompt,
 } from '../utils/promptTemplates'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
-import { Bot, Trash2, Sparkles, PenLine, Search, Coffee, Target, X } from 'lucide-react'
+import { Bot, Trash2, Sparkles, PenLine, Search, Coffee, Target, GraduationCap, X } from 'lucide-react'
 import type { DiaryEntry, AIMessage } from '../types'
 
 interface AIPanelProps {
@@ -117,6 +118,15 @@ export default function AIPanel({ entry }: AIPanelProps) {
         }
     }
 
+    const quizMe = async () => {
+        try {
+            const mistakesList = await mistakesAPI.getAll({ mastered: false })
+            sendMessage(buildQuizMePrompt(mistakesList || [], 2))
+        } catch {
+            sendMessage(buildQuizMePrompt([], 2))
+        }
+    }
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
@@ -127,6 +137,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
     const quickPrompts: QuickPrompt[] = [
         { icon: <PenLine size={20} />, label: '总结今日日记', action: summarizeEntry },
         { icon: <Search size={20} />, label: '错题规律分析', action: analyzeMistakes },
+        { icon: <GraduationCap size={20} />, label: '考考我', action: quizMe },
         { icon: <Coffee size={20} />, label: '心理按摩', action: () => sendMessage(buildMentalMassagePrompt()) },
         { icon: <Target size={20} />, label: '制定复习冲刺', action: () => sendMessage(buildSprintPlanPrompt(30)) },
     ]

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol } = require('electron');
 let autoUpdater = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
@@ -74,6 +74,16 @@ ipcMain.handle('updater:check', async () => {
 });
 
 app.whenReady().then(() => {
+    protocol.registerFileProtocol('local', (request, callback) => {
+        const url = request.url.replace('local://', '');
+        try {
+            return callback(decodeURIComponent(url));
+        } catch (error) {
+            console.error('File protocol parse error:', error);
+            return callback('');
+        }
+    });
+
     // Add Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
         const isDev = !app.isPackaged;
@@ -86,7 +96,7 @@ app.whenReady().then(() => {
             "default-src 'self'",
             scriptSrc,
             "style-src 'self' 'unsafe-inline'",   // CSS-in-JS components need this
-            "img-src 'self' data: file: blob:",
+            "img-src 'self' data: file: local: blob:",
             "connect-src 'self' https://*",
             "font-src 'self' data:",
             "object-src 'none'",
@@ -175,12 +185,27 @@ ipcMain.handle('pomodoro:getRange', (_, start, end) => db.getPomodoroRange(start
 ipcMain.handle('dashboard:entryDatesRange', (_, start, end) => db.getEntryDatesRange(start, end));
 ipcMain.handle('dashboard:streak', () => db.getStudyStreak());
 
+// ==================== Today Dashboard (V3.0) ====================
+ipcMain.handle('todayDashboard:getData', (_, date) => {
+    try {
+        return db.getTodayDashboard(date);
+    } catch (e) {
+        console.error('todayDashboard:getData failed:', e);
+        throw e;
+    }
+});
+
 // ==================== Mistakes ====================
 ipcMain.handle('mistakes:getAll', (_, filters) => db.getAllMistakes(filters));
 ipcMain.handle('mistakes:create', (_, mistake) => db.createMistake(mistake));
 ipcMain.handle('mistakes:update', (_, id, mistake) => db.updateMistake(id, mistake));
 ipcMain.handle('mistakes:delete', (_, id) => db.deleteMistake(id));
 ipcMain.handle('mistakes:toggleMastered', (_, id) => db.toggleMistakeMastered(id));
+ipcMain.handle('mistakes:review', (_, id, data) => db.reviewMistake(id, data));
+ipcMain.handle('mistakes:getDueCount', (_, date) => db.getDueForReviewCount(date));
+ipcMain.handle('mistakes:getRandomDue', (_, date, subjectId) => db.getRandomDueMistake(date, subjectId));
+ipcMain.handle('mistakes:saveImage', (_, data) => fileManager.saveMistakeImage(data));
+ipcMain.handle('mistakes:getImagePath', (_, filename) => fileManager.getMistakeImagePath(filename));
 
 // ==================== AI ====================
 ipcMain.handle('ai:chat', (_, messages, settings) => aiService.chat(messages, settings));
