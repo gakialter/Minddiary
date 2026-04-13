@@ -119,7 +119,7 @@
 
 | 层次 | 技术 |
 |------|------|
-| **应用外壳** | [Electron 28](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
+| **应用外壳** | [Electron 34](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
 | **前端** | [React 18](https://reactjs.org/) + [TypeScript](https://www.typescriptlang.org/) (strict) + [Vite](https://vitejs.dev/) |
 | **数据库** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)（WAL 模式） |
 | **样式** | Vanilla CSS3 变量 + 毛玻璃动效，Apple HIG 设计风格 |
@@ -183,11 +183,11 @@ src/
 └── data/           # Mock 数据（浏览器开发模式）
 
 electron/
-├── main.js         # Electron 主进程
-├── preload.js      # IPC Bridge (contextIsolation)
-├── database.js     # SQLite CRUD
-├── fileManager.js  # 附件文件管理
-└── aiService.js    # AI API 代理
+├── main.ts         # Electron 主进程
+├── preload.ts      # IPC Bridge (contextIsolation)
+├── database.ts     # SQLite CRUD
+├── fileManager.ts  # 附件文件管理
+└── aiService.ts    # AI API 代理
 
 tests/              # Vitest 单元测试 + 组件测试
 ```
@@ -195,6 +195,12 @@ tests/              # Vitest 单元测试 + 组件测试
 ---
 
 ## 📋 更新日志
+
+### v1.4.0 — 引擎重构与类型安全
+- 🛡️ **安全加固** — 升级至 Electron 34，彻底修复旧版遗留漏洞，重构已被废弃的 protocol 接口
+- 🔷 **主进程全量 TypeScript 化** — Electron 主进程 (main/preload/database等) 100% 迁移至 TS `strict` 模式
+- 📦 **依赖精简** — 剔除独立的 `katex` 顶层依赖，统一收拢到 `react-latex-next` 内聚管理
+- ✨ **双构建管线** — Vite + tsc 分离编译，确立渲染层与系统层的安全防护边界
 
 ### v1.3.0 — 今日看板 + 间隔重复
 
