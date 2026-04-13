@@ -1,5 +1,5 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol } = require('electron');
-let autoUpdater = null;
+const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol, net } = require('electron');
+let autoUpdater: any = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
 const fs = require('fs');
@@ -10,7 +10,7 @@ const aiService = require('./aiService');
 // Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
 const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
 
-let mainWindow;
+let mainWindow: typeof BrowserWindow | any = null;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -55,7 +55,7 @@ function initAutoUpdater() {
             title: '更新准备就绪',
             message: '新版本已下载完毕。是否现在重启应用安装更新？',
             buttons: ['是', '稍后']
-        }).then(result => {
+        }).then((result: any) => {
             if (result.response === 0) autoUpdater.quitAndInstall();
         });
     });
@@ -67,25 +67,26 @@ ipcMain.handle('updater:check', async () => {
     try {
         const result = await autoUpdater.checkForUpdates();
         return { success: true, info: result?.updateInfo };
-    } catch (e) {
+    } catch (e: any) {
         console.error('Update check failed:', e);
         return { success: false, message: '检查更新失败: ' + e.message };
     }
 });
 
 app.whenReady().then(() => {
-    protocol.registerFileProtocol('local', (request, callback) => {
+    protocol.handle('local', (request: any) => {
         const url = request.url.replace('local://', '');
         try {
-            return callback(decodeURIComponent(url));
+            const filePath = decodeURIComponent(url);
+            return net.fetch('file://' + filePath);
         } catch (error) {
             console.error('File protocol parse error:', error);
-            return callback('');
+            return new Response('Not Found', { status: 404 });
         }
     });
 
     // Add Content Security Policy
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    session.defaultSession.webRequest.onHeadersReceived((details: any, callback: any) => {
         const isDev = !app.isPackaged;
         // In development, Vite injects inline scripts; allow 'unsafe-inline'
         // only for script-src in dev mode.  In production, lock down everything.
@@ -135,97 +136,97 @@ ipcMain.handle('window:close', () => mainWindow.close());
 ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized());
 
 // ==================== Entries ====================
-ipcMain.handle('entries:create', (_, entry) => db.createEntry(entry));
-ipcMain.handle('entries:update', (_, id, entry) => db.updateEntry(id, entry));
-ipcMain.handle('entries:delete', (_, id) => {
+ipcMain.handle('entries:create', (_: any, entry: any) => db.createEntry(entry));
+ipcMain.handle('entries:update', (_: any, id: number, entry: any) => db.updateEntry(id, entry));
+ipcMain.handle('entries:delete', (_: any, id: number) => {
     // Phase 11.1 fix: physically remove attachment files BEFORE the SQL DELETE,
     // because ON DELETE CASCADE will kill the attachment *records* but NOT the disk files.
     fileManager.deleteAttachmentsForEntry(id);
     return db.deleteEntry(id);
 });
 
-ipcMain.handle('entries:getByDate', (_, date) => db.getEntryByDate(date));
-ipcMain.handle('entries:getById', (_, id) => db.getEntryById(id));
-ipcMain.handle('entries:getAll', (_, filters) => db.getAllEntries(filters));
-ipcMain.handle('entries:search', (_, query) => db.searchEntries(query));
-ipcMain.handle('entries:getDatesWithEntries', (_, yearMonth) => db.getDatesWithEntries(yearMonth));
+ipcMain.handle('entries:getByDate', (_: any, date: string) => db.getEntryByDate(date));
+ipcMain.handle('entries:getById', (_: any, id: number) => db.getEntryById(id));
+ipcMain.handle('entries:getAll', (_: any, filters: any) => db.getAllEntries(filters));
+ipcMain.handle('entries:search', (_: any, query: string) => db.searchEntries(query));
+ipcMain.handle('entries:getDatesWithEntries', (_: any, yearMonth: string) => db.getDatesWithEntries(yearMonth));
 
 // ==================== Tags ====================
 ipcMain.handle('tags:getAll', () => db.getAllTags());
-ipcMain.handle('tags:create', (_, tag) => db.createTag(tag));
-ipcMain.handle('tags:update', (_, id, tag) => db.updateTag(id, tag));
-ipcMain.handle('tags:delete', (_, id) => db.deleteTag(id));
-ipcMain.handle('tags:setEntryTags', (_, entryId, tagIds) => db.setEntryTags(entryId, tagIds));
-ipcMain.handle('tags:getEntryTags', (_, entryId) => db.getEntryTags(entryId));
+ipcMain.handle('tags:create', (_: any, tag: any) => db.createTag(tag));
+ipcMain.handle('tags:update', (_: any, id: number, tag: any) => db.updateTag(id, tag));
+ipcMain.handle('tags:delete', (_: any, id: number) => db.deleteTag(id));
+ipcMain.handle('tags:setEntryTags', (_: any, entryId: number, tagIds: number[]) => db.setEntryTags(entryId, tagIds));
+ipcMain.handle('tags:getEntryTags', (_: any, entryId: number) => db.getEntryTags(entryId));
 
 // ==================== Settings ====================
-ipcMain.handle('settings:get', (_, key) => db.getSetting(key));
-ipcMain.handle('settings:set', (_, key, value) => db.setSetting(key, value));
+ipcMain.handle('settings:get', (_: any, key: string) => db.getSetting(key));
+ipcMain.handle('settings:set', (_: any, key: string, value: any) => db.setSetting(key, value));
 ipcMain.handle('settings:getAll', () => db.getAllSettings());
 
 // ==================== Attachments ====================
-ipcMain.handle('attachments:save', (_, entryId, fileData) => fileManager.saveAttachment(entryId, fileData));
-ipcMain.handle('attachments:getByEntry', (_, entryId) => db.getAttachmentsByEntry(entryId));
-ipcMain.handle('attachments:delete', (_, id) => fileManager.deleteAttachment(id));
-ipcMain.handle('attachments:getPath', (_, filepath) => fileManager.getAttachmentPath(filepath));
+ipcMain.handle('attachments:save', (_: any, entryId: number, fileData: any) => fileManager.saveAttachment(entryId, fileData));
+ipcMain.handle('attachments:getByEntry', (_: any, entryId: number) => db.getAttachmentsByEntry(entryId));
+ipcMain.handle('attachments:delete', (_: any, id: number) => fileManager.deleteAttachment(id));
+ipcMain.handle('attachments:getPath', (_: any, filepath: string) => fileManager.getAttachmentPath(filepath));
 
 // ==================== Subjects ====================
 ipcMain.handle('subjects:getAll', () => db.getAllSubjects());
-ipcMain.handle('subjects:create', (_, subject) => db.createSubject(subject));
-ipcMain.handle('subjects:update', (_, id, subject) => db.updateSubject(id, subject));
-ipcMain.handle('subjects:delete', (_, id) => db.deleteSubject(id));
+ipcMain.handle('subjects:create', (_: any, subject: any) => db.createSubject(subject));
+ipcMain.handle('subjects:update', (_: any, id: number, subject: any) => db.updateSubject(id, subject));
+ipcMain.handle('subjects:delete', (_: any, id: number) => db.deleteSubject(id));
 
 // ==================== Pomodoro ====================
-ipcMain.handle('pomodoro:addSession', (_, session) => db.addPomodoroSession(session));
-ipcMain.handle('pomodoro:getStats', (_, date) => db.getPomodoroStats(date));
-ipcMain.handle('pomodoro:getDailyTotal', (_, date) => db.getDailyStudyMinutes(date));
-ipcMain.handle('pomodoro:getRange', (_, start, end) => db.getPomodoroRange(start, end));
+ipcMain.handle('pomodoro:addSession', (_: any, session: any) => db.addPomodoroSession(session));
+ipcMain.handle('pomodoro:getStats', (_: any, date: string) => db.getPomodoroStats(date));
+ipcMain.handle('pomodoro:getDailyTotal', (_: any, date: string) => db.getDailyStudyMinutes(date));
+ipcMain.handle('pomodoro:getRange', (_: any, start: string, end: string) => db.getPomodoroRange(start, end));
 
 // ==================== Dashboard ====================
-ipcMain.handle('dashboard:entryDatesRange', (_, start, end) => db.getEntryDatesRange(start, end));
+ipcMain.handle('dashboard:entryDatesRange', (_: any, start: string, end: string) => db.getEntryDatesRange(start, end));
 ipcMain.handle('dashboard:streak', () => db.getStudyStreak());
 
 // ==================== Today Dashboard (V3.0) ====================
-ipcMain.handle('todayDashboard:getData', (_, date) => {
+ipcMain.handle('todayDashboard:getData', (_: any, date: string) => {
     try {
         return db.getTodayDashboard(date);
-    } catch (e) {
+    } catch (e: any) {
         console.error('todayDashboard:getData failed:', e);
         throw e;
     }
 });
 
 // ==================== Mistakes ====================
-ipcMain.handle('mistakes:getAll', (_, filters) => db.getAllMistakes(filters));
-ipcMain.handle('mistakes:create', (_, mistake) => db.createMistake(mistake));
-ipcMain.handle('mistakes:update', (_, id, mistake) => db.updateMistake(id, mistake));
-ipcMain.handle('mistakes:delete', (_, id) => db.deleteMistake(id));
-ipcMain.handle('mistakes:toggleMastered', (_, id) => db.toggleMistakeMastered(id));
-ipcMain.handle('mistakes:review', (_, id, data) => db.reviewMistake(id, data));
-ipcMain.handle('mistakes:getDueCount', (_, date) => db.getDueForReviewCount(date));
-ipcMain.handle('mistakes:getRandomDue', (_, date, subjectId) => db.getRandomDueMistake(date, subjectId));
-ipcMain.handle('mistakes:saveImage', (_, data) => fileManager.saveMistakeImage(data));
-ipcMain.handle('mistakes:getImagePath', (_, filename) => fileManager.getMistakeImagePath(filename));
+ipcMain.handle('mistakes:getAll', (_: any, filters: any) => db.getAllMistakes(filters));
+ipcMain.handle('mistakes:create', (_: any, mistake: any) => db.createMistake(mistake));
+ipcMain.handle('mistakes:update', (_: any, id: number, mistake: any) => db.updateMistake(id, mistake));
+ipcMain.handle('mistakes:delete', (_: any, id: number) => db.deleteMistake(id));
+ipcMain.handle('mistakes:toggleMastered', (_: any, id: number) => db.toggleMistakeMastered(id));
+ipcMain.handle('mistakes:review', (_: any, id: number, data: any) => db.reviewMistake(id, data));
+ipcMain.handle('mistakes:getDueCount', (_: any, date: string) => db.getDueForReviewCount(date));
+ipcMain.handle('mistakes:getRandomDue', (_: any, date: string, subjectId?: number) => db.getRandomDueMistake(date, subjectId));
+ipcMain.handle('mistakes:saveImage', (_: any, data: any) => fileManager.saveMistakeImage(data));
+ipcMain.handle('mistakes:getImagePath', (_: any, filename: string) => fileManager.getMistakeImagePath(filename));
 
 // ==================== AI ====================
-ipcMain.handle('ai:chat', (_, messages, settings) => aiService.chat(messages, settings));
-ipcMain.handle('ai:summarize', (_, content, settings) => aiService.summarize(content, settings));
+ipcMain.handle('ai:chat', (_: any, messages: any[], settings: any) => aiService.chat(messages, settings));
+ipcMain.handle('ai:summarize', (_: any, content: string, settings: any) => aiService.summarize(content, settings));
 
 // ==================== Notifications ====================
-ipcMain.handle('notification:show', (_, title, body) => {
+ipcMain.handle('notification:show', (_: any, title: string, body: string) => {
     new Notification({ title, body }).show();
 });
 
 // ==================== Export ====================
 
 /** Show a native Save-As dialog and return the chosen path (or null). */
-ipcMain.handle('export:showSaveDialog', async (_, options) => {
+ipcMain.handle('export:showSaveDialog', async (_: any, options: any) => {
     const result = await dialog.showSaveDialog(mainWindow, options);
     return result.canceled ? null : result.filePath;
 });
 
 /** Write a UTF-8 text file (Markdown / JSON export). */
-ipcMain.handle('export:writeFile', async (_, { filepath, content }) => {
+ipcMain.handle('export:writeFile', async (_: any, { filepath, content }: any) => {
     await fs.promises.writeFile(filepath, content, 'utf-8');
 });
 
@@ -236,7 +237,7 @@ ipcMain.handle('export:writeFile', async (_, { filepath, content }) => {
  * Chinese text renders perfectly because the system fonts are used directly —
  * no font embedding or subsetting required.
  */
-ipcMain.handle('export:toPDF', async (_, { htmlContent, savePath }) => {
+ipcMain.handle('export:toPDF', async (_: any, { htmlContent, savePath }: any) => {
     const tmpPath = path.join(app.getPath('temp'), 'minddiary_export_tmp.html');
     await fs.promises.writeFile(tmpPath, htmlContent, 'utf-8');
 
@@ -320,7 +321,7 @@ const runAutoBackup = async () => {
                 await fs.promises.unlink(path.join(backupPath, file.name)).catch(() => {});
             }
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error('Auto backup failed:', e);
     }
 };

@@ -1,15 +1,13 @@
-const AI_TIMEOUT_MS = 30_000
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const AI_TIMEOUT_MS = 30_000;
 async function chat(messages, settings = {}) {
     const { endpoint, apiKey, model } = settings;
-
     if (!endpoint || !apiKey) {
         return { error: '请先在设置中配置 AI API 地址和密钥' };
     }
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-
     try {
         const response = await fetch(`${endpoint}/v1/chat/completions`, {
             method: 'POST',
@@ -25,9 +23,7 @@ async function chat(messages, settings = {}) {
             }),
             signal: controller.signal
         });
-
         clearTimeout(timeoutId);
-
         if (!response.ok) {
             const err = await response.text();
             const statusHints = {
@@ -39,10 +35,10 @@ async function chat(messages, settings = {}) {
             const hint = statusHints[response.status] || '';
             return { error: `API 请求失败 (${response.status})${hint ? '\n' + hint : ''}` };
         }
-
         const data = await response.json();
         return { content: data.choices[0].message.content };
-    } catch (err) {
+    }
+    catch (err) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
             return { error: '⏱️ 请求超时（30秒），请检查网络连接或 API 服务是否正常。' };
@@ -50,7 +46,6 @@ async function chat(messages, settings = {}) {
         return { error: `🔌 连接失败: ${err.message}` };
     }
 }
-
 async function summarize(content, settings = {}) {
     const messages = [
         {
@@ -64,5 +59,4 @@ async function summarize(content, settings = {}) {
     ];
     return chat(messages, settings);
 }
-
 module.exports = { chat, summarize };

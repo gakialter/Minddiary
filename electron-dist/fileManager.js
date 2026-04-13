@@ -1,11 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
 const db = require('./database');
-
 let attachmentsDir;
 let mistakeImagesDir;
-
 function initialize() {
     attachmentsDir = path.join(app.getPath('userData'), 'attachments');
     mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
@@ -16,7 +16,6 @@ function initialize() {
         fs.mkdirSync(mistakeImagesDir, { recursive: true });
     }
 }
-
 async function saveAttachment(entryId, { name, data, mimetype }) {
     // data is a base64 string from renderer
     const buffer = Buffer.from(data, 'base64');
@@ -24,18 +23,14 @@ async function saveAttachment(entryId, { name, data, mimetype }) {
     const ext = path.extname(name);
     const safeFilename = `${entryId}_${timestamp}${ext}`;
     const filepath = path.join(attachmentsDir, safeFilename);
-
     fs.writeFileSync(filepath, buffer);
-
     const attachment = db.addAttachment(entryId, {
         filename: name,
         filepath: safeFilename,
         mimetype: mimetype || 'application/octet-stream'
     });
-
     return attachment;
 }
-
 function deleteAttachment(id) {
     const attachment = db.getAttachmentById(id);
     if (attachment) {
@@ -47,7 +42,6 @@ function deleteAttachment(id) {
     }
     return { success: true };
 }
-
 /**
  * Physically delete every attachment file belonging to an entry.
  * Must be called BEFORE db.deleteEntry() so the attachment records
@@ -61,7 +55,6 @@ function deleteAttachmentsForEntry(entryId) {
     const attachments = db.getAttachmentsByEntry(entryId);
     let deleted = 0;
     let errors = 0;
-
     for (const attachment of attachments) {
         try {
             const filepath = path.join(attachmentsDir, attachment.filepath);
@@ -69,47 +62,37 @@ function deleteAttachmentsForEntry(entryId) {
                 fs.unlinkSync(filepath);
             }
             deleted++;
-        } catch (err) {
-            console.error(
-                `[fileManager] Failed to delete physical file for attachment id=${attachment.id}:`,
-                err.message
-            );
+        }
+        catch (err) {
+            console.error(`[fileManager] Failed to delete physical file for attachment id=${attachment.id}:`, err.message);
             errors++;
         }
     }
-
     return { deleted, errors };
 }
-
 function getAttachmentPath(filepath) {
     return path.join(attachmentsDir, filepath);
 }
-
 // ==================== Mistake Images ====================
-
 async function saveMistakeImage({ data, ext = '.png' }) {
     // data is a base64 string from renderer
     const buffer = Buffer.from(data, 'base64');
     const timestamp = Date.now();
     const safeFilename = `mistake_${timestamp}${ext}`;
     const filepath = path.join(mistakeImagesDir, safeFilename);
-
     fs.writeFileSync(filepath, buffer);
     return safeFilename;
 }
-
 function deleteMistakeImage(filename) {
     const filepath = path.join(mistakeImagesDir, filename);
     if (fs.existsSync(filepath)) {
         fs.unlinkSync(filepath);
     }
 }
-
 function getMistakeImagePath(filename) {
     return path.join(mistakeImagesDir, filename);
 }
-
-module.exports = { 
+module.exports = {
     initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath,
-    saveMistakeImage, deleteMistakeImage, getMistakeImagePath 
+    saveMistakeImage, deleteMistakeImage, getMistakeImagePath
 };

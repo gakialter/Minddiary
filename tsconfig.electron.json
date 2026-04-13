@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "esModuleInterop": true,
+    "outDir": "./electron-dist",
+    "rootDir": "./electron",
+    "declaration": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node", "better-sqlite3"]
+  },
+  "include": ["electron/**/*.ts"]
+}

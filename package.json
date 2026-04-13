@@ -6,15 +6,16 @@
         "node": ">=20.12.0"
     },
     "author": "MindDiary Team",
-    "main": "electron/main.js",
+    "main": "electron-dist/main.js",
     "scripts": {
-        "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "build:electron": "tsc -p tsconfig.electron.json",
+        "dev": "npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
         "electron:dev": "electron .",
         "postinstall": "electron-builder install-app-deps",
-        "build": "vite build && electron-builder",
+        "build": "npm run build:electron && vite build && electron-builder",
         "preview": "vite preview",
         "test": "vitest",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"
     },
     "dependencies": {
         "better-sqlite3": "^11.0.0",
@@ -22,7 +23,6 @@
         "dompurify": "^3.3.2",
         "electron-updater": "^6.8.3",
         "file-saver": "^2.0.5",
-        "katex": "^0.16.45",
         "lucide-react": "^0.577.0",
         "marked": "^17.0.4",
         "react": "^18.3.1",
@@ -33,16 +33,17 @@
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/dompurify": "^3.0.5",
         "@types/file-saver": "^2.0.7",
-        "@types/katex": "^0.16.8",
+        "@types/node": "^25.6.0",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.0",
         "@vitejs/plugin-react": "^4.3.1",
         "@vitest/coverage-v8": "^4.1.0",
         "concurrently": "^8.2.2",
-        "electron": "^28.3.3",
-        "electron-builder": "^24.13.3",
+        "electron": "^34.5.8",
+        "electron-builder": "^26.8.1",
         "jsdom": "^29.0.1",
         "playwright": "^1.58.2",
         "png-to-ico": "^3.0.1",
@@ -60,7 +61,7 @@
         },
         "files": [
             "dist/**/*",
-            "electron/**/*",
+            "electron-dist/**/*",
             "package.json"
         ],
         "win": {
