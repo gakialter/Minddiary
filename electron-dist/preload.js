@@ -1,5 +1,6 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { contextBridge, ipcRenderer } = require('electron');
-
 contextBridge.exposeInMainWorld('api', {
     // Window controls
     window: {
@@ -8,12 +9,10 @@ contextBridge.exposeInMainWorld('api', {
         close: () => ipcRenderer.invoke('window:close'),
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     },
-
     // Updater
     updater: {
         check: () => ipcRenderer.invoke('updater:check'),
     },
-
     // Entries
     entries: {
         create: (entry) => ipcRenderer.invoke('entries:create', entry),
@@ -25,7 +24,6 @@ contextBridge.exposeInMainWorld('api', {
         search: (query) => ipcRenderer.invoke('entries:search', query),
         getDatesWithEntries: (yearMonth) => ipcRenderer.invoke('entries:getDatesWithEntries', yearMonth),
     },
-
     // Tags
     tags: {
         getAll: () => ipcRenderer.invoke('tags:getAll'),
@@ -35,7 +33,6 @@ contextBridge.exposeInMainWorld('api', {
         setEntryTags: (entryId, tagIds) => ipcRenderer.invoke('tags:setEntryTags', entryId, tagIds),
         getEntryTags: (entryId) => ipcRenderer.invoke('tags:getEntryTags', entryId),
     },
-
     // Settings
     settings: {
         get: (key) => ipcRenderer.invoke('settings:get', key),
@@ -43,7 +40,6 @@ contextBridge.exposeInMainWorld('api', {
         getAll: () => ipcRenderer.invoke('settings:getAll'),
         selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
     },
-
     // Attachments
     attachments: {
         save: (entryId, fileData) => ipcRenderer.invoke('attachments:save', entryId, fileData),
@@ -51,7 +47,6 @@ contextBridge.exposeInMainWorld('api', {
         delete: (id) => ipcRenderer.invoke('attachments:delete', id),
         getPath: (filepath) => ipcRenderer.invoke('attachments:getPath', filepath),
     },
-
     // Subjects
     subjects: {
         getAll: () => ipcRenderer.invoke('subjects:getAll'),
@@ -59,7 +54,6 @@ contextBridge.exposeInMainWorld('api', {
         update: (id, subject) => ipcRenderer.invoke('subjects:update', id, subject),
         delete: (id) => ipcRenderer.invoke('subjects:delete', id),
     },
-
     // Pomodoro
     pomodoro: {
         addSession: (session) => ipcRenderer.invoke('pomodoro:addSession', session),
@@ -67,18 +61,15 @@ contextBridge.exposeInMainWorld('api', {
         getDailyTotal: (date) => ipcRenderer.invoke('pomodoro:getDailyTotal', date),
         getRange: (start, end) => ipcRenderer.invoke('pomodoro:getRange', start, end),
     },
-
     // Dashboard
     dashboard: {
         entryDatesRange: (start, end) => ipcRenderer.invoke('dashboard:entryDatesRange', start, end),
         streak: () => ipcRenderer.invoke('dashboard:streak'),
     },
-
     // Today Dashboard (V3.0)
     todayDashboard: {
         getData: (date) => ipcRenderer.invoke('todayDashboard:getData', date),
     },
-
     // Mistakes
     mistakes: {
         getAll: (filters) => ipcRenderer.invoke('mistakes:getAll', filters),
@@ -92,18 +83,15 @@ contextBridge.exposeInMainWorld('api', {
         saveImage: (data) => ipcRenderer.invoke('mistakes:saveImage', data),
         getImagePath: (filename) => ipcRenderer.invoke('mistakes:getImagePath', filename),
     },
-
     // AI
     ai: {
         chat: (messages, settings) => ipcRenderer.invoke('ai:chat', messages, settings),
         summarize: (content, settings) => ipcRenderer.invoke('ai:summarize', content, settings),
     },
-
     // Notifications
     notification: {
         show: (title, body) => ipcRenderer.invoke('notification:show', title, body),
     },
-
     // Export
     export: {
         showSaveDialog: (options) => ipcRenderer.invoke('export:showSaveDialog', options),
