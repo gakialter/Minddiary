@@ -27,6 +27,7 @@ jobs:
 
       - name: Build
         run: |
+          npm run build:electron
           npx vite build
           npx electron-builder --publish never
 

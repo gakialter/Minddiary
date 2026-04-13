@@ -30,4 +30,6 @@ jobs:
         run: npx vitest run
 
       - name: Build verification
-        run: npx vite build
+        run: |
+          npm run build:electron
+          npx vite build
