@@ -162,7 +162,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
             <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-secondary)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="flex items-center gap-sm">
                     <div style={{ width: 36, height: 36, borderRadius: 12, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>
-                        <img src="/images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src="./images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
                     <div>
                         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>小研</h2>
@@ -185,7 +185,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                             width: 80, height: 80, borderRadius: 24, overflow: 'hidden',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)'
                         }}>
-                            <img src="/images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <img src="./images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         </div>
                         <h3 style={{ fontSize: 20, marginBottom: 'var(--space-sm)' }}>我是你的专属考研智囊</h3>
                         <p className="text-muted" style={{ maxWidth: 300, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
