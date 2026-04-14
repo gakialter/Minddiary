@@ -86,7 +86,7 @@ function Settings() {
       ]).catch(() => [[], [], [], [], [], {}] as const) as [unknown, unknown, unknown, unknown, unknown, unknown]
 
       const backup = {
-        version: '1.0.0',
+        version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0',
         timestamp: new Date().toISOString(),
         data: {
           entries, tags, subjects, mistakes, pomodoro,
@@ -399,7 +399,7 @@ function Settings() {
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
             <div className="text-sm">
-              <span className="text-muted">版本：</span> <span>1.0.0</span>
+              <span className="text-muted">版本：</span> <span>{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</span>
             </div>
             <div className="text-sm">
               <span className="text-muted">存储：</span> <span>SQLite 本地数据库</span>
