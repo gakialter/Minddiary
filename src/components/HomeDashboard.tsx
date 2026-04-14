@@ -58,67 +58,71 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
   }
 
   return (
-    <div className="flex flex-col p-10 md:p-16 w-full h-full overflow-y-auto bg-white dark:bg-[#0a0a0a]">
-      
-      {/* 1 & 2: Main Commander Conclusion & Action */}
-      <CommanderHero config={config} onActionClick={handleCTA} />
+    <div className="w-full min-h-full bg-[#f7f8fa] dark:bg-[#0a0a0a] overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
+        <div className="space-y-6">
+          
+          <CommanderHero config={config} onActionClick={handleCTA} />
 
-      {/* 3: Core Trust Metrics (B-Style High Contrast) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14 mt-4 mb-20 border-t border-gray-100 dark:border-gray-800/80 pt-12">
-        <TrustMetric 
-          value={commanderMetrics.riskPoolCount} 
-          label="72 小时内高遗忘风险" 
-          color={commanderMetrics.riskPoolCount >= 5 ? 'text-rose-600 dark:text-rose-400' : 'text-gray-900 dark:text-gray-100'}
-        />
-        <TrustMetric 
-          value={commanderMetrics.lockedKnowledgeGrowth} 
-          label="近 7 日稳定记忆净增" 
-          trend="系统评分达标的无遗忘题目"
-        />
-        <TrustMetric 
-          value={`${commanderMetrics.focusConversionRate}%`} 
-          label="有效专注转化率" 
-          color={commanderMetrics.focusConversionRate < 50 && data.pomodoroToday.sessionCount >= 2 ? 'text-amber-500' : 'text-gray-900 dark:text-gray-100'}
-        />
-      </div>
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
+            <TrustMetric 
+              value={commanderMetrics.riskPoolCount} 
+              label="72 小时风险池" 
+              hint={commanderMetrics.riskPoolCount > 0 ? `待处理 ${commanderMetrics.riskPoolCount} 个` : '当前无明显风险'}
+              accent={commanderMetrics.riskPoolCount > 0 ? 'danger' : 'default'}
+            />
+            <TrustMetric 
+              value={commanderMetrics.lockedKnowledgeGrowth > 0 ? `+${commanderMetrics.lockedKnowledgeGrowth}` : commanderMetrics.lockedKnowledgeGrowth} 
+              label="稳定记忆净增" 
+              hint="近 7 天口径"
+              accent={commanderMetrics.lockedKnowledgeGrowth > 0 ? 'success' : 'default'}
+            />
+            <TrustMetric 
+              value={`${commanderMetrics.focusConversionRate}%`} 
+              label="有效专注转化率" 
+              hint="专注时长与沉淀产出比"
+              accent="default"
+            />
+          </section>
 
-      {/* 4: Expansion Layer / Fold Details */}
-      <div className="mt-auto max-w-4xl">
-        <button 
-          onClick={() => setShowDetails(!showDetails)}
-          className="flex items-center gap-2 text-[14px] font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors py-2 px-4 -ml-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900"
-        >
-          {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          {showDetails ? '收起系统依据' : '展开系统推断依据'}
-        </button>
-        
-        {showDetails && (
-          <div className="mt-8 pt-8 border-t border-gray-100 dark:border-gray-800/80 opacity-[0.85] hover:opacity-100 transition-opacity">
-            <h3 className="text-lg font-bold mb-2 text-gray-900 dark:text-white tracking-tight">模型底层依据</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed max-w-2xl">
-              系统当前连续诊断天数：<strong className="text-gray-800 dark:text-gray-200">{data.streakDays} 天</strong>。<br/>
-              如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
-              我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
-            </p>
+          <section className="max-w-3xl">
+            <button 
+              type="button"
+              onClick={() => setShowDetails(!showDetails)}
+              className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 bg-transparent border-0 outline-none appearance-none hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+            >
+              {showDetails ? '收起系统依据' : '查看系统依据'}
+            </button>
             
-            <div className="flex flex-wrap items-center gap-4">
-              <button 
-                className="px-5 py-2.5 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-800 dark:text-white rounded-xl text-sm font-medium transition-colors" 
-                onClick={() => setActiveView('dashboard')}
-              >
-                打开全局图表与分析报表
-              </button>
-              
-              {examDaysDiff !== null && (
-                <div className="ml-auto text-sm text-gray-400">
-                  距目标 <span className="font-bold text-gray-900 dark:text-white mx-1">{examDaysDiff}</span> 天
+            {showDetails && (
+              <div className="mt-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/50 p-5 md:p-6 opacity-[0.98]">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">系统依据</h3>
+                <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-400 max-w-2xl">
+                  系统当前连续诊断天数：<strong className="text-gray-800 dark:text-gray-200">{data.streakDays} 天</strong>。<br/>
+                  如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
+                  我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
+                </p>
+                
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button 
+                    className="inline-flex h-10 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" 
+                    onClick={() => setActiveView('dashboard')}
+                  >
+                    打开全局图表与分析报表
+                  </button>
+                  
+                  {examDaysDiff !== null && (
+                    <span className="text-sm text-gray-500 dark:text-gray-400 sm:ml-auto">
+                      距目标 <strong className="text-gray-900 dark:text-white mx-1">{examDaysDiff}</strong> 天
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+              </div>
+            )}
+          </section>
 
+        </div>
+      </div>
     </div>
   )
 }

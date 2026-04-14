@@ -30,9 +30,9 @@ export default function Welcome({ onStart }: WelcomeProps) {
                     animation: 'logo-pulse 3s infinite ease-in-out'
                 }}>考</div>
 
-                <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 'var(--space-md)' }}>欢迎使用考研日记</h1>
+                <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 'var(--space-md)' }}>欢迎来到你的智能学习决策桌面</h1>
                 <p className="text-secondary" style={{ fontSize: 16, lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
-                    一款专注、极简的本地化日记应用。记录你的学习进度、整理错题，并让 AI 成为你的私人考研助手。
+                    MindDiary 会把专注、复盘和错题整理连接成一个连续闭环，并根据你的学习节奏，优先推荐当前更值得处理的任务。
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)', textAlign: 'left', marginBottom: 'var(--space-2xl)' }}>
@@ -46,7 +46,7 @@ export default function Welcome({ onStart }: WelcomeProps) {
                     style={{ fontSize: 17, padding: 'var(--space) var(--space-xl)', borderRadius: 'var(--radius)' }}
                     onClick={onStart}
                 >
-                    开始记录
+                    开始使用
                 </button>
             </div>
         </div>

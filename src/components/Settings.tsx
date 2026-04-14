@@ -417,7 +417,7 @@ function Settings() {
               </button>
             </div>
             <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
-              MindDiary · 专为考研学生设计的日记应用
+              MindDiary · 面向备考场景的本地优先学习系统
             </div>
           </div>
         </div>
