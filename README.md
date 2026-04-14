@@ -203,7 +203,7 @@ tests/              # Vitest 单元测试 + 组件测试
 
 ### v1.4.0 — 引擎重构与类型安全
 - 🛡️ **安全加固** — 升级至 Electron 34，彻底修复旧版遗留漏洞，重构已被废弃的 protocol 接口
-- 🔷 **主进程全量 TypeScript 化** — Electron 主进程 (main/preload/database等) 100% 迁移至 TS `strict` 模式
+- 🔷 **主进程全量 TypeScript 化** — Electron 主进程 (main/preload/database等) 100% 迁移至 TS `strict` 模式（注：目前仓库的极少数残留 JS 均为外围脚本，如 `scripts/create-icon.js`，核心业务 100% TS 化）
 - 📦 **依赖精简** — 剔除独立的 `katex` 顶层依赖，统一收拢到 `react-latex-next` 内聚管理
 - ✨ **双构建管线** — Vite + tsc 分离编译，确立渲染层与系统层的安全防护边界
 
