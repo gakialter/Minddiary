@@ -393,14 +393,6 @@ function getStudyStreak() {
 }
 
 // ==================== Today Dashboard (V3.0 Batch Query) ====================
-/**
- * Aggregate all "today" stats in a single transaction.
- * This prevents the renderer from issuing 6+ individual IPC calls.
- * Keys are returned in camelCase to match TypeScript interfaces.
- *
- * @param {string} date - ISO date string 'YYYY-MM-DD'
- * @returns {object} TodayDashboardData shape
- */
 function getTodayDashboard(date: string) {
     // Validate date format
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -408,7 +400,19 @@ function getTodayDashboard(date: string) {
     }
 
     const getTodayData = db.transaction(() => {
-        // 1. Today's diary entry (lightweight — no full content)
+        const dateObj = new Date(date + 'T00:00:00');
+        
+        // 72 hours from today
+        const futureDate = new Date(dateObj);
+        futureDate.setDate(futureDate.getDate() + 3);
+        const futureDateStr = futureDate.toISOString().split('T')[0];
+
+        // 7 days ago
+        const pastDate = new Date(dateObj);
+        pastDate.setDate(pastDate.getDate() - 7);
+        const pastDateStr = pastDate.toISOString().split('T')[0];
+
+        // 1. Today's diary entry 
         const todayEntry = db.prepare(
             'SELECT id, title, word_count, mood FROM entries WHERE date = ?'
         ).get(date) || null;
@@ -421,37 +425,36 @@ function getTodayDashboard(date: string) {
             WHERE DATE(completed_at) = ?
         `).get(date);
 
-        // 3. Due review count
-        const dueRow = db.prepare(`
+        // 3. High Forgetting Risk Pool (< 72hrs)
+        const riskRow = db.prepare(`
             SELECT COUNT(*) as count FROM mistakes
             WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
-        `).get(date);
+        `).get(futureDateStr);
 
-        // 4. Mistake overview (total + mastered)
-        const mistakeRow = db.prepare(`
-            SELECT COUNT(*) as total,
-                   SUM(CASE WHEN mastered = 1 THEN 1 ELSE 0 END) as mastered
-            FROM mistakes
-        `).get();
+        // 4. Locked Knowledge Growth (EF >= 2.5 and updated in last 7 days)
+        const lockedRow = db.prepare(`
+            SELECT COUNT(*) as count FROM mistakes
+            WHERE (ease_factor >= 2.5 OR mastered = 1) AND DATE(updated_at) >= ?
+        `).get(pastDateStr);
 
-        // 5. Consecutive study streak
+        // 5. Effective Focus Conversion (today actions vs pomodoros)
+        const actionsTodayRow = db.prepare(`
+            SELECT 
+                (SELECT COUNT(*) FROM entries WHERE date = ? AND word_count > 20) +
+                (SELECT COUNT(*) FROM mistakes WHERE DATE(updated_at) = ?) as action_count
+        `).get(date, date);
+
+        let conversionRate = 0;
+        if (pomRow.session_count > 0) {
+            // Heuristic: 1 summary or mistake equals ~1 successful pomodoro conversion. Cap at 100%
+            conversionRate = Math.min(100, Math.round((actionsTodayRow.action_count / pomRow.session_count) * 100 * 1.2));
+        } else if (actionsTodayRow.action_count > 0) {
+            conversionRate = 100; // Did work without pomodoro
+        }
+
         const streak = getStudyStreak();
 
-        // 6. Weekly trend for sparkline (last 7 days)
-        const weekAgo = new Date(date + 'T00:00:00');
-        weekAgo.setDate(weekAgo.getDate() - 6);
-        const weekStart = weekAgo.toISOString().split('T')[0];
-        const weeklyRows = db.prepare(`
-            SELECT DATE(completed_at) as date,
-                   SUM(duration) as total_minutes
-            FROM pomodoro_sessions
-            WHERE DATE(completed_at) BETWEEN ? AND ?
-            GROUP BY DATE(completed_at)
-            ORDER BY date ASC
-        `).all(weekStart, date);
-
         return {
-            // snake_case → camelCase mapping
             todayEntry: todayEntry ? {
                 id: todayEntry.id,
                 title: todayEntry.title,
@@ -462,16 +465,12 @@ function getTodayDashboard(date: string) {
                 totalMinutes: pomRow.total_minutes,
                 sessionCount: pomRow.session_count,
             },
-            dueReviewCount: dueRow.count,
-            mistakeOverview: {
-                total: mistakeRow.total,
-                mastered: mistakeRow.mastered || 0,
+            commanderMetrics: {
+                riskPoolCount: riskRow.count,
+                lockedKnowledgeGrowth: lockedRow.count,
+                focusConversionRate: conversionRate
             },
-            streakDays: streak,
-            weeklyTrend: weeklyRows.map((r: any) => ({
-                date: r.date,
-                totalMinutes: r.total_minutes,
-            })),
+            streakDays: streak
         };
     });
 
