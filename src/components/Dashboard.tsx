@@ -281,7 +281,7 @@ export default function Dashboard() {
                 {/* Right Col: 90-Day Contribution Heatmap */}
                 <div className="card" style={{ padding: 'var(--space-lg)' }}>
                     <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CalendarDays size={18} style={{ color: 'var(--accent)' }} /> 学习热力图 (近 90 天)
+                        <CalendarDays size={18} style={{ color: 'var(--accent)' }} /> 学习轨迹（近 90 天）
                     </h3>
                     <p className="text-xs text-muted mb-4">有写日记的日子会点亮板块。</p>
 

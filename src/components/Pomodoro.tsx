@@ -109,15 +109,15 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           position: 'fixed',
           left: pos.x,
           top: pos.y,
-          padding: '8px 16px 8px 8px',
-          display: 'flex', alignItems: 'center', gap: 12,
-          border: `1px solid ${mode.color}40`,
+          padding: '6px 14px 6px 6px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          border: `1px solid ${mode.color}20`,
           background: 'var(--bg-secondary)',
           backdropFilter: 'blur(16px)',
           zIndex: 100,
           transition: isDragging ? 'none' : 'box-shadow 0.3s, border-color 0.3s',
           cursor: isDragging ? 'grabbing' : 'grab',
-          boxShadow: isDragging ? 'var(--shadow-xl, 0 20px 40px rgba(0,0,0,0.15))' : 'var(--shadow-lg)',
+          boxShadow: isDragging ? '0 12px 24px rgba(0,0,0,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
           borderRadius: 30,
           userSelect: 'none',
           touchAction: 'none',
@@ -130,21 +130,21 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       >
         <div
           data-no-drag
-          style={{ position: 'relative', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onClick={(e) => { e.stopPropagation(); toggleTimer(); }}
         >
-          <svg viewBox="0 0 40 40" width="40" height="40" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
+          <svg viewBox="0 0 40 40" width="32" height="32" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
             <circle cx="20" cy="20" r="18" fill="none" stroke="var(--border)" strokeWidth="3" />
             <circle cx="20" cy="20" r="18" fill="none" stroke={mode.color} strokeWidth="3" strokeLinecap="round"
               strokeDasharray={miniCircumference} strokeDashoffset={miniCircumference * (1 - progress)}
               style={{ transition: 'stroke-dashoffset 1s linear' }} />
           </svg>
-          <div style={{ fontSize: 14, opacity: 0.9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {isRunning ? <Pause size={16} /> : <Play size={16} />}
+          <div style={{ fontSize: 13, opacity: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isRunning ? <Pause size={14} /> : <Play size={14} />}
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: mode.color, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: mode.color, opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
             {formatTime(timeLeft)}
           </div>
         </div>
@@ -244,7 +244,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       {/* Today Stats */}
       <div className="card w-full" style={{ maxWidth: '340px', padding: 'var(--space-lg)' }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-          <h3 className="text-base font-semibold">今日总览</h3>
+          <h3 className="text-base font-semibold">当前进度</h3>
           <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
             {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
           </div>
@@ -267,7 +267,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           </div>
         ) : (
           <div className="text-sm text-muted text-center py-2 opacity-70">
-            今天还没有专注记录哦
+            今天还没有专注记录。开始一次番茄后，这里会显示当前进度。
           </div>
         )}
       </div>

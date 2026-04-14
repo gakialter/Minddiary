@@ -90,8 +90,8 @@ describe('HomeDashboard Component - Commander Engine', () => {
     // State A (riskPoolCount=6) -> Urgent
     expect(screen.getByText(/今天有.*个高风险知识点待抢救/)).toBeInTheDocument()
     // It should render metrics
-    expect(screen.getByText('72 小时内高遗忘风险')).toBeInTheDocument()
-    expect(screen.getByText('近 7 日稳定记忆净增')).toBeInTheDocument()
+    expect(screen.getByText('72 小时风险池')).toBeInTheDocument()
+    expect(screen.getByText('稳定记忆净增')).toBeInTheDocument()
     expect(screen.getByText('有效专注转化率')).toBeInTheDocument()
   })
 
@@ -100,13 +100,13 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
-    const toggleBtn = screen.getByText('展开系统推断依据')
-    expect(screen.queryByText('模型底层依据')).not.toBeInTheDocument()
+    const toggleBtn = screen.getByText('查看系统依据')
+    expect(screen.queryByText('系统依据')).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(toggleBtn)
     })
-    expect(screen.getByText('模型底层依据')).toBeInTheDocument()
+    expect(screen.getAllByText('系统依据').length).toBeGreaterThan(0)
     expect(screen.getByText('收起系统依据')).toBeInTheDocument()
   })
 

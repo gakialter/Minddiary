@@ -1,3 +1,4 @@
+import React from 'react';
 import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface SidebarProps {
@@ -16,7 +17,7 @@ interface NavItem {
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
   const navItems: NavItem[] = [
-    { id: 'home', icon: <Home size={20} />, label: '今日看板' },
+    { id: 'home', icon: <Home size={20} />, label: '今日决策' },
     { id: 'editor', icon: <PenLine size={20} />, label: '写日记' },
     { id: 'calendar', icon: <Calendar size={20} />, label: '日历' },
     { id: 'dashboard', icon: <BarChart2 size={20} />, label: '数据统计' },
@@ -30,103 +31,65 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
   ]
 
   return (
-    <div className="sidebar">
+    <div className="sidebar" style={{ backgroundColor: 'var(--bg-primary)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
       {/* Brand */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--space)',
-        padding: isCollapsed ? 'var(--space-md) 0' : 'var(--space-md)',
-        background: 'var(--bg-tertiary)',
-        borderRadius: 'var(--radius-lg)', marginBottom: 'var(--space-lg)',
-        justifyContent: isCollapsed ? 'center' : 'flex-start',
-        transition: 'all 0.3s'
-      }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: '40%',
-          background: 'linear-gradient(135deg, var(--accent), var(--accent-light))',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'white', fontWeight: 700, fontSize: 16, flexShrink: 0
-        }}>
-          考
-        </div>
-        {!isCollapsed && (
-          <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
-            <div className="font-semibold" style={{ fontSize: 14 }}>考研日记</div>
-            <div className="text-muted" style={{ fontSize: 11 }}>记录每一天</div>
+      <div className="px-4 py-4 mb-2">
+        <div className="flex items-center gap-3" style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold shrink-0" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-light))' }}>
+            考
           </div>
-        )}
+          {!isCollapsed && (
+            <div className="min-w-0">
+              <div className="text-[15px] font-semibold text-gray-900 dark:text-white">考研日记</div>
+              <div className="text-[13px] text-gray-500 dark:text-gray-400 leading-tight mt-0.5">记录每一天</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {navItems.map(item => (
+      <nav className="flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-1">
+        {navItems.map(item => {
+          const isActive = activeView === item.id;
+          return (
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 'var(--space)',
-              padding: '6px var(--space-md)',
-              borderRadius: 'var(--radius)', border: 'none',
-              cursor: 'pointer', width: '100%', textAlign: 'left',
-              fontSize: 14, fontWeight: activeView === item.id ? 600 : 500, fontFamily: 'inherit',
-              transition: 'all 0.15s ease',
-              background: activeView === item.id ? 'var(--bg-secondary)' : 'transparent',
-              color: activeView === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: activeView === item.id ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
-            }}
-            onMouseEnter={(e) => {
-              if (activeView !== item.id) e.currentTarget.style.background = 'rgba(0,0,0,0.03)'
-            }}
-            onMouseLeave={(e) => {
-              if (activeView !== item.id) e.currentTarget.style.background = 'transparent'
-            }}
+            className={`flex h-11 w-full items-center gap-2.5 rounded-xl px-3 text-[14px] font-medium transition-colors border-0 outline-none appearance-none ${
+              isActive
+                ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                : 'bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
+            }`}
           >
-            <span style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: activeView === item.id ? 'var(--accent)' : 'inherit',
-              flexShrink: 0,
-              width: 24, textAlign: 'center'
-            }}>
-              {item.icon}
+            <span className={`shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+              {React.cloneElement(item.icon, { size: 18 })}
             </span>
-            {!isCollapsed && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden' }}>{item.label}</span>}
+            {!isCollapsed && <span className="truncate">{item.label}</span>}
           </button>
-        ))}
+        )})}
       </nav>
 
       {/* Today & Toggle */}
-      <div style={{
-        marginTop: 'auto', paddingTop: 'var(--space-lg)',
-        borderTop: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column', gap: 'var(--space)',
-        alignItems: isCollapsed ? 'center' : 'flex-start'
-      }}>
+      <div className="border-t border-gray-100 dark:border-gray-800/80 px-4 py-4 mt-auto">
         {!isCollapsed && (
-          <div>
-            <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>今日</div>
-            <div className="font-semibold" style={{ fontSize: 17 }}>{selectedDate}</div>
-            <div className="text-secondary" style={{ fontSize: 13 }}>
+          <div className="mb-4">
+            <div className="text-xs text-gray-400 font-medium">今日</div>
+            <div className="mt-1 text-[20px] font-semibold tracking-tight text-gray-900 dark:text-white">{selectedDate}</div>
+            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
             </div>
           </div>
         )}
         <button
           onClick={onToggle}
-          style={{
-            background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer',
-            width: isCollapsed ? 36 : '100%', height: 36, borderRadius: 'var(--radius)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--text-secondary)', transition: 'all 0.2s'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--border)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-gray-50 dark:bg-gray-800/60 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/80 hover:text-gray-900 dark:hover:text-gray-200 transition-colors border-0 outline-none appearance-none"
           title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
-          aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
           {isCollapsed ? <PanelLeftOpen size={18} /> : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <>
               <PanelLeftClose size={18} />
-              <span style={{ fontSize: 13 }}>收起侧边栏</span>
-            </div>
+              <span>收起侧边栏</span>
+            </>
           )}
         </button>
       </div>
