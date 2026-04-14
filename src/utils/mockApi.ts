@@ -83,10 +83,12 @@ const mockApi: ElectronAPI = {
         getData: async () => ({
             todayEntry: null,
             pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
-            dueReviewCount: 0,
-            mistakeOverview: { total: 0, mastered: 0 },
+            commanderMetrics: {
+                riskPoolCount: 0,
+                lockedKnowledgeGrowth: 0,
+                focusConversionRate: 0,
+            },
             streakDays: 0,
-            weeklyTrend: [],
         }),
     },
     export: {

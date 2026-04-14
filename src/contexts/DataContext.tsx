@@ -403,6 +403,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             // Browser fallback: compute from local state
             const todayEntry = entries.find(e => e.date === date)
             const dueCount = mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length
+            // Fallback mock metrics since SQL is not available in browser
             return {
                 todayEntry: todayEntry ? {
                     id: todayEntry.id,
@@ -411,13 +412,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                     mood: todayEntry.mood,
                 } : null,
                 pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
-                dueReviewCount: dueCount,
-                mistakeOverview: {
-                    total: mistakes.length,
-                    mastered: mistakes.filter(m => m.mastered).length,
+                commanderMetrics: {
+                    riskPoolCount: dueCount,
+                    lockedKnowledgeGrowth: 0,
+                    focusConversionRate: 0
                 },
-                streakDays: 0,
-                weeklyTrend: [],
+                streakDays: 0
             }
         }
     }

@@ -52,8 +52,12 @@ output.txt
 *-handoff.md
 *-handoff-*.md
 
-# AI brainstorm artifacts
+# AI brainstorm & planning artifacts
 .superpowers/
+docs/superpowers/
+task.md
+implementation_plan.md
+walkthrough.md
 
 # One-off verification scripts
 verify-*.js

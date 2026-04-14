@@ -166,13 +166,12 @@ export interface TodayDashboardData {
     totalMinutes: number
     sessionCount: number
   }
-  dueReviewCount: number
-  mistakeOverview: {
-    total: number
-    mastered: number
+  commanderMetrics: {
+    riskPoolCount: number
+    lockedKnowledgeGrowth: number
+    focusConversionRate: number
   }
   streakDays: number
-  weeklyTrend: Array<{ date: string; totalMinutes: number }>
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────────────
