@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -25,18 +25,91 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: |
-          npm run build:electron
-          npx vite build
-          npx electron-builder --publish never
+      - name: Build Electron
+        run: npm run build:electron
+
+      - name: Build web app
+        run: npx vite build
+
+      - name: Prepare build resources
+        run: npm run build:resources
+
+      - name: Package Windows build
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/**/*.exe
+            release/**/*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+
+  build-mac:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron
+        run: npm run build:electron
+
+      - name: Build web app
+        run: npx vite build
+
+      - name: Prepare build resources
+        run: npm run build:resources
+
+      - name: Package macOS arm64 build
+        run: npx electron-builder --mac --arm64 --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-release
+          path: |
+            release/**/*.dmg
+            release/**/*.zip
+            release/**/*.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - build-windows
+      - build-mac
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/**/*.exe
-            release/**/*.exe.blockmap
-            release/latest.yml
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.exe.blockmap
+            release-artifacts/latest.yml
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.zip
+            release-artifacts/**/*.blockmap
+            release-artifacts/latest-mac.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

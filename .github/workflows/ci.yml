@@ -33,3 +33,32 @@ jobs:
         run: |
           npm run build:electron
           npx vite build
+
+  build-verification:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-14]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron
+        run: npm run build:electron
+
+      - name: Build web app
+        run: npx vite build
+
+      - name: Prepare build resources
+        run: npm run build:resources
