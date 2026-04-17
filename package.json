@@ -14,6 +14,8 @@
         "electron:dev": "electron .",
         "postinstall": "electron-builder install-app-deps",
         "build": "npm run build:electron && vite build && npm run build:resources && electron-builder",
+        "build:mac": "npm run build:electron && vite build && npm run build:resources && electron-builder --mac",
+        "build:win": "npm run build:electron && vite build && npm run build:resources && electron-builder --win",
         "preview": "vite preview",
         "test": "vitest",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"

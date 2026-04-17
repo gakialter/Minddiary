@@ -417,12 +417,17 @@ body {
   height: 100vh;
   display: grid;
   grid-template-columns: var(--sidebar-width, 240px) 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: var(--titlebar-height, 40px) 1fr;
   overflow: hidden;
   transition: grid-template-columns 0.3s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .titlebar {
+  grid-column: 1 / -1;
+  height: var(--titlebar-height, 40px);
+}
+
+.titlebar-custom {
   grid-column: 1 / -1;
   height: 40px;
   background: var(--bg-primary);
@@ -434,7 +439,7 @@ body {
   -webkit-app-region: drag;
 }
 
-.titlebar button {
+.titlebar-custom button {
   -webkit-app-region: no-drag;
 }
 
