@@ -13,13 +13,21 @@ const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
 let mainWindow: typeof BrowserWindow | any = null;
 
 function createWindow() {
+    const isMac = process.platform === 'darwin';
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
         minWidth: 960,
         minHeight: 600,
-        frame: false,
-        titleBarStyle: 'hidden',
+        ...(isMac
+            ? {
+                frame: true,
+                titleBarStyle: 'default',
+            }
+            : {
+                frame: false,
+            }),
         backgroundColor: '#0f0f14',
         webPreferences: {
             contextIsolation: true,

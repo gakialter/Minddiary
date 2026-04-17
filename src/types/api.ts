@@ -10,6 +10,8 @@ import type {
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
 
 export interface ElectronWindowAPI {
+  platform: string
+  titlebarMode: 'native' | 'custom'
   minimize: () => Promise<void>
   maximize: () => Promise<boolean>
   close: () => Promise<void>
