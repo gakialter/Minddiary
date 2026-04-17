@@ -96,6 +96,12 @@ const mockApi: ElectronAPI = {
         writeFile: async () => {},
         toPDF: async () => {},
     },
+    templates: {
+        getAll: async () => [],
+        create: async (t) => ({ id: Date.now(), name: t.name || '', content: t.content || '', is_default: 0, sort_order: 99, created_at: '', updated_at: '' }),
+        update: async (_id, t) => ({ id: _id, name: t.name || '', content: t.content || '', is_default: 0, sort_order: 99, created_at: '', updated_at: '' }),
+        delete: async () => ({ success: true }),
+    },
 }
 
 // Install mock API if running outside Electron

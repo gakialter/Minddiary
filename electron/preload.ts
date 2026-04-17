@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('api', {
         maximize: () => ipcRenderer.invoke('window:maximize'),
         close: () => ipcRenderer.invoke('window:close'),
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+        onMaximizedChange: (callback: (maximized: boolean) => void) => {
+            ipcRenderer.on('window:maximized-change', (_: any, maximized: boolean) => callback(maximized));
+        },
     },
 
     // Updater
@@ -42,6 +45,14 @@ contextBridge.exposeInMainWorld('api', {
         set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
         getAll: () => ipcRenderer.invoke('settings:getAll'),
         selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
+    },
+
+    // Templates
+    templates: {
+        getAll: () => ipcRenderer.invoke('templates:getAll'),
+        create: (template: any) => ipcRenderer.invoke('templates:create', template),
+        update: (id: number, template: any) => ipcRenderer.invoke('templates:update', id, template),
+        delete: (id: number) => ipcRenderer.invoke('templates:delete', id),
     },
 
     // Attachments

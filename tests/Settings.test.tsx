@@ -72,12 +72,15 @@ describe('Settings Component', () => {
     expect(screen.getByDisplayValue('sk-mock')).toBeInTheDocument()
     expect(screen.getByDisplayValue('30')).toBeInTheDocument() // Pomodoro minutes
     expect(screen.getByDisplayValue('C:\\Backups')).toBeInTheDocument()
-    
-    // Check checkboxes
+
+    // Check checkboxes — order in DOM:
+    // [0] pomodoroSound (default true), [1] pomodoroAlert (default true)
+    // [2] autoSave (false per mock),    [3] autoBackup (true per mock)
     const checkboxes = screen.getAllByRole('checkbox')
-    // autoSave is false, autoBackup is true
-    expect(checkboxes[0]).not.toBeChecked() // AutoSave
-    expect(checkboxes[1]).toBeChecked() // AutoBackup
+    expect(checkboxes[0]).toBeChecked()      // pomodoroSound = default true
+    expect(checkboxes[1]).toBeChecked()      // pomodoroAlert = default true
+    expect(checkboxes[2]).not.toBeChecked()  // autoSave = false per mock
+    expect(checkboxes[3]).toBeChecked()      // autoBackup = true per mock
   })
 
   it('debounces auto-saving when a setting changes', async () => {

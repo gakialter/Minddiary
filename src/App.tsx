@@ -14,6 +14,7 @@ import Welcome from './components/Welcome'
 import CommandPalette from './components/CommandPalette'
 import ExportModal from './components/ExportModal'
 import BreakReviewModal from './components/BreakReviewModal'
+import PomodoroAlert from './components/PomodoroAlert'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/Toast'
 import type { DiaryEntry, MoodId } from './types'
@@ -192,6 +193,13 @@ function AppContent() {
       <ToastContainer />
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
       {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}
+      <PomodoroAlert
+        visible={pomodoro.alertState.visible}
+        isWorkComplete={pomodoro.alertState.isWorkComplete}
+        duration={pomodoro.alertState.duration}
+        todayTotal={pomodoro.alertState.todayTotal}
+        onClose={pomodoro.dismissAlert}
+      />
     </Layout>
   )
 }

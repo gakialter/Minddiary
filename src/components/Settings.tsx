@@ -17,6 +17,8 @@ function Settings() {
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [pomodoroSound, setPomodoroSound] = useState(true)
+  const [pomodoroAlert, setPomodoroAlert] = useState(true)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -35,6 +37,8 @@ function Settings() {
       setPomodoroMinutes(parseInt(String(settings.pomodoroMinutes)) || 25)
       setAutoBackup(settings.autoBackup === 'true' || settings.autoBackup === true)
       setBackupPath((settings.backupPath as string) || '')
+      setPomodoroSound(String(settings.pomodoroSound ?? 'true') !== 'false')
+      setPomodoroAlert(String(settings.pomodoroAlert ?? 'true') !== 'false')
       setSettingsLoaded(true)  // mark as loaded before triggering auto-save
     } catch (error) {
       console.error('Failed to load settings:', error)
@@ -49,7 +53,7 @@ function Settings() {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, aiEndpoint, aiApiKey, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath])
+  }, [examDate, aiEndpoint, aiApiKey, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -62,6 +66,8 @@ function Settings() {
       await diary.settings.update('pomodoroMinutes', pomodoroMinutes)
       await diary.settings.update('autoBackup', autoBackup)
       await diary.settings.update('backupPath', backupPath)
+      await diary.settings.update('pomodoroSound', pomodoroSound)
+      await diary.settings.update('pomodoroAlert', pomodoroAlert)
       showToast('设置已保存', 'success')
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -281,6 +287,24 @@ function Settings() {
                 value={pomodoroMinutes}
                 onChange={(e) => setPomodoroMinutes(Number(e.target.value))}
               />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox" checked={pomodoroSound}
+                  onChange={(e) => setPomodoroSound(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                <span className="text-sm">计时结束音效提示</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox" checked={pomodoroAlert}
+                  onChange={(e) => setPomodoroAlert(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                />
+                <span className="text-sm">计时结束弹窗提示（适合看网课时使用）</span>
+              </label>
             </div>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>

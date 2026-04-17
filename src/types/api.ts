@@ -4,7 +4,7 @@ import type {
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   AppSettings, AIMessage, AISettings, AIResponse,
-  TodayDashboardData,
+  TodayDashboardData, DiaryTemplate,
 } from '.'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
@@ -14,6 +14,7 @@ export interface ElectronWindowAPI {
   maximize: () => Promise<boolean>
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
+  onMaximizedChange?: (callback: (maximized: boolean) => void) => void
 }
 
 export interface ElectronEntriesAPI {
@@ -105,6 +106,13 @@ export interface ElectronUpdaterAPI {
   check: () => Promise<{ success: boolean; message?: string; info?: unknown }>
 }
 
+export interface ElectronTemplatesAPI {
+  getAll: () => Promise<DiaryTemplate[]>
+  create: (template: Partial<DiaryTemplate>) => Promise<DiaryTemplate>
+  update: (id: number, template: Partial<DiaryTemplate>) => Promise<DiaryTemplate>
+  delete: (id: number) => Promise<{ success: boolean; message?: string }>
+}
+
 export interface ElectronAPI {
   window: ElectronWindowAPI
   updater: ElectronUpdaterAPI
@@ -120,6 +128,7 @@ export interface ElectronAPI {
   ai: ElectronAIAPI
   notification: ElectronNotificationAPI
   export: ElectronExportAPI
+  templates: ElectronTemplatesAPI
 }
 
 // ─── Context API shapes (consumed by components via useDiary) ────────────────

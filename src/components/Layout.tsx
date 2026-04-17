@@ -11,6 +11,11 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
 
   useEffect(() => {
     window.api.window.isMaximized().then(setIsMaximized)
+    // Listen for maximize state changes pushed from main process
+    // (e.g. user double-clicks titlebar, or Win11 snap layouts)
+    window.api.window.onMaximizedChange?.((maximized: boolean) => {
+      setIsMaximized(maximized)
+    })
   }, [])
 
   const handleMinimize = () => {

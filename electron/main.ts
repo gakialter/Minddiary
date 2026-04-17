@@ -13,19 +13,30 @@ const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
 let mainWindow: typeof BrowserWindow | any = null;
 
 function createWindow() {
+    const isMac = process.platform === 'darwin';
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
         minWidth: 960,
         minHeight: 600,
-        frame: false,
-        titleBarStyle: 'hidden',
+        // Windows: frameless with custom titlebar; macOS: native hidden inset
+        frame: isMac,
+        ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
         backgroundColor: '#0f0f14',
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
             preload: path.join(__dirname, 'preload.js')
         }
+    });
+
+    // Push maximize state changes to renderer for titlebar icon sync
+    mainWindow.on('maximize', () => {
+        mainWindow.webContents.send('window:maximized-change', true);
+    });
+    mainWindow.on('unmaximize', () => {
+        mainWindow.webContents.send('window:maximized-change', false);
     });
 
     // Dev or production
@@ -216,6 +227,12 @@ ipcMain.handle('ai:summarize', (_: any, content: string, settings: any) => aiSer
 ipcMain.handle('notification:show', (_: any, title: string, body: string) => {
     new Notification({ title, body }).show();
 });
+
+// ==================== Templates ====================
+ipcMain.handle('templates:getAll', () => db.getAllTemplates());
+ipcMain.handle('templates:create', (_: any, template: any) => db.createTemplate(template));
+ipcMain.handle('templates:update', (_: any, id: number, template: any) => db.updateTemplate(id, template));
+ipcMain.handle('templates:delete', (_: any, id: number) => db.deleteTemplate(id));
 
 // ==================== Export ====================
 

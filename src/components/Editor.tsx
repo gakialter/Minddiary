@@ -4,11 +4,12 @@ import { useDiary } from '../contexts/DiaryContext'
 import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
-import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp } from 'lucide-react'
+import TemplateManager from './TemplateManager'
+import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
-import type { DiaryEntry, AIMessage } from '../types'
+import type { DiaryEntry, AIMessage, DiaryTemplate } from '../types'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
@@ -46,6 +47,8 @@ function Editor({ entry, onSave, loading }: EditorProps) {
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(true)
+  const [showTemplateManager, setShowTemplateManager] = useState(false)
+  const [quickTemplates, setQuickTemplates] = useState<DiaryTemplate[]>([])
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
   const shareCardRef = useRef<HTMLDivElement>(null)
@@ -58,6 +61,13 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       setPomodoros(totalMinutes > 0 ? [{ duration: totalMinutes * 60 }] : [])
     }).catch(() => setPomodoros([]))
   }, [entry?.date])
+
+  // Load quick-access templates (first 3)
+  useEffect(() => {
+    window.api.templates.getAll().then(data => {
+      setQuickTemplates((data || []).slice(0, 3))
+    }).catch(() => {})
+  }, [showTemplateManager])
 
   // Sync from entry prop (only when entry changes reference)
   useEffect(() => {
@@ -183,41 +193,8 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleSave])
 
-  const handleTemplateInsert = (section: string) => {
-    const templates: Record<string, string> = {
-      summary: `## 今日学了什么
--
-
-## 薄弱点 / 疑问
--
-
-## 明日计划
--
-
-## 感悟 / 碎碎念
-`,
-      simple: `## 今日总结
-- 学了什么？
-- 有什么收获？
-- 明天做什么？
-`,
-      detailed: `## 学习内容
-**科目**：
-**章节**：
-**用时**：小时
-
-## 重点记录
-1.
-2.
-
-## 错题分析
--
-
-## 心态调整
--
-`,
-    }
-    setContent(templates[section] || '')
+  const handleTemplateInsert = (templateContent: string) => {
+    setContent(templateContent)
     isDirty.current = true
   }
 
@@ -315,17 +292,32 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       )}
 
       {/* Template buttons */}
-      <div className="flex gap-sm">
-        <button className="button button-secondary text-sm" onClick={() => handleTemplateInsert('summary')}>
-          考研模板
-        </button>
-        <button className="button button-secondary text-sm" onClick={() => handleTemplateInsert('simple')}>
-          简洁模板
-        </button>
-        <button className="button button-secondary text-sm" onClick={() => handleTemplateInsert('detailed')}>
-          详细模板
+      <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
+        {quickTemplates.map(tpl => (
+          <button
+            key={tpl.id}
+            className="button button-secondary text-sm"
+            onClick={() => handleTemplateInsert(tpl.content)}
+            title={`插入「${tpl.name}」模板`}
+          >
+            {tpl.name}
+          </button>
+        ))}
+        <button
+          className="button button-secondary text-sm"
+          onClick={() => setShowTemplateManager(true)}
+          title="管理自定义模板"
+          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        >
+          <LayoutTemplate size={13} /> 管理模板
         </button>
       </div>
+
+      <TemplateManager
+        visible={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+        onInsert={handleTemplateInsert}
+      />
 
       {/* Title input */}
       <div>

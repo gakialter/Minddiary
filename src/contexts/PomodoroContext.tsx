@@ -30,6 +30,14 @@ interface PomodoroContextValue {
   loadTodayStats: () => Promise<void>
   onBreakStart: (() => void) | null
   setOnBreakStart: (cb: (() => void) | null) => void
+  // Alert state for PomodoroAlert modal
+  alertState: {
+    visible: boolean
+    isWorkComplete: boolean
+    duration: number
+    todayTotal: number
+  }
+  dismissAlert: () => void
 }
 
 const PomodoroContext = createContext<PomodoroContextValue | null>(null)
@@ -60,6 +68,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [todayTotal, setTodayTotal] = useState(0)
   const [onBreakStart, setOnBreakStart] = useState<(() => void) | null>(null)
   const onBreakStartRef = useRef<(() => void) | null>(null)
+
+  // Alert modal state
+  const [alertState, setAlertState] = useState({
+    visible: false, isWorkComplete: true, duration: 0, todayTotal: 0,
+  })
+  const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
 
   const endTimeRef = useRef<number | null>(null)
 
@@ -108,6 +122,47 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setIsRunning(false)
     endTimeRef.current = null
 
+    // ── Notification sound (Web Audio API beep, no external file needed) ──
+    try {
+      const settingsData = await window.api.settings.getAll().catch(() => ({}) as Record<string, unknown>) as Record<string, unknown>
+      const soundEnabled = String(settingsData?.pomodoroSound ?? 'true') !== 'false'
+      const alertEnabled = String(settingsData?.pomodoroAlert ?? 'true') !== 'false'
+
+      if (soundEnabled) {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const gainNode = ctx.createGain()
+        gainNode.gain.setValueAtTime(0.35, ctx.currentTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
+        gainNode.connect(ctx.destination)
+        // Two-tone chime
+        const tones = [880, 1046]
+        tones.forEach((freq, i) => {
+          const osc = ctx.createOscillator()
+          osc.type = 'sine'
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18)
+          osc.connect(gainNode)
+          osc.start(ctx.currentTime + i * 0.18)
+          osc.stop(ctx.currentTime + i * 0.18 + 1.0)
+        })
+        setTimeout(() => ctx.close(), 2000)
+      }
+
+      // ── Alert modal ──
+      if (alertEnabled) {
+        const newTotal = await window.api.pomodoro.getDailyTotal(
+          new Date().toISOString().split('T')[0]!
+        ).catch(() => todayTotal)
+        setAlertState({
+          visible: true,
+          isWorkComplete: mode.id === 'work',
+          duration: Math.round(mode.time / 60),
+          todayTotal: newTotal,
+        })
+      }
+    } catch (e) {
+      console.warn('Pomodoro notification error:', e)
+    }
+
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('番茄钟提醒', {
         body: mode.id === 'work' ? '专注完成，休息一下吧！' : '休息结束，准备专注！',
@@ -134,7 +189,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       setMode(dynamicModes.WORK!)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedSubject])
+  }, [mode, selectedSubject, todayTotal])
 
   // Main Timer Loop
   useEffect(() => {
@@ -194,6 +249,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       onBreakStartRef.current = cb
       setOnBreakStart(cb)
     },
+    // Alert
+    alertState,
+    dismissAlert,
   }
 
   return (

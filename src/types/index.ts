@@ -182,3 +182,14 @@ export interface StorageKeys {
   MISTAKES: string
   SUBJECTS: string
 }
+
+// ─── Diary Templates ───────────────────────────────────────────────────────
+export interface DiaryTemplate {
+  id: number
+  name: string
+  content: string
+  is_default: number   // 0 or 1 (SQLite boolean)
+  sort_order: number
+  created_at: string
+  updated_at: string
+}

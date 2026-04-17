@@ -96,6 +96,16 @@ function initialize() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS diary_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      is_default INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
     // ── v2.0 Migration: Spaced Repetition columns on mistakes ──
@@ -111,6 +121,37 @@ function initialize() {
     }
     // Index for due-review queries
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mistakes_next_review ON mistakes(next_review_date)'); } catch { /* ignore */ }
+
+    // ── Seed default diary templates (only if table is empty) ──
+    const templateCount = db.prepare('SELECT COUNT(*) as count FROM diary_templates').get();
+    if (templateCount.count === 0) {
+        const seedTemplates = [
+            {
+                name: '考研模板',
+                content: '## 今日学了什么\n-\n\n## 薄弱点 / 疑问\n-\n\n## 明日计划\n-\n\n## 感悟 / 碎碎念\n',
+                is_default: 1,
+                sort_order: 0,
+            },
+            {
+                name: '简洁模板',
+                content: '## 今日总结\n- 学了什么？\n- 有什么收获？\n- 明天做什么？\n',
+                is_default: 1,
+                sort_order: 1,
+            },
+            {
+                name: '详细模板',
+                content: '## 学习内容\n**科目**：\n**章节**：\n**用时**：小时\n\n## 重点记录\n1.\n2.\n\n## 错题分析\n-\n\n## 心态调整\n-\n',
+                is_default: 1,
+                sort_order: 2,
+            },
+        ];
+        const insertTpl = db.prepare(
+            'INSERT INTO diary_templates (name, content, is_default, sort_order) VALUES (?, ?, ?, ?)'
+        );
+        for (const t of seedTemplates) {
+            insertTpl.run(t.name, t.content, t.is_default, t.sort_order);
+        }
+    }
 }
 
 // ==================== Entries ====================
@@ -589,6 +630,41 @@ function getRandomDueMistake(date: string, subjectId?: number) {
     return db.prepare(query).get(...params) || null;
 }
 
+// ==================== Templates ====================
+function getAllTemplates() {
+    return db.prepare('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC').all();
+}
+
+function createTemplate({ name, content, sort_order }: any) {
+    const stmt = db.prepare(
+        'INSERT INTO diary_templates (name, content, is_default, sort_order) VALUES (?, ?, 0, ?)'
+    );
+    const result = stmt.run(name, content || '', sort_order ?? 99);
+    return { id: result.lastInsertRowid, name, content: content || '', is_default: 0, sort_order: sort_order ?? 99 };
+}
+
+function updateTemplate(id: number, { name, content, sort_order }: any) {
+    const updates: string[] = [];
+    const params: any[] = [];
+    if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+    if (content !== undefined) { updates.push('content = ?'); params.push(content); }
+    if (sort_order !== undefined) { updates.push('sort_order = ?'); params.push(sort_order); }
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(id);
+    db.prepare(`UPDATE diary_templates SET ${updates.join(', ')} WHERE id=?`).run(...params);
+    return db.prepare('SELECT * FROM diary_templates WHERE id=?').get(id);
+}
+
+function deleteTemplate(id: number) {
+    // Prevent deleting default templates
+    const tpl = db.prepare('SELECT is_default FROM diary_templates WHERE id=?').get(id);
+    if (tpl && tpl.is_default) {
+        return { success: false, message: '默认模板不可删除' };
+    }
+    db.prepare('DELETE FROM diary_templates WHERE id=?').run(id);
+    return { success: true };
+}
+
 module.exports = {
     initialize,
     createEntry, updateEntry, deleteEntry, getEntryById, getEntryByDate,
@@ -601,5 +677,6 @@ module.exports = {
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
+    getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
     setCustomDbPath, getDb: () => db
 };
