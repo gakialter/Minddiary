@@ -258,7 +258,7 @@ export default function MistakeBook() {
                 >
                     <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
                         <h3>{editingId ? '编辑' : '添加错题/知识点'}</h3>
-                        <span className="text-xs text-muted">提示：支持 Ctrl+V 粘贴或拖拽图片</span>
+                        <span className="text-xs text-muted">提示：支持 Ctrl/Cmd+V 粘贴或拖拽图片</span>
                     </div>
                     <div className="flex flex-col gap-sm">
                         <select className="input" value={form.subject_id}

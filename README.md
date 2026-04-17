@@ -154,9 +154,9 @@ npm run typecheck
 # 运行测试
 npm run test
 
-# 构建发布包（Windows）
+# 构建发布包（当前平台）
 npm run build
-# 产物位于 release/ 目录
+# Windows 生成 .exe；macOS Apple Silicon 生成 .dmg / .zip
 ```
 
 也可以直接在 [Releases](https://github.com/gakialter/Minddiary/releases) 页面下载安装包。
@@ -167,7 +167,7 @@ npm run build
 
 1. **首次运行** — 完成新手引导后即可开始记录
 2. **AI 配置** — 在设置 `⚙️` 中填写 OpenAI 兼容端点和 Token（仅存于本地）
-3. **快捷键** — `Ctrl+S` 保存 · `Ctrl+K` 打开命令面板
+3. **快捷键** — `Ctrl/Cmd+S` 保存 · `Ctrl/Cmd+K` 打开命令面板
 4. **数据迁移** — 「导出为 JSON」→ 换机后「从 JSON 导入」，支持智能增量去重
 
 ---
