@@ -156,7 +156,15 @@ npm run test
 
 # 构建发布包（当前平台）
 npm run build
-# Windows 生成 .exe；macOS Apple Silicon 生成 .dmg / .zip
+
+# 仅构建 macOS 发布包
+npm run build:mac
+
+# 仅构建 Windows 发布包
+npm run build:win
+
+# 默认产物输出到 release/
+# Windows 生成 NSIS 安装包 / portable；macOS 生成 .dmg / .zip
 ```
 
 也可以直接在 [Releases](https://github.com/gakialter/Minddiary/releases) 页面下载安装包。
