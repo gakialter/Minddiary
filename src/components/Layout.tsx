@@ -62,21 +62,21 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
           <div className="text-sm text-muted">
             考研日记 · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center" style={{ height: '100%' }}>
             <button
-              style={winBtnStyle}
+              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onClick={handleMinimize}
               title="最小化"
               aria-label="最小化窗口"
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
             >
-              <svg width="12" height="1" viewBox="0 0 12 1">
-                <rect width="12" height="1" fill="currentColor" />
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <rect y="5.5" width="12" height="1" fill="currentColor" />
               </svg>
             </button>
             <button
-              style={winBtnStyle}
+              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onClick={handleMaximize}
               title={isMaximized ? "还原" : "最大化"}
               aria-label={isMaximized ? "还原窗口" : "最大化窗口"}
@@ -94,7 +94,7 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
               )}
             </button>
             <button
-              style={winBtnStyle}
+              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onClick={handleClose}
               title="关闭"
               aria-label="关闭窗口"

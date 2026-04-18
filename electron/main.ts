@@ -137,7 +137,9 @@ app.on('activate', () => {
 });
 
 // ==================== Window Controls ====================
-ipcMain.handle('window:minimize', () => mainWindow.minimize());
+ipcMain.handle('window:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
 ipcMain.handle('window:maximize', () => {
     if (mainWindow.isMaximized()) mainWindow.unmaximize();
     else mainWindow.maximize();
