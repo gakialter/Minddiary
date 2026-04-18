@@ -1,13 +1,14 @@
 const fs = require('fs');
+const path = require('path');
 
-(async () => {
-    try {
-        const module = await import('png-to-ico');
-        const pngToIco = module.default || module;
-        const buf = await pngToIco('build/icon.png');
-        fs.writeFileSync('build/icon.ico', buf);
-        console.log('Icon successfully converted to ICO!');
-    } catch (e) {
-        console.error('Failed to convert icon:', e);
-    }
-})();
+try {
+    const buildDir = path.join(__dirname, '..', 'build');
+    const sourceIcon = path.join(__dirname, '..', 'docs', 'assets', 'app-icon.png');
+    const pngIcon = path.join(buildDir, 'icon.png');
+
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.copyFileSync(sourceIcon, pngIcon);
+    console.log('Icon successfully copied to build/icon.png');
+} catch (e) {
+    console.error('Failed to prepare icon:', e);
+}

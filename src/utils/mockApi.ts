@@ -8,6 +8,8 @@ const noopArr = async (): Promise<never[]> => ([])
 
 const mockApi: ElectronAPI = {
     window: {
+        platform: navigator.userAgent.includes('Mac') ? 'darwin' : 'browser',
+        titlebarMode: navigator.userAgent.includes('Mac') ? 'native' : 'custom',
         minimize: async () => {},
         maximize: async () => false,
         close: async () => {},

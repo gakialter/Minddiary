@@ -9,10 +9,13 @@
     "main": "electron-dist/main.js",
     "scripts": {
         "build:electron": "tsc -p tsconfig.electron.json",
+        "build:resources": "node scripts/create-icon.js",
         "dev": "npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
         "electron:dev": "electron .",
         "postinstall": "electron-builder install-app-deps",
-        "build": "npm run build:electron && vite build && electron-builder",
+        "build": "npm run build:electron && vite build && npm run build:resources && electron-builder",
+        "build:mac": "npm run build:electron && vite build && npm run build:resources && electron-builder --mac",
+        "build:win": "npm run build:electron && vite build && npm run build:resources && electron-builder --win",
         "preview": "vite preview",
         "test": "vitest",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"
@@ -72,7 +75,7 @@
                 "nsis",
                 "portable"
             ],
-            "icon": "build/icon.ico"
+            "icon": "build/icon.png"
         },
         "nsis": {
             "oneClick": false,

@@ -235,7 +235,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
             onClick={() => handleSave(true)}
             disabled={saving}
           >
-            {saving ? '保存中...' : <><Save size={15} /> Ctrl+S</>}
+            {saving ? '保存中...' : <><Save size={15} /> Ctrl/Cmd+S</>}
           </button>
         </div>
       </div>
