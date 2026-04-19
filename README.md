@@ -104,13 +104,19 @@
 ## 📸 界面预览
 
 <p align="center">
-  <img src="./docs/assets/editor.png" width="45%" alt="日记编辑器"/>
+  <img src="./docs/assets/dashboard.png" width="45%" alt="今日决策看板"/>
   &nbsp;&nbsp;
-  <img src="./docs/assets/dashboard.png" width="45%" alt="数据统计面板"/>
+  <img src="./docs/assets/editor.png" width="45%" alt="日记编辑器"/>
 </p>
 
 <p align="center">
   <img src="./docs/assets/pomodoro.png" width="45%" alt="番茄钟"/>
+  &nbsp;&nbsp;
+  <img src="./docs/assets/ai-assistant.png" width="45%" alt="AI 助手"/>
+</p>
+
+<p align="center">
+  <img src="./docs/assets/statistics.png" width="45%" alt="数据统计分析"/>
   &nbsp;&nbsp;
   <img src="./docs/assets/mistake-book.png" width="45%" alt="错题本"/>
 </p>
@@ -208,6 +214,11 @@ tests/              # Vitest 单元测试 + 组件测试
 ---
 
 ## 📋 更新日志
+
+### v1.7.1 — 视觉与交互体验抛光 (2026-04-20)
+- ✨ **Apple HIG 质感打磨** — 彻底废弃旧版突兀的 AI 生成素材占位图，全面采用原生的轻量级 SVG 组合与透明毛玻璃材质，使组件在浅色和暗色模式下完美融入背景。
+- 💊 **快捷指令原生化** — AI 助手的指令提示从“大白框”重构为现代 AI 标配的空心胶囊（Pill）样式，辅以精细的 `--accent` Hover 动效，大幅剔除了前序版本的视觉噪音。
+- ✅ **全架构验收通过** — 移除了遗留的私有调试文稿，通过了 `TypeScript` 与全部 52 个 `Vitest` 测试的验证，确立 1.7.x 版本支柱稳定性。
 
 ### v1.7.0 — Zen Forest 品牌重塑 (2026-04-19)
 - 🎨 **纯净感知环境** — 将整体色调从“通用工具蓝”重构为更具沉浸感、更低心智压力的 **「深林冥想 (Zen Forest)」** 色系。

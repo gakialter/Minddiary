@@ -28,7 +28,8 @@ function createWindow() {
             contextIsolation: true,
             nodeIntegration: false,
             preload: path.join(__dirname, 'preload.js')
-        }
+        },
+        icon: path.join(__dirname, '..', 'build', 'icon.png')
     });
 
     // Push maximize state changes to renderer for titlebar icon sync

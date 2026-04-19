@@ -387,7 +387,9 @@ export default function MistakeBook() {
                 ))}
                 {mistakes.length === 0 && (
                     <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }}>
-                        <img src="/images/mistakebook_empty.png" alt="空错题本" style={{ width: 120, height: 120, objectFit: 'contain', opacity: 0.9, marginBottom: 'var(--space-sm)' }} />
+                        <div style={{ width: 100, height: 100, borderRadius: '50%', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-sm)', border: '2px solid var(--bg-secondary)', boxShadow: 'var(--shadow-sm)' }}>
+                            <BookX size={48} style={{ color: 'var(--accent)', opacity: 0.9 }} />
+                        </div>
                         <h3 className="text-lg font-medium">还没有错题记录</h3>
                         <p className="text-muted" style={{ maxWidth: 300 }}>
                             你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。

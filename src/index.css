@@ -474,7 +474,7 @@ body {
   text-align: center;
 }
 
-.empty-state svg {
+.empty-state > .hero-svg {
   width: 80px;
   height: 80px;
   margin-bottom: var(--space-md);

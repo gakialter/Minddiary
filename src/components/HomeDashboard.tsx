@@ -58,7 +58,7 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
   }
 
   return (
-    <div className="w-full min-h-full bg-[#f7f8fa] dark:bg-[#0a0a0a] overflow-y-auto">
+    <div className="w-full min-h-full bg-transparent overflow-y-auto">
       <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
         <div className="space-y-6">
           
@@ -86,13 +86,17 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
           </section>
 
           <section className="max-w-3xl">
-            <button 
-              type="button"
-              onClick={() => setShowDetails(!showDetails)}
-              className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 bg-transparent border-0 outline-none appearance-none hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
-            >
-              {showDetails ? '收起系统依据' : '查看系统依据'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                type="button"
+                onClick={() => setShowDetails(!showDetails)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 bg-transparent border-0 outline-none appearance-none hover:text-[var(--accent)] dark:text-gray-400 transition-colors"
+              >
+                {showDetails ? '收起系统依据' : '查看系统依据'}
+                {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+              {!showDetails && <div className="h-px w-24 bg-gradient-to-r from-gray-200 to-transparent dark:from-gray-800" />}
+            </div>
             
             {showDetails && (
               <div className="mt-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/50 p-5 md:p-6 opacity-[0.98]">

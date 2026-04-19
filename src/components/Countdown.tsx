@@ -51,9 +51,10 @@ function Countdown() {
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: 'var(--space-sm)',
       padding: '4px 14px', borderRadius: 20,
-      background: daysLeft < 30 ? 'rgba(239,68,68,0.15)' : 'rgba(139,92,246,0.15)',
-      color: daysLeft < 30 ? 'var(--danger)' : 'var(--accent-light)',
-      fontSize: 13
+      background: daysLeft < 30 ? 'rgba(217,119,6,0.1)' : 'var(--bg-tertiary)',
+      color: daysLeft < 30 ? 'var(--warning)' : 'var(--accent)',
+      fontSize: 13,
+      border: '1px solid var(--border-light)'
     }}>
       <span style={{ display: 'flex', alignItems: 'center' }}><CalendarDays size={14} /></span>
       <span className="font-semibold" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{getMessage(daysLeft)}</span>

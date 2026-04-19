@@ -159,10 +159,10 @@ export default function AIPanel({ entry }: AIPanelProps) {
             position: 'relative'
         }}>
             {/* Header */}
-            <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-secondary)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
+            <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', background: 'transparent', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="flex items-center gap-sm">
-                    <div style={{ width: 36, height: 36, borderRadius: 12, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>
-                        <img src="./images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div style={{ width: 36, height: 36, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent-light), var(--bg-tertiary))', color: 'var(--accent)' }}>
+                        <Bot size={20} />
                     </div>
                     <div>
                         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>小研</h2>
@@ -182,26 +182,29 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ height: '100%', animation: 'page-fade-in 0.5s ease-out' }}>
                         <div style={{
-                            width: 80, height: 80, borderRadius: 24, overflow: 'hidden',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)'
+                            width: 80, height: 80, borderRadius: 24,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)',
+                            background: 'linear-gradient(135deg, var(--accent-light), var(--bg-tertiary))',
+                            color: 'var(--accent)',
+                            boxShadow: 'inset 0 4px 10px rgba(255,255,255,0.6), var(--shadow-sm)'
                         }}>
-                            <img src="./images/xiao_yan_avatar.png" alt="小研" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <Bot size={40} />
                         </div>
                         <h3 style={{ fontSize: 20, marginBottom: 'var(--space-sm)' }}>我是你的专属考研智囊</h3>
                         <p className="text-muted" style={{ maxWidth: 300, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
                             我可以直接读取你的日记、错题与学习进度，为你提供定制化的复习策略和情绪价值。
                         </p>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)', width: '100%', maxWidth: 500 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-md)', justifyContent: 'center', width: '100%', maxWidth: 640 }}>
                             {quickPrompts.map((p, i) => (
-                                <button key={i} className="card flex items-center gap-sm cursor-pointer"
-                                    style={{ padding: 'var(--space-md)', border: '1px solid var(--border)', background: 'var(--bg-secondary)', textAlign: 'left', transition: 'all 0.2s' }}
+                                <button key={i} className="flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                                    style={{ padding: '8px 16px', borderRadius: 9999, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', transition: 'all 0.2s' }}
                                     onClick={p.action}
-                                    onMouseEnter={e => Object.assign(e.currentTarget.style, { transform: 'translateY(-2px)', borderColor: 'var(--accent)', boxShadow: 'var(--shadow-sm)' })}
-                                    onMouseLeave={e => Object.assign(e.currentTarget.style, { transform: 'translateY(0)', borderColor: 'var(--border)', boxShadow: 'none' })}
+                                    onMouseEnter={e => Object.assign(e.currentTarget.style, { background: 'var(--bg-tertiary)', color: 'var(--text-primary)', borderColor: 'transparent', transform: 'translateY(-1px)' })}
+                                    onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'transparent', color: 'var(--text-secondary)', borderColor: 'var(--border)', transform: 'translateY(0)' })}
                                 >
-                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>{p.icon}</span>
-                                    <span style={{ fontSize: 14, fontWeight: 500 }}>{p.label}</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8 }}>{p.icon}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</span>
                                 </button>
                             ))}
                         </div>
@@ -267,15 +270,14 @@ export default function AIPanel({ entry }: AIPanelProps) {
             {/* Input Footer */}
             <div style={{
                 padding: 'var(--space-md) var(--space-xl)',
-                background: 'var(--bg-secondary)',
-                borderTop: '1px solid var(--border)',
+                background: 'transparent',
                 zIndex: 10
             }}>
                 <div style={{
                     display: 'flex', alignItems: 'flex-end', gap: 'var(--space-sm)',
-                    background: 'var(--bg-primary)', padding: '8px',
+                    background: 'var(--bg-secondary)', padding: '8px',
                     borderRadius: 24, border: '1px solid var(--border-light)',
-                    boxShadow: 'var(--shadow-sm)'
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.04)'
                 }}>
                     <textarea
                         className="input"
