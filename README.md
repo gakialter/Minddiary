@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/assets/app-icon.png" alt="MindDiary" width="120" />
+  <img src="./public/images/app-icon.svg" alt="MindDiary" width="120" />
 </p>
 
 <h1 align="center">MindDiary · 考研日记</h1>
@@ -184,6 +184,9 @@ npm run build:win
 ## 📂 项目结构
 
 ```
+docs/
+└── brand.md        # 品牌与视觉识别规范 (单一信源)
+
 src/
 ├── components/     # React UI 组件 (.tsx)
 ├── contexts/       # 状态管理 — Settings / Data / Diary / Pomodoro
@@ -205,6 +208,12 @@ tests/              # Vitest 单元测试 + 组件测试
 ---
 
 ## 📋 更新日志
+
+### v1.7.0 — Zen Forest 品牌重塑 (2026-04-19)
+- 🎨 **纯净感知环境** — 将整体色调从“通用工具蓝”重构为更具沉浸感、更低心智压力的 **「深林冥想 (Zen Forest)」** 色系。
+- 🔗 **确立品牌单一信源 (SSOT)** — 将全局 Logo 抽象为独立 `<Logo />` 组件，并建立 `docs/brand.md` 约束化规范。
+- 📦 **桌面环境适配** — 去除桌面、安装包图标的冗余文字，重构由“极简绝对原点”构筑的高清 SVG -> PNG 图标系统。
+- 🛡️ **质量防劣化流程** — 引入针对状态色、设计规范的发版前自动化架构稽核与视觉验收体系。
 
 ### v1.6.1 — 热修复
 - 🩹 **修复最小化按钮** — 修复了 Windows 平台下由于点击区域过小导致最小化按钮无响应的问题。

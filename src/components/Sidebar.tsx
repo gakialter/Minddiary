@@ -1,5 +1,6 @@
 import React from 'react';
 import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import Logo from './Logo';
 
 interface SidebarProps {
   activeView: string
@@ -35,8 +36,8 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
       {/* Brand */}
       <div className="px-4 py-4 mb-2">
         <div className="flex items-center gap-3" style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold shrink-0" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-light))' }}>
-            考
+          <div className="flex h-10 w-10 items-center justify-center shrink-0" style={{ color: 'var(--accent)' }}>
+            <Logo className="w-full h-full" />
           </div>
           {!isCollapsed && (
             <div className="min-w-0">
@@ -57,11 +58,11 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
             onClick={() => onViewChange(item.id)}
             className={`flex h-11 w-full items-center gap-2.5 rounded-xl px-3 text-[14px] font-medium transition-colors border-0 outline-none appearance-none ${
               isActive
-                ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                : 'bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
+                ? 'bg-[var(--accent-light)] text-[var(--accent)]'
+                : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <span className={`shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+            <span className={`shrink-0 ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
               {React.cloneElement(item.icon, { size: 18 })}
             </span>
             {!isCollapsed && <span className="truncate">{item.label}</span>}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Logo from './Logo'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -53,10 +54,9 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
       {hasCustomTitlebar && (
         <div className="titlebar titlebar-custom">
           <div className="flex items-center gap-md">
-            <div style={{
-              width: 14, height: 14, borderRadius: '50%',
-              background: 'var(--accent)'
-            }} />
+            <div style={{ width: 14, height: 14, color: 'var(--accent)' }}>
+              <Logo className="w-full h-full" />
+            </div>
             <span className="text-sm font-medium text-secondary">MindDiary</span>
           </div>
           <div className="text-sm text-muted">

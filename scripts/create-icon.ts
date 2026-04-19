@@ -8,7 +8,7 @@ try {
 
     fs.mkdirSync(buildDir, { recursive: true });
     fs.copyFileSync(sourceIcon, pngIcon);
-    console.log('Icon successfully copied to build/icon.png');
+    console.log('Zen Forest Icon successfully copied to build/icon.png');
 } catch (e) {
-    console.error('Failed to prepare icon:', e);
+    console.error('Failed to prepare Zen Forest icon:', e);
 }

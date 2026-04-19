@@ -9,36 +9,38 @@
 }
 
 :root {
-  /* Color palette - Apple style light theme */
-  --bg-primary: #F5F5F7;
-  /* Apple main grey background */
+  /* Color palette - Zen Forest theme */
+  --bg-primary: #F6F7F4;
+  /* Warm off-white base */
   --bg-secondary: #FFFFFF;
   /* Pure white for cards */
-  --bg-tertiary: #F2F2F7;
-  /* Hover/secondary surfaces */
+  --bg-tertiary: #ECF7F2;
+  /* Hover/secondary surfaces / light forest */
   --bg-overlay: rgba(0, 0, 0, 0.4);
   --bg-glass: rgba(255, 255, 255, 0.75);
 
-  --text-primary: #1D1D1F;
-  /* Apple deep dark grey */
-  --text-secondary: #86868B;
-  /* Secondary grey */
-  --text-muted: #A1A1A6;
+  --text-primary: #0F172A;
+  /* Deep slate/midnight */
+  --text-secondary: #64748B;
+  /* Secondary slate */
+  --text-muted: #94A3B8;
 
-  --border: rgba(60, 60, 67, 0.12);
-  /* macOS very subtle borders */
-  --border-light: rgba(60, 60, 67, 0.08);
+  --border: rgba(15, 23, 42, 0.08);
+  /* Very subtle borders */
+  --border-light: rgba(15, 23, 42, 0.04);
 
-  --accent: #007AFF;
-  /* Apple Blue */
-  --accent-light: #5AC8FA;
-  /* Apple Light Blue */
-  --accent-dark: #0056B3;
+  --accent: #0F766E;
+  /* Main CTA & Focus: Deep Pine */
+  --accent-light: #DFF3EC;
+  /* Selected item light background */
+  --accent-dark: #0D655E;
+  /* Button hover (darkened) */
 
-  --success: #34C759;
-  --warning: #FF9500;
-  --danger: #FF3B30;
-  --info: #007AFF;
+  --success: #2F8F6B;
+  --warning: #D97706;
+  --danger: #C65A3A;
+  /* Clay Red */
+  --info: #0F766E;
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -63,33 +65,33 @@
 }
 
 [data-theme="dark"] {
-  --bg-primary: #000000;
-  /* Deep black */
-  --bg-secondary: #1C1C1E;
-  /* Elevated card black */
-  --bg-tertiary: #2C2C2E;
-  /* Secondary elevated areas */
+  --bg-primary: #111413;
+  /* Tainted dark pine empty base */
+  --bg-secondary: #191E1C;
+  /* Card */
+  --bg-tertiary: #202724;
+  /* Hover/secondary surfaces */
   --bg-overlay: rgba(0, 0, 0, 0.7);
-  --bg-glass: rgba(28, 28, 30, 0.75);
+  --bg-glass: rgba(25, 30, 28, 0.75);
 
-  --text-primary: #FFFFFF;
-  --text-secondary: #86868B;
-  /* Or #EBEBF5 in iOS */
-  --text-muted: #8E8E93;
+  --text-primary: #ECF0EE;
+  --text-secondary: #90A09A;
+  --text-muted: #64746A;
 
-  --border: rgba(255, 255, 255, 0.15);
-  --border-light: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-light: rgba(255, 255, 255, 0.05);
 
-  --accent: #0A84FF;
-  /* Dark mode Apple Blue */
-  --accent-light: #5E5CE6;
-  /* Dark mode Indigo */
-  --accent-dark: #0066CC;
+  --accent: #14B8A6;
+  /* Brighter teal for contrast */
+  --accent-light: rgba(20, 184, 166, 0.15);
+  /* Selected translucent background */
+  --accent-dark: #0D9488;
 
-  --success: #32D74B;
-  --warning: #FF9F0A;
-  --danger: #FF453A;
-  --info: #0A84FF;
+  --success: #34D399;
+  --warning: #F59E0B;
+  --danger: #E06C4F;
+  /* Brightened Clay Red */
+  --info: #14B8A6;
 
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.2);
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
@@ -349,13 +351,13 @@ body {
   background: var(--accent);
   color: white;
   border-color: transparent;
-  box-shadow: 0 4px 10px rgba(0, 122, 255, 0.25);
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.2);
 }
 
 .button-primary:hover {
-  background: var(--accent-light);
+  background: var(--accent-dark);
   color: white;
-  box-shadow: 0 6px 14px rgba(0, 122, 255, 0.35);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
 }
 
 .button-secondary {
