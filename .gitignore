@@ -30,6 +30,8 @@ coverage/
 test-results.txt
 test-output*.log
 coverage*.log
+playwright-report/
+test-results/
 
 # Build resources (generated)
 build/icon.ico

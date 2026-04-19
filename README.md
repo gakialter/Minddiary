@@ -124,10 +124,10 @@
 | **应用外壳** | [Electron 34](https://www.electronjs.org/) + `contextIsolation` 安全 IPC |
 | **前端** | [React 18](https://reactjs.org/) + [TypeScript](https://www.typescriptlang.org/) (strict) + [Vite](https://vitejs.dev/) |
 | **数据库** | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)（WAL 模式） |
-| **样式** | Vanilla CSS3 变量 + 毛玻璃动效，Apple HIG 设计风格 |
+| **样式** | CSS Variables + [Tailwind](https://tailwindcss.com/) utilities + 毛玻璃动效，Apple HIG 设计风格 |
 | **图标** | [Lucide React](https://lucide.dev/) |
 | **类型安全** | 完整 `strict` 模式，55+ 个源文件全量类型化 |
-| **测试** | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/)，60+ tests |
+| **测试** | [Vitest](https://vitest.dev/) + [React Testing Library](https://testing-library.com/)，52+ unit tests + [Playwright](https://playwright.dev/) E2E |
 | **CI/CD** | GitHub Actions（Type Check → Unit Test → Build → Release） |
 
 ---

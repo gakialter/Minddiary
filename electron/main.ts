@@ -39,8 +39,8 @@ function createWindow() {
         mainWindow.webContents.send('window:maximized-change', false);
     });
 
-    // Dev or production
-    const isDev = !app.isPackaged;
+    // Dev or production (E2E tests set NODE_ENV=production)
+    const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
     if (isDev) {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools({ mode: 'detach' });
