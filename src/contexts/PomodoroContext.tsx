@@ -51,6 +51,7 @@ const MODES: Record<string, PomodoroMode> = {
 }
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
+  const { settingsData, subjects: subjectsAPI, pomodoro: pomodoroAPI, notification: notificationAPI } = useDiary()
   const customWorkTime = (Number(settingsData?.pomodoroMinutes) || 25) * 60
 
   const [customMinutes, setCustomMinutes] = useState(() => {
