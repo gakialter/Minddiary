@@ -65,11 +65,11 @@ function TagManager() {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'var(--space-xl)', width: '100%' }}>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-xl items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] items-start" style={{ gap: 'var(--space-xl)' }}>
         {/* Create new tag */}
-        <div className="card p-lg">
+        <div className="card" style={{ padding: 'var(--space-lg)' }}>
           <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>新建标签</h3>
-          <div className="flex flex-col gap-lg">
+          <div className="flex flex-col" style={{ gap: 'var(--space-lg)' }}>
             <div>
               <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>标签名称</label>
               <input
@@ -112,7 +112,7 @@ function TagManager() {
         </div>
 
         {/* Tags list */}
-        <div className="card p-lg" style={{ minHeight: 400 }}>
+        <div className="card" style={{ padding: 'var(--space-lg)', minHeight: 400 }}>
           <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>
             现有标签 ({tags.length})
           </h3>
@@ -134,11 +134,11 @@ function TagManager() {
                 className="tag-item"
                 style={{ borderLeft: `3px solid ${tag.color}` }}
               >
-                <div className="flex items-center gap-sm">
+                <div className="flex items-center" style={{ gap: 'var(--space-sm)' }}>
                   <div style={{ width: 12, height: 12, borderRadius: '50%', background: tag.color, flexShrink: 0 }} />
                   <span className="font-medium">{tag.name}</span>
                 </div>
-                <div className="flex items-center gap-xs">
+                <div className="flex items-center" style={{ gap: 'var(--space-xs)' }}>
                   <button
                     className="tag-action-btn"
                     onClick={() => {
@@ -161,7 +161,7 @@ function TagManager() {
       </div>
       </div>
 
-      <div className="text-sm text-muted mt-lg text-center">
+      <div className="text-sm text-center" style={{ marginTop: 'var(--space-xl)', color: 'var(--text-muted)' }}>
         标签可用于分类日记内容，例如按科目（政治、英语）、按类型（错题、灵感）等。
       </div>
     </div>
