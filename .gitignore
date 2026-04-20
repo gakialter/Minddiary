@@ -46,8 +46,9 @@ build/background.png
 AI_PERSONA_PROMPT.md
 DUAL_AI_WORKFLOW_TEMPLATE.md
 TRI_AI_WORKFLOW_TEMPLATE*.md
-PHASE_11_GSTACK_PLAN.md
-PROJECT_PLAN.md
+PHASE_*.md
+*PLAN*.md
+*_REVIEW_*.md
 task_plan.md
 findings.md
 progress.md
