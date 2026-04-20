@@ -41,8 +41,8 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
           </div>
           {!isCollapsed && (
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold text-gray-900 dark:text-white">考研日记</div>
-              <div className="text-[13px] text-gray-500 dark:text-gray-400 leading-tight mt-0.5">记录每一天</div>
+              <div className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>考研日记</div>
+              <div className="text-[13px] leading-tight mt-0.5" style={{ color: 'var(--text-secondary)' }}>记录每一天</div>
             </div>
           )}
         </div>
@@ -70,20 +70,28 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
         )})}
       </nav>
 
-      {/* Today & Toggle */}
-      <div className="border-t border-gray-100 dark:border-gray-800/80 px-4 py-4 mt-auto">
+      <div className="mt-auto px-4 py-4" style={{ borderTop: '1px solid var(--border)' }}>
         {!isCollapsed && (
           <div className="mb-4">
-            <div className="text-xs text-gray-400 font-medium">今日</div>
-            <div className="mt-1 text-[20px] font-semibold tracking-tight text-gray-900 dark:text-white">{selectedDate}</div>
-            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>今日</div>
+            <div className="mt-1 text-[20px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>{selectedDate}</div>
+            <div className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
               {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
             </div>
           </div>
         )}
         <button
           onClick={onToggle}
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-gray-50 dark:bg-gray-800/60 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/80 hover:text-gray-900 dark:hover:text-gray-200 transition-colors border-0 outline-none appearance-none"
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium transition-colors border-0 outline-none appearance-none"
+          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background = 'var(--border)';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background = 'var(--bg-tertiary)';
+            (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+          }}
           title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
           {isCollapsed ? <PanelLeftOpen size={18} /> : (

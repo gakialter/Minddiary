@@ -13,42 +13,83 @@ export const CommanderHero: React.FC<CommanderHeroProps> = ({ config, onActionCl
     const isFatigued = config.type === 'D';
 
     let badgeText = '稳定推进';
-    let badgeColor = 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-    
+    let badgeStyle: React.CSSProperties = {
+        background: 'rgba(15, 118, 110, 0.08)',
+        color: 'var(--accent)',
+    };
+
     if (isUrgent) {
-      badgeText = '高危状态 / 优先处理';
-      badgeColor = 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400';
+        badgeText = '高危状态 / 优先处理';
+        badgeStyle = {
+            background: 'rgba(198, 90, 58, 0.08)',
+            color: 'var(--danger)',
+        };
     } else if (isCaution) {
-      badgeText = '复习任务积压';
-      badgeColor = 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+        badgeText = '复习任务积压';
+        badgeStyle = {
+            background: 'rgba(217, 119, 6, 0.08)',
+            color: 'var(--warning)',
+        };
     } else if (isFatigued) {
-      badgeText = '疲劳预警';
-      badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
+        badgeText = '疲劳预警';
+        badgeStyle = {
+            background: 'rgba(142, 142, 147, 0.1)',
+            color: 'var(--text-secondary)',
+        };
     }
 
     return (
-        <section className="rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#111] px-6 py-7 md:px-8 md:py-8">
-            <div className="max-w-4xl">
-                <div className={`mb-4 inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${badgeColor}`}>
+        <section style={{
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-secondary)',
+            padding: '28px 24px',
+        }}>
+            <div style={{ maxWidth: '64rem' }}>
+                <div style={{
+                    marginBottom: 'var(--space-md)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    padding: '3px 12px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    ...badgeStyle
+                }}>
                     当前状态：{badgeText}
                 </div>
 
-                <h1 className="text-[32px] font-bold leading-[1.28] tracking-[-0.02em] text-gray-950 dark:text-white md:text-[40px]">
+                <h1 style={{
+                    fontSize: 'clamp(28px, 4vw, 38px)',
+                    fontWeight: 700,
+                    lineHeight: 1.28,
+                    letterSpacing: '-0.02em',
+                    color: 'var(--text-primary)',
+                    margin: '0 0 var(--space-md)',
+                }}>
                     {config.title}
                 </h1>
 
-                <p className="mt-4 max-w-2xl text-[17px] font-medium leading-7 text-gray-600 dark:text-gray-400">
+                <p style={{
+                    fontSize: 16,
+                    fontWeight: 500,
+                    lineHeight: 1.7,
+                    color: 'var(--text-secondary)',
+                    maxWidth: '42rem',
+                    margin: 0,
+                }}>
                     {config.subtitle}
                 </p>
 
-                <div className="mt-6">
+                <div style={{ marginTop: 'var(--space-lg)' }}>
                     <button
                         type="button"
                         onClick={onActionClick}
-                        className="inline-flex h-12 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white border-0 outline-none appearance-none transition hover:bg-blue-700"
+                        className="button button-primary"
+                        style={{ borderRadius: 'var(--radius)', gap: 'var(--space-xs)' }}
                     >
                         <span>{config.ctaText}</span>
-                        <ArrowRight className="h-4 w-4 shrink-0" />
+                        <ArrowRight size={16} style={{ flexShrink: 0 }} />
                     </button>
                 </div>
             </div>

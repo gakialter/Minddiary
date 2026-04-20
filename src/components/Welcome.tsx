@@ -1,4 +1,6 @@
 import React from 'react'
+import { Zap, Bot, Shield } from 'lucide-react'
+import Logo from './Logo'
 
 interface WelcomeProps {
     onStart: () => void
@@ -14,59 +16,83 @@ export default function Welcome({ onStart }: WelcomeProps) {
             animation: 'page-fade-in 0.8s cubic-bezier(0.2, 0, 0, 1)'
         }}>
             <div style={{
-                maxWidth: 480, width: '90%',
-                padding: 'var(--space-2xl)', borderRadius: 'var(--radius-lg)',
-                background: 'var(--bg-secondary)',
-                boxShadow: 'var(--shadow-lg)',
-                border: '1px solid var(--border)',
-                textAlign: 'center'
+                maxWidth: 420,
+                width: '90%',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 'var(--space-xl)'
             }}>
-                <div style={{
-                    width: 80, height: 80, borderRadius: '24px', margin: '0 auto var(--space-xl)',
-                    background: 'linear-gradient(135deg, var(--accent), var(--accent-light))',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'white', fontSize: 36, fontWeight: 'bold',
-                    boxShadow: '0 8px 16px rgba(139, 92, 246, 0.3)',
-                    animation: 'logo-pulse 3s infinite ease-in-out'
-                }}>考</div>
-
-                <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 'var(--space-md)' }}>欢迎来到你的智能学习决策桌面</h1>
-                <p className="text-secondary" style={{ fontSize: 16, lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
-                    MindDiary 会把专注、复盘和错题整理连接成一个连续闭环，并根据你的学习节奏，优先推荐当前更值得处理的任务。
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)', textAlign: 'left', marginBottom: 'var(--space-2xl)' }}>
-                    <Feature icon="⚡️" title="沉浸式 Markdown 编辑" desc="支持快捷键和模板，让你专注于内容本身。" />
-                    <Feature icon="🤖" title="AI 智能伴学" desc="连接大模型，帮你总结笔记、解答专业课疑问。" />
-                    <Feature icon="🔒" title="本地数据留存" desc="所有日记和配置保存在本地 SQLite，安全无忧。" />
+                {/* Logo */}
+                <div style={{ color: 'var(--accent)' }}>
+                    <Logo size={48} />
                 </div>
 
+                {/* Headline */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                    <h1 style={{
+                        fontSize: 26,
+                        fontWeight: 700,
+                        letterSpacing: '-0.01em',
+                        color: 'var(--text-primary)',
+                        margin: 0
+                    }}>
+                        建立今天的学习节奏
+                    </h1>
+                    <p style={{
+                        fontSize: 15,
+                        lineHeight: 1.6,
+                        color: 'var(--text-secondary)',
+                        margin: 0
+                    }}>
+                        MindDiary 把专注、复盘和错题整理连成一个闭环，帮你持续推进而不是间歇性努力。
+                    </p>
+                </div>
+
+                {/* CTA */}
                 <button
-                    className="button button-primary w-full"
-                    style={{ fontSize: 17, padding: 'var(--space) var(--space-xl)', borderRadius: 'var(--radius)' }}
+                    className="button button-primary"
+                    style={{
+                        width: '100%',
+                        fontSize: 15,
+                        padding: 'var(--space) var(--space-xl)',
+                        borderRadius: 'var(--radius)'
+                    }}
                     onClick={onStart}
                 >
                     开始使用
                 </button>
+
+                {/* Proof Items */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: 'var(--space-xl)',
+                    paddingTop: 'var(--space-sm)',
+                    borderTop: '1px solid var(--border-light)',
+                    width: '100%'
+                }}>
+                    <ProofItem icon={<Zap size={14} />} label="沉浸式编辑" />
+                    <ProofItem icon={<Bot size={14} />} label="AI 伴学" />
+                    <ProofItem icon={<Shield size={14} />} label="本地存储" />
+                </div>
             </div>
         </div>
     )
 }
 
-interface FeatureProps {
-    icon: string
-    title: string
-    desc: string
-}
-
-function Feature({ icon, title, desc }: FeatureProps) {
+function ProofItem({ icon, label }: { icon: React.ReactNode; label: string }) {
     return (
-        <div style={{ display: 'flex', gap: 'var(--space)', alignItems: 'flex-start' }}>
-            <div style={{ fontSize: 24 }}>{icon}</div>
-            <div>
-                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2 }}>{title}</div>
-                <div className="text-muted" style={{ fontSize: 13 }}>{desc}</div>
-            </div>
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-xs)',
+            color: 'var(--text-muted)',
+            fontSize: 12
+        }}>
+            <span style={{ color: 'var(--text-muted)', opacity: 0.8 }}>{icon}</span>
+            <span>{label}</span>
         </div>
     )
 }

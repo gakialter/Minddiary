@@ -2,12 +2,12 @@
     <!-- Base background (warm grey) with a very subtle linear gradient matching Zen Forest -->
     <defs>
         <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#FAFBF8"/>
-            <stop offset="100%" stop-color="#EEF1EB"/>
+            <stop offset="0%" stop-color="#FDFDFB"/>
+            <stop offset="100%" stop-color="#E2E6DF"/>
         </linearGradient>
     </defs>
-    <!-- Premium Rounded Rectangle Background with subtle border for contrast on light backgrounds -->
-    <rect x="0.75" y="0.75" width="510.5" height="510.5" rx="116" fill="url(#bg)" stroke="#E5E7E1" stroke-width="1.5"/>
+    <!-- Premium Rounded Rectangle Background with stronger brand border for small-size contrast -->
+    <rect x="1.5" y="1.5" width="509" height="509" rx="116" fill="url(#bg)" stroke="#0F766E" stroke-width="3"/>
     
     <!-- The Core logo takes up ~65% of the canvas (330px out of 512) -->
     <g transform="translate(91, 91) scale(3.3)" color="#0F766E">

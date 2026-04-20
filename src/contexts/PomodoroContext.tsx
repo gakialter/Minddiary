@@ -23,6 +23,8 @@ interface PomodoroContextValue {
   progress: number
   circleCircumference: number
   miniCircumference: number
+  customMinutes: number
+  setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
   toggleTimer: () => void
   resetTimer: () => void
   formatTime: (seconds: number) => string
@@ -52,9 +54,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const { settingsData, subjects: subjectsAPI, pomodoro: pomodoroAPI, notification: notificationAPI } = useDiary()
   const customWorkTime = (Number(settingsData?.pomodoroMinutes) || 25) * 60
 
+  const [customMinutes, setCustomMinutes] = useState(30) // Default 30 mins
+
   const dynamicModes: Record<string, PomodoroMode> = {
     ...MODES,
-    WORK: { ...MODES.WORK!, time: customWorkTime }
+    WORK: { ...MODES.WORK!, time: customWorkTime },
+    CUSTOM: { id: 'custom', label: '自定义', time: customMinutes * 60, color: 'var(--warning)' }
   }
 
   const [mode, setMode] = useState<PomodoroMode>(dynamicModes.WORK!)
@@ -109,13 +114,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     endTimeRef.current = null
   }, [mode])
 
-  // Update work time if settings change while idle
+  // Update work/custom time if settings change while idle
   useEffect(() => {
-    if (mode.id === 'work' && !isRunning) {
+    if (isRunning) return
+    if (mode.id === 'work') {
       setMode(dynamicModes.WORK!)
+    } else if (mode.id === 'custom') {
+      setMode(dynamicModes.CUSTOM!)
+      setTimeLeft(customMinutes * 60)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customWorkTime, isRunning])
+  }, [customWorkTime, customMinutes, isRunning])
 
   // Phase-complete handler
   const handlePhaseComplete = useCallback(async () => {
@@ -170,7 +179,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       })
     }
 
-    if (mode.id === 'work') {
+    if (mode.id === 'work' || mode.id === 'custom') {
       try {
         await pomodoroAPI.addSession({
           subject_id: selectedSubject,
@@ -241,6 +250,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     dynamicModes,
     // Computed
     progress, circleCircumference, miniCircumference,
+    customMinutes, setCustomMinutes,
     // Actions
     toggleTimer, resetTimer, formatTime,
     loadSubjects, loadTodayStats,

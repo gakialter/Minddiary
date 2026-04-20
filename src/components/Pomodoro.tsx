@@ -39,6 +39,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     subjects, selectedSubject, setSelectedSubject,
     todayStats, todayTotal, dynamicModes,
     progress, circleCircumference, miniCircumference,
+    customMinutes, setCustomMinutes,
     toggleTimer, resetTimer, formatTime,
   } = usePomodoroContext()
 
@@ -175,6 +176,25 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         ))}
       </div>
 
+      {mode.id === 'custom' && !isRunning && (
+        <div style={{ marginBottom: 'var(--space-2xl)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>时长:</span>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            className="input"
+            style={{ width: 80, textAlign: 'center', padding: '4px 8px' }}
+            value={customMinutes}
+            onChange={e => {
+              const val = Math.max(1, Math.min(120, Number(e.target.value) || 1))
+              setCustomMinutes(val)
+            }}
+          />
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>分钟</span>
+        </div>
+      )}
+
       {/* Timer Visual */}
       <div style={{ position: 'relative', width: 260, height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-xl)' }}>
         <svg viewBox="0 0 200 200" width="260" height="260" style={{ position: 'absolute' }}>
@@ -232,9 +252,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           className="input w-full"
           value={selectedSubject || ''}
           onChange={(e) => setSelectedSubject(e.target.value ? Number(e.target.value) : null)}
-          disabled={mode.id !== 'work'}
+          disabled={!['work', 'custom'].includes(mode.id)}
         >
-          <option value="">{mode.id === 'work' ? '选择专注科目（可选）' : '休息中...'}</option>
+          {['work', 'custom'].includes(mode.id) ? (
+            <option value="">选择专注科目（可选）</option>
+          ) : (
+            <option value="">休息中...</option>
+          )}
           {subjects.map(s => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}

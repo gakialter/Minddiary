@@ -20,8 +20,8 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
   if (loading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <Loader2 size={32} className="animate-spin text-gray-400 mb-4" />
-        <p className="text-gray-500 text-sm">正在加载实时模型状态...</p>
+        <Loader2 size={32} className="animate-spin mb-4" style={{ color: 'var(--text-muted)' }} />
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>正在加载实时模型状态...</p>
       </div>
     )
   }
@@ -29,7 +29,7 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
   if (error || !data) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <p className="text-rose-500">加载失败: {error}</p>
+        <p style={{ color: 'var(--danger)' }}>加载失败: {error}</p>
       </div>
     )
   }
@@ -90,34 +90,44 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
               <button 
                 type="button"
                 onClick={() => setShowDetails(!showDetails)}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 bg-transparent border-0 outline-none appearance-none hover:text-[var(--accent)] dark:text-gray-400 transition-colors"
+                className="inline-flex items-center gap-1.5 text-sm font-medium bg-transparent border-0 outline-none appearance-none transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'}
               >
                 {showDetails ? '收起系统依据' : '查看系统依据'}
                 {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </button>
-              {!showDetails && <div className="h-px w-24 bg-gradient-to-r from-gray-200 to-transparent dark:from-gray-800" />}
+              {!showDetails && <div className="h-px w-24" style={{ background: 'linear-gradient(to right, var(--border), transparent)' }} />}
             </div>
             
             {showDetails && (
-              <div className="mt-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/50 p-5 md:p-6 opacity-[0.98]">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">系统依据</h3>
-                <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-400 max-w-2xl">
-                  系统当前连续诊断天数：<strong className="text-gray-800 dark:text-gray-200">{data.streakDays} 天</strong>。<br/>
+              <div
+                className="mt-4 rounded-2xl p-5 md:p-6 opacity-[0.98]"
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-tertiary)',
+                }}
+              >
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统依据</h3>
+                <p className="mt-3 text-sm leading-6 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
+                  系统当前连续诊断天数：<strong style={{ color: 'var(--text-primary)' }}>{data.streakDays} 天</strong>。<br/>
                   如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
                   我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
                 </p>
-                
+
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button 
-                    className="inline-flex h-10 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" 
+                  <button
+                    className="button"
+                    style={{ height: 40, padding: '0 16px', borderRadius: 'var(--radius-sm)' }}
                     onClick={() => setActiveView('dashboard')}
                   >
                     打开全局图表与分析报表
                   </button>
-                  
+
                   {examDaysDiff !== null && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400 sm:ml-auto">
-                      距目标 <strong className="text-gray-900 dark:text-white mx-1">{examDaysDiff}</strong> 天
+                    <span className="text-sm sm:ml-auto" style={{ color: 'var(--text-secondary)' }}>
+                      距目标 <strong style={{ color: 'var(--text-primary)', margin: '0 4px' }}>{examDaysDiff}</strong> 天
                     </span>
                   )}
                 </div>
