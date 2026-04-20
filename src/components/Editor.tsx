@@ -200,45 +200,88 @@ function Editor({ entry, onSave, loading }: EditorProps) {
 
   return (
     <div className="flex flex-col gap-md" style={{ height: '100%' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Title input */}
+      <div>
+        <input
+          type="text"
+          className="w-full"
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--text-primary)',
+            padding: '4px 0',
+            letterSpacing: '-0.5px'
+          }}
+          placeholder="日记标题（可选）"
+          value={title}
+          onChange={handleTitleChange}
+        />
+      </div>
+
+      {/* Unified Toolbar & Templates */}
+      <div className="flex flex-wrap items-center justify-between" style={{ paddingBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-light)' }}>
+        {/* Left: Templates */}
+        <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
+          {quickTemplates.map(tpl => (
+            <button
+              key={tpl.id}
+              className="button button-secondary text-sm"
+              onClick={() => handleTemplateInsert(tpl.content)}
+              title={`插入「${tpl.name}」模板`}
+              style={{ padding: '4px 12px', background: 'transparent', border: '1px dashed var(--border)' }}
+            >
+              {tpl.name}
+            </button>
+          ))}
+          <button
+            className="button button-secondary text-sm"
+            onClick={() => setShowTemplateManager(true)}
+            title="管理自定义模板"
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px', background: 'transparent' }}
+          >
+            <LayoutTemplate size={13} /> 管理模板
+          </button>
+        </div>
+
+        {/* Right: Actions & Status */}
         <div className="flex items-center gap-sm">
-          <h2 className="text-xl font-semibold">日记编辑</h2>
           {saving && <span className="text-xs text-muted">保存中...</span>}
           {loading && <span className="text-xs text-muted">加载中...</span>}
           {isDirty.current && !saving && <span className="text-xs" style={{ color: 'var(--warning)' }}>● 未保存</span>}
-        </div>
-        <div className="flex items-center gap-md">
-          <div className="text-sm text-muted" style={{ marginRight: 'var(--space-sm)' }}>
+          
+          <div className="text-sm text-muted" style={{ margin: '0 var(--space-sm)' }}>
             字数: <span className="font-medium">{wordCount}</span>
           </div>
+
           <button
             className="button button-secondary text-sm"
             onClick={handleAiSummary}
             disabled={summaryLoading || !content.trim()}
             title="AI 分析并汇总今日日记"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, color: summaryLoading ? 'var(--text-muted)' : 'var(--accent)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, color: summaryLoading ? 'var(--text-muted)' : 'var(--accent)', padding: '4px 12px', background: 'transparent' }}
           >
-            <Sparkles size={15} style={{ flexShrink: 0 }} />
+            <Sparkles size={14} style={{ flexShrink: 0 }} />
             {summaryLoading ? '汇总中...' : 'AI 汇总'}
           </button>
           <button
             className="button button-secondary text-sm"
             onClick={handleShare}
             disabled={sharing}
-            title="生成分享图片"
+            style={{ padding: '4px 12px', background: 'transparent' }}
           >
-            {sharing ? '生成中...' : <><ImagePlus size={15} /> 分享</>}
-          </button>
-          <button
-            className="button button-secondary text-sm"
-            onClick={() => handleSave(true)}
-            disabled={saving}
-          >
-            {saving ? '保存中...' : <><Save size={15} /> Ctrl/Cmd+S</>}
+            <ImagePlus size={14} /> 分享
           </button>
         </div>
       </div>
+
+      <TemplateManager
+        visible={showTemplateManager}
+        onClose={() => setShowTemplateManager(false)}
+        onInsert={handleTemplateInsert}
+      />
 
       {/* AI Summary Card */}
       {(aiSummary || summaryLoading) && (
@@ -248,7 +291,8 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)',
           background: 'color-mix(in srgb, var(--accent) 5%, var(--bg-secondary))',
           overflow: 'hidden',
-          transition: 'all 0.3s ease'
+          transition: 'all 0.3s ease',
+          marginBottom: 'var(--space-md)'
         }}>
           <div
             className="flex items-center justify-between"
@@ -290,54 +334,6 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           )}
         </div>
       )}
-
-      {/* Template buttons */}
-      <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
-        {quickTemplates.map(tpl => (
-          <button
-            key={tpl.id}
-            className="button button-secondary text-sm"
-            onClick={() => handleTemplateInsert(tpl.content)}
-            title={`插入「${tpl.name}」模板`}
-          >
-            {tpl.name}
-          </button>
-        ))}
-        <button
-          className="button button-secondary text-sm"
-          onClick={() => setShowTemplateManager(true)}
-          title="管理自定义模板"
-          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-        >
-          <LayoutTemplate size={13} /> 管理模板
-        </button>
-      </div>
-
-      <TemplateManager
-        visible={showTemplateManager}
-        onClose={() => setShowTemplateManager(false)}
-        onInsert={handleTemplateInsert}
-      />
-
-      {/* Title input */}
-      <div>
-        <input
-          type="text"
-          className="w-full"
-          style={{
-            fontSize: 22,
-            fontWeight: 600,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text-primary)',
-            padding: '4px 0'
-          }}
-          placeholder="日记标题（可选）"
-          value={title}
-          onChange={handleTitleChange}
-        />
-      </div>
 
       {/* Editor */}
       <div className="flex-1 min-h-0" style={{ position: 'relative' }}>
