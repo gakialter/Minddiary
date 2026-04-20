@@ -208,8 +208,8 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           {loading && <span className="text-xs text-muted">加载中...</span>}
           {isDirty.current && !saving && <span className="text-xs" style={{ color: 'var(--warning)' }}>● 未保存</span>}
         </div>
-        <div className="flex items-center gap-sm">
-          <div className="text-sm text-muted">
+        <div className="flex items-center gap-md">
+          <div className="text-sm text-muted" style={{ marginRight: 'var(--space-sm)' }}>
             字数: <span className="font-medium">{wordCount}</span>
           </div>
           <button

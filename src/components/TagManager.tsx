@@ -64,7 +64,7 @@ function TagManager() {
   const presetColors = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#06b6d4']
 
   return (
-    <div className="flex flex-col gap-md">
+    <div className="flex flex-col gap-md" style={{ padding: 'var(--space-xl)' }}>
       <h2 className="text-xl font-semibold">标签管理</h2>
 
       {/* Create new tag */}
