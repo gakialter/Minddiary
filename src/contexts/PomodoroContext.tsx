@@ -51,10 +51,19 @@ const MODES: Record<string, PomodoroMode> = {
 }
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
-  const { settingsData, subjects: subjectsAPI, pomodoro: pomodoroAPI, notification: notificationAPI } = useDiary()
   const customWorkTime = (Number(settingsData?.pomodoroMinutes) || 25) * 60
 
-  const [customMinutes, setCustomMinutes] = useState(30) // Default 30 mins
+  const [customMinutes, setCustomMinutes] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pomodoro-custom-minutes')
+      if (saved) return Number(saved)
+    } catch { /* ignore */ }
+    return 30
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem('pomodoro-custom-minutes', customMinutes.toString()) } catch { /* ignore */ }
+  }, [customMinutes])
 
   const dynamicModes: Record<string, PomodoroMode> = {
     ...MODES,
