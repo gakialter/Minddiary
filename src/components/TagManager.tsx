@@ -64,54 +64,58 @@ function TagManager() {
   const presetColors = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#06b6d4']
 
   return (
-    <div className="flex flex-col gap-md" style={{ padding: 'var(--space-xl)' }}>
-      <h2 className="text-xl font-semibold">标签管理</h2>
-
-      {/* Create new tag */}
-      <div className="card p-md">
-        <h3 className="font-medium text-base mb-4">新建标签</h3>
-        <div className="flex gap-md items-end">
-          <div className="flex-1">
-            <label className="text-sm text-muted block mb-sm">标签名称</label>
-            <input
-              type="text" className="input w-full"
-              placeholder="例如：政治、英语、错题..."
-              value={newTagName}
-              onChange={(e) => setNewTagName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateTag()}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-muted block mb-sm">颜色</label>
-            <div className="flex items-center gap-xs">
-              {presetColors.map(c => (
-                <button
-                  key={c}
-                  className="color-picker-btn"
-                  onClick={() => setNewTagColor(c)}
-                  style={{
-                    background: c,
-                    outline: newTagColor === c ? '2px solid var(--accent)' : 'none',
-                  }}
-                />
-              ))}
+    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'var(--space-xl)', width: '100%' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-xl items-start">
+        {/* Create new tag */}
+        <div className="card p-lg">
+          <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>新建标签</h3>
+          <div className="flex flex-col gap-lg">
+            <div>
+              <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>标签名称</label>
+              <input
+                type="text" className="input w-full"
+                placeholder="例如：政治、英语、错题..."
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateTag()}
+              />
             </div>
+            <div>
+              <label className="text-sm font-medium block mb-3" style={{ color: 'var(--text-secondary)' }}>专属识别色</label>
+              <div className="flex flex-wrap gap-2">
+                {presetColors.map(c => (
+                  <button
+                    key={c}
+                    className="color-picker-btn"
+                    onClick={() => setNewTagColor(c)}
+                    style={{
+                      background: c,
+                      outline: newTagColor === c ? '2px solid var(--accent)' : 'none',
+                      outlineOffset: 2,
+                      width: 24, height: 24, borderRadius: '50%',
+                      border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                      transform: newTagColor === c ? 'scale(1.1)' : 'scale(1)'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <button
+              className="button button-primary w-full mt-2"
+              onClick={handleCreateTag}
+              disabled={loading || !newTagName.trim()}
+              style={{ justifyContent: 'center', padding: '10px 0' }}
+            >
+              + 创建标签
+            </button>
           </div>
-          <button
-            className="button button-primary"
-            onClick={handleCreateTag}
-            disabled={loading || !newTagName.trim()}
-          >
-            + 创建
-          </button>
         </div>
-      </div>
 
-      {/* Tags list */}
-      <div className="card p-md">
-        <h3 className="font-medium text-base mb-4">
-          现有标签 ({tags.length})
-        </h3>
+        {/* Tags list */}
+        <div className="card p-lg" style={{ minHeight: 400 }}>
+          <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>
+            现有标签 ({tags.length})
+          </h3>
         {loading ? (
           <div className="tag-grid">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -155,8 +159,9 @@ function TagManager() {
           </div>
         )}
       </div>
+      </div>
 
-      <div className="text-sm text-muted">
+      <div className="text-sm text-muted mt-lg text-center">
         标签可用于分类日记内容，例如按科目（政治、英语）、按类型（错题、灵感）等。
       </div>
     </div>

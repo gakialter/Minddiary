@@ -209,13 +209,8 @@ export default function MistakeBook() {
     return (
         <div style={{ padding: 'var(--space-xl)' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-lg)' }}>
-                <div>
-                    <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <BookX size={22} style={{ color: 'var(--accent)' }} /> 错题 / 知识点本
-                    </h2>
-                    <span className="text-sm text-muted">
-                        共 {totalCount} 条，已掌握 {masteredCount} 条
-                    </span>
+                <div className="text-sm text-muted">
+                    共 <strong style={{ color: 'var(--text-primary)' }}>{totalCount}</strong> 条记录，已吃透 <strong style={{ color: 'var(--success)' }}>{masteredCount}</strong> 条
                 </div>
                 <button className="button button-primary" onClick={() => {
                     setShowForm(!showForm); setEditingId(null);

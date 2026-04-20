@@ -162,13 +162,8 @@ export default function Dashboard() {
 
     return (
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xl)' }}>
-                <div>
-                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <BarChart2 size={22} style={{ color: 'var(--accent)' }} /> 数据统计
-                    </h2>
-                    <p className="text-muted mt-1 text-sm">洞察你的努力轨迹，看到每一滴汗水。</p>
-                </div>
+            <div style={{ marginBottom: 'var(--space-md)' }}>
+                <p className="text-muted text-sm">洞察你的努力轨迹，看到每一滴汗水。</p>
             </div>
 
             {/* Top Cards Grid */}
