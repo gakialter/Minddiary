@@ -36,8 +36,8 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
       {/* Brand */}
       <div className="px-4 py-4 mb-2">
         <div className="flex items-center gap-3" style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
-          <div className="flex h-10 w-10 items-center justify-center shrink-0" style={{ color: 'var(--accent)' }}>
-            <Logo className="w-full h-full" />
+          <div className="flex h-10 w-10 items-center justify-center shrink-0">
+            <img src="/images/app-icon.svg" className="w-full h-full object-contain" alt="MindDiary" />
           </div>
           {!isCollapsed && (
             <div className="min-w-0">
@@ -56,13 +56,17 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
-            className={`flex h-11 w-full items-center gap-2.5 rounded-xl px-3 text-[14px] font-medium transition-colors border-0 outline-none appearance-none ${
+            className={`flex h-11 items-center transition-colors border-0 outline-none appearance-none ${
+              isCollapsed 
+                ? 'w-11 justify-center mx-auto rounded-xl' 
+                : 'w-full gap-2.5 px-3 rounded-xl text-[14px] font-medium'
+            } ${
               isActive
                 ? 'bg-[var(--accent-light)] text-[var(--accent)]'
                 : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <span className={`shrink-0 ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
+            <span className={`shrink-0 flex items-center justify-center ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
               {React.cloneElement(item.icon, { size: 18 })}
             </span>
             {!isCollapsed && <span className="truncate">{item.label}</span>}

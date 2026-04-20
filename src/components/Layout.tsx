@@ -53,11 +53,11 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
     >
       {hasCustomTitlebar && (
         <div className="titlebar titlebar-custom">
-          <div className="flex items-center gap-md">
-            <div style={{ width: 14, height: 14, color: 'var(--accent)' }}>
-              <Logo className="w-full h-full" />
+          <div className="flex items-center gap-sm">
+            <div style={{ width: 18, height: 18, position: 'relative', top: '-1px' }}>
+              <img src="/images/app-icon.svg" className="w-full h-full object-contain" alt="MindDiary" style={{ borderRadius: 4 }} />
             </div>
-            <span className="text-sm font-medium text-secondary">MindDiary</span>
+            <span className="text-sm font-semibold text-secondary">MindDiary</span>
           </div>
           <div className="text-sm text-muted">
             考研日记 · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}
