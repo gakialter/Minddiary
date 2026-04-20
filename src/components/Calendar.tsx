@@ -87,22 +87,19 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
 
   return (
     <div className="flex flex-col gap-md">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">日历视图</h2>
-        <button className="button button-secondary text-sm" onClick={goToToday}>
-          回到今天
-        </button>
-      </div>
-
       {/* Month navigation */}
       <div className="flex items-center justify-between" style={{
-        background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-lg)',
-        padding: 'var(--space-md)'
+        background: 'transparent',
+        paddingBottom: 'var(--space-sm)'
       }}>
-        <button className="button button-secondary text-sm" onClick={prevMonth}>← 上个月</button>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>{formatMonthYear(currentMonth)}</div>
-        <button className="button button-secondary text-sm" onClick={nextMonth}>下个月 →</button>
+        <div className="flex items-center gap-md">
+           <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px' }}>{formatMonthYear(currentMonth)}</span>
+           <button className="button button-secondary text-sm" onClick={goToToday} style={{ padding: '4px 12px', background: 'transparent' }}>回到今天</button>
+        </div>
+        <div className="flex gap-sm">
+           <button className="button button-secondary text-sm" onClick={prevMonth} style={{ padding: '4px 12px', background: 'transparent' }}>← 上个月</button>
+           <button className="button button-secondary text-sm" onClick={nextMonth} style={{ padding: '4px 12px', background: 'transparent' }}>下个月 →</button>
+        </div>
       </div>
 
       {/* Calendar grid */}

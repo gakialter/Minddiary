@@ -96,7 +96,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
 
   return (
     <div className="flex flex-col gap-md" style={{ height: '100%' }}>
-      <h2 className="text-xl font-semibold">搜索日记</h2>
+      {/* Search box */}
 
       {/* Search box */}
       <div className="card" style={{ padding: 'var(--space-md)' }}>

@@ -158,20 +158,6 @@ export default function StudyProgress() {
 
     return (
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xl)' }}>
-                <div>
-                    <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Rocket size={22} style={{ color: 'var(--accent)' }} /> 学习全景追踪
-                    </h2>
-                    <p className="text-muted mt-1 text-sm">将大目标拆解为小章节，不积跬步无以至千里。</p>
-                </div>
-                {!showForm && (
-                    <button className="button button-primary" style={{ borderRadius: 20 }} onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', total_chapters: '', color: '#8b5cf6' }) }}>
-                        + 新增科目池
-                    </button>
-                )}
-            </div>
-
             {/* Overall Header Banner */}
             <div className="card" style={{
                 padding: 'var(--space-xl)', marginBottom: 'var(--space-2xl)',
@@ -179,13 +165,21 @@ export default function StudyProgress() {
                 border: '1px solid var(--border-light)'
             }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-                    <div className="flex items-center gap-sm">
-                        <div style={{ padding: 8, borderRadius: 12, background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Target size={18} />
+                    <div className="flex items-center gap-md">
+                        <div className="flex items-center gap-sm">
+                            <div style={{ padding: 8, borderRadius: 12, background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Target size={18} />
+                            </div>
+                            <span className="font-semibold text-lg">备考大盘</span>
                         </div>
-                        <span className="font-semibold text-lg">备考大盘</span>
+                        <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>{overallProgress}%</span>
                     </div>
-                    <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>{overallProgress}%</span>
+                    
+                    {!showForm && (
+                        <button className="button button-primary" style={{ borderRadius: 20 }} onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', total_chapters: '', color: '#8b5cf6' }) }}>
+                            + 新增科目池
+                        </button>
+                    )}
                 </div>
 
                 <div style={{ height: 12, background: 'var(--bg-primary)', borderRadius: 6, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' }}>
