@@ -75,7 +75,7 @@ describe('MistakeBook Component', () => {
     })
 
     // Should display stats
-    expect(screen.getByText(/共 2 条，已掌握 1 条/)).toBeInTheDocument()
+    expect(screen.getByText(/条记录，已吃透/)).toBeInTheDocument()
 
     // Should render the questions
     expect(screen.getByText('1+1=?')).toBeInTheDocument()
