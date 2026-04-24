@@ -50,6 +50,7 @@ function DiaryBridge({ children }: { children: ReactNode }) {
         notification: dataCtx.notification,
         ai: dataCtx.ai,
         attachments: dataCtx.attachments,
+        templates: dataCtx.templates,
     }
 
     return (

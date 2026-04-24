@@ -215,6 +215,12 @@ tests/              # Vitest 单元测试 + 组件测试
 
 ## 📋 更新日志
 
+### v1.8.0 — 架构加固与安全审计 (2026-04-24)
+- 🏗️ **IPC 抽象层统一** — 将 `Editor` 和 `TemplateManager` 中绕过 Context 直调 `window.api.templates` 的 5 处调用全部迁入 DataContext 抽象层。浏览器开发模式不再白屏崩溃，模板管理新增 localStorage 回退。
+- 🔧 **备份版本号动态化** — 自动备份 JSON payload 的 `version` 字段从硬编码 `'1.0.0'` 改为 `app.getVersion()` 动态读取，确保备份文件携带真实版本信息。
+- 🔒 **全量安全审计通过** — XSS（DOMPurify 全覆盖）、CSP 策略、SQL 注入（prepared statements）、敏感数据泄露（API Key 过滤）、IPC 输入校验全部通过。
+- 📋 **架构决策文档化** — 输出完整的缺陷分析报告与分级修复计划，确立 Context 层作为组件与 Electron IPC 之间唯一通信桥梁的架构约定。
+
 ### v1.7.6 — UI/UX v2.0 Zen Forest 最终定版 (2026-04-20)
 - ✨ **品牌视觉全面统一** — 完成了极简首屏 (Welcome) 与高维状态仪表盘 (CommanderHero) 的彻底重设。去除了大面积紫粉色渐变和冗余 Emoji，确立了以 `<Logo>` 与 Lucide 图标为基准的 “Action first, noise last” 低压视觉环境。
 - 🍅 **番茄钟进阶定制** — 新增番茄钟“自定义”时长模式并接入核心循环流。自定时间的复盘和追踪会被统计入“有效专注转化率”。

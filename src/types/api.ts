@@ -209,6 +209,13 @@ export interface AttachmentsContextAPI {
   delete: (id: number) => Promise<boolean | void>
 }
 
+export interface TemplatesContextAPI {
+  getAll: () => Promise<DiaryTemplate[]>
+  create: (data: Partial<DiaryTemplate>) => Promise<DiaryTemplate>
+  update: (id: number, data: Partial<DiaryTemplate>) => Promise<DiaryTemplate>
+  delete: (id: number) => Promise<{ success: boolean; message?: string }>
+}
+
 export interface SettingsContextAPI {
   getAll: () => Promise<AppSettings | Record<string, string>>
   update: (key: string, value: unknown) => Promise<unknown>
@@ -237,4 +244,5 @@ export interface DiaryContextValue {
   notification: NotificationContextAPI
   ai: AIContextAPI
   attachments: AttachmentsContextAPI
+  templates: TemplatesContextAPI
 }

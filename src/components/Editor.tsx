@@ -64,7 +64,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
 
   // Load quick-access templates (first 3)
   useEffect(() => {
-    window.api.templates.getAll().then(data => {
+    diary.templates.getAll().then(data => {
       setQuickTemplates((data || []).slice(0, 3))
     }).catch(() => {})
   }, [showTemplateManager])

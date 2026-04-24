@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Edit3, Check, X, FileText } from 'lucide-react'
 import { showToast } from './Toast'
+import { useDiary } from '../contexts/DiaryContext'
 import type { DiaryTemplate } from '../types'
 
 interface TemplateManagerProps {
@@ -10,6 +11,7 @@ interface TemplateManagerProps {
 }
 
 export default function TemplateManager({ visible, onClose, onInsert }: TemplateManagerProps) {
+  const { templates: templatesAPI } = useDiary()
   const [templates, setTemplates] = useState<DiaryTemplate[]>([])
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
@@ -20,7 +22,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
 
   const loadTemplates = useCallback(async () => {
     try {
-      const data = await window.api.templates.getAll()
+      const data = await templatesAPI.getAll()
       setTemplates(data || [])
     } catch (e) {
       console.error('Failed to load templates:', e)
@@ -37,7 +39,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
       return
     }
     try {
-      await window.api.templates.create({ name: newName.trim(), content: newContent })
+      await templatesAPI.create({ name: newName.trim(), content: newContent })
       showToast('模板已创建', 'success')
       setIsAdding(false)
       setNewName('')
@@ -52,7 +54,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
   const handleUpdate = async (id: number) => {
     if (!editName.trim()) return
     try {
-      await window.api.templates.update(id, { name: editName.trim(), content: editContent })
+      await templatesAPI.update(id, { name: editName.trim(), content: editContent })
       showToast('模板已更新', 'success')
       setEditingId(null)
       loadTemplates()
@@ -65,7 +67,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
   const handleDelete = async (id: number) => {
     if (!window.confirm('确定要删除这个模板吗？')) return
     try {
-      const result = await window.api.templates.delete(id)
+      const result = await templatesAPI.delete(id)
       if (result.success) {
         showToast('模板已删除', 'success')
         loadTemplates()

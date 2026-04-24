@@ -306,7 +306,7 @@ const runAutoBackup = async () => {
         );
 
         const payload = {
-            version: '1.0.0',
+            version: app.getVersion(),
             timestamp: new Date().toISOString(),
             data: {
                 entries,
