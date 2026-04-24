@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import Pomodoro from '../src/components/Pomodoro'
 import { PomodoroProvider } from '../src/contexts/PomodoroContext'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
@@ -90,9 +90,7 @@ describe('Pomodoro Component', () => {
       vi.advanceTimersByTime(1000)
     })
 
-    await waitFor(() => {
-      expect(screen.getByText('24:59')).toBeInTheDocument()
-    })
+    expect(screen.getByText('24:59')).toBeInTheDocument()
     expect(screen.getByText('正在进行中...')).toBeInTheDocument()
     
     // Button changes to 暂停
@@ -111,15 +109,11 @@ describe('Pomodoro Component', () => {
     const shortBreakBtn = screen.getByTestId('pomodoro-mode-short_break')
     fireEvent.click(shortBreakBtn)
 
-    await waitFor(() => {
-      expect(screen.getByText('05:00')).toBeInTheDocument()
-    })
+    expect(screen.getByText('05:00')).toBeInTheDocument()
 
     const longBreakBtn = screen.getByTestId('pomodoro-mode-long_break')
     fireEvent.click(longBreakBtn)
 
-    await waitFor(() => {
-      expect(screen.getByText('15:00')).toBeInTheDocument()
-    })
+    expect(screen.getByText('15:00')).toBeInTheDocument()
   })
 })
