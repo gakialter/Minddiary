@@ -143,7 +143,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     // ── Notification sound (Web Audio API beep, no external file needed) ──
     try {
-      const settingsData = await window.api.settings.getAll().catch(() => ({}) as Record<string, unknown>) as Record<string, unknown>
       const soundEnabled = String(settingsData?.pomodoroSound ?? 'true') !== 'false'
       const alertEnabled = String(settingsData?.pomodoroAlert ?? 'true') !== 'false'
 
@@ -168,7 +167,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
       // ── Alert modal ──
       if (alertEnabled) {
-        const newTotal = await window.api.pomodoro.getDailyTotal(
+        const newTotal = await pomodoroAPI.getDailyTotal(
           new Date().toISOString().split('T')[0]!
         ).catch(() => todayTotal)
         setAlertState({
@@ -208,7 +207,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       setMode(dynamicModes.WORK!)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedSubject, todayTotal])
+  }, [mode, selectedSubject, todayTotal, settingsData, pomodoroAPI])
 
   // Main Timer Loop
   useEffect(() => {
