@@ -86,6 +86,7 @@ export const CommanderHero: React.FC<CommanderHeroProps> = ({ config, onActionCl
                         type="button"
                         onClick={onActionClick}
                         className="button button-primary"
+                        data-testid="dashboard-cta"
                         style={{ borderRadius: 'var(--radius)', gap: 'var(--space-xs)' }}
                     >
                         <span>{config.ctaText}</span>

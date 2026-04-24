@@ -21,7 +21,7 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <Loader2 size={32} className="animate-spin mb-4" style={{ color: 'var(--text-muted)' }} />
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>正在加载实时模型状态...</p>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="dashboard-loading">正在加载实时模型状态...</p>
       </div>
     )
   }
@@ -91,6 +91,7 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
                 type="button"
                 onClick={() => setShowDetails(!showDetails)}
                 className="inline-flex items-center gap-1.5 text-sm font-medium bg-transparent border-0 outline-none appearance-none transition-colors"
+                data-testid="dashboard-details-toggle"
                 style={{ color: 'var(--text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'}

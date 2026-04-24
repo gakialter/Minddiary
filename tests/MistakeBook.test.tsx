@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import MistakeBook from '../src/components/MistakeBook'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 
@@ -65,8 +65,8 @@ describe('MistakeBook Component', () => {
       render(<MistakeBook />)
     })
 
-    expect(screen.getByText('还没有错题记录')).toBeInTheDocument()
-    expect(screen.getByText('+ 添加第一条记录')).toBeInTheDocument()
+    expect(screen.getByTestId('mistake-empty-state')).toBeInTheDocument()
+    expect(screen.getByTestId('mistake-add-first-btn')).toBeInTheDocument()
   })
 
   it('renders loaded mistakes', async () => {
@@ -96,7 +96,7 @@ describe('MistakeBook Component', () => {
       render(<MistakeBook />)
     })
 
-    const addBtn = screen.getByText('+ 添加')
+    const addBtn = screen.getByTestId('mistake-add-btn')
     await act(async () => {
       fireEvent.click(addBtn)
     })
@@ -114,7 +114,7 @@ describe('MistakeBook Component', () => {
 
     // Open form
     await act(async () => {
-      fireEvent.click(screen.getByText('+ 添加'))
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
     })
 
     // Type in question

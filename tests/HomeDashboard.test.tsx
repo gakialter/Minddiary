@@ -71,7 +71,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
-    expect(screen.getByText('正在加载实时模型状态...')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument()
   })
 
   it('renders error state correctly', async () => {
@@ -100,7 +100,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
-    const toggleBtn = screen.getByText('查看系统依据')
+    const toggleBtn = screen.getByTestId('dashboard-details-toggle')
     expect(screen.queryByText('系统依据')).not.toBeInTheDocument()
 
     await act(async () => {
@@ -115,7 +115,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
-    const ctaBtn = screen.getByText(/立即开始.*分钟抢救/i)
+    const ctaBtn = screen.getByTestId('dashboard-cta')
     await act(async () => {
       fireEvent.click(ctaBtn)
     })

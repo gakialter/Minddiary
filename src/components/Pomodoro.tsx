@@ -106,6 +106,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       <div
         ref={widgetRef}
         className="pomodoro-mini card"
+        data-testid="pomodoro-widget"
         style={{
           position: 'fixed',
           left: pos.x,
@@ -155,7 +156,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
 
   // ─── Full-page view ───
   return (
-    <div className="pomodoro-container flex flex-col items-center w-full" style={{ padding: 'var(--space-xl) 0' }}>
+    <div className="pomodoro-container flex flex-col items-center w-full" style={{ padding: 'var(--space-xl) 0' }} data-testid="pomodoro-timer">
 
       {/* Mode Switcher */}
       <div className="flex gap-sm p-1 rounded-full bg-secondary" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 24, marginBottom: 'var(--space-2xl)' }}>
@@ -163,6 +164,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           <button
             key={m.id}
             onClick={() => setMode(m)}
+            data-testid={`pomodoro-mode-${m.id}`}
             style={{
               padding: '6px 16px', borderRadius: 20, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer',
               background: mode.id === m.id ? 'var(--bg-primary)' : 'transparent',
@@ -184,6 +186,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
             min={1}
             max={120}
             className="input"
+            data-testid="pomodoro-custom-minutes"
             style={{ width: 80, textAlign: 'center', padding: '4px 8px' }}
             value={customMinutes}
             onChange={e => {
@@ -223,6 +226,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       <div className="flex gap-md" style={{ marginBottom: 'var(--space-2xl)' }}>
         <button
           className="button"
+          data-testid="pomodoro-start-btn"
           style={{
             minWidth: 120, height: 44, borderRadius: 22, fontSize: 16, fontWeight: 600, border: 'none',
             background: isRunning ? 'var(--bg-tertiary)' : mode.color,
@@ -237,6 +241,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         </button>
         <button
           className="button button-secondary"
+          data-testid="pomodoro-reset-btn"
           style={{ width: 44, height: 44, borderRadius: 22, padding: 0 }}
           onClick={resetTimer}
           title="重置"
@@ -250,6 +255,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       <div style={{ width: '100%', maxWidth: '300px', marginBottom: 'var(--space-xl)' }}>
         <select
           className="input w-full"
+          data-testid="pomodoro-subject-select"
           value={selectedSubject || ''}
           onChange={(e) => setSelectedSubject(e.target.value ? Number(e.target.value) : null)}
           disabled={!['work', 'custom'].includes(mode.id)}
@@ -266,7 +272,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       </div>
 
       {/* Today Stats */}
-      <div className="card w-full" style={{ maxWidth: '340px', padding: 'var(--space-lg)' }}>
+      <div className="card w-full" style={{ maxWidth: '340px', padding: 'var(--space-lg)' }} data-testid="pomodoro-stats">
         <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
           <h3 className="text-base font-semibold">当前进度</h3>
           <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>

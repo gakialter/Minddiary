@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import Pomodoro from '../src/components/Pomodoro'
 import { PomodoroProvider } from '../src/contexts/PomodoroContext'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
@@ -35,57 +35,64 @@ describe('Pomodoro Component', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the core pomodoro UI in full page view', () => {
-    render(
-      <PomodoroProvider>
-        <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
-      </PomodoroProvider>
-    )
+  it('renders the core pomodoro UI in full page view', async () => {
+    await act(async () => {
+      render(
+        <PomodoroProvider>
+          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
+        </PomodoroProvider>
+      )
+    })
     
-    // Should display modes
-    expect(screen.getByText('专注')).toBeInTheDocument()
-    expect(screen.getByText('短休')).toBeInTheDocument()
-    expect(screen.getByText('长休')).toBeInTheDocument()
+    // Should display modes via testid
+    expect(screen.getByTestId('pomodoro-mode-work')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-mode-short_break')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).toBeInTheDocument()
 
     // Should display initial time (25:00)
     expect(screen.getByText('25:00')).toBeInTheDocument()
     expect(screen.getByText('准备就绪')).toBeInTheDocument()
 
     // Start button
-    expect(screen.getByText(/开始专注/)).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-start-btn')).toBeInTheDocument()
   })
 
-  it('renders the mini widget correctly', () => {
-    render(
-      <PomodoroProvider>
-        <Pomodoro isWidget={true} isCollapsed={false} onExpand={() => {}} />
-      </PomodoroProvider>
-    )
+  it('renders the mini widget correctly', async () => {
+    await act(async () => {
+      render(
+        <PomodoroProvider>
+          <Pomodoro isWidget={true} isCollapsed={false} onExpand={() => {}} />
+        </PomodoroProvider>
+      )
+    })
     
     // Mini widget should still show time
+    expect(screen.getByTestId('pomodoro-widget')).toBeInTheDocument()
     expect(screen.getByText('25:00')).toBeInTheDocument()
     
-    // Should have dragged title
+    // Should have draggable title
     expect(screen.getByTitle('拖拽移动 · 点击打开番茄钟')).toBeInTheDocument()
   })
 
   it('starts the timer when play is clicked', async () => {
-    render(
-      <PomodoroProvider>
-        <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
-      </PomodoroProvider>
-    )
+    await act(async () => {
+      render(
+        <PomodoroProvider>
+          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
+        </PomodoroProvider>
+      )
+    })
 
-    const startBtn = screen.getByText(/开始专注/)
+    const startBtn = screen.getByTestId('pomodoro-start-btn')
     fireEvent.click(startBtn)
 
-    // Ensure state updates before advancing timers
     await act(async () => {
       vi.advanceTimersByTime(1000)
     })
 
-    // Text should change from 25:00 to 24:59
-    expect(screen.getByText('24:59')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('24:59')).toBeInTheDocument()
+    })
     expect(screen.getByText('正在进行中...')).toBeInTheDocument()
     
     // Button changes to 暂停
@@ -93,22 +100,26 @@ describe('Pomodoro Component', () => {
   })
 
   it('can switch to break modes and time updates', async () => {
-    render(
-      <PomodoroProvider>
-        <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
-      </PomodoroProvider>
-    )
+    await act(async () => {
+      render(
+        <PomodoroProvider>
+          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
+        </PomodoroProvider>
+      )
+    })
 
-    const shortBreakBtn = screen.getByText('短休')
+    const shortBreakBtn = screen.getByTestId('pomodoro-mode-short_break')
     fireEvent.click(shortBreakBtn)
 
-    // Should display short break time (5:00)
-    expect(screen.getByText('05:00')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('05:00')).toBeInTheDocument()
+    })
 
-    const longBreakBtn = screen.getByText('长休')
+    const longBreakBtn = screen.getByTestId('pomodoro-mode-long_break')
     fireEvent.click(longBreakBtn)
 
-    // Should display long break time (15:00)
-    expect(screen.getByText('15:00')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('15:00')).toBeInTheDocument()
+    })
   })
 })

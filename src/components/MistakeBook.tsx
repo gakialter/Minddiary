@@ -215,7 +215,7 @@ export default function MistakeBook() {
                 <button className="button button-primary" onClick={() => {
                     setShowForm(!showForm); setEditingId(null);
                     setForm({ subject_id: '', question: '', answer: '', notes: '', image_path: null })
-                }}>
+                }} data-testid="mistake-add-btn">
                     + 添加
                 </button>
             </div>
@@ -225,14 +225,17 @@ export default function MistakeBook() {
                 <input
                     className="input" placeholder="搜索..." style={{ flex: 1, paddingLeft: 12 }}
                     value={searchInput} onChange={handleSearchChange}
+                    data-testid="mistake-search-input"
                 />
                 <select className="input" value={filter.subject_id}
-                    onChange={e => { setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}>
+                    onChange={e => { setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}
+                    data-testid="mistake-subject-filter">
                     <option value="">全部科目</option>
                     {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 <select className="input" value={filter.mastered}
-                    onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}>
+                    onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
+                    data-testid="mistake-status-filter">
                     <option value="">全部状态</option>
                     <option value="false">未掌握</option>
                     <option value="true">已掌握</option>
@@ -381,7 +384,7 @@ export default function MistakeBook() {
                     </div>
                 ))}
                 {mistakes.length === 0 && (
-                    <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }}>
+                    <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }} data-testid="mistake-empty-state">
                         <div style={{ width: 100, height: 100, borderRadius: '50%', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-sm)', border: '2px solid var(--bg-secondary)', boxShadow: 'var(--shadow-sm)' }}>
                             <BookX size={48} style={{ color: 'var(--accent)', opacity: 0.9 }} />
                         </div>
@@ -390,7 +393,7 @@ export default function MistakeBook() {
                             你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。
                         </p>
                         {!showForm && (
-                            <button className="button button-primary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)}>
+                            <button className="button button-primary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)} data-testid="mistake-add-first-btn">
                                 + 添加第一条记录
                             </button>
                         )}
