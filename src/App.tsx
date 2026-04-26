@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Download } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
-import { PomodoroProvider, usePomodoroContext } from './contexts/PomodoroContext'
+import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
 import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation'
 import { useGlobalKeyboard } from './hooks/useGlobalKeyboard'
 import Layout from './components/Layout'
@@ -56,10 +56,12 @@ function AppContent() {
   const [showBreakReview, setShowBreakReview] = useState(false)
 
   // Register break-start handler with Pomodoro context
-  const pomodoro = usePomodoroContext()
+  const { alertState } = usePomodoroData()
+  const { setOnBreakStart, dismissAlert } = usePomodoroActions()
+
   useEffect(() => {
-    pomodoro.setOnBreakStart(() => setShowBreakReview(true))
-    return () => pomodoro.setOnBreakStart(null)
+    setOnBreakStart(() => setShowBreakReview(true))
+    return () => setOnBreakStart(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -194,11 +196,11 @@ function AppContent() {
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
       {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}
       <PomodoroAlert
-        visible={pomodoro.alertState.visible}
-        isWorkComplete={pomodoro.alertState.isWorkComplete}
-        duration={pomodoro.alertState.duration}
-        todayTotal={pomodoro.alertState.todayTotal}
-        onClose={pomodoro.dismissAlert}
+        visible={alertState.visible}
+        isWorkComplete={alertState.isWorkComplete}
+        duration={alertState.duration}
+        todayTotal={alertState.todayTotal}
+        onClose={dismissAlert}
       />
     </Layout>
   )

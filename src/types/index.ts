@@ -65,7 +65,7 @@ export interface Mistake {
   question: string
   answer: string
   notes: string
-  mastered: boolean | number
+  mastered: boolean
   // Spaced repetition (SM-2) fields
   ease_factor: number
   review_interval: number       // days until next review

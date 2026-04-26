@@ -58,16 +58,18 @@ function Settings() {
   const saveSettings = async () => {
     setSaving(true)
     try {
-      await diary.settings.update('examDate', examDate)
-      await diary.settings.update('aiEndpoint', aiEndpoint)
-      await diary.settings.update('aiApiKey', aiApiKey)
-      await diary.settings.update('aiModel', aiModel)
-      await diary.settings.update('autoSave', autoSave)
-      await diary.settings.update('pomodoroMinutes', pomodoroMinutes)
-      await diary.settings.update('autoBackup', autoBackup)
-      await diary.settings.update('backupPath', backupPath)
-      await diary.settings.update('pomodoroSound', pomodoroSound)
-      await diary.settings.update('pomodoroAlert', pomodoroAlert)
+      await diary.settings.setAll({
+        examDate,
+        aiEndpoint,
+        aiApiKey,
+        aiModel,
+        autoSave: String(autoSave),
+        pomodoroMinutes: String(pomodoroMinutes),
+        autoBackup: String(autoBackup),
+        backupPath,
+        pomodoroSound: String(pomodoroSound),
+        pomodoroAlert: String(pomodoroAlert),
+      })
       showToast('设置已保存', 'success')
     } catch (error) {
       console.error('Failed to save settings:', error)

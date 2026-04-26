@@ -1,12 +1,15 @@
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
+const { pathToFileURL } = require('url');
 const db = require('./database');
+
+import type { Attachment, AttachmentData } from '../src/types/index';
 
 let attachmentsDir: string;
 let mistakeImagesDir: string;
 
-function initialize() {
+function initialize(): void {
     attachmentsDir = path.join(app.getPath('userData'), 'attachments');
     mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
     if (!fs.existsSync(attachmentsDir)) {
@@ -17,7 +20,7 @@ function initialize() {
     }
 }
 
-async function saveAttachment(entryId: number, { name, data, mimetype }: { name: string, data: string, mimetype?: string }) {
+async function saveAttachment(entryId: number, { name, data, mimetype }: AttachmentData): Promise<Attachment> {
     // data is a base64 string from renderer
     const buffer = Buffer.from(data, 'base64');
     const timestamp = Date.now();
@@ -31,13 +34,13 @@ async function saveAttachment(entryId: number, { name, data, mimetype }: { name:
         filename: name,
         filepath: safeFilename,
         mimetype: mimetype || 'application/octet-stream'
-    });
+    }) as Attachment;
 
     return attachment;
 }
 
-function deleteAttachment(id: number) {
-    const attachment = db.getAttachmentById(id);
+function deleteAttachment(id: number): { success: boolean } {
+    const attachment = db.getAttachmentById(id) as Attachment | undefined;
     if (attachment) {
         const filepath = path.join(attachmentsDir, attachment.filepath);
         if (fs.existsSync(filepath)) {
@@ -53,12 +56,9 @@ function deleteAttachment(id: number) {
  * Must be called BEFORE db.deleteEntry() so the attachment records
  * are still queryable. Errors on individual files are logged but do
  * NOT abort the delete (e.g. file already manually removed).
- *
- * @param {number} entryId
- * @returns {{ deleted: number, errors: number }}
  */
-function deleteAttachmentsForEntry(entryId: number) {
-    const attachments = db.getAttachmentsByEntry(entryId);
+function deleteAttachmentsForEntry(entryId: number): { deleted: number; errors: number } {
+    const attachments = db.getAttachmentsByEntry(entryId) as Attachment[];
     let deleted = 0;
     let errors = 0;
 
@@ -69,10 +69,10 @@ function deleteAttachmentsForEntry(entryId: number) {
                 fs.unlinkSync(filepath);
             }
             deleted++;
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(
                 `[fileManager] Failed to delete physical file for attachment id=${attachment.id}:`,
-                err.message
+                err instanceof Error ? err.message : String(err)
             );
             errors++;
         }
@@ -81,13 +81,13 @@ function deleteAttachmentsForEntry(entryId: number) {
     return { deleted, errors };
 }
 
-function getAttachmentPath(filepath: string) {
+function getAttachmentPath(filepath: string): string {
     return path.join(attachmentsDir, filepath);
 }
 
 // ==================== Mistake Images ====================
 
-async function saveMistakeImage({ data, ext = '.png' }: { data: string, ext?: string }) {
+async function saveMistakeImage({ data, ext = '.png' }: { data: string; ext?: string }): Promise<string> {
     // data is a base64 string from renderer
     const buffer = Buffer.from(data, 'base64');
     const timestamp = Date.now();
@@ -95,21 +95,24 @@ async function saveMistakeImage({ data, ext = '.png' }: { data: string, ext?: st
     const filepath = path.join(mistakeImagesDir, safeFilename);
 
     fs.writeFileSync(filepath, buffer);
-    return safeFilename;
+    // Return the URL pathname (e.g. '/C:/Users/.../file.png' on Windows)
+    // so that `local://${path}` becomes `local:///C:/...` which the
+    // protocol handler correctly maps to `file:///C:/...`.
+    return pathToFileURL(filepath).pathname;
 }
 
-function deleteMistakeImage(filename: string) {
+function deleteMistakeImage(filename: string): void {
     const filepath = path.join(mistakeImagesDir, filename);
     if (fs.existsSync(filepath)) {
         fs.unlinkSync(filepath);
     }
 }
 
-function getMistakeImagePath(filename: string) {
+function getMistakeImagePath(filename: string): string {
     return path.join(mistakeImagesDir, filename);
 }
 
-module.exports = { 
+module.exports = {
     initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath,
-    saveMistakeImage, deleteMistakeImage, getMistakeImagePath 
+    saveMistakeImage, deleteMistakeImage, getMistakeImagePath
 };

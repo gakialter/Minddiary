@@ -6,8 +6,7 @@ import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
 import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import MarkdownRenderer from './common/MarkdownRenderer'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
 import type { DiaryEntry, AIMessage, DiaryTemplate } from '../types'
 
@@ -99,16 +98,6 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       showToast('请先写点内容再让 AI 总结吧！', 'info')
       return
     }
-    const settingsData = diary.settingsData as Record<string, string> | undefined
-    const aiSettings = {
-      endpoint: settingsData?.aiEndpoint || '',
-      apiKey: settingsData?.aiApiKey || '',
-      model: settingsData?.aiModel || 'gpt-3.5-turbo'
-    }
-    if (!aiSettings.endpoint || !aiSettings.apiKey) {
-      showToast('请先在「设置」中配置 AI Key', 'error')
-      return
-    }
     setSummaryLoading(true)
     setSummaryExpanded(true)
     setAiSummary(null)
@@ -118,7 +107,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: prompt }
       ]
-      const result = await diary.ai.chat(messages, aiSettings)
+      const result = await diary.ai.chat(messages)
       if (result.error) {
         showToast(result.error, 'error')
       } else {
@@ -133,16 +122,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     }
   }, [content, entry?.date, diary])
 
-  const renderSummaryHtml = (text: string) => {
-    try {
-      const rendered = marked(text, { breaks: true })
-      const html = typeof rendered === 'string' ? rendered : ''
-      return DOMPurify.sanitize(html)
-    } catch {
-      return DOMPurify.sanitize(text)
-    }
-  }
-
+  // MarkdownRenderer handles rendering via react-markdown + remark-gfm
   const handleShare = useCallback(async () => {
     if (!shareCardRef.current) return
     setSharing(true)
@@ -324,11 +304,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
                 </div>
               )}
               {aiSummary && (
-                <div
-                  className="prose text-sm"
-                  style={{ lineHeight: 1.75, color: 'var(--text-secondary)' }}
-                  dangerouslySetInnerHTML={{ __html: renderSummaryHtml(aiSummary) }}
-                />
+                <MarkdownRenderer className="text-sm">{aiSummary}</MarkdownRenderer>
               )}
             </div>
           )}

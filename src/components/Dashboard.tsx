@@ -85,7 +85,7 @@ export default function Dashboard() {
                 totalPomodoroMinutes: totalMins,
                 sessionCount: totalSessions,
                 streakDays: streak as number,
-                masteredMistakes: (mistakesList as Mistake[]).filter(m => m.mastered === 1 as unknown as boolean).length,
+                masteredMistakes: (mistakesList as Mistake[]).filter(m => m.mastered).length,
                 totalMistakes: (mistakesList as Mistake[]).length,
                 dueMistakes: dueCount as number
             });
@@ -180,9 +180,9 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--success)' }}>
+                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--color-state-success)' }}>
                     <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <Clock3 size={14} style={{ color: 'var(--success)' }} /> 历史总专注时间
+                        <Clock3 size={14} style={{ color: 'var(--color-state-success)' }} /> 历史总专注时间
                     </div>
                     <div className="text-3xl font-extrabold flex items-baseline gap-xs">
                         {Math.floor(stats.totalPomodoroMinutes / 60)} <span className="text-sm font-normal text-muted">h</span>
@@ -203,11 +203,11 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--error)' }}>
+                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--color-state-danger)' }}>
                     <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <RefreshCw size={14} style={{ color: 'var(--error)' }} /> 今日待复习错题
+                        <RefreshCw size={14} style={{ color: 'var(--color-state-danger)' }} /> 今日待复习错题
                     </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: stats.dueMistakes > 0 ? 'var(--error)' : 'var(--success)' }}>
+                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: stats.dueMistakes > 0 ? 'var(--color-state-danger)' : 'var(--color-state-success)' }}>
                         {stats.dueMistakes} <span className="text-sm font-normal text-muted">题</span>
                     </div>
                     <div className="text-sm text-muted mt-1">
@@ -257,7 +257,7 @@ export default function Dashboard() {
                                             borderRadius: '6px 6px 0 0',
                                             transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
                                             cursor: 'pointer',
-                                            boxShadow: isToday ? '0 -2px 10px rgba(139, 92, 246, 0.3)' : 'none'
+                                            boxShadow: isToday ? '0 -2px 10px rgba(15, 118, 110, 0.3)' : 'none'
                                         }}
                                             onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; (e.currentTarget.previousSibling as HTMLElement).style.opacity = '1'; }}
                                             onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; (e.currentTarget.previousSibling as HTMLElement).style.opacity = '0'; }}

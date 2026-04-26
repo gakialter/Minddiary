@@ -174,13 +174,13 @@ export function generatePdfHtml(entries: EntryWithTags[] | null | undefined, opt
     .cover {
         text-align: center;
         padding: 32pt 0 24pt;
-        border-bottom: 2px solid #8b5cf6;
+        border-bottom: 2px solid #0F766E;
         margin-bottom: 28pt;
     }
     .cover h1 {
         font-size: 24pt;
         font-weight: 800;
-        color: #8b5cf6;
+        color: #0F766E;
         letter-spacing: -0.5pt;
     }
     .cover p { color: #64748b; margin-top: 6pt; font-size: 10pt; }
@@ -191,7 +191,7 @@ export function generatePdfHtml(entries: EntryWithTags[] | null | undefined, opt
         border-radius: 8pt;
         padding: 16pt 18pt;
         margin-bottom: 16pt;
-        border-left: 4pt solid #8b5cf6;
+        border-left: 4pt solid #0F766E;
     }
     .entry-header {
         display: flex;
@@ -220,8 +220,8 @@ export function generatePdfHtml(entries: EntryWithTags[] | null | undefined, opt
     }
     .tag {
         font-size: 8.5pt;
-        background: #ede9fe;
-        color: #6d28d9;
+        background: #ECF7F2;
+        color: #0F766E;
         padding: 2pt 7pt;
         border-radius: 10pt;
         font-weight: 500;

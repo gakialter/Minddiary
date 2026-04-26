@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import MarkdownRenderer from './common/MarkdownRenderer'
 import {
     SYSTEM_PROMPT,
     sanitizeUserInput,
@@ -41,11 +40,6 @@ export default function AIPanel({ entry }: AIPanelProps) {
     // sendMessage captures its value at call time; if it changes before the
     // response arrives, the response is discarded (soft cancellation).
     const generationRef = useRef(0)
-    const settings = {
-        endpoint: (settingsData?.aiEndpoint as string) || '',
-        apiKey: (settingsData?.aiApiKey as string) || '',
-        model: (settingsData?.aiModel as string) || 'gpt-3.5-turbo'
-    }
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -66,12 +60,6 @@ export default function AIPanel({ entry }: AIPanelProps) {
 
         const textToUse = sanitizeUserInput(raw)
 
-        if (!settings.endpoint || !settings.apiKey) {
-            appendMessage('assistant', '⚠️ 请先在「设置」中配置有效的 AI API 地址和密钥。')
-            if (!textOverride) setInput('')
-            return
-        }
-
         appendMessage('user', raw)
         if (!textOverride) setInput('')
         setLoading(true)
@@ -83,7 +71,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 ...messages.slice(-6).map(m => ({ role: m.role as AIMessage['role'], content: m.content })),
                 { role: 'user' as const, content: textToUse }
             ]
-            const result = await aiAPI.chat(chatMessages, settings)
+            const result = await aiAPI.chat(chatMessages)
             if (generationRef.current !== gen) return  // cancelled
             if (result.error) {
                 appendMessage('assistant', `❌ ${result.error}`)
@@ -142,16 +130,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
         { icon: <Target size={20} />, label: '制定复习冲刺', action: () => sendMessage(buildSprintPlanPrompt(30)) },
     ]
 
-    const createMarkup = (text: string): { __html: string } => {
-        try {
-            const rendered = marked(text, { breaks: true })
-            const html = typeof rendered === 'string' ? rendered : ''
-            return { __html: DOMPurify.sanitize(html) }
-        } catch {
-            return { __html: DOMPurify.sanitize(text) }
-        }
-    }
-
+    // MarkdownRenderer handles rendering via react-markdown + remark-gfm
     return (
         <div style={{
             height: '100%', display: 'flex', flexDirection: 'column',
@@ -226,15 +205,13 @@ export default function AIPanel({ entry }: AIPanelProps) {
                             borderTopLeftRadius: msg.role === 'assistant' ? 4 : 16,
                             background: msg.role === 'user' ? 'linear-gradient(135deg, var(--accent), var(--accent-light))' : 'var(--bg-tertiary)',
                             color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
-                            boxShadow: msg.role === 'user' ? '0 4px 12px rgba(139, 92, 246, 0.2)' : 'none',
+                            boxShadow: msg.role === 'user' ? '0 4px 12px rgba(15, 118, 110, 0.2)' : 'none',
                             fontSize: 15, lineHeight: 1.6
                         }}>
                             {msg.role === 'user' ? (
                                 <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
                             ) : (
-                                <div className="markdown-body" style={{ background: 'transparent', color: 'inherit', fontSize: 'inherit' }}
-                                    dangerouslySetInnerHTML={createMarkup(msg.content)}
-                                />
+                                <MarkdownRenderer className="ai-message-content">{msg.content}</MarkdownRenderer>
                             )}
                         </div>
                         <span className="text-muted" style={{ fontSize: 11, marginTop: 4, margin: '4px 8px 0 8px' }}>
@@ -320,11 +297,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                     0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
                     40% { transform: scale(1); opacity: 1; }
                 }
-                .markdown-body p { margin-bottom: 0.8em; }
-                .markdown-body p:last-child { margin-bottom: 0; }
-                .markdown-body strong { color: var(--accent); }
-                .markdown-body code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
-                .markdown-body pre { background: var(--bg-primary); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); }
+                /* markdown-body styles now live in MarkdownRenderer component */
             `}</style>
         </div>
     )

@@ -140,16 +140,24 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                 <Latex>{mistake.question}</Latex>
                             </div>
 
-                            {/* Image if any */}
-                            {mistake.image_path && (
-                                <div style={{ marginBottom: 'var(--space-md)' }}>
-                                    <img
-                                        src={`local://${mistake.image_path}`}
-                                        alt="题目图片"
-                                        style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                                    />
-                                </div>
-                            )}
+                            {/* Images if any (supports single path or JSON array) */}
+                            {mistake.image_path && (() => {
+                                const imgs: string[] = mistake.image_path!.startsWith('[')
+                                    ? (() => { try { return JSON.parse(mistake.image_path!) } catch { return [] } })()
+                                    : [mistake.image_path!]
+                                return imgs.length > 0 ? (
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 'var(--space-md)' }}>
+                                        {imgs.map((imgPath: string, idx: number) => (
+                                            <img
+                                                key={idx}
+                                                src={`local://${imgPath}`}
+                                                alt={`图片 ${idx + 1}`}
+                                                style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null
+                            })()}
 
                             {/* Reveal answer button */}
                             {phase === 'question' && !reviewDone && (

@@ -248,7 +248,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 const newMistake: Mistake = { 
                     question: '', answer: '', notes: '', subject_id: null, 
                     ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
-                    ...data, id, mastered: 0, created_at: new Date().toISOString() 
+                    ...data, id, mastered: false, created_at: new Date().toISOString()
                 }
                 setMistakes(prev => [newMistake, ...prev])
                 return newMistake
@@ -285,8 +285,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         toggleMastered: async (id: number) => {
             if (IS_ELECTRON) {
                 const { mastered } = await window.api.mistakes.toggleMastered(id)
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered } : m))
-                return { mastered }
+                const masteredBool = !!mastered
+                setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: masteredBool } : m))
+                return { mastered: masteredBool }
             }
             setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m))
             return { mastered: true }
@@ -338,7 +339,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 return newSubject
             }
             const newSubject: Subject = {
-                name: '', color: '#8b5cf6',
+                name: '', color: '#0F766E',
                 ...data,
                 id: Math.max(0, ...subjects.map(s => s.id)) + 1,
                 order: subjects.length + 1,
@@ -460,8 +461,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     // ─── AI API ───────────────────────────────────────────────────────────────
     const aiAPI: AIContextAPI = {
-        chat: async (messages, settings) => {
-            if (IS_ELECTRON) return window.api.ai.chat(messages, settings)
+        chat: async (messages) => {
+            if (IS_ELECTRON) return window.api.ai.chat(messages)
             return { content: '浏览器端目前不支持直接调用 AI 接口哦，请使用 Electron 客户端体验完整功能。' }
         }
     }

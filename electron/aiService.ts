@@ -1,21 +1,16 @@
-const AI_TIMEOUT_MS = 30_000
+const db = require('./database');
 
-export interface AISettings {
-    endpoint?: string;
-    apiKey?: string;
-    model?: string;
-}
+import type { AIMessage, AIResponse } from '../src/types/index';
 
-export interface ChatMessage {
-    role: string;
-    content: string;
-}
+const AI_TIMEOUT_MS = 30_000;
 
-async function chat(messages: ChatMessage[], settings: AISettings = {}) {
-    const { endpoint, apiKey, model } = settings;
+async function chat(messages: AIMessage[]): Promise<AIResponse> {
+    const endpoint = db.getSetting('aiEndpoint');
+    const apiKey = db.getSetting('aiApiKey');
+    const model = db.getSetting('aiModel') || 'gpt-3.5-turbo';
 
     if (!endpoint || !apiKey) {
-        return { error: '请先在设置中配置 AI API 地址和密钥' };
+        return { content: '', error: '请先在设置中配置 AI API 地址和密钥' };
     }
 
     const controller = new AbortController();
@@ -29,7 +24,7 @@ async function chat(messages: ChatMessage[], settings: AISettings = {}) {
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                model: model || 'gpt-3.5-turbo',
+                model,
                 messages,
                 temperature: 0.7,
                 max_tokens: 2000
@@ -48,22 +43,23 @@ async function chat(messages: ChatMessage[], settings: AISettings = {}) {
                 500: 'AI 服务器内部错误，请稍后再试。',
             };
             const hint = statusHints[response.status] || '';
-            return { error: `API 请求失败 (${response.status})${hint ? '\n' + hint : ''}` };
+            return { content: '', error: `API 请求失败 (${response.status})${hint ? '\n' + hint : ''}` };
         }
 
         const data = await response.json();
         return { content: data.choices[0].message.content };
-    } catch (err: any) {
+    } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-            return { error: '⏱️ 请求超时（30秒），请检查网络连接或 API 服务是否正常。' };
+        const error = err as Error;
+        if (error.name === 'AbortError') {
+            return { content: '', error: '⏱️ 请求超时（30秒），请检查网络连接或 API 服务是否正常。' };
         }
-        return { error: `🔌 连接失败: ${err.message}` };
+        return { content: '', error: `🔌 连接失败: ${error.message}` };
     }
 }
 
-async function summarize(content: string, settings: AISettings = {}) {
-    const messages: ChatMessage[] = [
+async function summarize(content: string): Promise<AIResponse> {
+    const messages: AIMessage[] = [
         {
             role: 'system',
             content: '你是一位考研学习助手。请用简洁的中文回答，帮助学生总结学习内容、分析学习状态。'
@@ -73,7 +69,7 @@ async function summarize(content: string, settings: AISettings = {}) {
             content: `请帮我总结以下学习日记的要点，并给出改进建议：\n\n${content}`
         }
     ];
-    return chat(messages, settings);
+    return chat(messages);
 }
 
 module.exports = { chat, summarize };

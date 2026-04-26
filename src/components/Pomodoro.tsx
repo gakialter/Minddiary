@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { usePomodoroContext } from '../contexts/PomodoroContext'
+import { usePomodoroTimer, usePomodoroData, usePomodoroActions } from '../contexts/PomodoroContext'
 import { Play, Pause, RotateCcw } from 'lucide-react'
 
 const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
@@ -35,13 +35,21 @@ interface PomodoroProps {
 
 export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroProps) {
   const {
-    mode, setMode, timeLeft, isRunning,
-    subjects, selectedSubject, setSelectedSubject,
-    todayStats, todayTotal, dynamicModes,
+    mode, timeLeft, isRunning,
     progress, circleCircumference, miniCircumference,
-    customMinutes, setCustomMinutes,
+    dynamicModes,
+  } = usePomodoroTimer()
+
+  const {
+    subjects, selectedSubject,
+    todayStats, todayTotal,
+    customMinutes,
+  } = usePomodoroData()
+
+  const {
+    setMode, setSelectedSubject, setCustomMinutes,
     toggleTimer, resetTimer, formatTime,
-  } = usePomodoroContext()
+  } = usePomodoroActions()
 
   // ─── Drag state (widget only) ───
   const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))

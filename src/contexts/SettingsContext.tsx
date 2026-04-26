@@ -78,6 +78,17 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             setSettings(prev => ({ ...prev, [key]: value }))
             return { ...settings, [key]: value }
         },
+        setAll: async (partial: Record<string, string>) => {
+            if (IS_ELECTRON) {
+                await window.api.settings.setAll(partial)
+                setSettings(prev => ({ ...prev, ...Object.fromEntries(
+                    Object.entries(partial).map(([k, v]) => [k, v])
+                ) }))
+                return { success: true }
+            }
+            setSettings(prev => ({ ...prev, ...partial }))
+            return { success: true }
+        },
     }
 
     // ─── Theme helpers ────────────────────────────────────────────────────────
@@ -94,6 +105,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         settings: {
             getAll: settingsAPI.getAll,
             update: settingsAPI.update,
+            setAll: settingsAPI.setAll,
         },
     }
 

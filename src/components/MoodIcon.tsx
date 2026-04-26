@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, Smile, Coffee, BatteryWarning, Activity, Frown, CircleDashed } from 'lucide-react'
+import { Laugh, Smile, Meh, Annoyed, Zap, Frown, CircleDashed } from 'lucide-react'
 
 interface MoodIconProps {
     mood: string | null | undefined
@@ -14,17 +14,17 @@ function MoodIcon({ mood, size = 24, style = {} }: MoodIconProps) {
         
         switch (mood) {
             case 'motivated':
-                return { icon: <Flame size={iconSize} />, color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' } // Amber
+                return { icon: <Laugh size={iconSize} />, color: '#854D0E', bg: 'rgba(133,77,14,0.12)' } // Earth Brown
             case 'happy':
-                return { icon: <Smile size={iconSize} />, color: '#10B981', bg: 'rgba(16,185,129,0.12)' } // Emerald
+                return { icon: <Smile size={iconSize} />, color: '#2F8F6B', bg: 'rgba(47,143,107,0.12)' } // Forest Green
             case 'calm':
-                return { icon: <Coffee size={iconSize} />, color: '#3B82F6', bg: 'rgba(59,130,246,0.12)' } // Blue
+                return { icon: <Meh size={iconSize} />, color: '#0F766E', bg: 'rgba(15,118,110,0.12)' } // Deep Pine
             case 'tired':
-                return { icon: <BatteryWarning size={iconSize} />, color: '#6B7280', bg: 'rgba(107,114,128,0.12)' } // Gray
+                return { icon: <Annoyed size={iconSize} />, color: '#475569', bg: 'rgba(71,85,105,0.12)' } // Slate
             case 'anxious':
-                return { icon: <Activity size={iconSize} />, color: '#EF4444', bg: 'rgba(239,68,68,0.12)' } // Red
+                return { icon: <Zap size={iconSize} />, color: '#C65A3A', bg: 'rgba(198,90,58,0.12)' } // Clay Red
             case 'sad':
-                return { icon: <Frown size={iconSize} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' } // Violet
+                return { icon: <Frown size={iconSize} />, color: '#0E7490', bg: 'rgba(14,116,144,0.12)' } // Ocean Slate
             default:
                 // Default empty state / unknown
                 return { icon: <CircleDashed size={iconSize} />, color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' }
@@ -50,7 +50,7 @@ function MoodIcon({ mood, size = 24, style = {} }: MoodIconProps) {
                 ...style
             }}
         >
-            {React.cloneElement(props.icon, { strokeWidth: 2.2 })}
+            {React.cloneElement(props.icon as React.ReactElement, { strokeWidth: 2.2 })}
         </div>
     )
 }

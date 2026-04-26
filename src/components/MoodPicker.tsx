@@ -25,22 +25,21 @@ function MoodPicker({ mood, onChange }: MoodPickerProps) {
             style={{
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
-              width: 56, height: 56,
-              borderRadius: 20, // smooth squircle
-              border: mood === m.id ? '2px solid var(--accent)' : '2px solid transparent',
-              background: mood === m.id ? 'var(--accent-light)' : 'transparent',
+              width: 56, height: 60,
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
               cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.2, 0, 0, 1)',
               fontFamily: 'inherit',
+              opacity: mood && mood !== m.id ? 0.5 : 1,
             }}
             onMouseEnter={(e) => { 
                 if (mood !== m.id) {
-                    e.currentTarget.style.background = 'var(--bg-tertiary)';
                     e.currentTarget.style.transform = 'translateY(-2px)';
                 }
             }}
             onMouseLeave={(e) => { 
                 if (mood !== m.id) {
-                    e.currentTarget.style.background = 'transparent';
                     e.currentTarget.style.transform = 'none';
                 }
             }}

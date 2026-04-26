@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { compressImages } from '../utils/imageCompressor'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { Image as ImageIcon, Camera } from 'lucide-react'
 import type { Attachment } from '../types'
 
 interface ImageGalleryProps {
@@ -141,7 +142,9 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
     return (
         <div style={{ padding: 'var(--space-lg)' }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
-                <h3 className="text-sm font-medium">🖼️ 图片附件</h3>
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                    <ImageIcon size={16} className="text-muted" /> 图片附件
+                </h3>
                 <button
                     className="button button-secondary"
                     style={{ fontSize: 12, padding: '2px 10px' }}
@@ -171,8 +174,8 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
                     <div style={{
                         width: 64, height: 64, margin: '0 auto var(--space)', borderRadius: 20,
                         background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 28, boxShadow: 'var(--shadow-sm)'
-                    }}>📷</div>
+                        color: 'var(--text-muted)', boxShadow: 'var(--shadow-sm)'
+                    }}><Camera size={28} /></div>
                     <p className="font-medium" style={{ marginBottom: 4 }}>点击或拖拽上传图片</p>
                     <p className="text-xs text-muted">支持 JPG, PNG, WebP (每个最大 10MB)</p>
                 </div>

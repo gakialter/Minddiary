@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import Skeleton from './Skeleton'
+import { Palette, X, Tags } from 'lucide-react'
 import type { Tag } from '../types'
 
 function TagManager() {
   const diary = useDiary()
   const [tags, setTags] = useState<Tag[]>([])
   const [newTagName, setNewTagName] = useState('')
-  const [newTagColor, setNewTagColor] = useState('#6366f1')
+  const [newTagColor, setNewTagColor] = useState('#0F766E')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -32,7 +33,7 @@ function TagManager() {
     try {
       await diary.tags.create({ name: newTagName.trim(), color: newTagColor })
       setNewTagName('')
-      setNewTagColor('#6366f1')
+      setNewTagColor('#0F766E')
       loadTags()
       showToast(`标签「${newTagName.trim()}」已创建`, 'success')
     } catch (error) {
@@ -61,7 +62,20 @@ function TagManager() {
     }
   }
 
-  const presetColors = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#06b6d4']
+  // Zen Forest Palette
+  const presetColors = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
+  const LEGACY_COLOR_MAP: Record<string, string> = {
+    '#8b5cf6': '#475569', // Purple -> Slate
+    '#6366f1': '#0E7490', // Indigo -> Ocean
+    '#3b82f6': '#0F766E', // Blue -> Pine
+    '#10b981': '#2F8F6B', // Emerald -> Forest
+    '#f59e0b': '#854D0E', // Amber -> Earth
+    '#ec4899': '#C65A3A', // Pink -> Clay
+    '#ef4444': '#C65A3A', // Red -> Clay
+    '#f43f5e': '#C65A3A', // Rose -> Clay
+    '#06b6d4': '#0E7490', // Cyan -> Ocean
+    '#14b8a6': '#0F766E'  // Teal -> Pine
+  }
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'var(--space-xl)', width: '100%' }}>
@@ -123,39 +137,44 @@ function TagManager() {
             ))}
           </div>
         ) : tags.length === 0 ? (
-          <div className="text-muted" style={{ textAlign: 'center', padding: 32 }}>
-            还没有标签，创建一个吧
+          <div className="empty-state" style={{ padding: 'var(--space-3xl)' }}>
+            <Tags size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2, color: 'var(--text-secondary)' }} />
+            <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>还没有任何标签</h3>
+            <p className="text-muted" style={{ maxWidth: 400, margin: '0 auto', lineHeight: 1.6 }}>
+              使用标签为日记内容建立有意义的分类系统，让回顾和复盘更加高效。
+            </p>
           </div>
         ) : (
           <div className="tag-grid">
-            {tags.map(tag => (
+            {tags.map(tag => {
+              const displayColor = LEGACY_COLOR_MAP[tag.color?.toLowerCase()] || tag.color || '#0F766E';
+              return (
               <div
                 key={tag.id}
                 className="tag-item"
-                style={{ borderLeft: `3px solid ${tag.color}` }}
+                style={{ borderLeft: `3px solid ${displayColor}` }}
               >
                 <div className="flex items-center" style={{ gap: 'var(--space-sm)' }}>
-                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: tag.color, flexShrink: 0 }} />
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: displayColor, flexShrink: 0 }} />
                   <span className="font-medium">{tag.name}</span>
                 </div>
                 <div className="flex items-center" style={{ gap: 'var(--space-xs)' }}>
                   <button
-                    className="tag-action-btn"
+                    className="tag-action-btn flex items-center justify-center"
                     onClick={() => {
                       const newColor = presetColors[Math.floor(Math.random() * presetColors.length)]!
                       handleUpdateTag(tag.id, { ...tag, color: newColor })
                     }}
                     title="随机换色"
-                  >🎨</button>
+                  ><Palette size={14} /></button>
                   <button
-                    className="tag-action-btn delete"
-                    style={{ fontSize: 16 }}
+                    className="tag-action-btn delete flex items-center justify-center"
                     onClick={() => handleDeleteTag(tag.id)}
                     title="删除"
-                  >×</button>
+                  ><X size={16} /></button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
       </div>

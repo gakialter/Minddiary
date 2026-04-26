@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { useDiary } from './DiaryContext'
 import type { Subject, PomodoroStat } from '../types'
 
@@ -9,40 +9,48 @@ interface PomodoroMode {
   color: string
 }
 
-interface PomodoroContextValue {
+interface PomodoroTimerValue {
   mode: PomodoroMode
-  setMode: React.Dispatch<React.SetStateAction<PomodoroMode>>
   timeLeft: number
   isRunning: boolean
-  subjects: Subject[]
-  selectedSubject: number | null
-  setSelectedSubject: React.Dispatch<React.SetStateAction<number | null>>
-  todayStats: PomodoroStat[]
-  todayTotal: number
-  dynamicModes: Record<string, PomodoroMode>
   progress: number
   circleCircumference: number
   miniCircumference: number
+  dynamicModes: Record<string, PomodoroMode>
+}
+
+interface PomodoroDataValue {
+  subjects: Subject[]
+  selectedSubject: number | null
+  todayStats: PomodoroStat[]
+  todayTotal: number
   customMinutes: number
-  setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
-  toggleTimer: () => void
-  resetTimer: () => void
-  formatTime: (seconds: number) => string
-  loadSubjects: () => Promise<void>
-  loadTodayStats: () => Promise<void>
-  onBreakStart: (() => void) | null
-  setOnBreakStart: (cb: (() => void) | null) => void
-  // Alert state for PomodoroAlert modal
   alertState: {
     visible: boolean
     isWorkComplete: boolean
     duration: number
     todayTotal: number
   }
+  onBreakStart: (() => void) | null
+}
+
+interface PomodoroActionsValue {
+  setMode: React.Dispatch<React.SetStateAction<PomodoroMode>>
+  setSelectedSubject: React.Dispatch<React.SetStateAction<number | null>>
+  setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
+  toggleTimer: () => void
+  resetTimer: () => void
+  formatTime: (seconds: number) => string
+  loadSubjects: () => Promise<void>
+  loadTodayStats: () => Promise<void>
+  setOnBreakStart: (cb: (() => void) | null) => void
   dismissAlert: () => void
 }
 
-const PomodoroContext = createContext<PomodoroContextValue | null>(null)
+// Separate contexts for optimized re-renders
+const TimerContext = createContext<PomodoroTimerValue | null>(null)
+const DataContext = createContext<PomodoroDataValue | null>(null)
+const ActionsContext = createContext<PomodoroActionsValue | null>(null)
 
 const MODES: Record<string, PomodoroMode> = {
   WORK: { id: 'work', label: '专注', time: 25 * 60, color: 'var(--accent)' },
@@ -66,11 +74,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('pomodoro-custom-minutes', customMinutes.toString()) } catch { /* ignore */ }
   }, [customMinutes])
 
-  const dynamicModes: Record<string, PomodoroMode> = {
+  const dynamicModes = useMemo((): Record<string, PomodoroMode> => ({
     ...MODES,
     WORK: { ...MODES.WORK!, time: customWorkTime },
     CUSTOM: { id: 'custom', label: '自定义', time: customMinutes * 60, color: 'var(--warning)' }
-  }
+  }), [customWorkTime, customMinutes])
 
   const [mode, setMode] = useState<PomodoroMode>(dynamicModes.WORK!)
   const [timeLeft, setTimeLeft] = useState<number>(dynamicModes.WORK!.time)
@@ -88,26 +96,19 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [alertState, setAlertState] = useState({
     visible: false, isWorkComplete: true, duration: 0, todayTotal: 0,
   })
+
   const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
 
   const endTimeRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    loadSubjects()
-    loadTodayStats()
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }, [])
-
-  const loadSubjects = async () => {
+  const loadSubjects = useCallback(async () => {
     try {
       const data = await subjectsAPI.getAll()
       setSubjects(data || [])
     } catch (e) { console.error(e) }
-  }
+  }, [subjectsAPI])
 
-  const loadTodayStats = async () => {
+  const loadTodayStats = useCallback(async () => {
     const today = new Date().toISOString().split('T')[0]!
     try {
       const stats = await pomodoroAPI.getStats(today)
@@ -115,7 +116,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const total = await pomodoroAPI.getDailyTotal(today)
       setTodayTotal(total || 0)
     } catch (e) { console.error(e) }
-  }
+  }, [pomodoroAPI])
+
+  useEffect(() => {
+    loadSubjects()
+    loadTodayStats()
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [loadSubjects, loadTodayStats])
 
   // Reset timer when mode changes manually
   useEffect(() => {
@@ -206,8 +215,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       await notificationAPI.show('⏰ 休息结束', '精力充沛，继续加油！').catch(() => { })
       setMode(dynamicModes.WORK!)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedSubject, todayTotal, settingsData, pomodoroAPI])
+  }, [mode, selectedSubject, todayTotal, settingsData, pomodoroAPI, notificationAPI, loadTodayStats, dynamicModes])
 
   // Main Timer Loop
   useEffect(() => {
@@ -228,60 +236,80 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       endTimeRef.current = null
     }
     return () => { if (interval) clearInterval(interval) }
-  }, [isRunning, handlePhaseComplete]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isRunning, handlePhaseComplete])
 
-  const toggleTimer = () => {
-    setIsRunning(!isRunning)
-  }
+  const toggleTimer = useCallback(() => {
+    setIsRunning(prev => !prev)
+  }, [])
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     setIsRunning(false)
     setTimeLeft(mode.time)
     endTimeRef.current = null
-  }
+  }, [mode.time])
 
-  const formatTime = (seconds: number): string => {
+  const formatTime = useCallback((seconds: number): string => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0')
     const s = (seconds % 60).toString().padStart(2, '0')
     return `${m}:${s}`
-  }
+  }, [])
 
   const progress = 1 - (timeLeft / mode.time)
   const circleCircumference = 2 * Math.PI * 90
   const miniCircumference = 2 * Math.PI * 18
 
-  const value: PomodoroContextValue = {
-    // State
-    mode, setMode,
-    timeLeft, isRunning,
-    subjects, selectedSubject, setSelectedSubject,
-    todayStats, todayTotal,
-    dynamicModes,
-    // Computed
-    progress, circleCircumference, miniCircumference,
-    customMinutes, setCustomMinutes,
-    // Actions
-    toggleTimer, resetTimer, formatTime,
-    loadSubjects, loadTodayStats,
-    onBreakStart,
+  // Context Values
+  const timerValue = useMemo((): PomodoroTimerValue => ({
+    mode, timeLeft, isRunning, progress, circleCircumference, miniCircumference, dynamicModes
+  }), [mode, timeLeft, isRunning, progress, circleCircumference, miniCircumference, dynamicModes])
+
+  const dataValue = useMemo((): PomodoroDataValue => ({
+    subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, onBreakStart
+  }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, onBreakStart])
+
+  const actionsValue = useMemo((): PomodoroActionsValue => ({
+    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, formatTime, 
+    loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart: (cb) => {
       onBreakStartRef.current = cb
       setOnBreakStart(cb)
-    },
-    // Alert
-    alertState,
-    dismissAlert,
-  }
+    }
+  }), [toggleTimer, resetTimer, formatTime, loadSubjects, loadTodayStats, dismissAlert])
 
   return (
-    <PomodoroContext.Provider value={value}>
-      {children}
-    </PomodoroContext.Provider>
+    <TimerContext.Provider value={timerValue}>
+      <DataContext.Provider value={dataValue}>
+        <ActionsContext.Provider value={actionsValue}>
+          {children}
+        </ActionsContext.Provider>
+      </DataContext.Provider>
+    </TimerContext.Provider>
   )
 }
 
-export function usePomodoroContext(): PomodoroContextValue {
-  const ctx = useContext(PomodoroContext)
-  if (!ctx) throw new Error('usePomodoroContext must be used within PomodoroProvider')
+// Specific hooks
+export function usePomodoroTimer() {
+  const ctx = useContext(TimerContext)
+  if (!ctx) throw new Error('usePomodoroTimer must be used within PomodoroProvider')
   return ctx
+}
+
+export function usePomodoroData() {
+  const ctx = useContext(DataContext)
+  if (!ctx) throw new Error('usePomodoroData must be used within PomodoroProvider')
+  return ctx
+}
+
+export function usePomodoroActions() {
+  const ctx = useContext(ActionsContext)
+  if (!ctx) throw new Error('usePomodoroActions must be used within PomodoroProvider')
+  return ctx
+}
+
+// Legacy combined hook (re-renders on any change)
+export function usePomodoroContext() {
+  const timer = usePomodoroTimer()
+  const data = usePomodoroData()
+  const actions = usePomodoroActions()
+  return useMemo(() => ({ ...timer, ...data, ...actions }), [timer, data, actions])
 }

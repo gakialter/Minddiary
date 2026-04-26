@@ -6,11 +6,10 @@
     "strict": true,
     "esModuleInterop": true,
     "outDir": "./electron-dist",
-    "rootDir": "./electron",
     "declaration": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "types": ["node", "better-sqlite3"]
   },
-  "include": ["electron/**/*.ts"]
+  "include": ["electron/**/*.ts", "src/types/*.ts"]
 }

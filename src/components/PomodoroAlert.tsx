@@ -73,13 +73,13 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
         <div style={{
           width: 72, height: 72, borderRadius: '50%',
           background: isWorkComplete
-            ? 'linear-gradient(135deg, var(--success), #2dd4bf)'
-            : 'linear-gradient(135deg, var(--accent), #8b5cf6)',
+            ? 'linear-gradient(135deg, var(--color-state-success), #4ade80)'
+            : 'linear-gradient(135deg, var(--accent), var(--accent-light))',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           margin: '0 auto var(--space-lg)',
           boxShadow: isWorkComplete
-            ? '0 8px 24px rgba(52, 199, 89, 0.35)'
-            : '0 8px 24px rgba(0, 122, 255, 0.35)',
+            ? '0 8px 24px rgba(47, 143, 107, 0.35)'
+            : '0 8px 24px rgba(15, 118, 110, 0.35)',
           animation: 'pomodoro-pulse 2s ease-in-out infinite',
         }}>
           {isWorkComplete ? <Coffee size={32} color="white" /> : <Zap size={32} color="white" />}
@@ -112,7 +112,7 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
             padding: 'var(--space-sm) var(--space-md)', minWidth: 90,
           }}>
             <div className="text-xs text-muted" style={{ marginBottom: 2 }}>今日累计</div>
-            <div className="font-bold" style={{ fontSize: 18, color: 'var(--success)' }}>
+            <div className="font-bold" style={{ fontSize: 18, color: 'var(--color-state-success)' }}>
               {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
             </div>
           </div>

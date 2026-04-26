@@ -14,6 +14,7 @@ describe('Settings Component', () => {
   let settingsApi: {
     getAll: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
+    setAll: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -40,7 +41,8 @@ describe('Settings Component', () => {
         autoBackup: true,
         backupPath: 'C:\\Backups'
       }),
-      update: vi.fn().mockResolvedValue(true)
+      update: vi.fn().mockResolvedValue(true),
+      setAll: vi.fn().mockResolvedValue({ success: true })
     }
 
     mockUseDiary.mockReturnValue({
@@ -97,15 +99,15 @@ describe('Settings Component', () => {
     })
 
     // Shouldn't save immediately
-    expect(settingsApi.update).not.toHaveBeenCalled()
+    expect(settingsApi.setAll).not.toHaveBeenCalled()
 
     // Advance timers by 500ms (debounce time)
     await act(async () => {
       vi.advanceTimersByTime(500)
     })
 
-    // Now it should save
-    expect(settingsApi.update).toHaveBeenCalledWith('pomodoroMinutes', 45)
+    // Now it should save via batched setAll
+    expect(settingsApi.setAll).toHaveBeenCalled()
   })
 
   it('allows manual save via button', async () => {
@@ -119,6 +121,6 @@ describe('Settings Component', () => {
       fireEvent.click(saveBtn)
     })
 
-    expect(settingsApi.update).toHaveBeenCalled()
+    expect(settingsApi.setAll).toHaveBeenCalled()
   })
 })

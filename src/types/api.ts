@@ -43,6 +43,7 @@ export interface ElectronSettingsAPI {
   get: (key: string) => Promise<string | null>
   set: (key: string, value: string) => Promise<void>
   getAll: () => Promise<Record<string, string>>
+  setAll: (partial: Record<string, string>) => Promise<{ success: boolean }>
   selectBackupFolder: () => Promise<string | null>
 }
 
@@ -90,8 +91,8 @@ export interface ElectronMistakesAPI {
 }
 
 export interface ElectronAIAPI {
-  chat: (messages: AIMessage[], settings: AISettings) => Promise<AIResponse>
-  summarize: (content: string, settings: AISettings) => Promise<AIResponse>
+  chat: (messages: AIMessage[]) => Promise<AIResponse>
+  summarize: (content: string) => Promise<AIResponse>
 }
 
 export interface ElectronNotificationAPI {
@@ -158,7 +159,7 @@ export interface MistakesContextAPI {
   create: (data: Partial<Mistake>) => Promise<Mistake>
   update: (id: number, data: Partial<Mistake>) => Promise<Partial<Mistake>>
   delete: (id: number) => Promise<boolean>
-  toggleMastered: (id: number) => Promise<{ mastered: number | boolean }>
+  toggleMastered: (id: number) => Promise<{ mastered: boolean }>
   review: (id: number, data: { ease_factor: number; review_interval: number; next_review_date: string; review_count: number }) => Promise<{ success: boolean }>
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
@@ -200,7 +201,7 @@ export interface NotificationContextAPI {
 }
 
 export interface AIContextAPI {
-  chat: (messages: AIMessage[], settings: AISettings) => Promise<AIResponse>
+  chat: (messages: AIMessage[]) => Promise<AIResponse>
 }
 
 export interface AttachmentsContextAPI {
@@ -219,6 +220,7 @@ export interface TemplatesContextAPI {
 export interface SettingsContextAPI {
   getAll: () => Promise<AppSettings | Record<string, string>>
   update: (key: string, value: unknown) => Promise<unknown>
+  setAll: (partial: Record<string, string>) => Promise<unknown>
 }
 
 export interface DiaryContextValue {

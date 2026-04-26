@@ -1,7 +1,16 @@
-const Database = require('better-sqlite3');
+const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
 const { app } = require('electron');
 
+import type {
+    DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
+    PomodoroSession, PomodoroStat, Mistake, MistakeFilters,
+    DiaryTemplate, TodayDashboardData, DateMood
+} from '../src/types/index';
+
+// NOTE: fully typing better-sqlite3 query results requires generics at every
+// .get/.all/.run call site. That is a separate task; the exported function
+// signatures are typed, which is what matters for IPC callers.
 let db: any;
 
 let customDbPath: string | null = null;
@@ -17,7 +26,7 @@ function getDbPath() {
 }
 
 function initialize() {
-    db = new Database(getDbPath());
+    db = new BetterSqlite3(getDbPath());
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
 
@@ -38,7 +47,7 @@ function initialize() {
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
-      color TEXT DEFAULT '#6366f1'
+      color TEXT DEFAULT '#0F766E'
     );
 
     CREATE TABLE IF NOT EXISTS entry_tags (
@@ -61,7 +70,7 @@ function initialize() {
       name TEXT NOT NULL,
       total_chapters INTEGER DEFAULT 0,
       completed_chapters INTEGER DEFAULT 0,
-      color TEXT DEFAULT '#8b5cf6'
+      color TEXT DEFAULT '#0F766E'
     );
 
     CREATE TABLE IF NOT EXISTS pomodoro_sessions (
@@ -155,7 +164,7 @@ function initialize() {
 }
 
 // ==================== Entries ====================
-function createEntry({ date, title, content, mood }: any) {
+function createEntry({ date, title, content, mood }: NewEntry) {
     const wordCount = (content || '').replace(/\s/g, '').length;
     const stmt = db.prepare(
         'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)'
@@ -164,7 +173,7 @@ function createEntry({ date, title, content, mood }: any) {
     return { id: result.lastInsertRowid, date, title, content, mood, word_count: wordCount };
 }
 
-function updateEntry(id: number, { title, content, mood }: any) {
+function updateEntry(id: number, { title, content, mood }: Partial<NewEntry>) {
     const wordCount = (content || '').replace(/\s/g, '').length;
     const stmt = db.prepare(
         'UPDATE entries SET title=?, content=?, mood=?, word_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
@@ -178,15 +187,15 @@ function deleteEntry(id: number) {
     return { success: true };
 }
 
-function getEntryById(id: number) {
+function getEntryById(id: number): DiaryEntry | undefined {
     return db.prepare('SELECT * FROM entries WHERE id=?').get(id);
 }
 
-function getEntryByDate(date: string) {
+function getEntryByDate(date: string): DiaryEntry | undefined {
     return db.prepare('SELECT * FROM entries WHERE date=?').get(date);
 }
 
-function getAllEntries(filters: any = {}) {
+function getAllEntries(filters: EntryFilters = {}): DiaryEntry[] {
     // Phase 11.2: By default, strip heavy `content` field from list queries.
     // Pass { includeContent: true } when full text is needed (e.g. export/backup).
     const columns = filters.includeContent
@@ -234,7 +243,7 @@ function searchEntries(query: string) {
     ).all(searchTerm, searchTerm);
 }
 
-function getDatesWithEntries(yearMonth: string) {
+function getDatesWithEntries(yearMonth: string): DateMood[] {
     const pattern = `${yearMonth}%`;
     return db.prepare(
         'SELECT date, mood FROM entries WHERE date LIKE ?'
@@ -242,17 +251,18 @@ function getDatesWithEntries(yearMonth: string) {
 }
 
 // ==================== Tags ====================
-function getAllTags() {
+function getAllTags(): Tag[] {
     return db.prepare('SELECT * FROM tags ORDER BY name').all();
 }
 
-function createTag({ name, color }: any) {
+function createTag({ name, color }: Partial<Tag>): Tag {
     const stmt = db.prepare('INSERT INTO tags (name, color) VALUES (?, ?)');
-    const result = stmt.run(name, color || '#6366f1');
-    return { id: result.lastInsertRowid, name, color: color || '#6366f1' };
+    const defaultColor = '#0F766E';
+    const result = stmt.run(name, color || defaultColor);
+    return { id: result.lastInsertRowid, name: name!, color: color || defaultColor };
 }
 
-function updateTag(id: number, { name, color }: any) {
+function updateTag(id: number, { name, color }: Tag): Tag {
     db.prepare('UPDATE tags SET name=?, color=? WHERE id=?').run(name, color, id);
     return { id, name, color };
 }
@@ -287,14 +297,14 @@ function getSetting(key: string) {
     return row ? row.value : null;
 }
 
-function setSetting(key: string, value: any) {
+function setSetting(key: string, value: unknown) {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
     return { success: true };
 }
 
 function getAllSettings() {
     const rows = db.prepare('SELECT * FROM settings').all();
-    const settings: Record<string, any> = {};
+    const settings: Record<string, unknown> = {};
     for (const row of rows) {
         settings[row.key] = row.value;
     }
@@ -302,7 +312,7 @@ function getAllSettings() {
 }
 
 // ==================== Attachments ====================
-function addAttachment(entryId: number, { filename, filepath, mimetype }: any) {
+function addAttachment(entryId: number, { filename, filepath, mimetype }: { filename: string; filepath: string; mimetype: string }) {
     const stmt = db.prepare(
         'INSERT INTO attachments (entry_id, filename, filepath, mimetype) VALUES (?, ?, ?, ?)'
     );
@@ -324,19 +334,20 @@ function removeAttachment(id: number) {
 }
 
 // ==================== Subjects ====================
-function getAllSubjects() {
+function getAllSubjects(): Subject[] {
     return db.prepare('SELECT * FROM subjects ORDER BY name').all();
 }
 
-function createSubject({ name, total_chapters, color }: any) {
+function createSubject({ name, total_chapters, color }: Subject) {
     const stmt = db.prepare(
         'INSERT INTO subjects (name, total_chapters, color) VALUES (?, ?, ?)'
     );
-    const result = stmt.run(name, total_chapters || 0, color || '#8b5cf6');
-    return { id: result.lastInsertRowid, name, total_chapters: total_chapters || 0, completed_chapters: 0, color: color || '#8b5cf6' };
+    const defaultColor = '#0F766E';
+    const result = stmt.run(name, total_chapters || 0, color || defaultColor);
+    return { id: result.lastInsertRowid, name, total_chapters: total_chapters || 0, completed_chapters: 0, color: color || defaultColor };
 }
 
-function updateSubject(id: number, { name, total_chapters, completed_chapters, color }: any) {
+function updateSubject(id: number, { name, total_chapters, completed_chapters, color }: Subject) {
     db.prepare(
         'UPDATE subjects SET name=?, total_chapters=?, completed_chapters=?, color=? WHERE id=?'
     ).run(name, total_chapters, completed_chapters, color, id);
@@ -349,7 +360,7 @@ function deleteSubject(id: number) {
 }
 
 // ==================== Pomodoro ====================
-function addPomodoroSession({ subject_id, duration }: any) {
+function addPomodoroSession({ subject_id, duration }: PomodoroSession) {
     const stmt = db.prepare(
         'INSERT INTO pomodoro_sessions (subject_id, duration) VALUES (?, ?)'
     );
@@ -357,7 +368,7 @@ function addPomodoroSession({ subject_id, duration }: any) {
     return { id: result.lastInsertRowid };
 }
 
-function getPomodoroStats(date: string) {
+function getPomodoroStats(date: string): PomodoroStat[] {
     return db.prepare(`
     SELECT s.name as subject_name, s.color, SUM(p.duration) as total_minutes, COUNT(p.id) as session_count
     FROM pomodoro_sessions p
@@ -434,7 +445,7 @@ function getStudyStreak() {
 }
 
 // ==================== Today Dashboard (V3.0 Batch Query) ====================
-function getTodayDashboard(date: string) {
+function getTodayDashboard(date: string): TodayDashboardData {
     // Validate date format
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         throw new Error('Invalid date format. Expected YYYY-MM-DD');
@@ -519,7 +530,7 @@ function getTodayDashboard(date: string) {
 }
 
 // ==================== Mistakes ====================
-function getAllMistakes(filters: any = {}) {
+function getAllMistakes(filters: MistakeFilters = {}): Mistake[] {
     let query = 'SELECT m.*, s.name as subject_name, s.color as subject_color FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
     const conditions = [];
     const params = [];
@@ -545,7 +556,7 @@ function getAllMistakes(filters: any = {}) {
     return db.prepare(query).all(...params);
 }
 
-function createMistake({ subject_id, question, answer, notes, image_path }: any) {
+function createMistake({ subject_id, question, answer, notes, image_path }: Partial<Mistake>) {
     const stmt = db.prepare(
         'INSERT INTO mistakes (subject_id, question, answer, notes, image_path) VALUES (?, ?, ?, ?, ?)'
     );
@@ -553,7 +564,7 @@ function createMistake({ subject_id, question, answer, notes, image_path }: any)
     return { id: result.lastInsertRowid };
 }
 
-function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: any) {
+function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: Partial<Mistake>) {
     const updates = [];
     const params = [];
     if (subject_id !== undefined) { updates.push('subject_id = ?'); params.push(subject_id); }
@@ -592,7 +603,7 @@ function toggleMistakeMastered(id: number) {
  * @param {number} id - Mistake ID
  * @param {{ease_factor: number, review_interval: number, next_review_date: string, review_count: number}} data
  */
-function reviewMistake(id: number, { ease_factor, review_interval, next_review_date, review_count }: any) {
+function reviewMistake(id: number, { ease_factor, review_interval, next_review_date, review_count }: Partial<Mistake>) {
     db.prepare(`
         UPDATE mistakes
         SET ease_factor = ?, review_interval = ?, next_review_date = ?, review_count = ?, updated_at = CURRENT_TIMESTAMP
@@ -631,11 +642,11 @@ function getRandomDueMistake(date: string, subjectId?: number) {
 }
 
 // ==================== Templates ====================
-function getAllTemplates() {
+function getAllTemplates(): DiaryTemplate[] {
     return db.prepare('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC').all();
 }
 
-function createTemplate({ name, content, sort_order }: any) {
+function createTemplate({ name, content, sort_order }: Partial<DiaryTemplate>) {
     const stmt = db.prepare(
         'INSERT INTO diary_templates (name, content, is_default, sort_order) VALUES (?, ?, 0, ?)'
     );
@@ -643,7 +654,7 @@ function createTemplate({ name, content, sort_order }: any) {
     return { id: result.lastInsertRowid, name, content: content || '', is_default: 0, sort_order: sort_order ?? 99 };
 }
 
-function updateTemplate(id: number, { name, content, sort_order }: any) {
+function updateTemplate(id: number, { name, content, sort_order }: Partial<DiaryTemplate>) {
     const updates: string[] = [];
     const params: any[] = [];
     if (name !== undefined) { updates.push('name = ?'); params.push(name); }

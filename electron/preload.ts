@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+import type { 
+    NewEntry, EntryFilters, Tag, Subject, 
+    PomodoroSession, Mistake, MistakeFilters, 
+    DiaryTemplate, AIMessage, AttachmentData
+} from '../src/types/index';
+
 contextBridge.exposeInMainWorld('api', {
     // Window controls
     window: {
@@ -10,7 +16,7 @@ contextBridge.exposeInMainWorld('api', {
         close: () => ipcRenderer.invoke('window:close'),
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
         onMaximizedChange: (callback: (maximized: boolean) => void) => {
-            ipcRenderer.on('window:maximized-change', (_: any, maximized: boolean) => callback(maximized));
+            ipcRenderer.on('window:maximized-change', (_: unknown, maximized: boolean) => callback(maximized));
         },
     },
 
@@ -21,12 +27,12 @@ contextBridge.exposeInMainWorld('api', {
 
     // Entries
     entries: {
-        create: (entry: any) => ipcRenderer.invoke('entries:create', entry),
-        update: (id: number, entry: any) => ipcRenderer.invoke('entries:update', id, entry),
+        create: (entry: NewEntry) => ipcRenderer.invoke('entries:create', entry),
+        update: (id: number, entry: Partial<NewEntry>) => ipcRenderer.invoke('entries:update', id, entry),
         delete: (id: number) => ipcRenderer.invoke('entries:delete', id),
         getByDate: (date: string) => ipcRenderer.invoke('entries:getByDate', date),
         getById: (id: number) => ipcRenderer.invoke('entries:getById', id),
-        getAll: (filters: any) => ipcRenderer.invoke('entries:getAll', filters),
+        getAll: (filters: EntryFilters) => ipcRenderer.invoke('entries:getAll', filters),
         search: (query: string) => ipcRenderer.invoke('entries:search', query),
         getDatesWithEntries: (yearMonth: string) => ipcRenderer.invoke('entries:getDatesWithEntries', yearMonth),
     },
@@ -34,8 +40,8 @@ contextBridge.exposeInMainWorld('api', {
     // Tags
     tags: {
         getAll: () => ipcRenderer.invoke('tags:getAll'),
-        create: (tag: any) => ipcRenderer.invoke('tags:create', tag),
-        update: (id: number, tag: any) => ipcRenderer.invoke('tags:update', id, tag),
+        create: (tag: Partial<Tag>) => ipcRenderer.invoke('tags:create', tag),
+        update: (id: number, tag: Partial<Tag>) => ipcRenderer.invoke('tags:update', id, tag),
         delete: (id: number) => ipcRenderer.invoke('tags:delete', id),
         setEntryTags: (entryId: number, tagIds: number[]) => ipcRenderer.invoke('tags:setEntryTags', entryId, tagIds),
         getEntryTags: (entryId: number) => ipcRenderer.invoke('tags:getEntryTags', entryId),
@@ -44,22 +50,23 @@ contextBridge.exposeInMainWorld('api', {
     // Settings
     settings: {
         get: (key: string) => ipcRenderer.invoke('settings:get', key),
-        set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+        set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
         getAll: () => ipcRenderer.invoke('settings:getAll'),
+        setAll: (partial: Record<string, string>) => ipcRenderer.invoke('settings:setAll', partial),
         selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
     },
 
     // Templates
     templates: {
         getAll: () => ipcRenderer.invoke('templates:getAll'),
-        create: (template: any) => ipcRenderer.invoke('templates:create', template),
-        update: (id: number, template: any) => ipcRenderer.invoke('templates:update', id, template),
+        create: (template: Partial<DiaryTemplate>) => ipcRenderer.invoke('templates:create', template),
+        update: (id: number, template: Partial<DiaryTemplate>) => ipcRenderer.invoke('templates:update', id, template),
         delete: (id: number) => ipcRenderer.invoke('templates:delete', id),
     },
 
     // Attachments
     attachments: {
-        save: (entryId: number, fileData: any) => ipcRenderer.invoke('attachments:save', entryId, fileData),
+        save: (entryId: number, fileData: AttachmentData) => ipcRenderer.invoke('attachments:save', entryId, fileData),
         getByEntry: (entryId: number) => ipcRenderer.invoke('attachments:getByEntry', entryId),
         delete: (id: number) => ipcRenderer.invoke('attachments:delete', id),
         getPath: (filepath: string) => ipcRenderer.invoke('attachments:getPath', filepath),
@@ -68,14 +75,14 @@ contextBridge.exposeInMainWorld('api', {
     // Subjects
     subjects: {
         getAll: () => ipcRenderer.invoke('subjects:getAll'),
-        create: (subject: any) => ipcRenderer.invoke('subjects:create', subject),
-        update: (id: number, subject: any) => ipcRenderer.invoke('subjects:update', id, subject),
+        create: (subject: Partial<Subject>) => ipcRenderer.invoke('subjects:create', subject),
+        update: (id: number, subject: Partial<Subject>) => ipcRenderer.invoke('subjects:update', id, subject),
         delete: (id: number) => ipcRenderer.invoke('subjects:delete', id),
     },
 
     // Pomodoro
     pomodoro: {
-        addSession: (session: any) => ipcRenderer.invoke('pomodoro:addSession', session),
+        addSession: (session: PomodoroSession) => ipcRenderer.invoke('pomodoro:addSession', session),
         getStats: (date: string) => ipcRenderer.invoke('pomodoro:getStats', date),
         getDailyTotal: (date: string) => ipcRenderer.invoke('pomodoro:getDailyTotal', date),
         getRange: (start: string, end: string) => ipcRenderer.invoke('pomodoro:getRange', start, end),
@@ -94,22 +101,22 @@ contextBridge.exposeInMainWorld('api', {
 
     // Mistakes
     mistakes: {
-        getAll: (filters: any) => ipcRenderer.invoke('mistakes:getAll', filters),
-        create: (mistake: any) => ipcRenderer.invoke('mistakes:create', mistake),
-        update: (id: number, mistake: any) => ipcRenderer.invoke('mistakes:update', id, mistake),
+        getAll: (filters: MistakeFilters) => ipcRenderer.invoke('mistakes:getAll', filters),
+        create: (mistake: Partial<Mistake>) => ipcRenderer.invoke('mistakes:create', mistake),
+        update: (id: number, mistake: Partial<Mistake>) => ipcRenderer.invoke('mistakes:update', id, mistake),
         delete: (id: number) => ipcRenderer.invoke('mistakes:delete', id),
         toggleMastered: (id: number) => ipcRenderer.invoke('mistakes:toggleMastered', id),
-        review: (id: number, data: any) => ipcRenderer.invoke('mistakes:review', id, data),
+        review: (id: number, data: Partial<Mistake>) => ipcRenderer.invoke('mistakes:review', id, data),
         getDueCount: (date: string) => ipcRenderer.invoke('mistakes:getDueCount', date),
         getRandomDue: (date: string, subjectId?: number) => ipcRenderer.invoke('mistakes:getRandomDue', date, subjectId),
-        saveImage: (data: any) => ipcRenderer.invoke('mistakes:saveImage', data),
+        saveImage: (data: { name: string; data: string; mimetype: string }) => ipcRenderer.invoke('mistakes:saveImage', data),
         getImagePath: (filename: string) => ipcRenderer.invoke('mistakes:getImagePath', filename),
     },
 
     // AI
     ai: {
-        chat: (messages: any[], settings: any) => ipcRenderer.invoke('ai:chat', messages, settings),
-        summarize: (content: string, settings: any) => ipcRenderer.invoke('ai:summarize', content, settings),
+        chat: (messages: AIMessage[]) => ipcRenderer.invoke('ai:chat', messages),
+        summarize: (content: string) => ipcRenderer.invoke('ai:summarize', content),
     },
 
     // Notifications
@@ -119,7 +126,7 @@ contextBridge.exposeInMainWorld('api', {
 
     // Export
     export: {
-        showSaveDialog: (options: any) => ipcRenderer.invoke('export:showSaveDialog', options),
+        showSaveDialog: (options: { title: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => ipcRenderer.invoke('export:showSaveDialog', options),
         writeFile: (filepath: string, content: string) => ipcRenderer.invoke('export:writeFile', { filepath, content }),
         toPDF: (htmlContent: string, savePath: string) => ipcRenderer.invoke('export:toPDF', { htmlContent, savePath }),
     },

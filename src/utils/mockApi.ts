@@ -40,6 +40,7 @@ const mockApi: ElectronAPI = {
         get: async () => null,
         set: async () => {},
         getAll: async () => ({}),
+        setAll: async () => ({ success: true }),
         selectBackupFolder: async () => null,
     },
     attachments: {
@@ -50,8 +51,8 @@ const mockApi: ElectronAPI = {
     },
     subjects: {
         getAll: async () => [],
-        create: async (s) => ({ id: Date.now(), name: s.name || '', color: s.color || '#8b5cf6', completed_chapters: 0 }),
-        update: async (id, s) => ({ id, name: s.name || '', color: s.color || '#8b5cf6' }),
+        create: async (s) => ({ id: Date.now(), name: s.name || '', color: s.color || '#0F766E', completed_chapters: 0 }),
+        update: async (id, s) => ({ id, name: s.name || '', color: s.color || '#0F766E' }),
         delete: async () => {},
     },
     pomodoro: {

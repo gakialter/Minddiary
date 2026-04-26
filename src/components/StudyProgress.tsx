@@ -27,7 +27,7 @@ export default function StudyProgress() {
     // Form states
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
-    const [form, setForm] = useState<SubjectForm>({ name: '', total_chapters: '', color: '#8b5cf6' })
+    const [form, setForm] = useState<SubjectForm>({ name: '', total_chapters: '', color: '#0F766E' })
 
     useEffect(() => {
         loadAllData()
@@ -57,7 +57,7 @@ export default function StudyProgress() {
         for (const m of mistakes) {
             const bucket = mistakeIndex.get(m.subject_id) ?? { total: 0, mastered: 0 }
             bucket.total++
-            if (m.mastered === 1 as unknown as boolean) bucket.mastered++
+            if (m.mastered) bucket.mastered++
             mistakeIndex.set(m.subject_id, bucket)
         }
 
@@ -113,7 +113,7 @@ export default function StudyProgress() {
                     color: form.color
                 })
             }
-            setForm({ name: '', total_chapters: '', color: '#8b5cf6' })
+            setForm({ name: '', total_chapters: '', color: '#0F766E' })
             setShowForm(false)
             setEditingId(null)
             loadAllData()
@@ -154,7 +154,20 @@ export default function StudyProgress() {
         } catch (e) { console.error(e) }
     }
 
-    const COLORS = ['#8b5cf6', '#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#f43f5e', '#14b8a6']
+    // Zen Forest Palette
+    const COLORS = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
+    
+    // Auto-remap legacy generic colors to Zen Forest colors
+    const LEGACY_COLOR_MAP: Record<string, string> = {
+        '#8b5cf6': '#475569', // Purple -> Slate
+        '#6366f1': '#0E7490', // Indigo -> Ocean
+        '#3b82f6': '#0F766E', // Blue -> Pine
+        '#10b981': '#2F8F6B', // Emerald -> Forest
+        '#f59e0b': '#854D0E', // Amber -> Earth
+        '#ec4899': '#C65A3A', // Pink -> Clay
+        '#f43f5e': '#C65A3A', // Rose -> Clay
+        '#14b8a6': '#0F766E'  // Teal -> Pine
+    }
 
     return (
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
@@ -176,7 +189,7 @@ export default function StudyProgress() {
                     </div>
                     
                     {!showForm && (
-                        <button className="button button-primary" style={{ borderRadius: 20 }} onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', total_chapters: '', color: '#8b5cf6' }) }}>
+                        <button className="button button-primary" style={{ borderRadius: 20 }} onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', total_chapters: '', color: '#0F766E' }) }}>
                             + 新增科目池
                         </button>
                     )}
@@ -270,16 +283,18 @@ export default function StudyProgress() {
                         </div>
                     ))
                 ) : (
-                    subjectMetrics.map(subject => (
+                    subjectMetrics.map(subject => {
+                        const displayColor = LEGACY_COLOR_MAP[subject.color?.toLowerCase()] || subject.color || '#0F766E';
+                        return (
                         <div key={subject.id} className="card progress-card" style={{
                             padding: 'var(--space-xl)',
                             position: 'relative', overflow: 'hidden',
-                            borderTop: `4px solid ${subject.color}`
+                            borderTop: `4px solid ${displayColor}`
                         }}>
                             {/* Glass background decoration */}
                             <div style={{
                                 position: 'absolute', top: -50, right: -50, width: 100, height: 100,
-                                borderRadius: '50%', background: subject.color, opacity: 0.05, filter: 'blur(20px)'
+                                borderRadius: '50%', background: displayColor, opacity: 0.05, filter: 'blur(20px)'
                             }} />
 
                             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
@@ -290,7 +305,7 @@ export default function StudyProgress() {
                                     <button
                                         className="icon-button"
                                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
-                                        onClick={() => handleEdit(subject)}
+                                        onClick={() => handleEdit({...subject, color: displayColor})}
                                         title="编辑科目"
                                     ><Pencil size={14} /></button>
                                     <button
@@ -298,14 +313,14 @@ export default function StudyProgress() {
                                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
                                         onClick={() => handleDelete(subject.id)}
                                         title="删除科目"
-                                        onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                                        onMouseEnter={e => e.currentTarget.style.color = 'var(--color-state-danger)'}
                                         onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
                                     ><Trash2 size={14} /></button>
                                 </div>
                             </div>
 
                             <div className="flex items-end justify-between" style={{ marginBottom: 'var(--space-sm)' }}>
-                                <div className="text-3xl font-extrabold" style={{ color: subject.color, fontVariantNumeric: 'tabular-nums' }}>
+                                <div className="text-3xl font-extrabold" style={{ color: displayColor, fontVariantNumeric: 'tabular-nums' }}>
                                     {subject.pct}%
                                 </div>
                                 <div className="text-sm text-muted font-medium mb-1">
@@ -316,7 +331,7 @@ export default function StudyProgress() {
                             <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', marginBottom: 'var(--space-lg)' }}>
                                 <div style={{
                                     height: '100%', width: `${subject.pct}%`,
-                                    background: subject.color, borderRadius: 4, transition: 'width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                    background: displayColor, borderRadius: 4, transition: 'width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)'
                                 }} />
                             </div>
 
@@ -328,7 +343,7 @@ export default function StudyProgress() {
                                 </div>
                                 <div className="flex flex-col items-center flex-1" style={{ borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
                                     <span className="text-muted text-xs mb-1">未清错题</span>
-                                    <span className="font-semibold text-error">{subject.mistakeCount - subject.masteredCount}</span>
+                                    <span className="font-semibold text-danger">{subject.mistakeCount - subject.masteredCount}</span>
                                 </div>
                                 <div className="flex flex-col items-center flex-1">
                                     <span className="text-muted text-xs mb-1">已掌握</span>
@@ -345,14 +360,14 @@ export default function StudyProgress() {
                                         disabled={(subject.completed_chapters || 0) <= 0}
                                     >−</button>
                                     <button className="button button-primary flex items-center justify-center p-0"
-                                        style={{ width: 32, height: 32, borderRadius: '50%', background: subject.color, boxShadow: `0 2px 8px ${subject.color}40` }}
+                                        style={{ width: 32, height: 32, borderRadius: '50%', background: displayColor, boxShadow: `0 2px 8px ${displayColor}40` }}
                                         onClick={() => updateProgress(subject, 1)}
                                         disabled={(subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
                                     >+</button>
                                 </div>
                             </div>
                         </div>
-                    ))
+                    )})
                 )}
 
                 {!loading && subjectMetrics.length === 0 && !showForm && (
