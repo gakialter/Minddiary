@@ -13,6 +13,7 @@
   <a href="https://github.com/gakialter/Minddiary/actions/workflows/release.yml"><img src="https://img.shields.io/badge/build-ready-0F766E?style=flat&logo=githubactions&logoColor=white" alt="Release" /></a>
   <a href="https://github.com/gakialter/Minddiary/releases/latest"><img src="https://img.shields.io/github/v/release/gakialter/Minddiary?color=0F766E&label=release" alt="Version" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-C65A3A" alt="License" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
 </p>
 
 ---
@@ -26,13 +27,11 @@ MindDiary 不是一个功能堆砌的 All-in-One 工具箱。它围绕"持续学
 ## 功能
 
 | 日记 | 番茄钟 | 错题本 |
-|------|--------|--------|
+| :--- | :--- | :--- |
 | Markdown 编辑，Ctrl+S 即时保存 | 按科目追踪累计专注时间 | 按科目分类，全文检索 |
 | 自定义日记模板，AI 智能汇总 | 自定义时长，Web Audio 完工音效 | SM-2 间隔重复排期复习 |
 | 分享卡片导出 (PNG) | 悬浮 Widget，拖拽自由定位 | AI 错题抽查与规律分析 |
-
-| 学习仪表盘 | AI 助教 | 数据主权 |
-|------------|---------|----------|
+| **学习仪表盘** | **AI 助教** | **数据主权** |
 | 90 天热力图，多科耗时雷达图 | 兼容 OpenAI 标准接口 | SQLite 全量本地化 |
 | 考研倒计时，连续打卡统计 | Prompt 注入防护，请求超时熔断 | JSON 全量备份，敏感字段自动剔除 |
 | 72h 风险池 / 知识净增量 / 专注转化率 | 支持本地 LLM 及云端模型 | PDF / Markdown / JSON 三格式导出 |
@@ -88,6 +87,7 @@ src/
   hooks/        通用 Hooks
   types/        类型定义（数据模型 + API 签名）
   utils/        工具函数
+  data/         Mock 数据（浏览器开发模式）
 electron/
   main.ts       主进程入口
   preload.ts    contextBridge IPC
