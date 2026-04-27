@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Frown, RotateCcw } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
 import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation'
@@ -26,11 +26,13 @@ interface ViewErrorFallbackProps {
 
 const ViewErrorFallback = ({ error, resetErrorBoundary }: ViewErrorFallbackProps) => (
   <div style={{ padding: 'var(--space-2xl)', textAlign: 'center', color: 'var(--text-muted)' }}>
-    <div style={{ fontSize: 48, marginBottom: 'var(--space)' }}>😵</div>
+    <div style={{ marginBottom: 'var(--space)', color: 'var(--text-muted)' }}>
+      <Frown size={48} strokeWidth={1.5} />
+    </div>
     <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>该区域加载失败</h3>
     <p style={{ marginBottom: 'var(--space-lg)', fontSize: 13 }}>{error?.message || '发生了未知的渲染错误'}</p>
     <button className="button button-primary" onClick={resetErrorBoundary}>
-      🔄 重试
+      <RotateCcw size={16} /> 重试
     </button>
   </div>
 )

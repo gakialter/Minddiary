@@ -46,6 +46,7 @@ build/background.png
 AI_PERSONA_PROMPT.md
 DUAL_AI_WORKFLOW_TEMPLATE.md
 TRI_AI_WORKFLOW_TEMPLATE*.md
+TRI_AI_WORKFLOW_V*.md
 PHASE_*.md
 *PLAN*.md
 *_REVIEW_*.md
@@ -55,6 +56,8 @@ progress.md
 output.txt
 *-handoff.md
 *-handoff-*.md
+CODE_REVIEW_HANDOFF.md
+ARCH_DECISIONS.md
 
 # AI brainstorm & planning artifacts
 .superpowers/

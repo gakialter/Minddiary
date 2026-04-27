@@ -52,9 +52,9 @@ async function chat(messages: AIMessage[]): Promise<AIResponse> {
         clearTimeout(timeoutId);
         const error = err as Error;
         if (error.name === 'AbortError') {
-            return { content: '', error: '⏱️ 请求超时（30秒），请检查网络连接或 API 服务是否正常。' };
+            return { content: '', error: '请求超时（30秒），请检查网络连接或 API 服务是否正常。' };
         }
-        return { content: '', error: `🔌 连接失败: ${error.message}` };
+        return { content: '', error: `连接失败: ${error.message}` };
     }
 }
 

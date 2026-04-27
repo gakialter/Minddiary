@@ -2,12 +2,12 @@
 import type { DiaryEntry, Tag, AppSettings, Subject, Mistake, MoodId, StorageKeys } from '../types'
 
 export const mockTags: Tag[] = [
-  { id: 1, name: '政治', color: '#ef4444' },
-  { id: 2, name: '英语', color: '#3b82f6' },
-  { id: 3, name: '数学', color: '#8b5cf6' },
-  { id: 4, name: '专业课', color: '#10b981' },
-  { id: 5, name: '错题', color: '#f59e0b' },
-  { id: 6, name: '灵感', color: '#ec4899' },
+  { id: 1, name: '政治', color: '#C65A3A' },
+  { id: 2, name: '英语', color: '#0F766E' },
+  { id: 3, name: '数学', color: '#0D655E' },
+  { id: 4, name: '专业课', color: '#2F8F6B' },
+  { id: 5, name: '错题', color: '#D97706' },
+  { id: 6, name: '灵感', color: '#475569' },
 ]
 
 export const mockEntries: DiaryEntry[] = [
@@ -109,10 +109,10 @@ export const mockSettings: AppSettings = {
 }
 
 export const mockSubjects: Subject[] = [
-  { id: 1, name: '政治', color: '#ef4444', order: 1 },
-  { id: 2, name: '英语', color: '#3b82f6', order: 2 },
-  { id: 3, name: '数学', color: '#8b5cf6', order: 3 },
-  { id: 4, name: '专业课', color: '#10b981', order: 4 },
+  { id: 1, name: '政治', color: '#C65A3A', order: 1 },
+  { id: 2, name: '英语', color: '#0F766E', order: 2 },
+  { id: 3, name: '数学', color: '#0D655E', order: 3 },
+  { id: 4, name: '专业课', color: '#2F8F6B', order: 4 },
 ]
 
 export const mockMistakes: Mistake[] = [

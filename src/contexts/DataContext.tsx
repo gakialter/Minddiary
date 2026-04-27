@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
 import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
 import type { DiaryEntry, Tag, Mistake, Subject, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
@@ -197,7 +197,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 setTags(prev => [...prev, newTag])
                 return newTag
             }
-            const newTag: Tag = { name: data.name || '', color: data.color || '#6366f1', id: Math.max(0, ...tags.map(t => t.id)) + 1 }
+            const newTag: Tag = { name: data.name || '', color: data.color || '#0F766E', id: Math.max(0, ...tags.map(t => t.id)) + 1 }
             setTags(prev => [...prev, newTag])
             return newTag
         },
@@ -528,7 +528,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         }
     }
 
-    const value: DataContextValue = {
+    const value = useMemo((): DataContextValue => ({
         dataReady: initialized,
         initErrors,
         entries: entriesAPI,
@@ -543,7 +543,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         ai: aiAPI,
         attachments: attachmentsAPI,
         templates: templatesAPI,
-    }
+    }), [initialized, initErrors])
 
     return (
         <DataContext.Provider value={value}>

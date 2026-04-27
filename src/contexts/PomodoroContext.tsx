@@ -156,7 +156,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const alertEnabled = String(settingsData?.pomodoroAlert ?? 'true') !== 'false'
 
       if (soundEnabled) {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        const ctx = AudioCtx ? new AudioCtx() : null
+        if (!ctx) return
         const gainNode = ctx.createGain()
         gainNode.gain.setValueAtTime(0.35, ctx.currentTime)
         gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
@@ -204,7 +206,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           duration: mode.time / 60
         })
         loadTodayStats()
-        await notificationAPI.show('🍅 番茄钟完成！', '干得漂亮，休息几分钟吧～')
+        await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
       } catch (e) { console.error(e) }
       // Fire break-start callback so App can show BreakReviewModal
       if (onBreakStartRef.current) {
@@ -212,7 +214,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
       setMode(dynamicModes.SHORT_BREAK!)
     } else {
-      await notificationAPI.show('⏰ 休息结束', '精力充沛，继续加油！').catch(() => { })
+      await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
       setMode(dynamicModes.WORK!)
     }
   }, [mode, selectedSubject, todayTotal, settingsData, pomodoroAPI, notificationAPI, loadTodayStats, dynamicModes])

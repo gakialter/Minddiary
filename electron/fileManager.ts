@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
-const { pathToFileURL } = require('url');
+const { pathToFileURL, fileURLToPath } = require('url');
 const db = require('./database');
 
 import type { Attachment, AttachmentData } from '../src/types/index';
@@ -101,10 +101,17 @@ async function saveMistakeImage({ data, ext = '.png' }: { data: string; ext?: st
     return pathToFileURL(filepath).pathname;
 }
 
-function deleteMistakeImage(filename: string): void {
-    const filepath = path.join(mistakeImagesDir, filename);
-    if (fs.existsSync(filepath)) {
-        fs.unlinkSync(filepath);
+function deleteMistakeImage(urlPathname: string): void {
+    // urlPathname is the URL pathname returned by saveMistakeImage
+    // e.g. '/C:/Users/.../mistake_images/mistake_xxx.png' (Windows)
+    // Convert back to a real fs path via fileURLToPath.
+    try {
+        const filepath = fileURLToPath('file://' + urlPathname);
+        if (fs.existsSync(filepath)) {
+            fs.unlinkSync(filepath);
+        }
+    } catch (e) {
+        console.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
     }
 }
 

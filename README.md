@@ -22,46 +22,46 @@
 
 **Less but better. Action first, noise last.**
 
-MindDiary 不是一个功能堆砌的 All-in-One 工具箱。它围绕"持续学习"这一核心动作，提供日记、番茄钟、错题管理三层结构化的记忆与追踪，辅以 AI 助教的低摩擦智囊支持。全部数据存储在本地 SQLite 中，无云端依赖。
+MindDiary 围绕"持续学习"这一核心动作，提供日记、番茄钟、错题管理三层结构化的记忆与追踪，辅以 AI 助教的低摩擦智囊支持。全部数据存储在本地 SQLite 中，无云端依赖。
 
 ## 功能
 
-| 日记 | 番茄钟 | 错题本 |
-| :--- | :--- | :--- |
-| Markdown 编辑，Ctrl+S 即时保存 | 按科目追踪累计专注时间 | 按科目分类，全文检索 |
-| 自定义日记模板，AI 智能汇总 | 自定义时长，Web Audio 完工音效 | SM-2 间隔重复排期复习 |
-| 分享卡片导出 (PNG) | 悬浮 Widget，拖拽自由定位 | AI 错题抽查与规律分析 |
-| **学习仪表盘** | **AI 助教** | **数据主权** |
-| 90 天热力图，多科耗时雷达图 | 兼容 OpenAI 标准接口 | SQLite 全量本地化 |
-| 考研倒计时，连续打卡统计 | Prompt 注入防护，请求超时熔断 | JSON 全量备份，敏感字段自动剔除 |
-| 72h 风险池 / 知识净增量 / 专注转化率 | 支持本地 LLM 及云端模型 | PDF / Markdown / JSON 三格式导出 |
+| 日记                                 | 番茄钟                         | 错题本                           |
+| :----------------------------------- | :----------------------------- | :------------------------------- |
+| Markdown 编辑，Ctrl+S 即时保存       | 按科目追踪累计专注时间         | 按科目分类，全文检索             |
+| 自定义日记模板，AI 智能汇总          | 自定义时长，Web Audio 完工音效 | SM-2 间隔重复排期复习            |
+| 分享卡片导出 (PNG)                   | 悬浮 Widget，拖拽自由定位      | AI 错题抽查与规律分析            |
+| **学习仪表盘**                 | **AI 助教**              | **数据主权**               |
+| 90 天热力图，多科耗时雷达图          | 兼容 OpenAI 标准接口           | SQLite 全量本地化                |
+| 考研倒计时，连续打卡统计             | Prompt 注入防护，请求超时熔断  | JSON 全量备份，敏感字段自动剔除  |
+| 72h 风险池 / 知识净增量 / 专注转化率 | 支持本地 LLM 及云端模型        | PDF / Markdown / JSON 三格式导出 |
 
 ## 界面
 
 <p align="center">
   <img src="./docs/assets/dashboard.png" width="45%" alt="今日看板"/>
-  &nbsp;&nbsp;
+
   <img src="./docs/assets/editor.png" width="45%" alt="日记编辑器"/>
 </p>
 
 <p align="center">
   <img src="./docs/assets/pomodoro.png" width="45%" alt="番茄钟"/>
-  &nbsp;&nbsp;
+
   <img src="./docs/assets/ai-assistant.png" width="45%" alt="AI 助手"/>
 </p>
 
 ## 技术栈
 
-| 层 | 选型 |
-|----|------|
-| 外壳 | Electron 34 · contextIsolation · 安全 IPC |
-| 前端 | React 18 · TypeScript strict · Vite |
-| 数据库 | better-sqlite3 (WAL 模式，外键约束) |
-| 样式 | CSS Variables + Tailwind utilities · Zen Forest 设计语言 |
-| 图标 | Lucide React · `currentColor` 绑定 |
-| Markdown | react-markdown + remark-gfm · DOMPurify 消毒 |
-| 测试 | Vitest + React Testing Library · Playwright E2E |
-| CI/CD | GitHub Actions — Type Check → Unit Test → Build → Release |
+| 层       | 选型                                                          |
+| -------- | ------------------------------------------------------------- |
+| 外壳     | Electron 34 · contextIsolation · 安全 IPC                   |
+| 前端     | React 18 · TypeScript strict · Vite                         |
+| 数据库   | better-sqlite3 (WAL 模式，外键约束)                           |
+| 样式     | CSS Variables + Tailwind utilities · Zen Forest 设计语言     |
+| 图标     | Lucide React ·`currentColor` 绑定                          |
+| Markdown | react-markdown + remark-gfm · DOMPurify 消毒                 |
+| 测试     | Vitest + React Testing Library · Playwright E2E              |
+| CI/CD    | GitHub Actions — Type Check → Unit Test → Build → Release |
 
 ## 快速开始
 
@@ -101,25 +101,46 @@ tests/          Vitest 单元测试 + 组件测试
 
 ## 更新日志
 
+### v1.8.2 — Bug 修复与安全加固 (2026-04-27)
+
+**Bug 修复**：
+
+- **生产模式黑屏修复（#3）**：`electron/main.ts` 路径解析错误，`__dirname` 编译后指向 `electron-dist/electron/`，`index.html` 与 `icon.png` 路径需上跳两层而非一层
+- **错题图片删除失效**：`fileManager.deleteMistakeImage` 路径拼接双重，修改为通过 `fileURLToPath` 还原真实 fs 路径
+- **窗口事件 null 崩溃**：`maximize/unmaximize` 回调补充 `mainWindow.isDestroyed()` 守卫，与其他 IPC handler 一致
+
+**品牌合规**：
+
+- `aiService` 错误文案移除 emoji（⏱️/🔌）
+
+**工程整理**：
+
+- 私人工作流文档（`TRI_AI_WORKFLOW_V2.md`、`CODE_REVIEW_HANDOFF.md`、`ARCH_DECISIONS.md`）迁移至独立私有目录，不再出现于公开仓库
+- `.gitignore` 补全私人文档匹配规则
+
 ### v1.8.1 — UI 巩固与类型完善 (2026-04-26)
 
 安全与性能：
+
 - IPC 安全：AI API Key 永久驻留主进程，渲染进程零接触密钥
 - CSP 加固：生产环境收束 `connect-src` 至 `'self'`，`local://` 协议限定 userData 目录
 - 类型安全：`electron/main.ts` 全部 IPC handler 强类型化，消除 10+ 处 `any`
 - `fileManager.ts` 完整类型签名，附件生命周期类型可追溯
 
 性能与架构：
+
 - PomodoroContext 拆分为 Timer / Data / Actions 三个独立 Context，消除每秒级连锁重渲染
 - MarkdownRenderer 统一组件（react-markdown + remark-gfm），替换 3 处 `dangerouslySetInnerHTML`
 - Zen Forest 排版样式集中管理，暗色模式自动适配
 
 工程：
+
 - `npm run typecheck` 主进程 + 渲染进程双通道零错误
 - 52 项单元测试全量通过
 - 私有文档归档至独立仓库
 
 ### v1.7.6 — Zen Forest 终版 (2026-04-20)
+
 - 品牌视觉统一：Welcome 页与 CommanderHero 仪表盘重设，确立 Logo + Lucide 为基准的图标体系
 - 番茄钟自定义时长接入核心循环流
 - 样式架构分离：Tailwind 负责布局，CSS 变量负责语义
@@ -128,35 +149,44 @@ tests/          Vitest 单元测试 + 组件测试
 <summary>更早版本</summary>
 
 ### v1.7.1 — 交互抛光 (2026-04-20)
+
 - AI 快捷指令胶囊化（Pill 样式）
 - 全架构验收：TypeScript + 52 项测试通过
 
 ### v1.7.0 — Zen Forest 品牌重塑 (2026-04-19)
+
 - 色调从工具蓝转向 Zen Forest 低心智压力色系
 - `<Logo />` 组件化，`docs/brand.md` 建立品牌 SSOT
 
 ### v1.6.x
+
 - 自定义日记模板，番茄钟音效 + 弹窗提示
 - Windows 窗口控件修复，跨平台 frameless titlebar
 
 ### v1.5.0 — 智能决策引擎
+
 - 首页从 Bento 展示重构为指令决策面板
 - 72h 风险池 / 知识净增量 / 专注转化率
 
 ### v1.4.0 — 引擎重构
+
 - Electron 34 升级，主进程全量 TypeScript 化
 - Vite + tsc 双构建管线
 
 ### v1.3.0 — 今日看板 + SM-2
+
 - Bento 着陆页，SM-2 间隔重复，考研倒计时
 
 ### v1.2.0 — TypeScript 全量迁移
+
 - 50 源文件 JS → TS strict，类型基础设施建立
 
 ### v1.1.0 — 稳定性里程碑
+
 - 敏感字段过滤，GitHub Actions CI 建立
 
 ### v1.0.x
+
 - 核心功能：日记、番茄钟、错题本、AI 助手、暗色模式
 
 </details>

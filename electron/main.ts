@@ -40,15 +40,15 @@ function createWindow() {
             nodeIntegration: false,
             preload: path.join(__dirname, 'preload.js')
         },
-        icon: path.join(__dirname, '..', 'build', 'icon.png')
+        icon: path.join(__dirname, '..', '..', 'build', 'icon.png')
     });
 
     // Push maximize state changes to renderer for titlebar icon sync
     mainWindow.on('maximize', () => {
-        mainWindow.webContents.send('window:maximized-change', true);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('window:maximized-change', true);
     });
     mainWindow.on('unmaximize', () => {
-        mainWindow.webContents.send('window:maximized-change', false);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('window:maximized-change', false);
     });
 
     // Dev or production (E2E tests set NODE_ENV=production)
@@ -57,7 +57,7 @@ function createWindow() {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
-        mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+        mainWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
     }
 }
 
@@ -199,7 +199,14 @@ ipcMain.handle('tags:getEntryTags', (_: unknown, entryId: number) => db.getEntry
 // ==================== Settings ====================
 ipcMain.handle('settings:get', (_: unknown, key: string) => db.getSetting(key));
 ipcMain.handle('settings:set', (_: unknown, key: string, value: unknown) => db.setSetting(key, value));
-ipcMain.handle('settings:getAll', () => db.getAllSettings());
+ipcMain.handle('settings:getAll', () => {
+    const all = db.getAllSettings();
+    const safe: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(all)) {
+        if (!SENSITIVE_SETTINGS_KEYS.includes(k)) safe[k] = v;
+    }
+    return safe;
+});
 ipcMain.handle('settings:setAll', (_: unknown, partial: Record<string, string>) => {
     const transaction = db.getDb().transaction(() => {
         for (const [key, value] of Object.entries(partial)) {

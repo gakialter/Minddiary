@@ -3,23 +3,13 @@ import type { MoodId, MoodOption } from '../types'
 
 // ==================== Mood Constants ====================
 export const MOODS: MoodOption[] = [
-  { id: 'motivated', emoji: '💪', label: '动力满满' },
-  { id: 'happy', emoji: '😊', label: '开心' },
-  { id: 'calm', emoji: '😐', label: '平静' },
-  { id: 'tired', emoji: '😫', label: '疲惫' },
-  { id: 'anxious', emoji: '😰', label: '焦虑' },
-  { id: 'sad', emoji: '😢', label: '低落' },
+  { id: 'motivated', label: '动力满满' },
+  { id: 'happy', label: '开心' },
+  { id: 'calm', label: '平静' },
+  { id: 'tired', label: '疲惫' },
+  { id: 'anxious', label: '焦虑' },
+  { id: 'sad', label: '低落' },
 ]
-
-export const MOOD_EMOJI_MAP: Record<string, string> = MOODS.reduce<Record<string, string>>((map, m) => {
-  map[m.id] = m.emoji
-  return map
-}, {})
-
-export function getMoodEmoji(mood: MoodId | string | null | undefined): string {
-  if (!mood) return '📝'
-  return MOOD_EMOJI_MAP[mood] || '📝'
-}
 
 export function getMoodLabel(mood: MoodId | string | null | undefined): string {
   if (!mood) return ''

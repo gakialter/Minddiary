@@ -197,8 +197,8 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                         padding: '10px 14px',
                         borderRadius: 10,
                         fontSize: 13,
-                        background: status === 'success' ? 'var(--success-light, #d1fae5)' : 'var(--error-light, #fee2e2)',
-                        color: status === 'success' ? 'var(--success, #059669)' : 'var(--error, #dc2626)',
+                        background: status === 'success' ? 'var(--bg-tertiary)' : 'rgba(198,90,58,0.08)',
+                        color: status === 'success' ? 'var(--success)' : 'var(--danger)',
                         wordBreak: 'break-all',
                     }}>
                         {status === 'success' ? '✅ ' : '❌ '}{message}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
 import { mockSettings, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
 import type { AppSettings } from '../types'
@@ -96,7 +96,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     const isDarkMode = currentTheme === 'dark' || (currentTheme === 'system' && systemDark)
     const changeTheme = (newTheme: string) => settingsAPI.update('theme', newTheme)
 
-    const value: SettingsContextValue = {
+    const value = useMemo((): SettingsContextValue => ({
         settingsData: settings,
         settingsReady: settingsInitialized,
         theme: currentTheme,
@@ -107,7 +107,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             update: settingsAPI.update,
             setAll: settingsAPI.setAll,
         },
-    }
+    }), [settings, settingsInitialized, currentTheme, isDarkMode, changeTheme])
 
     return (
         <SettingsContext.Provider value={value}>

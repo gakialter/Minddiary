@@ -1,4 +1,5 @@
 import React from 'react'
+import { Frown, RotateCcw, FileText } from 'lucide-react'
 
 interface ErrorBoundaryProps {
   children: React.ReactNode
@@ -110,10 +111,10 @@ ${errorInfo?.componentStack}
           }}>
             {/* Error Icon */}
             <div style={{
-              fontSize: 64,
-              marginBottom: 'var(--space-lg)'
+              marginBottom: 'var(--space-lg)',
+              color: 'var(--text-muted)'
             }}>
-              😵
+              <Frown size={64} strokeWidth={1.5} />
             </div>
 
             {/* Title */}
@@ -184,7 +185,7 @@ ${errorInfo?.componentStack}
                 onClick={this.handleReset}
                 style={{ minWidth: 140 }}
               >
-                🔄 重新加载
+                <RotateCcw size={16} /> 重新加载
               </button>
 
               {!isDevelopment && (
@@ -193,7 +194,7 @@ ${errorInfo?.componentStack}
                   onClick={this.handleReportIssue}
                   style={{ minWidth: 140 }}
                 >
-                  📝 报告问题
+                  <FileText size={16} /> 报告问题
                 </button>
               )}
             </div>

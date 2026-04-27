@@ -3,7 +3,8 @@ export type MoodId = 'motivated' | 'happy' | 'calm' | 'tired' | 'anxious' | 'sad
 
 export interface MoodOption {
   id: MoodId
-  emoji: string
+  /** @deprecated UI now uses lucide-react icons via MoodIcon. Kept for data compatibility. */
+  emoji?: string
   label: string
 }
 

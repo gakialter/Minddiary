@@ -28,10 +28,10 @@ function formatDate(dateStr: string): string {
     })
 }
 
-/** Map mood IDs to emoji. */
-const MOOD_EMOJI: Record<string, string> = {
-    motivated: '💪', happy: '😊', calm: '😐',
-    tired: '😫', anxious: '😰', sad: '😢',
+/** Map mood IDs to Chinese labels. */
+const MOOD_LABEL: Record<string, string> = {
+    motivated: '动力满满', happy: '开心', calm: '平静',
+    tired: '疲惫', anxious: '焦虑', sad: '低落',
 }
 
 // ─────────────────────────────────────────────
@@ -53,7 +53,7 @@ export function generateMarkdown(entries: EntryWithTags[] | null | undefined): s
 
     const blocks = sorted.map(entry => {
         const tags = (entry.tags || []).map(t => typeof t === 'object' && t !== null ? t.name : String(t)).join(', ')
-        const mood = entry.mood ? MOOD_EMOJI[entry.mood] || '' : ''
+        const mood = entry.mood ? MOOD_LABEL[entry.mood] || '' : ''
         return [
             '---',
             `date: "${entry.date}"`,
@@ -128,7 +128,7 @@ export function generatePdfHtml(entries: EntryWithTags[] | null | undefined, opt
     const sorted = [...(entries || [])].sort((a, b) => a.date.localeCompare(b.date))
 
     const entryCards = sorted.map(entry => {
-        const mood = entry.mood ? MOOD_EMOJI[entry.mood] || '' : ''
+        const mood = entry.mood ? MOOD_LABEL[entry.mood] || '' : ''
         const tags = (entry.tags || [])
             .map(t => `<span class="tag">${escapeHtml(typeof t === 'object' && t !== null ? t.name : String(t))}</span>`)
             .join('')
