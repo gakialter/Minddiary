@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { calculateNextReview, isDueForReview, REVIEW_QUALITIES } from '../src/utils/spacedRepetition'
+import { calculateNextReview, isDueForReview } from '../src/utils/spacedRepetition'
+import { REVIEW_QUALITIES } from '../src/utils/reviewLabels'
 
 describe('calculateNextReview (SM-2)', () => {
   // ─── First review (reviewCount = 0) ───

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
-import { calculateNextReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
+import { calculateNextReview } from '../utils/spacedRepetition'
+import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'

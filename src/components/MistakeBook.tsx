@@ -3,7 +3,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
 import type { Mistake, Subject, MistakeFilters } from '../types'
-import { calculateNextReview, isDueForReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
+import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 

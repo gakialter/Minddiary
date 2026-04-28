@@ -1,7 +1,8 @@
 import React from 'react'
 import { Mistake } from '../types'
 import { CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin } from 'lucide-react'
-import { isDueForReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
+import { isDueForReview } from '../utils/spacedRepetition'
+import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import Latex from 'react-latex-next'
 
 interface MistakeItemProps {
