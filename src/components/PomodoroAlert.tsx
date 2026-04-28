@@ -87,7 +87,7 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
 
         {/* Title */}
         <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 'var(--space-sm)', color: 'var(--text-primary)' }}>
-          {isWorkComplete ? '🍅 专注完成！' : '⏰ 休息结束！'}
+          {isWorkComplete ? '专注完成！' : '休息结束！'}
         </h2>
 
         {/* Subtitle */}

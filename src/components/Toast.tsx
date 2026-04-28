@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CheckCircle, XCircle, Info } from 'lucide-react'
 
 type ToastType = 'success' | 'error' | 'info'
 
@@ -105,7 +106,7 @@ function ToastItem({ toast, dismiss }: ToastItemProps) {
                 }),
             }}
         >
-            <span style={{ fontSize: 18 }}>{toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'}</span>
+            {toast.type === 'success' ? <CheckCircle size={18} style={{ color: 'var(--success)' }} /> : toast.type === 'error' ? <XCircle size={18} style={{ color: 'var(--danger)' }} /> : <Info size={18} style={{ color: 'var(--accent)' }} />}
             <span>{toast.message}</span>
         </div>
     )

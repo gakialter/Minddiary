@@ -3,6 +3,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { formatShortDate } from '../utils/helpers'
 import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
+import { Search, FileText } from 'lucide-react'
 import type { DiaryEntry, Tag } from '../types'
 
 interface SearchPanelProps {
@@ -129,12 +130,12 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
               onChange={(e) => setFilters({ ...filters, mood: e.target.value })}
             >
               <option value="">全部心情</option>
-              <option value="motivated">💪 动力满满</option>
-              <option value="happy">😊 开心</option>
-              <option value="calm">😐 平静</option>
-              <option value="tired">😫 疲惫</option>
-              <option value="anxious">😰 焦虑</option>
-              <option value="sad">😢 低落</option>
+              <option value="motivated">动力满满</option>
+              <option value="happy">开心</option>
+              <option value="calm">平静</option>
+              <option value="tired">疲惫</option>
+              <option value="anxious">焦虑</option>
+              <option value="sad">低落</option>
             </select>
           </div>
           <div>
@@ -187,7 +188,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 300, gap: 'var(--space-md)' }}>
             <div style={{ fontSize: 56, opacity: 0.6 }}>
-              {query || Object.values(filters).some(f => f) ? '🔍' : '📝'}
+              {query || Object.values(filters).some(f => f) ? <Search size={48} /> : <FileText size={48} />}
             </div>
             <h3 className="text-base font-medium">
               {query || Object.values(filters).some(f => f) ? '没有找到匹配的日记' : '开始搜索你的记忆'}
@@ -196,7 +197,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
               <div className="text-muted text-sm" style={{ maxWidth: 320, lineHeight: 1.6 }}>
                 尝试减少一些筛选条件，或者使用不同关键词。<br />
                 <span style={{ fontSize: 13, display: 'inline-block', marginTop: 'var(--space-md)', padding: 'var(--space-sm) var(--space-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius)' }}>
-                  💡 快捷键提示：随时按下 <b>Cmd/Ctrl + K</b> 也可以发起搜索导航哦
+                  快捷键提示：随时按下 <b>Cmd/Ctrl + K</b> 也可以发起搜索导航哦
                 </span>
               </div>
             ) : (

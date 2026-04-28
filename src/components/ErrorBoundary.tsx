@@ -162,7 +162,7 @@ ${errorInfo?.componentStack}
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word'
                 }}>
-                  <strong style={{ color: 'var(--error)' }}>错误：</strong>
+                  <strong style={{ color: 'var(--danger)' }}>错误：</strong>
                   <br />
                   {error?.toString()}
                   <br /><br />

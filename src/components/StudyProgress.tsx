@@ -211,7 +211,7 @@ export default function StudyProgress() {
                     </div>
                     {Number(overallProgress) >= 100 && totalChapters > 0 ? (
                         <div className="text-xs font-semibold" style={{ color: 'var(--success)', background: 'var(--success-light)', padding: '4px 10px', borderRadius: 12 }}>
-                            目标达成！🎉
+                            目标达成！
                         </div>
                     ) : null}
                 </div>

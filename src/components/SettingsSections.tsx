@@ -1,6 +1,39 @@
 import React from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw } from 'lucide-react'
 
+interface SettingsGeneralProps {
+  examDate: string; setExamDate: (v: string) => void
+  theme: string; changeTheme: (v: string) => void
+  pomodoroMinutes: number; setPomodoroMinutes: (v: number) => void
+  pomodoroSound: boolean; setPomodoroSound: (v: boolean) => void
+  pomodoroAlert: boolean; setPomodoroAlert: (v: boolean) => void
+  autoSave: boolean; setAutoSave: (v: boolean) => void
+}
+
+interface SettingsAIProps {
+  aiEndpoint: string; setAiEndpoint: (v: string) => void
+  aiApiKeyPresent: boolean
+  aiApiKeyMasked: string | null
+  aiApiKeyInput: string; setAiApiKeyInput: (v: string) => void
+  aiKeyDirty: boolean; setAiKeyDirty: (v: boolean) => void
+  clearKeyRequested: boolean; setClearKeyRequested: (v: boolean) => void
+  aiModel: string; setAiModel: (v: string) => void
+}
+
+interface SettingsBackupProps {
+  autoBackup: boolean; setAutoBackup: (v: boolean) => void
+  backupPath: string; setBackupPath: (v: string) => void
+  exportData: () => Promise<void>
+  importData: () => Promise<void>
+  showToast: (message: string, type?: 'success' | 'error' | 'info', duration?: number) => number
+}
+
+interface SettingsAboutProps {
+  checkForUpdates: () => Promise<void>
+  checkingUpdate: boolean
+  version: string
+}
+
 const sectionStyle: React.CSSProperties = {
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
@@ -24,7 +57,7 @@ export function SettingsGeneral({
     pomodoroSound, setPomodoroSound,
     pomodoroAlert, setPomodoroAlert,
     autoSave, setAutoSave
-}: any) {
+}: SettingsGeneralProps) {
     return (
         <div style={sectionStyle}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -96,7 +129,7 @@ export function SettingsAI({
     aiKeyDirty, setAiKeyDirty,
     clearKeyRequested, setClearKeyRequested,
     aiModel, setAiModel
-}: any) {
+}: SettingsAIProps) {
     return (
         <div style={sectionStyle}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -131,7 +164,7 @@ export function SettingsAI({
                                 </button>
                                 <button
                                     className="button button-secondary"
-                                    style={{ fontSize: 13, padding: '4px var(--space-md)', color: 'var(--danger, #ef4444)' }}
+                                    style={{ fontSize: 13, padding: '4px var(--space-md)', color: 'var(--danger, #C65A3A)' }}
                                     onClick={() => {
                                         setClearKeyRequested(true)
                                         setAiKeyDirty(true)
@@ -185,7 +218,7 @@ export function SettingsBackup({
     autoBackup, setAutoBackup,
     backupPath, setBackupPath,
     exportData, importData, showToast
-}: any) {
+}: SettingsBackupProps) {
     return (
         <div style={sectionStyle}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -246,7 +279,7 @@ export function SettingsBackup({
 
 export function SettingsAbout({
     checkForUpdates, checkingUpdate, version
-}: any) {
+}: SettingsAboutProps) {
     return (
         <div style={sectionStyle}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CheckCircle, XCircle, Check } from 'lucide-react'
 import { generateMarkdown, generateJSON, generatePdfHtml } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
 import { Download, FileDown, FileText, FileJson } from 'lucide-react'
@@ -184,7 +185,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                                     background: 'var(--accent)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     color: 'white', fontSize: 12, flexShrink: 0,
-                                }}>✓</div>
+                                }}><Check size={12} /></div>
                             )}
                         </label>
                     ))}
@@ -201,7 +202,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                         color: status === 'success' ? 'var(--success)' : 'var(--danger)',
                         wordBreak: 'break-all',
                     }}>
-                        {status === 'success' ? '✅ ' : '❌ '}{message}
+                        {status === 'success' ? <><CheckCircle size={14} style={{ marginRight: 4 }} />{message}</> : <><XCircle size={14} style={{ marginRight: 4 }} />{message}</>}
                     </div>
                 )}
 

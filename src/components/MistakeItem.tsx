@@ -53,7 +53,7 @@ export function MistakeItem({
                         onClick={() => handleEdit(m)}><Pencil size={13} /></button>
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         onClick={() => handleDelete(m.id)}
-                        onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
                         onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
                     ><Trash2 size={13} /></button>
                 </div>

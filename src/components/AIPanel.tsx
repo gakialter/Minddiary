@@ -74,14 +74,14 @@ export default function AIPanel({ entry }: AIPanelProps) {
             const result = await aiAPI.chat(chatMessages)
             if (generationRef.current !== gen) return  // cancelled
             if (result.error) {
-                appendMessage('assistant', `❌ ${result.error}`)
+                appendMessage('assistant', `${result.error}`)
                 showToast(result.error.split('\n')[0]!, 'error')
             } else {
                 appendMessage('assistant', result.content || '')
             }
         } catch (e: unknown) {
             if (generationRef.current !== gen) return
-            const msg = `🔌 网络异常: ${e instanceof Error ? e.message : String(e)}`
+            const msg = `网络异常: ${e instanceof Error ? e.message : String(e)}`
             appendMessage('assistant', msg)
             showToast('AI 请求失败，请检查网络', 'error')
         } finally {
@@ -91,7 +91,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
 
     const summarizeEntry = async () => {
         if (!entry?.content) {
-            appendMessage('assistant', '📝 左侧编辑器还没有内容哦，今天写点什么再让我总结吧！')
+            appendMessage('assistant', '左侧编辑器还没有内容哦，今天写点什么再让我总结吧！')
             return
         }
         sendMessage(buildDiarySummaryPrompt(entry.content, entry.date))

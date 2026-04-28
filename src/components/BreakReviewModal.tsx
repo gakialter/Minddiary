@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { calculateNextReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
-import { BookOpen, X, Trophy, RotateCcw } from 'lucide-react'
+import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'
 
@@ -183,7 +183,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                         <Latex>{mistake.answer || ''}</Latex>
                                         {mistake.notes && (
                                             <div style={{ marginTop: 'var(--space-sm)', fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                                                📌 <Latex>{mistake.notes}</Latex>
+                                                <Pin size={13} style={{ flexShrink: 0, marginRight: 2 }} /> <Latex>{mistake.notes}</Latex>
                                             </div>
                                         )}
                                     </div>
@@ -211,7 +211,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                             {reviewDone && (
                                 <div style={{ textAlign: 'center' }}>
                                     <div style={{ color: 'var(--success)', fontWeight: 600, marginBottom: 'var(--space-md)', fontSize: 15 }}>
-                                        ✅ 已记录，AI 已安排下次复习
+                                        已记录，AI 已安排下次复习
                                     </div>
                                     <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'center' }}>
                                         <button className="button button-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={loadRandomMistake}>
