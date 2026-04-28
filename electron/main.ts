@@ -107,9 +107,14 @@ app.whenReady().then(() => {
     protocol.handle('local', (request: { url: string }) => {
         const url = request.url.replace('local://', '');
         try {
-            const filePath = decodeURIComponent(url);
-            const resolved = path.resolve(filePath);
-            // P0-1: restrict local:// to userData directory (attachments & mistake_images)
+            const decoded = decodeURIComponent(url);
+            // Reject null bytes and non-printable control chars (except space)
+            if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
+                console.warn('[local://] Rejected path with control characters');
+                return new Response('Forbidden', { status: 403 });
+            }
+            const resolved = path.resolve(decoded);
+            // Restrict local:// to userData directory (attachments & mistake_images)
             const allowedBase = path.resolve(app.getPath('userData'));
             const relative = path.relative(allowedBase, resolved);
             if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -173,6 +178,7 @@ ipcMain.handle('window:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
 });
 ipcMain.handle('window:maximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
     if (mainWindow.isMaximized()) mainWindow.unmaximize();
     else mainWindow.maximize();
     return mainWindow.isMaximized();
@@ -443,8 +449,16 @@ const runAutoBackup = async () => {
     }
 };
 
-setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
-setTimeout(runAutoBackup, 10000);
+const scheduleNextBackup = () => {
+	    const now = Date.now();
+	    const next = new Date();
+	    next.setHours(24, 0, 0, 0); // next midnight
+	    const msUntilMidnight = next.getTime() - now;
+	    // If we just missed midnight by a few seconds, push to next day
+	    const delay = msUntilMidnight > 1000 ? msUntilMidnight : msUntilMidnight + 24 * 60 * 60 * 1000;
+	    setTimeout(() => { runAutoBackup(); scheduleNextBackup(); }, delay);
+	};
+	setTimeout(() => { runAutoBackup(); scheduleNextBackup(); }, 10000);
 
 ipcMain.handle('settings:selectBackupFolder', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
