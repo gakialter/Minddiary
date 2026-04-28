@@ -2,6 +2,7 @@ const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
 const { app, safeStorage: ss } = require('electron');
 
+import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
     PomodoroSession, PomodoroStat, Mistake, MistakeFilters,
@@ -11,7 +12,7 @@ import type {
 // NOTE: fully typing better-sqlite3 query results requires generics at every
 // .get/.all/.run call site. That is a separate task; the exported function
 // signatures are typed, which is what matters for IPC callers.
-let db: any;
+let db: Database.Database;
 
 let customDbPath: string | null = null;
 
@@ -132,7 +133,7 @@ function initialize() {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mistakes_next_review ON mistakes(next_review_date)'); } catch { /* ignore */ }
 
     // ── Seed default diary templates (only if table is empty) ──
-    const templateCount = db.prepare('SELECT COUNT(*) as count FROM diary_templates').get();
+    const templateCount = db.prepare('SELECT COUNT(*) as count FROM diary_templates').get() as { count: number };
     if (templateCount.count === 0) {
         const seedTemplates = [
             {
@@ -188,11 +189,11 @@ function deleteEntry(id: number) {
 }
 
 function getEntryById(id: number): DiaryEntry | undefined {
-    return db.prepare('SELECT * FROM entries WHERE id=?').get(id);
+    return db.prepare('SELECT * FROM entries WHERE id=?').get(id) as DiaryEntry | undefined;
 }
 
 function getEntryByDate(date: string): DiaryEntry | undefined {
-    return db.prepare('SELECT * FROM entries WHERE date=?').get(date);
+    return db.prepare('SELECT * FROM entries WHERE date=?').get(date) as DiaryEntry | undefined;
 }
 
 function getAllEntries(filters: EntryFilters = {}): DiaryEntry[] {
@@ -232,7 +233,7 @@ function getAllEntries(filters: EntryFilters = {}): DiaryEntry[] {
         params.push(filters.limit);
     }
 
-    return db.prepare(query).all(...params);
+    return db.prepare(query).all(...params) as DiaryEntry[];
 }
 
 function searchEntries(query: string) {
@@ -240,26 +241,26 @@ function searchEntries(query: string) {
     // Return metadata + a content snippet indicator; full content loaded via getEntryById
     return db.prepare(
         'SELECT id, date, title, mood, word_count, created_at, updated_at, SUBSTR(content, 1, 200) AS content_snippet FROM entries WHERE content LIKE ? OR title LIKE ? ORDER BY date DESC'
-    ).all(searchTerm, searchTerm);
+    ).all(searchTerm, searchTerm) as DiaryEntry[];
 }
 
 function getDatesWithEntries(yearMonth: string): DateMood[] {
     const pattern = `${yearMonth}%`;
     return db.prepare(
         'SELECT date, mood FROM entries WHERE date LIKE ?'
-    ).all(pattern);
+    ).all(pattern) as DateMood[];
 }
 
 // ==================== Tags ====================
 function getAllTags(): Tag[] {
-    return db.prepare('SELECT * FROM tags ORDER BY name').all();
+    return db.prepare('SELECT * FROM tags ORDER BY name').all() as Tag[];
 }
 
 function createTag({ name, color }: Partial<Tag>): Tag {
     const stmt = db.prepare('INSERT INTO tags (name, color) VALUES (?, ?)');
     const defaultColor = '#0F766E';
     const result = stmt.run(name, color || defaultColor);
-    return { id: result.lastInsertRowid, name: name!, color: color || defaultColor };
+    return { id: Number(result.lastInsertRowid), name: name!, color: color || defaultColor };
 }
 
 function updateTag(id: number, { name, color }: Tag): Tag {
@@ -293,7 +294,7 @@ function getEntryTags(entryId: number) {
 
 // ==================== Settings ====================
 function getSetting(key: string) {
-    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: unknown } | undefined;
     return row ? row.value : null;
 }
 
@@ -303,7 +304,7 @@ function setSetting(key: string, value: unknown) {
 }
 
 function getAllSettings() {
-    const rows = db.prepare('SELECT * FROM settings').all();
+    const rows = db.prepare('SELECT * FROM settings').all() as { key: string; value: unknown }[];
     const settings: Record<string, unknown> = {};
     for (const row of rows) {
         settings[row.key] = row.value;
@@ -335,7 +336,7 @@ function removeAttachment(id: number) {
 
 // ==================== Subjects ====================
 function getAllSubjects(): Subject[] {
-    return db.prepare('SELECT * FROM subjects ORDER BY name').all();
+    return db.prepare('SELECT * FROM subjects ORDER BY name').all() as Subject[];
 }
 
 function createSubject({ name, total_chapters, color }: Subject) {
@@ -375,13 +376,13 @@ function getPomodoroStats(date: string): PomodoroStat[] {
     LEFT JOIN subjects s ON p.subject_id = s.id
     WHERE DATE(p.completed_at) = ?
     GROUP BY p.subject_id
-  `).all(date);
+  `).all(date) as PomodoroStat[];
 }
 
 function getDailyStudyMinutes(date: string) {
     const row = db.prepare(
         'SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE DATE(completed_at) = ?'
-    ).get(date);
+    ).get(date) as { total: number };
     return row.total;
 }
 
@@ -416,7 +417,7 @@ function getStudyStreak() {
             SELECT date FROM entries
         )
         ORDER BY date DESC
-    `).all();
+    `).all() as { date: string }[];
 
     if (rows.length === 0) return 0;
 
@@ -464,10 +465,10 @@ function getTodayDashboard(date: string): TodayDashboardData {
         pastDate.setDate(pastDate.getDate() - 7);
         const pastDateStr = pastDate.toISOString().split('T')[0];
 
-        // 1. Today's diary entry 
+        // 1. Today's diary entry
         const todayEntry = db.prepare(
             'SELECT id, title, word_count, mood FROM entries WHERE date = ?'
-        ).get(date) || null;
+        ).get(date) as { id: number; title: string; word_count: number; mood: import('../src/types/index').MoodId | null } | undefined || null;
 
         // 2. Today's pomodoro summary
         const pomRow = db.prepare(`
@@ -475,26 +476,26 @@ function getTodayDashboard(date: string): TodayDashboardData {
                    COUNT(id) as session_count
             FROM pomodoro_sessions
             WHERE DATE(completed_at) = ?
-        `).get(date);
+        `).get(date) as { total_minutes: number; session_count: number };
 
         // 3. High Forgetting Risk Pool (< 72hrs)
         const riskRow = db.prepare(`
             SELECT COUNT(*) as count FROM mistakes
             WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
-        `).get(futureDateStr);
+        `).get(futureDateStr) as { count: number };
 
         // 4. Locked Knowledge Growth (EF >= 2.5 and updated in last 7 days)
         const lockedRow = db.prepare(`
             SELECT COUNT(*) as count FROM mistakes
             WHERE (ease_factor >= 2.5 OR mastered = 1) AND DATE(updated_at) >= ?
-        `).get(pastDateStr);
+        `).get(pastDateStr) as { count: number };
 
         // 5. Effective Focus Conversion (today actions vs pomodoros)
         const actionsTodayRow = db.prepare(`
-            SELECT 
+            SELECT
                 (SELECT COUNT(*) FROM entries WHERE date = ? AND word_count > 20) +
                 (SELECT COUNT(*) FROM mistakes WHERE DATE(updated_at) = ?) as action_count
-        `).get(date, date);
+        `).get(date, date) as { action_count: number };
 
         let conversionRate = 0;
         if (pomRow.session_count > 0) {
@@ -553,7 +554,7 @@ function getAllMistakes(filters: MistakeFilters = {}): Mistake[] {
         query += ' WHERE ' + conditions.join(' AND ');
     }
     query += ' ORDER BY m.created_at DESC';
-    return db.prepare(query).all(...params);
+    return db.prepare(query).all(...params) as Mistake[];
 }
 
 function createMistake({ subject_id, question, answer, notes, image_path }: Partial<Mistake>) {
@@ -581,7 +582,7 @@ function updateMistake(id: number, { subject_id, question, answer, notes, master
 
 async function deleteMistake(id: number) {
     try {
-        const mistake = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id);
+        const mistake = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null } | undefined;
         if (mistake && mistake.image_path) {
             const fileManager = require('./fileManager');
             await fileManager.deleteMistakeImage(mistake.image_path);
@@ -594,7 +595,7 @@ async function deleteMistake(id: number) {
 
 function toggleMistakeMastered(id: number) {
     db.prepare('UPDATE mistakes SET mastered = 1 - mastered, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(id);
-    const row = db.prepare('SELECT mastered FROM mistakes WHERE id=?').get(id);
+    const row = db.prepare('SELECT mastered FROM mistakes WHERE id=?').get(id) as { mastered: number };
     return { mastered: row.mastered };
 }
 
@@ -619,7 +620,7 @@ function getDueForReviewCount(date: string) {
     const row = db.prepare(`
         SELECT COUNT(*) as count FROM mistakes
         WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
-    `).get(date);
+    `).get(date) as { count: number };
     return row.count;
 }
 
@@ -643,7 +644,7 @@ function getRandomDueMistake(date: string, subjectId?: number) {
 
 // ==================== Templates ====================
 function getAllTemplates(): DiaryTemplate[] {
-    return db.prepare('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC').all();
+    return db.prepare('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC').all() as DiaryTemplate[];
 }
 
 function createTemplate({ name, content, sort_order }: Partial<DiaryTemplate>) {
@@ -663,12 +664,12 @@ function updateTemplate(id: number, { name, content, sort_order }: Partial<Diary
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(id);
     db.prepare(`UPDATE diary_templates SET ${updates.join(', ')} WHERE id=?`).run(...params);
-    return db.prepare('SELECT * FROM diary_templates WHERE id=?').get(id);
+    return db.prepare('SELECT * FROM diary_templates WHERE id=?').get(id) as DiaryTemplate | undefined;
 }
 
 function deleteTemplate(id: number) {
     // Prevent deleting default templates
-    const tpl = db.prepare('SELECT is_default FROM diary_templates WHERE id=?').get(id);
+    const tpl = db.prepare('SELECT is_default FROM diary_templates WHERE id=?').get(id) as { is_default: number } | undefined;
     if (tpl && tpl.is_default) {
         return { success: false, message: '默认模板不可删除' };
     }
