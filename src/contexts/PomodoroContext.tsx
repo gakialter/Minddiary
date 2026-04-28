@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { useDiary } from './DiaryContext'
+import { coerceBoolean } from '../utils/helpers'
 import type { Subject, PomodoroStat } from '../types'
 
 interface PomodoroMode {
@@ -152,8 +153,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     // ── Notification sound (Web Audio API beep, no external file needed) ──
     try {
-      const soundEnabled = String(settingsData?.pomodoroSound ?? 'true') !== 'false'
-      const alertEnabled = String(settingsData?.pomodoroAlert ?? 'true') !== 'false'
+      const soundEnabled = coerceBoolean(settingsData?.pomodoroSound, true)
+      const alertEnabled = coerceBoolean(settingsData?.pomodoroAlert, true)
 
       if (soundEnabled) {
         const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext

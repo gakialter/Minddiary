@@ -131,7 +131,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                             )}
 
                             {/* Question */}
-                            <div style={{
+                            <div className="content-selectable" style={{
                                 background: 'var(--bg-tertiary)', borderRadius: 'var(--radius)',
                                 padding: 'var(--space-md)', marginBottom: 'var(--space-md)',
                                 lineHeight: 1.7, fontSize: 15
@@ -173,7 +173,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                             {/* Answer */}
                             {phase === 'answer' && !reviewDone && (
                                 <div>
-                                    <div style={{
+                                    <div className="content-selectable" style={{
                                         background: 'color-mix(in srgb, var(--success) 8%, var(--bg-secondary))',
                                         border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)',
                                         borderRadius: 'var(--radius)', padding: 'var(--space-md)',

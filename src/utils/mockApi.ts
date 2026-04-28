@@ -1,5 +1,6 @@
 // Mock API for browser development (when Electron APIs are not available)
 import type { ElectronAPI } from '../types/api'
+import { logger } from './logger'
 
 const mockEntries: Record<string, unknown> = {}
 
@@ -37,10 +38,10 @@ const mockApi: ElectronAPI = {
         getEntryTags: async () => [],
     },
     settings: {
-        get: async () => null,
-        set: async () => {},
-        getAll: async () => ({}),
-        setAll: async () => ({ success: true }),
+        getAll: async () => ({ aiApiKeyMasked: null, aiApiKeyPresent: false }),
+        updateGeneral: async () => ({ success: true }),
+        updateAI: async () => ({ success: true }),
+        updateBackup: async () => ({ success: true }),
         selectBackupFolder: async () => null,
     },
     attachments: {
@@ -76,7 +77,7 @@ const mockApi: ElectronAPI = {
         summarize: async () => ({ content: '请在 Electron 环境中使用 AI 功能' }),
     },
     notification: {
-        show: async (title, body) => { console.log(`[通知] ${title}: ${body}`) },
+        show: async (title, body) => { logger.log(`[通知] ${title}: ${body}`) },
     },
     dashboard: {
         entryDatesRange: async () => [],

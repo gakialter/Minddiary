@@ -13,12 +13,12 @@ const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
 describe('Settings Component', () => {
   let settingsApi: {
     getAll: ReturnType<typeof vi.fn>
-    update: ReturnType<typeof vi.fn>
-    setAll: ReturnType<typeof vi.fn>
+    updateGeneral: ReturnType<typeof vi.fn>
+    updateAI: ReturnType<typeof vi.fn>
+    updateBackup: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
-    // Add missing mocks to global.window.api for Settings
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).api = {
       ...((window as any).api),
@@ -34,22 +34,25 @@ describe('Settings Component', () => {
       getAll: vi.fn().mockResolvedValue({
         examDate: '2026-12-25',
         aiEndpoint: 'https://api.mock.com',
-        aiApiKey: 'sk-mock',
+        aiApiKeyMasked: 'sk-***mock',
+        aiApiKeyPresent: true,
         aiModel: 'gpt-4',
         autoSave: false,
         pomodoroMinutes: 30,
         autoBackup: true,
-        backupPath: 'C:\\Backups'
+        backupPath: 'C:\\Backups',
+        pomodoroSound: true,
+        pomodoroAlert: true,
       }),
-      update: vi.fn().mockResolvedValue(true),
-      setAll: vi.fn().mockResolvedValue({ success: true })
+      updateGeneral: vi.fn().mockResolvedValue({ success: true }),
+      updateAI: vi.fn().mockResolvedValue({ success: true }),
+      updateBackup: vi.fn().mockResolvedValue({ success: true }),
     }
 
     mockUseDiary.mockReturnValue({
       settings: settingsApi,
       theme: 'system',
       changeTheme: vi.fn(),
-      // Mocks for exportData
       entries: { getAll: vi.fn().mockResolvedValue([]) },
       tags: { getAll: vi.fn().mockResolvedValue([]) },
       subjects: { getAll: vi.fn().mockResolvedValue([]) },
@@ -63,21 +66,18 @@ describe('Settings Component', () => {
     vi.useRealTimers()
   })
 
-  it('loads and displays settings from API', async () => {
+  it('loads and displays settings from API (masked key)', async () => {
     await act(async () => {
       render(<Settings />)
     })
 
-    // Check if values are populated
     expect(screen.getByDisplayValue('2026-12-25')).toBeInTheDocument()
     expect(screen.getByDisplayValue('https://api.mock.com')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('sk-mock')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('30')).toBeInTheDocument() // Pomodoro minutes
+    // API key is masked per ADR-002 — no plaintext in the DOM
+    expect(screen.getByText(/已配置（sk-\*\*\*mock）/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('30')).toBeInTheDocument()
     expect(screen.getByDisplayValue('C:\\Backups')).toBeInTheDocument()
 
-    // Check checkboxes — order in DOM:
-    // [0] pomodoroSound (default true), [1] pomodoroAlert (default true)
-    // [2] autoSave (false per mock),    [3] autoBackup (true per mock)
     const checkboxes = screen.getAllByRole('checkbox')
     expect(checkboxes[0]).toBeChecked()      // pomodoroSound = default true
     expect(checkboxes[1]).toBeChecked()      // pomodoroAlert = default true
@@ -85,42 +85,47 @@ describe('Settings Component', () => {
     expect(checkboxes[3]).toBeChecked()      // autoBackup = true per mock
   })
 
-  it('debounces auto-saving when a setting changes', async () => {
+  it('debounces auto-saving via patch APIs', async () => {
     vi.useFakeTimers()
     await act(async () => {
       render(<Settings />)
     })
 
-    // Change Pomodoro minutes
     const pomodoroInput = screen.getByDisplayValue('30')
-    
+
     await act(async () => {
       fireEvent.change(pomodoroInput, { target: { value: '45' } })
     })
 
     // Shouldn't save immediately
-    expect(settingsApi.setAll).not.toHaveBeenCalled()
+    expect(settingsApi.updateGeneral).not.toHaveBeenCalled()
 
     // Advance timers by 500ms (debounce time)
     await act(async () => {
       vi.advanceTimersByTime(500)
     })
 
-    // Now it should save via batched setAll
-    expect(settingsApi.setAll).toHaveBeenCalled()
+    // Auto-save fires all three patch APIs
+    expect(settingsApi.updateGeneral).toHaveBeenCalledWith(
+      expect.objectContaining({ pomodoroMinutes: 45 })
+    )
+    expect(settingsApi.updateAI).toHaveBeenCalled()
+    expect(settingsApi.updateBackup).toHaveBeenCalled()
   })
 
-  it('allows manual save via button', async () => {
+  it('saves via patch APIs on button click', async () => {
     await act(async () => {
       render(<Settings />)
     })
 
     const saveBtn = screen.getByText('保存设置')
-    
+
     await act(async () => {
       fireEvent.click(saveBtn)
     })
 
-    expect(settingsApi.setAll).toHaveBeenCalled()
+    expect(settingsApi.updateGeneral).toHaveBeenCalled()
+    expect(settingsApi.updateAI).toHaveBeenCalled()
+    expect(settingsApi.updateBackup).toHaveBeenCalled()
   })
 })

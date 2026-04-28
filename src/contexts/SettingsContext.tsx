@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useMemo, type ReactNode
 import { mockSettings, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
 import type { AppSettings } from '../types'
-import type { SettingsContextAPI } from '../types/api'
+import type { SettingsContextAPI, SanitizedSettings } from '../types/api'
 
 interface SettingsContextValue {
     settingsData: AppSettings
@@ -67,34 +67,54 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 if (s) setSettings(s as unknown as AppSettings)
                 return s
             }
-            return settings
+            return { ...settings, aiApiKeyMasked: null, aiApiKeyPresent: false } as unknown as SanitizedSettings
         },
-        update: async (key: string, value: unknown) => {
+        updateGeneral: async (patch) => {
             if (IS_ELECTRON) {
-                await window.api.settings.set(key, String(value))
-                setSettings(prev => ({ ...prev, [key]: value }))
-                return true
+                await window.api.settings.updateGeneral(patch)
             }
-            setSettings(prev => ({ ...prev, [key]: value }))
-            return { ...settings, [key]: value }
-        },
-        setAll: async (partial: Record<string, string>) => {
-            if (IS_ELECTRON) {
-                await window.api.settings.setAll(partial)
-                setSettings(prev => ({ ...prev, ...Object.fromEntries(
-                    Object.entries(partial).map(([k, v]) => [k, v])
-                ) }))
-                return { success: true }
-            }
-            setSettings(prev => ({ ...prev, ...partial }))
+            setSettings(prev => ({ ...prev, ...patch }))
             return { success: true }
+        },
+        updateAI: async (patch) => {
+            if (IS_ELECTRON) {
+                await window.api.settings.updateAI(patch)
+            }
+            setSettings(prev => {
+                const next = { ...prev }
+                if (patch.aiEndpoint !== undefined) next.aiEndpoint = patch.aiEndpoint
+                if (patch.aiModel !== undefined) next.aiModel = patch.aiModel
+                if (patch.aiApiKey !== undefined) {
+                    next.aiApiKeyPresent = true
+                    next.aiApiKeyMasked = '********'
+                }
+                if (patch.clearAiApiKey) {
+                    next.aiApiKeyPresent = false
+                    next.aiApiKeyMasked = null
+                }
+                return next
+            })
+            return { success: true }
+        },
+        updateBackup: async (patch) => {
+            if (IS_ELECTRON) {
+                await window.api.settings.updateBackup(patch)
+            }
+            setSettings(prev => ({ ...prev, ...patch }))
+            return { success: true }
+        },
+        selectBackupFolder: async () => {
+            if (IS_ELECTRON) {
+                return window.api.settings.selectBackupFolder()
+            }
+            return null
         },
     }
 
     // ─── Theme helpers ────────────────────────────────────────────────────────
     const currentTheme = settings?.theme === 'auto' ? 'system' : (settings?.theme || 'system')
     const isDarkMode = currentTheme === 'dark' || (currentTheme === 'system' && systemDark)
-    const changeTheme = (newTheme: string) => settingsAPI.update('theme', newTheme)
+    const changeTheme = (newTheme: string) => settingsAPI.updateGeneral({ theme: newTheme })
 
     const value = useMemo((): SettingsContextValue => ({
         settingsData: settings,
@@ -104,8 +124,10 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         changeTheme,
         settings: {
             getAll: settingsAPI.getAll,
-            update: settingsAPI.update,
-            setAll: settingsAPI.setAll,
+            updateGeneral: settingsAPI.updateGeneral,
+            updateAI: settingsAPI.updateAI,
+            updateBackup: settingsAPI.updateBackup,
+            selectBackupFolder: settingsAPI.selectBackupFolder,
         },
     }), [settings, settingsInitialized, currentTheme, isDarkMode, changeTheme])
 

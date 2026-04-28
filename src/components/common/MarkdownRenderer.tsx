@@ -65,7 +65,7 @@ const components: Components = {
 
 export default function MarkdownRenderer({ children, className }: MarkdownRendererProps) {
   return (
-    <div className={`markdown-body ${className || ''}`}>
+    <div className={`markdown-body content-selectable ${className || ''}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {children}
       </ReactMarkdown>

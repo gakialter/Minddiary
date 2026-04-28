@@ -124,6 +124,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Content areas where text selection is intentional */
+.content-selectable,
+.content-selectable * {
+  user-select: text;
+}
+
+.content-selectable button,
+.content-selectable [role="button"] {
+  user-select: none;
+}
+
 /* Scrollbars - macOS style */
 ::-webkit-scrollbar {
   width: 8px;

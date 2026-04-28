@@ -3,6 +3,7 @@ const fs = require('fs');
 const { app } = require('electron');
 const { pathToFileURL, fileURLToPath } = require('url');
 const db = require('./database');
+const pool = require('./imageWorkerPool');
 
 import type { Attachment, AttachmentData } from '../src/types/index';
 
@@ -12,23 +13,45 @@ let mistakeImagesDir: string;
 function initialize(): void {
     attachmentsDir = path.join(app.getPath('userData'), 'attachments');
     mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
+    // Sync mkdir for bootstrap (directories needed before first async operation)
     if (!fs.existsSync(attachmentsDir)) {
         fs.mkdirSync(attachmentsDir, { recursive: true });
     }
     if (!fs.existsSync(mistakeImagesDir)) {
         fs.mkdirSync(mistakeImagesDir, { recursive: true });
     }
+    pool.initialize();
 }
 
+// ── Validation helpers (main thread) ─────────────────────────────────────────
+
+const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
+
+function validateAttachment(name: string, data: string): void {
+    if (!name || typeof name !== 'string') {
+        throw { code: 'VALIDATION_ERROR', message: 'Missing or invalid filename' };
+    }
+    const ext = path.extname(name).toLowerCase();
+    if (ext && !ALLOWED_EXTENSIONS.includes(ext)) {
+        throw { code: 'UNSUPPORTED_IMAGE_FORMAT', message: `Unsupported image format: ${ext}` };
+    }
+    if (!data || typeof data !== 'string' || data.length === 0) {
+        throw { code: 'VALIDATION_ERROR', message: 'Empty image data' };
+    }
+}
+
+// ── Attachments ──────────────────────────────────────────────────────────────
+
 async function saveAttachment(entryId: number, { name, data, mimetype }: AttachmentData): Promise<Attachment> {
-    // data is a base64 string from renderer
-    const buffer = Buffer.from(data, 'base64');
+    validateAttachment(name, data);
+
     const timestamp = Date.now();
     const ext = path.extname(name);
     const safeFilename = `${entryId}_${timestamp}${ext}`;
     const filepath = path.join(attachmentsDir, safeFilename);
 
-    fs.writeFileSync(filepath, buffer);
+    // Offload buffer write to worker pool
+    await pool.submit('writeBuffer', { bufferB64: data, filepath, expectedExt: ext });
 
     const attachment = db.addAttachment(entryId, {
         filename: name,
@@ -39,44 +62,45 @@ async function saveAttachment(entryId: number, { name, data, mimetype }: Attachm
     return attachment;
 }
 
-function deleteAttachment(id: number): { success: boolean } {
+async function deleteAttachment(id: number): Promise<{ success: boolean }> {
     const attachment = db.getAttachmentById(id) as Attachment | undefined;
     if (attachment) {
         const filepath = path.join(attachmentsDir, attachment.filepath);
-        if (fs.existsSync(filepath)) {
-            fs.unlinkSync(filepath);
+        try {
+            await fs.promises.unlink(filepath);
+        } catch (err: any) {
+            if (err.code !== 'ENOENT') throw err;
         }
         db.removeAttachment(id);
     }
     return { success: true };
 }
 
-/**
- * Physically delete every attachment file belonging to an entry.
- * Must be called BEFORE db.deleteEntry() so the attachment records
- * are still queryable. Errors on individual files are logged but do
- * NOT abort the delete (e.g. file already manually removed).
- */
-function deleteAttachmentsForEntry(entryId: number): { deleted: number; errors: number } {
+async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: number; errors: number }> {
     const attachments = db.getAttachmentsByEntry(entryId) as Attachment[];
+
+    const results = await Promise.allSettled(
+        attachments.map(async (attachment) => {
+            const filepath = path.join(attachmentsDir, attachment.filepath);
+            await fs.promises.unlink(filepath).catch((err: any) => {
+                if (err.code !== 'ENOENT') throw err;
+            });
+        })
+    );
+
     let deleted = 0;
     let errors = 0;
-
-    for (const attachment of attachments) {
-        try {
-            const filepath = path.join(attachmentsDir, attachment.filepath);
-            if (fs.existsSync(filepath)) {
-                fs.unlinkSync(filepath);
-            }
+    results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
             deleted++;
-        } catch (err: unknown) {
+        } else {
             console.error(
-                `[fileManager] Failed to delete physical file for attachment id=${attachment.id}:`,
-                err instanceof Error ? err.message : String(err)
+                `[fileManager] Failed to delete physical file for attachment id=${attachments[i].id}:`,
+                r.reason instanceof Error ? r.reason.message : String(r.reason)
             );
             errors++;
         }
-    }
+    });
 
     return { deleted, errors };
 }
@@ -85,31 +109,32 @@ function getAttachmentPath(filepath: string): string {
     return path.join(attachmentsDir, filepath);
 }
 
-// ==================== Mistake Images ====================
+// ── Mistake Images ───────────────────────────────────────────────────────────
 
 async function saveMistakeImage({ data, ext = '.png' }: { data: string; ext?: string }): Promise<string> {
-    // data is a base64 string from renderer
-    const buffer = Buffer.from(data, 'base64');
+    if (!data || typeof data !== 'string') {
+        throw { code: 'VALIDATION_ERROR', message: 'Empty image data' };
+    }
+    const extLower = ext.toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(extLower)) {
+        throw { code: 'UNSUPPORTED_IMAGE_FORMAT', message: `Unsupported format: ${extLower}` };
+    }
+
     const timestamp = Date.now();
-    const safeFilename = `mistake_${timestamp}${ext}`;
+    const safeFilename = `mistake_${timestamp}${extLower}`;
     const filepath = path.join(mistakeImagesDir, safeFilename);
 
-    fs.writeFileSync(filepath, buffer);
-    // Return the URL pathname (e.g. '/C:/Users/.../file.png' on Windows)
-    // so that `local://${path}` becomes `local:///C:/...` which the
-    // protocol handler correctly maps to `file:///C:/...`.
+    await pool.submit('writeBuffer', { bufferB64: data, filepath, expectedExt: extLower });
+
     return pathToFileURL(filepath).pathname;
 }
 
-function deleteMistakeImage(urlPathname: string): void {
-    // urlPathname is the URL pathname returned by saveMistakeImage
-    // e.g. '/C:/Users/.../mistake_images/mistake_xxx.png' (Windows)
-    // Convert back to a real fs path via fileURLToPath.
+async function deleteMistakeImage(urlPathname: string): Promise<void> {
     try {
         const filepath = fileURLToPath('file://' + urlPathname);
-        if (fs.existsSync(filepath)) {
-            fs.unlinkSync(filepath);
-        }
+        await fs.promises.unlink(filepath).catch((err: any) => {
+            if (err.code !== 'ENOENT') throw err;
+        });
     } catch (e) {
         console.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
     }

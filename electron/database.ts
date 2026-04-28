@@ -1,6 +1,6 @@
 const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
-const { app } = require('electron');
+const { app, safeStorage: ss } = require('electron');
 
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -579,12 +579,12 @@ function updateMistake(id: number, { subject_id, question, answer, notes, master
     return { success: true };
 }
 
-function deleteMistake(id: number) {
+async function deleteMistake(id: number) {
     try {
         const mistake = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id);
         if (mistake && mistake.image_path) {
             const fileManager = require('./fileManager');
-            fileManager.deleteMistakeImage(mistake.image_path);
+            await fileManager.deleteMistakeImage(mistake.image_path);
         }
     } catch(e) { console.error('Failed to cleanup mistake image', e); }
 
@@ -676,6 +676,32 @@ function deleteTemplate(id: number) {
     return { success: true };
 }
 
+// ── AI Key (safeStorage-aware) ──────────────────────────────────────────────
+
+function getAiApiKey(): string | null {
+    const raw = getSetting('aiApiKey');
+    if (!raw || typeof raw !== 'string' || raw.length === 0) return null;
+    if (ss.isEncryptionAvailable()) {
+        try {
+            const buf = Buffer.from(raw, 'base64');
+            return ss.decryptString(buf);
+        } catch {
+            return raw; // legacy plaintext
+        }
+    }
+    return raw;
+}
+
+function setAiApiKey(key: string): void {
+    if (ss.isEncryptionAvailable()) {
+        const encrypted = ss.encryptString(key);
+        setSetting('aiApiKey', encrypted.toString('base64'));
+    } else {
+        console.warn('[db] safeStorage unavailable — storing API key as plaintext');
+        setSetting('aiApiKey', key);
+    }
+}
+
 module.exports = {
     initialize,
     createEntry, updateEntry, deleteEntry, getEntryById, getEntryByDate,
@@ -689,5 +715,6 @@ module.exports = {
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
-    setCustomDbPath, getDb: () => db
+    setCustomDbPath, getDb: () => db,
+    getAiApiKey, setAiApiKey
 };

@@ -47,12 +47,20 @@ contextBridge.exposeInMainWorld('api', {
         getEntryTags: (entryId: number) => ipcRenderer.invoke('tags:getEntryTags', entryId),
     },
 
-    // Settings
+    // Settings — narrow API per ADR-002: no plaintext key exposure, patch-only writes
     settings: {
-        get: (key: string) => ipcRenderer.invoke('settings:get', key),
-        set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
         getAll: () => ipcRenderer.invoke('settings:getAll'),
-        setAll: (partial: Record<string, string>) => ipcRenderer.invoke('settings:setAll', partial),
+        updateGeneral: (patch: {
+            examDate?: string; theme?: string; pomodoroMinutes?: number;
+            autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
+        }) => ipcRenderer.invoke('settings:updateGeneral', patch),
+        updateAI: (patch: {
+            aiEndpoint?: string; aiModel?: string;
+            aiApiKey?: string; clearAiApiKey?: boolean;
+        }) => ipcRenderer.invoke('settings:updateAI', patch),
+        updateBackup: (patch: {
+            autoBackup?: boolean; backupPath?: string;
+        }) => ipcRenderer.invoke('settings:updateBackup', patch),
         selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
     },
 

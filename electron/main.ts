@@ -21,6 +21,13 @@ interface FileFilter {
 // Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
 const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
 
+// ── API Key safety ──────────────────────────────────────────────────────────
+function maskApiKey(key: string | null | undefined): string | null {
+    if (!key) return null;
+    if (key.length <= 8) return '********';
+    return key.slice(0, 3) + '***' + key.slice(-4);
+}
+
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 
 function createWindow() {
@@ -104,7 +111,8 @@ app.whenReady().then(() => {
             const resolved = path.resolve(filePath);
             // P0-1: restrict local:// to userData directory (attachments & mistake_images)
             const allowedBase = path.resolve(app.getPath('userData'));
-            if (!resolved.startsWith(allowedBase + path.sep)) {
+            const relative = path.relative(allowedBase, resolved);
+            if (relative.startsWith('..') || path.isAbsolute(relative)) {
                 console.warn('[local://] Blocked access outside userData:', resolved);
                 return new Response('Forbidden', { status: 403 });
             }
@@ -175,10 +183,10 @@ ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized());
 // ==================== Entries ====================
 ipcMain.handle('entries:create', (_: unknown, entry: NewEntry) => db.createEntry(entry));
 ipcMain.handle('entries:update', (_: unknown, id: number, entry: Partial<NewEntry>) => db.updateEntry(id, entry));
-ipcMain.handle('entries:delete', (_: unknown, id: number) => {
+ipcMain.handle('entries:delete', async (_: unknown, id: number) => {
     // Phase 11.1 fix: physically remove attachment files BEFORE the SQL DELETE,
     // because ON DELETE CASCADE will kill the attachment *records* but NOT the disk files.
-    fileManager.deleteAttachmentsForEntry(id);
+    await fileManager.deleteAttachmentsForEntry(id);
     return db.deleteEntry(id);
 });
 
@@ -197,23 +205,73 @@ ipcMain.handle('tags:setEntryTags', (_: unknown, entryId: number, tagIds: number
 ipcMain.handle('tags:getEntryTags', (_: unknown, entryId: number) => db.getEntryTags(entryId));
 
 // ==================== Settings ====================
-ipcMain.handle('settings:get', (_: unknown, key: string) => db.getSetting(key));
-ipcMain.handle('settings:set', (_: unknown, key: string, value: unknown) => db.setSetting(key, value));
+// Single-key getter — refuses to return aiApiKey in plaintext
+ipcMain.handle('settings:get', (_: unknown, key: string) => {
+    if (key === 'aiApiKey') return null;
+    return db.getSetting(key);
+});
+
+// Returns all settings but replaces aiApiKey with masked status
 ipcMain.handle('settings:getAll', () => {
     const all = db.getAllSettings();
     const safe: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(all)) {
         if (!SENSITIVE_SETTINGS_KEYS.includes(k)) safe[k] = v;
     }
+    const storedKey = db.getAiApiKey();
+    safe['aiApiKeyMasked'] = maskApiKey(storedKey);
+    safe['aiApiKeyPresent'] = !!storedKey;
     return safe;
 });
-ipcMain.handle('settings:setAll', (_: unknown, partial: Record<string, string>) => {
-    const transaction = db.getDb().transaction(() => {
-        for (const [key, value] of Object.entries(partial)) {
-            db.setSetting(key, value);
-        }
+
+// Patch-based setters — never accept a full-settings overwrite
+ipcMain.handle('settings:updateGeneral', (_: unknown, patch: {
+    examDate?: string; theme?: string; pomodoroMinutes?: number;
+    autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
+}) => {
+    const txn = db.getDb().transaction(() => {
+        if (patch.examDate !== undefined) db.setSetting('examDate', patch.examDate);
+        if (patch.theme !== undefined) db.setSetting('theme', patch.theme);
+        if (patch.pomodoroMinutes !== undefined) db.setSetting('pomodoroMinutes', String(patch.pomodoroMinutes));
+        if (patch.autoSave !== undefined) db.setSetting('autoSave', String(patch.autoSave));
+        if (patch.pomodoroSound !== undefined) db.setSetting('pomodoroSound', String(patch.pomodoroSound));
+        if (patch.pomodoroAlert !== undefined) db.setSetting('pomodoroAlert', String(patch.pomodoroAlert));
     });
-    transaction();
+    txn();
+    return { success: true };
+});
+
+ipcMain.handle('settings:updateAI', (_: unknown, patch: {
+    aiEndpoint?: string; aiModel?: string;
+    aiApiKey?: string; clearAiApiKey?: boolean;
+}) => {
+    if (patch.aiApiKey !== undefined && patch.clearAiApiKey) {
+        throw new Error('Cannot set and clear AI key simultaneously');
+    }
+    if (patch.aiApiKey === '') {
+        throw new Error('Empty string is not a valid API key');
+    }
+    const txn = db.getDb().transaction(() => {
+        if (patch.clearAiApiKey) {
+            db.setAiApiKey('');
+        } else if (patch.aiApiKey !== undefined) {
+            db.setAiApiKey(patch.aiApiKey);
+        }
+        if (patch.aiEndpoint !== undefined) db.setSetting('aiEndpoint', patch.aiEndpoint);
+        if (patch.aiModel !== undefined) db.setSetting('aiModel', patch.aiModel);
+    });
+    txn();
+    return { success: true };
+});
+
+ipcMain.handle('settings:updateBackup', (_: unknown, patch: {
+    autoBackup?: boolean; backupPath?: string;
+}) => {
+    const txn = db.getDb().transaction(() => {
+        if (patch.autoBackup !== undefined) db.setSetting('autoBackup', String(patch.autoBackup));
+        if (patch.backupPath !== undefined) db.setSetting('backupPath', patch.backupPath);
+    });
+    txn();
     return { success: true };
 });
 

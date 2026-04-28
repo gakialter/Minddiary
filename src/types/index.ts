@@ -3,8 +3,6 @@ export type MoodId = 'motivated' | 'happy' | 'calm' | 'tired' | 'anxious' | 'sad
 
 export interface MoodOption {
   id: MoodId
-  /** @deprecated UI now uses lucide-react icons via MoodIcon. Kept for data compatibility. */
-  emoji?: string
   label: string
 }
 
@@ -130,11 +128,12 @@ export interface AppSettings {
   autoSave: boolean
   notifications: boolean
   aiEndpoint: string
-  aiApiKey: string
   aiModel: string
   pomodoroMinutes: number
   autoBackup: boolean
   backupPath: string
+  aiApiKeyMasked: string | null
+  aiApiKeyPresent: boolean
   [key: string]: unknown
 }
 

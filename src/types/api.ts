@@ -39,11 +39,37 @@ export interface ElectronTagsAPI {
   getEntryTags: (entryId: number) => Promise<Tag[]>
 }
 
+export interface UpdateGeneralPatch {
+  examDate?: string; theme?: string; pomodoroMinutes?: number
+  autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean
+}
+
+export interface UpdateAIPatch {
+  aiEndpoint?: string; aiModel?: string
+  aiApiKey?: string; clearAiApiKey?: boolean
+}
+
+export interface UpdateBackupPatch {
+  autoBackup?: boolean; backupPath?: string
+}
+
+export interface SanitizedSettings {
+  theme?: string; examDate?: string; dailyGoal?: number
+  autoSave?: string; notifications?: string
+  aiEndpoint?: string; aiModel?: string
+  pomodoroMinutes?: string
+  autoBackup?: string; backupPath?: string
+  pomodoroSound?: string; pomodoroAlert?: string
+  aiApiKeyMasked: string | null
+  aiApiKeyPresent: boolean
+  [key: string]: unknown
+}
+
 export interface ElectronSettingsAPI {
-  get: (key: string) => Promise<string | null>
-  set: (key: string, value: string) => Promise<void>
-  getAll: () => Promise<Record<string, string>>
-  setAll: (partial: Record<string, string>) => Promise<{ success: boolean }>
+  getAll: () => Promise<SanitizedSettings>
+  updateGeneral: (patch: UpdateGeneralPatch) => Promise<{ success: boolean }>
+  updateAI: (patch: UpdateAIPatch) => Promise<{ success: boolean }>
+  updateBackup: (patch: UpdateBackupPatch) => Promise<{ success: boolean }>
   selectBackupFolder: () => Promise<string | null>
 }
 
@@ -218,9 +244,11 @@ export interface TemplatesContextAPI {
 }
 
 export interface SettingsContextAPI {
-  getAll: () => Promise<AppSettings | Record<string, string>>
-  update: (key: string, value: unknown) => Promise<unknown>
-  setAll: (partial: Record<string, string>) => Promise<unknown>
+  getAll: () => Promise<SanitizedSettings>
+  updateGeneral: (patch: UpdateGeneralPatch) => Promise<unknown>
+  updateAI: (patch: UpdateAIPatch) => Promise<unknown>
+  updateBackup: (patch: UpdateBackupPatch) => Promise<unknown>
+  selectBackupFolder?: () => Promise<string | null>
 }
 
 export interface DiaryContextValue {

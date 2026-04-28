@@ -4,6 +4,7 @@ import { showToast } from './Toast'
 import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
 import type { Mistake, Subject, MistakeFilters } from '../types'
 import { calculateNextReview, isDueForReview, REVIEW_QUALITIES } from '../utils/spacedRepetition'
+import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 
 interface MistakeFilter {
@@ -350,84 +351,15 @@ export default function MistakeBook() {
             {/* Mistake List */}
             <div className="flex flex-col gap-sm">
                 {pagedMistakes.map(m => (
-                    <div key={m.id} className="card" style={{
-                        padding: 'var(--space-md)',
-                        borderLeft: `3px solid ${m.subject_color || 'var(--border)'}`,
-                        opacity: m.mastered ? 0.6 : 1
-                    }}>
-                        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xs)' }}>
-                            <div className="flex items-center gap-sm">
-                                {m.subject_name && (
-                                    <span className="text-sm" style={{
-                                        background: m.subject_color + '22', color: m.subject_color,
-                                        padding: '1px 8px', borderRadius: 'var(--radius-sm)', fontWeight: 500
-                                    }}>
-                                        {m.subject_name}
-                                    </span>
-                                )}
-                                {m.mastered
-                                    ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 斩首成功 (已掌握)</span>
-                                    : isDueForReview(m.next_review_date) 
-                                        ? <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
-                                        : <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 下次复习: {m.next_review_date}</span>
-                                }
-                            </div>
-                            <div className="flex gap-xs">
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
-                                    onClick={() => toggleMastered(m.id)}>
-                                    {m.mastered ? <><Undo2 size={13} /> 重新加入计划</> : <><CheckCircle2 size={13} /> 彻底掌握</>}
-                                </button>
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                    onClick={() => handleEdit(m)}><Pencil size={13} /></button>
-                                <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                    onClick={() => handleDelete(m.id)}
-                                    onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
-                                    onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
-                                ><Trash2 size={13} /></button>
-                            </div>
-                        </div>
-                        <div style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
-                            <strong>Q：</strong><Latex>{m.question}</Latex>
-                        </div>
-                        {m.image_path && (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
-                                {parseImagePaths(m.image_path).map((imgPath, idx) => (
-                                    <img
-                                        key={idx}
-                                        src={`local://${imgPath}`}
-                                        alt={`图片 ${idx + 1}`}
-                                        style={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                        {m.answer && (
-                            <div className="text-secondary" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
-                                <strong>A：</strong><Latex>{m.answer}</Latex>
-                            </div>
-                        )}
-                        {m.notes && (
-                            <div className="text-sm text-muted" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                                <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} /> {m.notes}
-                            </div>
-                        )}
-                        
-                        {/* Spaced Repetition Review Buttons */}
-                        {!m.mastered && isDueForReview(m.next_review_date) && (
-                            <div className="flex gap-sm" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)' }}>
-                                {REVIEW_QUALITIES.map(rq => (
-                                    <button 
-                                        key={rq.quality}
-                                        className="button button-secondary"
-                                        style={{ flex: 1, color: rq.color, borderColor: rq.color + '44' }}
-                                        onClick={() => handleReview(m, rq.quality)}
-                                    >
-                                        {rq.label}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <MistakeItem
+                        key={m.id}
+                        mistake={m}
+                        parseImagePaths={parseImagePaths}
+                        toggleMastered={toggleMastered}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        handleReview={handleReview}
+                    />
                 ))}
                 {mistakes.length === 0 && (
                     <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }} data-testid="mistake-empty-state">

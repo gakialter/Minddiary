@@ -6,7 +6,7 @@ const AI_TIMEOUT_MS = 30_000;
 
 async function chat(messages: AIMessage[]): Promise<AIResponse> {
     const endpoint = db.getSetting('aiEndpoint');
-    const apiKey = db.getSetting('aiApiKey');
+    const apiKey = db.getAiApiKey();
     const model = db.getSetting('aiModel') || 'gpt-3.5-turbo';
 
     if (!endpoint || !apiKey) {

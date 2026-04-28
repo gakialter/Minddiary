@@ -35,3 +35,11 @@ export function getTodayStr(): string {
 export function calculateWordCount(text: string | null | undefined): number {
   return (text || '').replace(/\s/g, '').length
 }
+
+/**
+ * Parse a string-stored boolean (settings values, localStorage, etc.)
+ * back to a boolean with a given default.
+ */
+export function coerceBoolean(value: unknown, defaultValue: boolean): boolean {
+  return String(value ?? String(defaultValue)) === 'true'
+}
