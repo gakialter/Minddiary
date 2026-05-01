@@ -115,7 +115,9 @@ function Settings() {
         version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0',
         timestamp: new Date().toISOString(),
         data: {
-          entries, tags, subjects, mistakes, pomodoro,
+          entries, tags, subjects, 
+          mistakes: mistakes && typeof mistakes === 'object' && 'data' in (mistakes as any) ? (mistakes as any).data : mistakes,
+          pomodoro,
           settings: sanitizeSettingsForExport(allSettings as Record<string, unknown>),
         }
       }

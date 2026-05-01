@@ -90,12 +90,12 @@ if (parentPort) {
         try {
             switch (task.type) {
                 case 'writeBuffer': {
-                    await handleWriteBuffer(task.payload);
+                    await handleWriteBuffer(task.payload as { bufferB64: string; filepath: string; expectedExt?: string });
                     result.success = true;
                     break;
                 }
                 case 'validateImage': {
-                    const buf = Buffer.from(task.payload.bufferB64, 'base64');
+                    const buf = Buffer.from((task.payload as { bufferB64: string }).bufferB64, 'base64');
                     const fmt = detectFormat(buf);
                     result.success = true;
                     result.data = { format: fmt };

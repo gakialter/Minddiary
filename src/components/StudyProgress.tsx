@@ -40,11 +40,12 @@ export default function StudyProgress() {
             const [subjData, pStats, mistData] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
                 pomodoroAPI.getStats(new Date().toISOString().split('T')[0]!).catch(() => [] as PomodoroStat[]),
-                mistakesAPI.getAll({}).catch(() => [] as Mistake[])
+                mistakesAPI.getAll({}).catch(() => ({ data: [] } as any))
             ])
             setSubjects((subjData || []) as Subject[])
             setPomodoroStats((pStats || []) as PomodoroStat[])
-            setMistakes((mistData || []) as Mistake[])
+            const mistArray = mistData && 'data' in mistData ? mistData.data : mistData;
+            setMistakes((mistArray || []) as Mistake[])
         } catch (e) {
             logger.error(e)
         } finally {

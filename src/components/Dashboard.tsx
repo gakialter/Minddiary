@@ -82,12 +82,14 @@ export default function Dashboard() {
             const totalMins = (pomodoroAllTime as PomodoroRangeEntry[]).reduce((sum: number, day: PomodoroRangeEntry) => sum + day.total_minutes, 0);
             const totalSessions = (pomodoroAllTime as PomodoroRangeEntry[]).reduce((sum: number, day: PomodoroRangeEntry) => sum + day.session_count, 0);
 
+            const mistArray = mistakesList && 'data' in (mistakesList as any) ? (mistakesList as any).data : mistakesList;
+
             setStats({
                 totalPomodoroMinutes: totalMins,
                 sessionCount: totalSessions,
                 streakDays: streak as number,
-                masteredMistakes: (mistakesList as Mistake[]).filter(m => m.mastered).length,
-                totalMistakes: (mistakesList as Mistake[]).length,
+                masteredMistakes: (mistArray as Mistake[]).filter(m => m.mastered).length,
+                totalMistakes: (mistArray as Mistake[]).length,
                 dueMistakes: dueCount as number
             });
 
