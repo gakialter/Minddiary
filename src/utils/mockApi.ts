@@ -63,7 +63,7 @@ const mockApi: ElectronAPI = {
         getRange: async () => [],
     },
     mistakes: {
-        getAll: async () => [],
+        getAll: async () => ({ data: [], total: 0, masteredTotal: 0 }),
         create: async () => ({ id: Math.floor(Math.random() * 1000) }),
         update: async () => {},
         delete: async () => {},
@@ -110,6 +110,6 @@ const mockApi: ElectronAPI = {
 
 // Install mock API if running outside Electron
 if (!window.api) {
-    console.warn('[MindDiary] Electron API not available, using mock API for development')
+    logger.warn('[MindDiary] Electron API not available, using mock API for development')
     window.api = mockApi
 }

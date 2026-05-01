@@ -51,13 +51,13 @@ function allowedExtension(ext: string): boolean {
 interface Task {
     id: number;
     type: string;
-    payload: any;
+    payload: Record<string, unknown>;
 }
 
 interface TaskResult {
     id: number;
     success: boolean;
-    data?: any;
+    data?: { format: string | null };
     error?: string;
     errorCode?: string;
 }
@@ -105,9 +105,10 @@ if (parentPort) {
                     result.error = `Unknown task type: ${task.type}`;
                     result.errorCode = ErrorCode.VALIDATION_ERROR;
             }
-        } catch (err: any) {
-            result.error = err.message || String(err);
-            if (err.code === 'ENOENT' || err.code === 'EACCES') {
+        } catch (err: unknown) {
+            const e = err as NodeJS.ErrnoException;
+            result.error = e.message || String(err);
+            if (e.code === 'ENOENT' || e.code === 'EACCES') {
                 result.errorCode = ErrorCode.FILE_WRITE_ERROR;
             } else {
                 result.errorCode = ErrorCode.PROCESSING_ERROR;
@@ -118,5 +119,6 @@ if (parentPort) {
     });
 } else {
     // Should never happen in worker context
-    console.error('[imageWorker] Not running as a worker thread');
+    // Worker thread — cannot import electron logger; stderr is fine here
+    process.stderr.write('[imageWorker] Not running as a worker thread\n');
 }

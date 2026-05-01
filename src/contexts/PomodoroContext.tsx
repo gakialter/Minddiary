@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { useDiary } from './DiaryContext'
 import { coerceBoolean } from '../utils/helpers'
+import { logger } from '../utils/logger'
 import type { Subject, PomodoroStat } from '../types'
 
 interface PomodoroMode {
@@ -32,7 +33,6 @@ interface PomodoroDataValue {
     duration: number
     todayTotal: number
   }
-  onBreakStart: (() => void) | null
 }
 
 interface PomodoroActionsValue {
@@ -90,8 +90,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [selectedSubject, setSelectedSubject] = useState<number | null>(null)
   const [todayStats, setTodayStats] = useState<PomodoroStat[]>([])
   const [todayTotal, setTodayTotal] = useState(0)
-  const [onBreakStart, setOnBreakStart] = useState<(() => void) | null>(null)
   const onBreakStartRef = useRef<(() => void) | null>(null)
+  const setOnBreakStart = useCallback((cb: (() => void) | null) => {
+    onBreakStartRef.current = cb
+  }, [])
 
   // Alert modal state
   const [alertState, setAlertState] = useState({
@@ -106,7 +108,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     try {
       const data = await subjectsAPI.getAll()
       setSubjects(data || [])
-    } catch (e) { console.error(e) }
+    } catch (e) { logger.error(e) }
   }, [subjectsAPI])
 
   const loadTodayStats = useCallback(async () => {
@@ -116,7 +118,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       setTodayStats(stats || [])
       const total = await pomodoroAPI.getDailyTotal(today)
       setTodayTotal(total || 0)
-    } catch (e) { console.error(e) }
+    } catch (e) { logger.error(e) }
   }, [pomodoroAPI])
 
   useEffect(() => {
@@ -159,22 +161,23 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       if (soundEnabled) {
         const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
         const ctx = AudioCtx ? new AudioCtx() : null
-        if (!ctx) return
-        const gainNode = ctx.createGain()
-        gainNode.gain.setValueAtTime(0.35, ctx.currentTime)
-        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
-        gainNode.connect(ctx.destination)
-        // Two-tone chime
-        const tones = [880, 1046]
-        tones.forEach((freq, i) => {
-          const osc = ctx.createOscillator()
-          osc.type = 'sine'
-          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18)
-          osc.connect(gainNode)
-          osc.start(ctx.currentTime + i * 0.18)
-          osc.stop(ctx.currentTime + i * 0.18 + 1.0)
-        })
-        setTimeout(() => ctx.close(), 2000)
+        if (ctx) {
+          const gainNode = ctx.createGain()
+          gainNode.gain.setValueAtTime(0.35, ctx.currentTime)
+          gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
+          gainNode.connect(ctx.destination)
+          // Two-tone chime
+          const tones = [880, 1046]
+          tones.forEach((freq, i) => {
+            const osc = ctx.createOscillator()
+            osc.type = 'sine'
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18)
+            osc.connect(gainNode)
+            osc.start(ctx.currentTime + i * 0.18)
+            osc.stop(ctx.currentTime + i * 0.18 + 1.0)
+          })
+          setTimeout(() => ctx.close(), 2000)
+        }
       }
 
       // ── Alert modal ──
@@ -190,7 +193,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         })
       }
     } catch (e) {
-      console.warn('Pomodoro notification error:', e)
+      logger.warn('Pomodoro notification error:', e)
     }
 
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -208,7 +211,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         })
         loadTodayStats()
         await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
-      } catch (e) { console.error(e) }
+      } catch (e) { logger.error(e) }
       // Fire break-start callback so App can show BreakReviewModal
       if (onBreakStartRef.current) {
         onBreakStartRef.current()
@@ -267,17 +270,14 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }), [mode, timeLeft, isRunning, progress, circleCircumference, miniCircumference, dynamicModes])
 
   const dataValue = useMemo((): PomodoroDataValue => ({
-    subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, onBreakStart
-  }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, onBreakStart])
+    subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState
+  }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
     setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, formatTime, 
     loadSubjects, loadTodayStats, dismissAlert,
-    setOnBreakStart: (cb) => {
-      onBreakStartRef.current = cb
-      setOnBreakStart(cb)
-    }
-  }), [toggleTimer, resetTimer, formatTime, loadSubjects, loadTodayStats, dismissAlert])
+    setOnBreakStart,
+  }), [toggleTimer, resetTimer, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>
@@ -309,6 +309,10 @@ export function usePomodoroActions() {
   return ctx
 }
 
+/**
+ * @deprecated Use `usePomodoroTimer`, `usePomodoroData`, and `usePomodoroActions` instead.
+ * This combined hook re-renders on ANY context change and defeats the split optimization.
+ */
 // Legacy combined hook (re-renders on any change)
 export function usePomodoroContext() {
   const timer = usePomodoroTimer()

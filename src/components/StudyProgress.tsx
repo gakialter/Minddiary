@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { logger } from '../utils/logger'
 import { Rocket, Target, Pencil, Trash2, Library, PlusCircle, Sparkles } from 'lucide-react'
 import type { Subject, Mistake, PomodoroStat } from '../types'
 
@@ -45,7 +46,7 @@ export default function StudyProgress() {
             setPomodoroStats((pStats || []) as PomodoroStat[])
             setMistakes((mistData || []) as Mistake[])
         } catch (e) {
-            console.error(e)
+            logger.error(e)
         } finally {
             setLoading(false)
         }
@@ -119,7 +120,7 @@ export default function StudyProgress() {
             loadAllData()
             showToast(editingId ? '科目已更新' : '已添加新科目', 'success')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('保存失败', 'error')
         }
     }
@@ -137,7 +138,7 @@ export default function StudyProgress() {
             loadAllData()
             showToast('科目已删除', 'success')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('删除失败', 'error')
         }
     }
@@ -151,7 +152,7 @@ export default function StudyProgress() {
             })
             // Optimistic update
             setSubjects(prev => prev.map(s => s.id === subject.id ? { ...s, completed_chapters: newCompleted } : s));
-        } catch (e) { console.error(e) }
+        } catch (e) { logger.error(e) }
     }
 
     // Zen Forest Palette
@@ -174,7 +175,7 @@ export default function StudyProgress() {
             {/* Overall Header Banner */}
             <div className="card" style={{
                 padding: 'var(--space-xl)', marginBottom: 'var(--space-2xl)',
-                background: 'linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%)',
+                background: 'var(--bg-tertiary)',
                 border: '1px solid var(--border-light)'
             }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
@@ -198,7 +199,7 @@ export default function StudyProgress() {
                 <div style={{ height: 12, background: 'var(--bg-primary)', borderRadius: 6, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' }}>
                     <div style={{
                         height: '100%', width: `${overallProgress}%`,
-                        background: 'linear-gradient(90deg, var(--accent), var(--accent-light))',
+                        background: 'var(--accent)',
                         borderRadius: 6, transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)'
                     }} />
                 </div>

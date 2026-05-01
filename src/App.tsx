@@ -17,6 +17,7 @@ import BreakReviewModal from './components/BreakReviewModal'
 import PomodoroAlert from './components/PomodoroAlert'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/Toast'
+import { logger } from './utils/logger'
 import type { DiaryEntry, MoodId } from './types'
 
 interface ViewErrorFallbackProps {
@@ -64,8 +65,7 @@ function AppContent() {
   useEffect(() => {
     setOnBreakStart(() => setShowBreakReview(true))
     return () => setOnBreakStart(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [setOnBreakStart])
 
   // ─── Global keyboard shortcuts (extracted hook) ───
   const keyBindings = useMemo(() => ({
@@ -97,7 +97,7 @@ function AppContent() {
         setEntry({ date, title: '', content: '', mood: null, tags: [], word_count: 0, created_at: '', updated_at: '', id: 0 } as DiaryEntry)
       }
     } catch (error) {
-      console.error('Failed to load entry:', error)
+      logger.error('Failed to load entry:', error)
       setEntry({ date, title: '', content: '', mood: null, tags: [], word_count: 0, created_at: '', updated_at: '', id: 0 } as DiaryEntry)
     } finally {
       setLoading(false)
@@ -114,7 +114,7 @@ function AppContent() {
       }
       if (saved) setEntry(saved)
     } catch (error) {
-      console.error('Failed to save entry:', error)
+      logger.error('Failed to save entry:', error)
     }
   }
 
@@ -176,7 +176,7 @@ function AppContent() {
         )}
         <div style={{ flex: 1, overflow: 'auto', padding: activeView === 'editor' ? 0 : 'var(--space)' }}>
           <div key={activeView} className="view-transition">
-            <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => {}}>
+            <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => setActiveView('welcome')}>
               {renderView()}
             </ErrorBoundary>
           </div>

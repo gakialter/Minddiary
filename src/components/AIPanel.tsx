@@ -99,8 +99,8 @@ export default function AIPanel({ entry }: AIPanelProps) {
 
     const analyzeMistakes = async () => {
         try {
-            const mistakesList = await mistakesAPI.getAll({})
-            sendMessage(buildMistakeAnalysisPrompt(mistakesList || []))
+            const mistakesResponse = await mistakesAPI.getAll({})
+            sendMessage(buildMistakeAnalysisPrompt(mistakesResponse?.data || []))
         } catch {
             sendMessage(buildMistakeAnalysisPrompt([]))
         }
@@ -108,8 +108,8 @@ export default function AIPanel({ entry }: AIPanelProps) {
 
     const quizMe = async () => {
         try {
-            const mistakesList = await mistakesAPI.getAll({ mastered: false })
-            sendMessage(buildQuizMePrompt(mistakesList || [], 2))
+            const mistakesResponse = await mistakesAPI.getAll({ mastered: false })
+            sendMessage(buildQuizMePrompt(mistakesResponse?.data || [], 2))
         } catch {
             sendMessage(buildQuizMePrompt([], 2))
         }
@@ -140,7 +140,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
             {/* Header */}
             <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', background: 'transparent', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="flex items-center gap-sm">
-                    <div style={{ width: 36, height: 36, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent-light), var(--bg-tertiary))', color: 'var(--accent)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', color: 'var(--accent)' }}>
                         <Bot size={20} />
                     </div>
                     <div>
@@ -163,7 +163,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                         <div style={{
                             width: 80, height: 80, borderRadius: 24,
                             display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)',
-                            background: 'linear-gradient(135deg, var(--accent-light), var(--bg-tertiary))',
+                            background: 'var(--bg-tertiary)',
                             color: 'var(--accent)',
                             boxShadow: 'inset 0 4px 10px rgba(255,255,255,0.6), var(--shadow-sm)'
                         }}>
@@ -203,7 +203,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                             borderRadius: 16,
                             borderTopRightRadius: msg.role === 'user' ? 4 : 16,
                             borderTopLeftRadius: msg.role === 'assistant' ? 4 : 16,
-                            background: msg.role === 'user' ? 'linear-gradient(135deg, var(--accent), var(--accent-light))' : 'var(--bg-tertiary)',
+                            background: msg.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
                             color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
                             boxShadow: msg.role === 'user' ? '0 4px 12px rgba(15, 118, 110, 0.2)' : 'none',
                             fontSize: 15, lineHeight: 1.6

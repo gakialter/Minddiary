@@ -81,6 +81,8 @@ export interface MistakeFilters {
   subject_id?: number
   mastered?: boolean | number
   search?: string
+  limit?: number
+  offset?: number
 }
 
 // ─── Attachments ────────────────────────────────────────────────────────────

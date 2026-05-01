@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { compressImages } from '../utils/imageCompressor'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { logger } from '../utils/logger'
 import { Image as ImageIcon, Camera } from 'lucide-react'
 import type { Attachment } from '../types'
 
@@ -26,7 +27,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
         if (!filepath || typeof filepath !== 'string') return ''
         // Block any path traversal sequences
         if (filepath.includes('..')) {
-            console.warn('[ImageGallery] Blocked path traversal attempt:', filepath)
+            logger.warn('[ImageGallery] Blocked path traversal attempt:', filepath)
             return ''
         }
         return `file://${filepath}`
@@ -42,7 +43,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
         try {
             const data = await attachmentsAPI.getByEntry(entryId)
             setAttachments(data || [])
-        } catch (e) { console.error(e) }
+        } catch (e) { logger.error(e) }
     }
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement> | { target: HTMLInputElement }) => {
@@ -62,7 +63,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
 
         for (const { file, result, error } of compressed) {
             if (error || !result) {
-                console.error('Compression failed for', file.name, error)
+                logger.error('Compression failed for', file.name, error)
                 showToast(`图片 ${file.name} 处理失败`, 'error')
                 continue
             }
@@ -73,7 +74,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
                     mimetype: result.blob.type,
                 })
             } catch (err) { 
-                console.error('Failed to upload:', err) 
+                logger.error('Failed to upload:', err) 
                 showToast(`图片 ${file.name} 上传失败`, 'error')
             }
         }
@@ -93,7 +94,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
             loadAttachments()
             showToast('图片已删除', 'success')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('删除失败', 'error')
         }
     }

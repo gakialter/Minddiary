@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
+import { logger } from '../utils/logger'
 import type { Mistake, Subject, MistakeFilters } from '../types'
 import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
 import { MistakeItem } from './MistakeItem'
@@ -36,6 +37,8 @@ const serializeImagePaths = (paths: string[]): string | null => {
 export default function MistakeBook() {
     const diary = useDiary()
     const [mistakes, setMistakes] = useState<Mistake[]>([])
+    const [totalCount, setTotalCount] = useState(0)
+    const [masteredCount, setMasteredCount] = useState(0)
     const [subjects, setSubjects] = useState<Subject[]>([])
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -53,7 +56,7 @@ export default function MistakeBook() {
         loadMistakes()
     }, [])
 
-    useEffect(() => { loadMistakes() }, [filter])
+    useEffect(() => { loadMistakes() }, [filter, page])
 
     // Debounced search: update filter.search 300ms after user stops typing
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,18 +73,26 @@ export default function MistakeBook() {
         try {
             const data = await diary.subjects.getAll()
             setSubjects(data || [])
-        } catch (e) { console.error(e) }
+        } catch (e) { logger.error(e) }
     }
 
     const loadMistakes = async () => {
         try {
-            const filters: MistakeFilters = {}
+            const filters: MistakeFilters = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
             if (filter.subject_id) filters.subject_id = Number(filter.subject_id)
             if (filter.mastered !== '') filters.mastered = filter.mastered === 'true'
             if (filter.search) filters.search = filter.search
-            const data = await diary.mistakes.getAll(filters)
-            setMistakes(data || [])
-        } catch (e) { console.error(e) }
+            const response = await diary.mistakes.getAll(filters) as any
+            if (Array.isArray(response)) {
+                setMistakes(response)
+                setTotalCount(response.length)
+                setMasteredCount(response.filter(m => m.mastered).length)
+            } else {
+                setMistakes(response?.data || [])
+                setTotalCount(response?.total || 0)
+                setMasteredCount(response?.masteredTotal || 0)
+            }
+        } catch (e) { logger.error(e) }
     }
 
     const handleSubmit = async () => {
@@ -105,7 +116,7 @@ export default function MistakeBook() {
             loadMistakes()
             showToast(editingId ? '修改已保存' : '已添加新的记录', 'success')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('保存失败', 'error')
         }
     }
@@ -138,7 +149,7 @@ export default function MistakeBook() {
             }
             reader.readAsDataURL(file)
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('图片上传失败', 'error')
         }
     }
@@ -189,7 +200,7 @@ export default function MistakeBook() {
             loadMistakes()
             showToast('已删除', 'success')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('删除失败', 'error')
         }
     }
@@ -198,7 +209,7 @@ export default function MistakeBook() {
         try {
             await diary.mistakes.toggleMastered(id)
             loadMistakes()
-        } catch (e) { console.error(e) }
+        } catch (e) { logger.error(e) }
     }
 
     const handleReview = async (m: Mistake, quality: number) => {
@@ -214,15 +225,13 @@ export default function MistakeBook() {
             if (quality >= 3) showToast('复习成功，已安排下次复习', 'success')
             else showToast('没关系，已重置学习进度', 'info')
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             showToast('复习记录失败', 'error')
         }
     }
 
-    const masteredCount = mistakes.filter(m => m.mastered).length
-    const totalCount = mistakes.length
     const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
-    const pagedMistakes = mistakes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+    const pagedMistakes = mistakes
 
     return (
         <div style={{ padding: 'var(--space-xl)' }}>

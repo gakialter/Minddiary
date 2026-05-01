@@ -3,6 +3,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { sanitizeSettingsForExport } from '../utils/sanitize'
 import { coerceBoolean } from '../utils/helpers'
+import { logger } from '../utils/logger'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsAbout } from './SettingsSections'
 function Settings() {
@@ -47,7 +48,7 @@ function Settings() {
       setPomodoroAlert(coerceBoolean(settings.pomodoroAlert, true))
       setSettingsLoaded(true)
     } catch (error) {
-      console.error('Failed to load settings:', error)
+      logger.error('Failed to load settings:', error)
     }
   }
 
@@ -89,7 +90,7 @@ function Settings() {
       setAiKeyDirty(false)
       showToast('设置已保存', 'success')
     } catch (error) {
-      console.error('Failed to save settings:', error)
+      logger.error('Failed to save settings:', error)
       showToast('保存失败', 'error')
     } finally {
       setSaving(false)
@@ -132,7 +133,7 @@ function Settings() {
 
       showToast('导出成功', 'success')
     } catch (e: unknown) {
-      console.error(e)
+      logger.error(e)
       showToast('导出失败: ' + (e instanceof Error ? e.message : String(e)), 'error')
     } finally {
       setSaving(false)
@@ -219,7 +220,7 @@ function Settings() {
           showToast(`导入完成，处理了 ${importCount} 篇日记。请重启应用以刷新状态。`, 'success', 5000)
 
         } catch (error: unknown) {
-          console.error('Import failed:', error)
+          logger.error('Import failed:', error)
           showToast(`导入失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
         } finally {
           setSaving(false)

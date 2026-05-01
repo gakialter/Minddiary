@@ -12,12 +12,40 @@
 const { Worker } = require('worker_threads');
 const path = require('path');
 const os = require('os');
+const { logger } = require('./logger');
 
 const DEFAULT_POOL_SIZE = 2;
 const TASK_TIMEOUT_MS = 30_000;
 
+// ── Worker task payload/result shapes ───────────────────────────────────────
+interface WriteBufferPayload {
+    bufferB64: string;
+    filepath: string;
+    expectedExt?: string;
+}
+
+interface ValidateImagePayload {
+    bufferB64: string;
+}
+
+type TaskPayload = WriteBufferPayload | ValidateImagePayload;
+
+interface WorkerResult {
+    id: number;
+    success: boolean;
+    data?: { format: string | null };
+    error?: string;
+    errorCode?: string;
+}
+
+interface WorkerError {
+    code: string;
+    message: string;
+}
+
+// ── Pool internals ──────────────────────────────────────────────────────────
 interface PoolWorker {
-    worker: any; // Worker
+    worker: InstanceType<typeof import('worker_threads').Worker>;
     busy: boolean;
     id: number;
 }
@@ -25,9 +53,9 @@ interface PoolWorker {
 interface PendingTask {
     id: number;
     type: string;
-    payload: any;
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
+    payload: TaskPayload;
+    resolve: (value: WorkerResult['data']) => void;
+    reject: (reason: WorkerError) => void;
     timer: ReturnType<typeof setTimeout>;
 }
 
@@ -55,7 +83,7 @@ function spawnWorker(id: number): void {
     const worker = new Worker(getWorkerScript());
     const poolWorker: PoolWorker = { worker, busy: false, id };
 
-    worker.on('message', (result: any) => {
+    worker.on('message', (result: WorkerResult) => {
         poolWorker.busy = false;
         // Find the pending task that matches this result
         const idx = pending.findIndex(t => t.id === result.id);
@@ -75,7 +103,7 @@ function spawnWorker(id: number): void {
     });
 
     worker.on('error', (err: Error) => {
-        console.error(`[imageWorkerPool] Worker ${id} error:`, err.message);
+        logger.error(`[imageWorkerPool] Worker ${id} error:`, err.message);
         // Replace crashed worker
         poolWorker.busy = false;
         const idx = workers.indexOf(poolWorker);
@@ -107,7 +135,7 @@ function dispatchTask(poolWorker: PoolWorker, task: PendingTask): void {
     poolWorker.worker.postMessage({ id: task.id, type: task.type, payload: task.payload });
 }
 
-function submit(type: string, payload: any): Promise<any> {
+function submit(type: string, payload: TaskPayload): Promise<WorkerResult['data']> {
     const id = nextTaskId++;
 
     return new Promise((resolve, reject) => {

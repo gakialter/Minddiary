@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
+import { logger } from '../utils/logger'
 import Skeleton from './Skeleton'
 import { Palette, X, Tags } from 'lucide-react'
 import type { Tag } from '../types'
@@ -22,7 +23,7 @@ function TagManager() {
       const data = await diary.tags.getAll()
       setTags(data || [])
     } catch (error) {
-      console.error('Failed to load tags:', error)
+      logger.error('Failed to load tags:', error)
     } finally {
       setLoading(false)
     }
@@ -37,7 +38,7 @@ function TagManager() {
       loadTags()
       showToast(`标签「${newTagName.trim()}」已创建`, 'success')
     } catch (error) {
-      console.error('Failed to create tag:', error)
+      logger.error('Failed to create tag:', error)
       showToast('创建失败', 'error')
     }
   }
@@ -47,7 +48,7 @@ function TagManager() {
       await diary.tags.update(id, updates)
       loadTags()
     } catch (error) {
-      console.error('Failed to update tag:', error)
+      logger.error('Failed to update tag:', error)
     }
   }
 
@@ -58,7 +59,7 @@ function TagManager() {
       loadTags()
       showToast('标签已删除', 'success')
     } catch (error) {
-      console.error('Failed to delete tag:', error)
+      logger.error('Failed to delete tag:', error)
     }
   }
 

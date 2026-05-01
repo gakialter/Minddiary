@@ -4,6 +4,7 @@ const { app } = require('electron');
 const { pathToFileURL, fileURLToPath } = require('url');
 const db = require('./database');
 const pool = require('./imageWorkerPool');
+const { logger } = require('./logger');
 
 import type { Attachment, AttachmentData } from '../src/types/index';
 
@@ -68,8 +69,8 @@ async function deleteAttachment(id: number): Promise<{ success: boolean }> {
         const filepath = path.join(attachmentsDir, attachment.filepath);
         try {
             await fs.promises.unlink(filepath);
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
+        } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
         }
         db.removeAttachment(id);
     }
@@ -82,8 +83,8 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
     const results = await Promise.allSettled(
         attachments.map(async (attachment) => {
             const filepath = path.join(attachmentsDir, attachment.filepath);
-            await fs.promises.unlink(filepath).catch((err: any) => {
-                if (err.code !== 'ENOENT') throw err;
+            await fs.promises.unlink(filepath).catch((err: unknown) => {
+                if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
             });
         })
     );
@@ -94,7 +95,7 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
         if (r.status === 'fulfilled') {
             deleted++;
         } else {
-            console.error(
+            logger.error(
                 `[fileManager] Failed to delete physical file for attachment id=${attachments[i].id}:`,
                 r.reason instanceof Error ? r.reason.message : String(r.reason)
             );
@@ -106,7 +107,12 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 }
 
 function getAttachmentPath(filepath: string): string {
-    return path.join(attachmentsDir, filepath);
+    const resolved = path.resolve(attachmentsDir, filepath);
+    const relative = path.relative(attachmentsDir, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw { code: 'PATH_TRAVERSAL', message: 'Invalid attachment path' };
+    }
+    return resolved;
 }
 
 // ── Mistake Images ───────────────────────────────────────────────────────────
@@ -132,16 +138,21 @@ async function saveMistakeImage({ data, ext = '.png' }: { data: string; ext?: st
 async function deleteMistakeImage(urlPathname: string): Promise<void> {
     try {
         const filepath = fileURLToPath('file://' + urlPathname);
-        await fs.promises.unlink(filepath).catch((err: any) => {
-            if (err.code !== 'ENOENT') throw err;
+        await fs.promises.unlink(filepath).catch((err: unknown) => {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
         });
     } catch (e) {
-        console.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
+        logger.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
     }
 }
 
 function getMistakeImagePath(filename: string): string {
-    return path.join(mistakeImagesDir, filename);
+    const resolved = path.resolve(mistakeImagesDir, filename);
+    const relative = path.relative(mistakeImagesDir, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw { code: 'PATH_TRAVERSAL', message: 'Invalid image path' };
+    }
+    return resolved;
 }
 
 module.exports = {

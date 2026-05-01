@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { getTodayStr } from '../utils/helpers'
+import { logger } from '../utils/logger'
 import type { TodayDashboardData } from '../types'
 
 const EMPTY_STATE: TodayDashboardData = {
@@ -34,7 +35,7 @@ export function useTodayStats() {
       const result = await todayDashboard.getData(getTodayStr())
       setData(result)
     } catch (err) {
-      console.error('[useTodayStats] Failed to load:', err)
+      logger.error('[useTodayStats] Failed to load:', err)
       setError(err instanceof Error ? err.message : '加载今日数据失败')
     } finally {
       setLoading(false)

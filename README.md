@@ -101,6 +101,18 @@ tests/          Vitest 单元测试 + 组件测试
 
 ## 更新日志
 
+### v1.8.3 — 架构重构与性能起飞 (2026-05-02)
+
+**核心重构**：
+- **服务端分页**：错题本（`MistakeBook`）从全量加载切片重构为原生 SQLite `LIMIT/OFFSET` 分页，彻底解决大量错题导致的内存和渲染瓶颈。
+- **状态流解耦**：移除 `DataContext` 启动时的急切状态初始化（`useState` 数组），全面改为按需代理的 IPC（Inter-Process Communication）接口，降低前端内存堆积。
+- **性能优化**：将 `database.ts` 中的 `ORDER BY RANDOM()` 慢查询重构为 `LIMIT 1 OFFSET (RANDOM() % COUNT)`，消除全表扫描带来的高延迟。
+
+**安全与工程规范**：
+- **安全加固**：为 `SettingsContext` 实现严格的参数白名单及 `sanitizePatch` 过滤，收束 IPC 通信层风险。
+- **代码净化**：全局清理 15 处 `any` 类型定义，并完成 58 处无序 `console.*` 到中心化 `logger.ts` 的接口迁移。
+- **异常恢复**：为全局 `ErrorBoundary` 增加 `onReset` 路由重置机制，修复界面组件崩溃后的“重试”死循环。
+
 ### v1.8.2 — Bug 修复与安全加固 (2026-04-27)
 
 **Bug 修复**：

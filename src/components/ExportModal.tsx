@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle, XCircle, Check } from 'lucide-react'
 import { generateMarkdown, generateJSON, generatePdfHtml } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
+import { logger } from '../utils/logger'
 import { Download, FileDown, FileText, FileJson } from 'lucide-react'
 
 interface ExportFormat {
@@ -59,7 +60,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
             const [entries, subjects, mistakes] = await Promise.all([
                 entriesAPI.getAll({ includeContent: true }),
                 subjectsAPI.getAll(),
-                mistakesAPI.getAll({}),
+                mistakesAPI.getAll({}).then(res => res?.data || []),
             ])
 
             if (!entries?.length) {
@@ -100,7 +101,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
             setStatus('success')
             setMessage(`已成功导出到：${savePath}`)
         } catch (err: unknown) {
-            console.error('Export failed:', err)
+            logger.error('Export failed:', err)
             setStatus('error')
             setMessage(`导出失败：${err instanceof Error ? err.message : String(err)}`)
         }

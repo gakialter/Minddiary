@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol, net } = require('electron');
-let autoUpdater: any = null;
+const { logger } = require('./logger');
+let autoUpdater: typeof import('electron-updater').autoUpdater | null = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
 const fs = require('fs');
@@ -98,7 +99,7 @@ ipcMain.handle('updater:check', async () => {
         const result = await autoUpdater.checkForUpdates();
         return { success: true, info: result?.updateInfo };
     } catch (e: unknown) {
-        console.error('Update check failed:', e instanceof Error ? e.message : String(e));
+        logger.error('Update check failed:', e instanceof Error ? e.message : String(e));
         return { success: false, message: '检查更新失败: ' + (e instanceof Error ? e.message : String(e)) };
     }
 });
@@ -110,7 +111,7 @@ app.whenReady().then(() => {
             const decoded = decodeURIComponent(url);
             // Reject null bytes and non-printable control chars (except space)
             if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
-                console.warn('[local://] Rejected path with control characters');
+                logger.warn('[local://] Rejected path with control characters');
                 return new Response('Forbidden', { status: 403 });
             }
             const resolved = path.resolve(decoded);
@@ -118,12 +119,12 @@ app.whenReady().then(() => {
             const allowedBase = path.resolve(app.getPath('userData'));
             const relative = path.relative(allowedBase, resolved);
             if (relative.startsWith('..') || path.isAbsolute(relative)) {
-                console.warn('[local://] Blocked access outside userData:', resolved);
+                logger.warn('[local://] Blocked access outside userData:', resolved);
                 return new Response('Forbidden', { status: 403 });
             }
             return net.fetch('file://' + resolved);
         } catch (error) {
-            console.error('File protocol parse error:', error);
+            logger.error('File protocol parse error:', error);
             return new Response('Not Found', { status: 404 });
         }
     });
@@ -183,8 +184,13 @@ ipcMain.handle('window:maximize', () => {
     else mainWindow.maximize();
     return mainWindow.isMaximized();
 });
-ipcMain.handle('window:close', () => mainWindow.close());
-ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized());
+ipcMain.handle('window:close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+ipcMain.handle('window:isMaximized', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    return mainWindow.isMaximized();
+});
 
 // ==================== Entries ====================
 ipcMain.handle('entries:create', (_: unknown, entry: NewEntry) => db.createEntry(entry));
@@ -211,9 +217,55 @@ ipcMain.handle('tags:setEntryTags', (_: unknown, entryId: number, tagIds: number
 ipcMain.handle('tags:getEntryTags', (_: unknown, entryId: number) => db.getEntryTags(entryId));
 
 // ==================== Settings ====================
-// Single-key getter — refuses to return aiApiKey in plaintext
+
+// ── IPC Parameter Whitelist (P3 Security Hardening) ──────────────────────────
+// Only these keys may be read via settings:get. Unknown keys are rejected.
+const SETTINGS_READ_WHITELIST: ReadonlySet<string> = new Set([
+    'theme', 'examDate', 'dailyGoal', 'autoSave', 'notifications',
+    'aiEndpoint', 'aiModel', 'pomodoroMinutes',
+    'autoBackup', 'backupPath', 'pomodoroSound', 'pomodoroAlert',
+]);
+
+// Per-handler allowed patch keys and their expected JS types
+const GENERAL_PATCH_SCHEMA: Record<string, string> = {
+    examDate: 'string', theme: 'string', pomodoroMinutes: 'number',
+    autoSave: 'boolean', pomodoroSound: 'boolean', pomodoroAlert: 'boolean',
+};
+const AI_PATCH_SCHEMA: Record<string, string> = {
+    aiEndpoint: 'string', aiModel: 'string',
+    aiApiKey: 'string', clearAiApiKey: 'boolean',
+};
+const BACKUP_PATCH_SCHEMA: Record<string, string> = {
+    autoBackup: 'boolean', backupPath: 'string',
+};
+
+/** Strip any keys not in `schema`; reject values whose typeof mismatches. */
+function sanitizePatch<T extends Record<string, unknown>>(
+    raw: unknown,
+    schema: Record<string, string>,
+): T {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('Invalid patch: expected an object');
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, expectedType] of Object.entries(schema)) {
+        if (key in (raw as Record<string, unknown>)) {
+            const val = (raw as Record<string, unknown>)[key];
+            if (val !== undefined && typeof val !== expectedType) {
+                throw new Error(`Invalid type for "${key}": expected ${expectedType}, got ${typeof val}`);
+            }
+            out[key] = val;
+        }
+    }
+    return out as T;
+}
+
+// Single-key getter — refuses sensitive keys AND unknown keys
 ipcMain.handle('settings:get', (_: unknown, key: string) => {
-    if (key === 'aiApiKey') return null;
+    if (typeof key !== 'string' || !SETTINGS_READ_WHITELIST.has(key)) {
+        logger.warn('[settings:get] Rejected non-whitelisted key:', key);
+        return null;
+    }
     return db.getSetting(key);
 });
 
@@ -230,11 +282,12 @@ ipcMain.handle('settings:getAll', () => {
     return safe;
 });
 
-// Patch-based setters — never accept a full-settings overwrite
-ipcMain.handle('settings:updateGeneral', (_: unknown, patch: {
-    examDate?: string; theme?: string; pomodoroMinutes?: number;
-    autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
-}) => {
+// Patch-based setters — whitelist-sanitized, never accept a full-settings overwrite
+ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
+    const patch = sanitizePatch<{
+        examDate?: string; theme?: string; pomodoroMinutes?: number;
+        autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
+    }>(rawPatch, GENERAL_PATCH_SCHEMA);
     const txn = db.getDb().transaction(() => {
         if (patch.examDate !== undefined) db.setSetting('examDate', patch.examDate);
         if (patch.theme !== undefined) db.setSetting('theme', patch.theme);
@@ -247,10 +300,11 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, patch: {
     return { success: true };
 });
 
-ipcMain.handle('settings:updateAI', (_: unknown, patch: {
-    aiEndpoint?: string; aiModel?: string;
-    aiApiKey?: string; clearAiApiKey?: boolean;
-}) => {
+ipcMain.handle('settings:updateAI', (_: unknown, rawPatch: unknown) => {
+    const patch = sanitizePatch<{
+        aiEndpoint?: string; aiModel?: string;
+        aiApiKey?: string; clearAiApiKey?: boolean;
+    }>(rawPatch, AI_PATCH_SCHEMA);
     if (patch.aiApiKey !== undefined && patch.clearAiApiKey) {
         throw new Error('Cannot set and clear AI key simultaneously');
     }
@@ -270,9 +324,10 @@ ipcMain.handle('settings:updateAI', (_: unknown, patch: {
     return { success: true };
 });
 
-ipcMain.handle('settings:updateBackup', (_: unknown, patch: {
-    autoBackup?: boolean; backupPath?: string;
-}) => {
+ipcMain.handle('settings:updateBackup', (_: unknown, rawPatch: unknown) => {
+    const patch = sanitizePatch<{
+        autoBackup?: boolean; backupPath?: string;
+    }>(rawPatch, BACKUP_PATCH_SCHEMA);
     const txn = db.getDb().transaction(() => {
         if (patch.autoBackup !== undefined) db.setSetting('autoBackup', String(patch.autoBackup));
         if (patch.backupPath !== undefined) db.setSetting('backupPath', patch.backupPath);
@@ -308,7 +363,7 @@ ipcMain.handle('todayDashboard:getData', (_: unknown, date: string) => {
     try {
         return db.getTodayDashboard(date);
     } catch (e: unknown) {
-        console.error('todayDashboard:getData failed:', e instanceof Error ? e.message : String(e));
+        logger.error('todayDashboard:getData failed:', e instanceof Error ? e.message : String(e));
         throw e;
     }
 });
@@ -445,7 +500,7 @@ const runAutoBackup = async () => {
             }
         }
     } catch (e: unknown) {
-        console.error('Auto backup failed:', e instanceof Error ? e.message : String(e));
+        logger.error('Auto backup failed:', e instanceof Error ? e.message : String(e));
     }
 };
 

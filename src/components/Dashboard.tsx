@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getTodayStr } from '../utils/helpers';
 import { useDiary } from '../contexts/DiaryContext';
+import { logger } from '../utils/logger';
 import { BarChart2, Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
 import type { PomodoroRangeEntry, Mistake } from '../types';
 
@@ -123,7 +124,7 @@ export default function Dashboard() {
             setHeatmapData(formattedHeatmap);
 
         } catch (err: unknown) {
-            console.error('Failed to load dashboard:', err);
+            logger.error('Failed to load dashboard:', err);
             setError(err instanceof Error ? err.message : '加载统计数据失败');
         } finally {
             setLoading(false);
@@ -253,7 +254,7 @@ export default function Dashboard() {
                                         {/* Pure CSS Bar */}
                                         <div style={{
                                             width: '100%', maxWidth: 36, height: `${Math.max(heightPct, 1)}%`,
-                                            background: isToday ? 'linear-gradient(to top, var(--accent), var(--accent-light))' : 'var(--bg-tertiary)',
+                                            background: isToday ? 'var(--accent)' : 'var(--bg-tertiary)',
                                             borderRadius: '6px 6px 0 0',
                                             transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
                                             cursor: 'pointer',

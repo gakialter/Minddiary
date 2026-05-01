@@ -104,7 +104,7 @@ export interface ElectronTodayDashboardAPI {
 }
 
 export interface ElectronMistakesAPI {
-  getAll: (filters: MistakeFilters) => Promise<Mistake[]>
+  getAll: (filters: MistakeFilters) => Promise<{ data: Mistake[], total: number, masteredTotal: number }>
   create: (mistake: Partial<Mistake>) => Promise<{ id: number }>
   update: (id: number, mistake: Partial<Mistake>) => Promise<void>
   delete: (id: number) => Promise<void>
@@ -181,7 +181,7 @@ export interface TagsContextAPI {
 }
 
 export interface MistakesContextAPI {
-  getAll: (filters?: MistakeFilters) => Promise<Mistake[]>
+  getAll: (filters?: MistakeFilters) => Promise<{ data: Mistake[], total: number, masteredTotal: number }>
   create: (data: Partial<Mistake>) => Promise<Mistake>
   update: (id: number, data: Partial<Mistake>) => Promise<Partial<Mistake>>
   delete: (id: number) => Promise<boolean>

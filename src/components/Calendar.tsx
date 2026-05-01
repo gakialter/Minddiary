@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { MOODS } from '../utils/helpers'
+import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import type { DiaryEntry, MoodId } from '../types'
 
@@ -35,7 +36,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
       })
       setEntriesByDate(map)
     } catch (error) {
-      console.error('Failed to load entries:', error)
+      logger.error('Failed to load entries:', error)
     } finally {
       setLoading(false)
     }

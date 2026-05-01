@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
 import type { DiaryEntry, Tag, Mistake, Subject, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
@@ -36,82 +36,42 @@ export const useData = (): DataContextValue => {
 }
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
-    const [entries, setEntries] = useState<DiaryEntry[]>([])
-    const [tags, setTags] = useState<Tag[]>([])
-    const [mistakes, setMistakes] = useState<Mistake[]>([])
-    const [subjects, setSubjects] = useState<Subject[]>([])
+    const entriesRef = useRef<DiaryEntry[]>([])
+    const tagsRef = useRef<Tag[]>([])
+    const mistakesRef = useRef<Mistake[]>([])
+    const subjectsRef = useRef<Subject[]>([])
     const [initialized, setInitialized] = useState(false)
     const [initErrors, setInitErrors] = useState<string[]>([])
+
+    const saveToLocal = (key: string, data: any) => {
+        if (!IS_ELECTRON) localStorage.setItem(key, JSON.stringify(data))
+    }
 
     // ─── Initialization ───────────────────────────────────────────────────────
     useEffect(() => {
         if (IS_ELECTRON) {
-            Promise.allSettled([
-                window.api.entries.getAll({}),
-                window.api.tags.getAll(),
-                window.api.mistakes.getAll({}),
-                window.api.subjects.getAll(),
-            ]).then(results => {
-                const errors: string[] = []
-
-                if (results[0]!.status === 'fulfilled') setEntries((results[0] as PromiseFulfilledResult<DiaryEntry[]>).value || [])
-                else errors.push(`加载日记失败: ${(results[0] as PromiseRejectedResult).reason}`)
-
-                if (results[1]!.status === 'fulfilled') setTags((results[1] as PromiseFulfilledResult<Tag[]>).value || [])
-                else errors.push(`加载标签失败: ${(results[1] as PromiseRejectedResult).reason}`)
-
-                if (results[2]!.status === 'fulfilled') setMistakes((results[2] as PromiseFulfilledResult<Mistake[]>).value || [])
-                else errors.push(`加载错题失败: ${(results[2] as PromiseRejectedResult).reason}`)
-
-                if (results[3]!.status === 'fulfilled') setSubjects((results[3] as PromiseFulfilledResult<Subject[]>).value || [])
-                else errors.push(`加载科目失败: ${(results[3] as PromiseRejectedResult).reason}`)
-
-                if (errors.length > 0) {
-                    console.error('[DataContext] Partial init failed:', errors)
-                    setInitErrors(errors)
-                }
-            }).finally(() => setInitialized(true))
+            // Fast boot in Electron mode. Data is fetched directly via IPC on demand.
+            setInitialized(true)
         } else {
-            const load = <T,>(key: string, fallback: T[], setter: React.Dispatch<React.SetStateAction<T[]>>) => {
+            const load = <T,>(key: string, fallback: T[], ref: React.MutableRefObject<T[]>) => {
                 const raw = localStorage.getItem(key)
                 const val: T[] = raw ? JSON.parse(raw) : fallback
-                setter(val)
-                if (!raw) localStorage.setItem(key, JSON.stringify(fallback))
+                ref.current = val
+                if (!raw) saveToLocal(key, fallback)
             }
-            load(STORAGE_KEYS.ENTRIES, mockEntries, setEntries)
-            load(STORAGE_KEYS.TAGS, mockTags, setTags)
-            load(STORAGE_KEYS.MISTAKES, mockMistakes, setMistakes)
-            load(STORAGE_KEYS.SUBJECTS, mockSubjects, setSubjects)
+            load(STORAGE_KEYS.ENTRIES, mockEntries, entriesRef)
+            load(STORAGE_KEYS.TAGS, mockTags, tagsRef)
+            load(STORAGE_KEYS.MISTAKES, mockMistakes, mistakesRef)
+            load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
             setInitialized(true)
         }
     }, [])
-
-    // ─── Browser-only localStorage persistence ────────────────────────────────
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify(entries))
-    }, [entries, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(tags))
-    }, [tags, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify(mistakes))
-    }, [mistakes, initialized])
-
-    useEffect(() => {
-        if (initialized && !IS_ELECTRON)
-            localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(subjects))
-    }, [subjects, initialized])
 
     // ─── Entries API ──────────────────────────────────────────────────────────
     const entriesAPI: EntriesContextAPI = {
         getAll: async (filters: EntryFilters = {}) => {
             if (IS_ELECTRON) return window.api.entries.getAll(filters)
-            let result = [...entries]
+            let result = [...entriesRef.current]
             if (filters.mood) result = result.filter(e => e.mood === filters.mood)
             if (filters.tagId) result = result.filter(e => e.tags && e.tags.includes(Number(filters.tagId)))
             if (filters.startDate) result = result.filter(e => e.date >= filters.startDate!)
@@ -121,66 +81,62 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         },
         getByDate: async (date: string) => {
             if (IS_ELECTRON) return window.api.entries.getByDate(date)
-            return entries.find(e => e.date === date) || null
+            return entriesRef.current.find(e => e.date === date) || null
         },
         getById: async (id: number) => {
             if (IS_ELECTRON) return window.api.entries.getById(id)
-            return entries.find(e => e.id === id) || null
+            return entriesRef.current.find(e => e.id === id) || null
         },
         getDatesWithEntries: async (yearMonth: string) => {
             if (IS_ELECTRON) return window.api.entries.getDatesWithEntries(yearMonth)
-            return entries
+            return entriesRef.current
                 .filter(e => e.date.startsWith(yearMonth))
                 .map(e => ({ date: e.date, mood: e.mood }))
         },
         search: async (query: string) => {
             if (IS_ELECTRON) return window.api.entries.search(query)
             const lowerQuery = query.toLowerCase()
-            return entries
+            return entriesRef.current
                 .filter(e => e.title?.toLowerCase().includes(lowerQuery) || e.content?.toLowerCase().includes(lowerQuery))
                 .map(e => ({ ...e, content_snippet: e.content?.substring(0, 200) }))
                 .sort((a, b) => b.date.localeCompare(a.date))
         },
         create: async (data) => {
-            if (IS_ELECTRON) {
-                const newEntry = await window.api.entries.create(data)
-                setEntries(prev => [newEntry, ...prev])
-                return newEntry
-            }
+            if (IS_ELECTRON) return window.api.entries.create(data)
+            
             const newEntry: DiaryEntry = {
                 ...data,
-                id: Math.max(0, ...entries.map(e => e.id)) + 1,
+                id: Math.max(0, ...entriesRef.current.map(e => e.id)) + 1,
                 word_count: data.content ? data.content.length : 0,
                 images: data.images || [],
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             }
-            setEntries(prev => [...prev, newEntry])
+            entriesRef.current = [...entriesRef.current, newEntry]
+            saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
             return newEntry
         },
         update: async (id: number, data) => {
-            if (IS_ELECTRON) {
-                const updated = await window.api.entries.update(id, data)
-                setEntries(prev => prev.map(e => e.id === id ? updated : e))
-                return updated
-            }
+            if (IS_ELECTRON) return window.api.entries.update(id, data)
+            
             const updatedEntry: DiaryEntry = {
-                ...(entries.find(e => e.id === id)!),
+                ...(entriesRef.current.find(e => e.id === id)!),
                 ...data,
                 id,
                 word_count: data.content ? data.content.length : 0,
                 updated_at: new Date().toISOString(),
             }
-            setEntries(prev => prev.map(e => e.id === id ? updatedEntry : e))
+            entriesRef.current = entriesRef.current.map(e => e.id === id ? updatedEntry : e)
+            saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
             return updatedEntry
         },
         delete: async (id: number) => {
             if (IS_ELECTRON) {
                 await window.api.entries.delete(id)
-                setEntries(prev => prev.filter(e => e.id !== id))
                 return true
             }
-            setEntries(prev => prev.filter(e => e.id !== id))
+            entriesRef.current = entriesRef.current.filter(e => e.id !== id)
+            saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
             return true
         },
     }
@@ -189,35 +145,34 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const tagsAPI: TagsContextAPI = {
         getAll: async () => {
             if (IS_ELECTRON) return window.api.tags.getAll()
-            return tags.sort((a, b) => a.name.localeCompare(b.name))
+            return tagsRef.current.sort((a, b) => a.name.localeCompare(b.name))
         },
         create: async (data) => {
-            if (IS_ELECTRON) {
-                const newTag = await window.api.tags.create(data)
-                setTags(prev => [...prev, newTag])
-                return newTag
-            }
-            const newTag: Tag = { name: data.name || '', color: data.color || '#0F766E', id: Math.max(0, ...tags.map(t => t.id)) + 1 }
-            setTags(prev => [...prev, newTag])
+            if (IS_ELECTRON) return window.api.tags.create(data)
+            
+            const newTag: Tag = { name: data.name || '', color: data.color || '#0F766E', id: Math.max(0, ...tagsRef.current.map(t => t.id)) + 1 }
+            tagsRef.current = [...tagsRef.current, newTag]
+            saveToLocal(STORAGE_KEYS.TAGS, tagsRef.current)
             return newTag
         },
         update: async (id: number, data) => {
             if (IS_ELECTRON) {
                 await window.api.tags.update(id, data)
-                setTags(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
                 return data
             }
-            setTags(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
+            tagsRef.current = tagsRef.current.map(t => t.id === id ? { ...t, ...data } : t)
+            saveToLocal(STORAGE_KEYS.TAGS, tagsRef.current)
             return data
         },
         delete: async (id: number) => {
             if (IS_ELECTRON) {
                 await window.api.tags.delete(id)
-                setTags(prev => prev.filter(t => t.id !== id))
                 return true
             }
-            setTags(prev => prev.filter(t => t.id !== id))
-            setEntries(prev => prev.map(e => ({ ...e, tags: e.tags ? e.tags.filter(tid => tid !== id) : [] })))
+            tagsRef.current = tagsRef.current.filter(t => t.id !== id)
+            saveToLocal(STORAGE_KEYS.TAGS, tagsRef.current)
+            entriesRef.current = entriesRef.current.map(e => ({ ...e, tags: e.tags ? e.tags.filter(tid => tid !== id) : [] }))
+            saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
             return true
         },
     }
@@ -226,8 +181,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const mistakesAPI: MistakesContextAPI = {
         getAll: async (filters: MistakeFilters = {}) => {
             if (IS_ELECTRON) return window.api.mistakes.getAll(filters)
-            let result = mistakes.map(m => {
-                const subject = subjects.find(s => s.id === m.subject_id)
+            let result = mistakesRef.current.map(m => {
+                const subject = subjectsRef.current.find(s => s.id === m.subject_id)
                 return { ...m, subject_name: subject?.name, subject_color: subject?.color }
             })
             if (filters.subject_id) result = result.filter(m => m.subject_id === filters.subject_id)
@@ -240,74 +195,79 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                     m.notes?.toLowerCase().includes(query)
                 )
             }
-            return result.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+            
+            const total = result.length;
+            const masteredTotal = result.filter(m => m.mastered).length;
+            result = result.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+            
+            if (filters.limit) {
+                const offset = filters.offset || 0;
+                result = result.slice(offset, offset + filters.limit);
+            }
+            return { data: result, total, masteredTotal };
         },
         create: async (data) => {
             if (IS_ELECTRON) {
                 const { id } = await window.api.mistakes.create(data)
-                const newMistake: Mistake = { 
-                    question: '', answer: '', notes: '', subject_id: null, 
-                    ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
-                    ...data, id, mastered: false, created_at: new Date().toISOString()
-                }
-                setMistakes(prev => [newMistake, ...prev])
-                return newMistake
+                return { ...data, id, mastered: false } as Mistake
             }
+            
             const newMistake: Mistake = {
                 question: '', answer: '', notes: '', subject_id: null,
                 ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
                 ...data,
-                id: Math.max(0, ...mistakes.map(m => m.id)) + 1,
+                id: Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1,
                 mastered: false,
                 created_at: new Date().toISOString(),
             }
-            setMistakes(prev => [...prev, newMistake])
+            mistakesRef.current = [...mistakesRef.current, newMistake]
+            saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
             return newMistake
         },
         update: async (id: number, data) => {
             if (IS_ELECTRON) {
                 await window.api.mistakes.update(id, data)
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m))
                 return data
             }
-            setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m))
+            mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, ...data } : m)
+            saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
             return data
         },
         delete: async (id: number) => {
             if (IS_ELECTRON) {
                 await window.api.mistakes.delete(id)
-                setMistakes(prev => prev.filter(m => m.id !== id))
                 return true
             }
-            setMistakes(prev => prev.filter(m => m.id !== id))
+            mistakesRef.current = mistakesRef.current.filter(m => m.id !== id)
+            saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
             return true
         },
         toggleMastered: async (id: number) => {
             if (IS_ELECTRON) {
-                const { mastered } = await window.api.mistakes.toggleMastered(id)
-                const masteredBool = !!mastered
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: masteredBool } : m))
-                return { mastered: masteredBool }
+                const res = await window.api.mistakes.toggleMastered(id);
+                return { mastered: !!res.mastered };
             }
-            setMistakes(prev => prev.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m))
+            
+            mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m)
+            saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
             return { mastered: true }
         },
         review: async (id: number, data) => {
             if (IS_ELECTRON) {
                 await window.api.mistakes.review(id, data);
-                setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
                 return { success: true };
             }
-            setMistakes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
+            mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, ...data } : m);
+            saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
             return { success: true };
         },
         getDueCount: async (date: string) => {
             if (IS_ELECTRON) return window.api.mistakes.getDueCount(date);
-            return mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length;
+            return mistakesRef.current.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length;
         },
         getRandomDue: async (date: string, subjectId?: number) => {
             if (IS_ELECTRON) return window.api.mistakes.getRandomDue(date, subjectId);
-            let due = mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date));
+            let due = mistakesRef.current.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date));
             if (subjectId) due = due.filter(m => m.subject_id === subjectId);
             if (due.length === 0) return null;
             return due[Math.floor(Math.random() * due.length)] || null;
@@ -330,39 +290,37 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const subjectsAPI: SubjectsContextAPI = {
         getAll: async () => {
             if (IS_ELECTRON) return window.api.subjects.getAll()
-            return subjects.sort((a, b) => (a.order || 0) - (b.order || 0))
+            return subjectsRef.current.sort((a, b) => (a.order || 0) - (b.order || 0))
         },
         create: async (data) => {
-            if (IS_ELECTRON) {
-                const newSubject = await window.api.subjects.create(data)
-                setSubjects(prev => [...prev, newSubject])
-                return newSubject
-            }
+            if (IS_ELECTRON) return window.api.subjects.create(data)
+            
             const newSubject: Subject = {
                 name: '', color: '#0F766E',
                 ...data,
-                id: Math.max(0, ...subjects.map(s => s.id)) + 1,
-                order: subjects.length + 1,
+                id: Math.max(0, ...subjectsRef.current.map(s => s.id)) + 1,
+                order: subjectsRef.current.length + 1,
             }
-            setSubjects(prev => [...prev, newSubject])
+            subjectsRef.current = [...subjectsRef.current, newSubject]
+            saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
             return newSubject
         },
         update: async (id: number, data) => {
             if (IS_ELECTRON) {
                 await window.api.subjects.update(id, data)
-                setSubjects(prev => prev.map(s => s.id === id ? { ...s, ...data } : s))
                 return data
             }
-            setSubjects(prev => prev.map(s => s.id === id ? { ...s, ...data } : s))
+            subjectsRef.current = subjectsRef.current.map(s => s.id === id ? { ...s, ...data } : s)
+            saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
             return data
         },
         delete: async (id: number) => {
             if (IS_ELECTRON) {
                 await window.api.subjects.delete(id)
-                setSubjects(prev => prev.filter(s => s.id !== id))
                 return true
             }
-            setSubjects(prev => prev.filter(s => s.id !== id))
+            subjectsRef.current = subjectsRef.current.filter(s => s.id !== id)
+            saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
             return true
         },
     }
@@ -404,8 +362,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         getData: async (date: string) => {
             if (IS_ELECTRON) return window.api.todayDashboard.getData(date)
             // Browser fallback: compute from local state
-            const todayEntry = entries.find(e => e.date === date)
-            const dueCount = mistakes.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length
+            const todayEntry = entriesRef.current.find(e => e.date === date)
+            const dueCount = mistakesRef.current.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= date)).length
             // Fallback mock metrics since SQL is not available in browser
             return {
                 todayEntry: todayEntry ? {

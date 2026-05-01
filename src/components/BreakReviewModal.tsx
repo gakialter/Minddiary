@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { calculateNextReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
+import { logger } from '../utils/logger'
 import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'
@@ -35,7 +36,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                 setNoMistakes(false)
             }
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             setNoMistakes(true)
         } finally {
             setLoading(false)
@@ -58,7 +59,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
             await diary.mistakes.review(mistake.id, result)
             setReviewDone(true)
         } catch (e) {
-            console.error(e)
+            logger.error(e)
         }
     }
 

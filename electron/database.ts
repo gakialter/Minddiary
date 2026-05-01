@@ -1,6 +1,7 @@
 const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
 const { app, safeStorage: ss } = require('electron');
+const { logger } = require('./logger');
 
 import type Database from 'better-sqlite3';
 import type {
@@ -56,6 +57,7 @@ function initialize() {
       tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
       PRIMARY KEY (entry_id, tag_id)
     );
+    CREATE INDEX IF NOT EXISTS idx_entry_tags_tag_id ON entry_tags(tag_id);
 
     CREATE TABLE IF NOT EXISTS attachments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -531,8 +533,8 @@ function getTodayDashboard(date: string): TodayDashboardData {
 }
 
 // ==================== Mistakes ====================
-function getAllMistakes(filters: MistakeFilters = {}): Mistake[] {
-    let query = 'SELECT m.*, s.name as subject_name, s.color as subject_color FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
+function getAllMistakes(filters: MistakeFilters = {}): { data: Mistake[], total: number, masteredTotal: number } {
+    const baseQuery = ' FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
     const conditions = [];
     const params = [];
 
@@ -550,11 +552,25 @@ function getAllMistakes(filters: MistakeFilters = {}): Mistake[] {
         params.push(term, term, term);
     }
 
+    let whereClause = '';
     if (conditions.length > 0) {
-        query += ' WHERE ' + conditions.join(' AND ');
+        whereClause = ' WHERE ' + conditions.join(' AND ');
     }
+
+    const countRow = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN m.mastered = 1 THEN 1 ELSE 0 END) as mastered_total' + baseQuery + whereClause).get(...params) as { total: number, mastered_total: number | null };
+    const total = countRow.total || 0;
+    const masteredTotal = countRow.mastered_total || 0;
+
+    let query = 'SELECT m.*, s.name as subject_name, s.color as subject_color' + baseQuery + whereClause;
     query += ' ORDER BY m.created_at DESC';
-    return db.prepare(query).all(...params) as Mistake[];
+    
+    if (filters.limit) {
+        query += ' LIMIT ? OFFSET ?';
+        params.push(filters.limit, filters.offset || 0);
+    }
+
+    const data = db.prepare(query).all(...params) as Mistake[];
+    return { data, total, masteredTotal };
 }
 
 function createMistake({ subject_id, question, answer, notes, image_path }: Partial<Mistake>) {
@@ -587,7 +603,7 @@ async function deleteMistake(id: number) {
             const fileManager = require('./fileManager');
             await fileManager.deleteMistakeImage(mistake.image_path);
         }
-    } catch(e) { console.error('Failed to cleanup mistake image', e); }
+    } catch(e) { logger.error('Failed to cleanup mistake image', e); }
 
     db.prepare('DELETE FROM mistakes WHERE id=?').run(id);
     return { success: true };
@@ -628,18 +644,36 @@ function getDueForReviewCount(date: string) {
  * Get a random unmastered mistake, optionally filtered by subject.
  */
 function getRandomDueMistake(date: string, subjectId?: number) {
+    // Phase P3: Replaced ORDER BY RANDOM() LIMIT 1 with a count + offset
+    // approach. SQLite's RANDOM() scans and sorts the entire result set;
+    // the offset pattern only scans up to the selected row.
+    let countQuery = `
+        SELECT COUNT(*) as cnt FROM mistakes m
+        WHERE m.mastered = 0 AND (m.next_review_date IS NULL OR m.next_review_date <= ?)
+    `;
+    const params: (string | number)[] = [date];
+    if (subjectId) {
+        countQuery += ' AND m.subject_id = ?';
+        params.push(subjectId);
+    }
+    const countRow = db.prepare(countQuery).get(...params) as { cnt: number };
+    if (countRow.cnt === 0) return null;
+
+    const offset = Math.floor(Math.random() * countRow.cnt);
+
     let query = `
         SELECT m.*, s.name as subject_name, s.color as subject_color
         FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id
         WHERE m.mastered = 0 AND (m.next_review_date IS NULL OR m.next_review_date <= ?)
     `;
-    const params: any[] = [date];
+    const selectParams: (string | number)[] = [date];
     if (subjectId) {
         query += ' AND m.subject_id = ?';
-        params.push(subjectId);
+        selectParams.push(subjectId);
     }
-    query += ' ORDER BY RANDOM() LIMIT 1';
-    return db.prepare(query).get(...params) || null;
+    query += ' LIMIT 1 OFFSET ?';
+    selectParams.push(offset);
+    return db.prepare(query).get(...selectParams) || null;
 }
 
 // ==================== Templates ====================
@@ -657,7 +691,7 @@ function createTemplate({ name, content, sort_order }: Partial<DiaryTemplate>) {
 
 function updateTemplate(id: number, { name, content, sort_order }: Partial<DiaryTemplate>) {
     const updates: string[] = [];
-    const params: any[] = [];
+    const params: (string | number)[] = [];
     if (name !== undefined) { updates.push('name = ?'); params.push(name); }
     if (content !== undefined) { updates.push('content = ?'); params.push(content); }
     if (sort_order !== undefined) { updates.push('sort_order = ?'); params.push(sort_order); }
@@ -698,7 +732,7 @@ function setAiApiKey(key: string): void {
         const encrypted = ss.encryptString(key);
         setSetting('aiApiKey', encrypted.toString('base64'));
     } else {
-        console.warn('[db] safeStorage unavailable — storing API key as plaintext');
+        logger.warn('[db] safeStorage unavailable — storing API key as plaintext');
         setSetting('aiApiKey', key);
     }
 }

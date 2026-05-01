@@ -7,6 +7,7 @@ import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
 import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
+import { logger } from '../utils/logger'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
 import type { DiaryEntry, AIMessage, DiaryTemplate } from '../types'
 
@@ -87,7 +88,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       await onSave({ title, content })
       if (isManual) showToast('保存成功', 'success')
     } catch (err) {
-      console.error('Save failed:', err)
+      logger.error('Save failed:', err)
       showToast('保存失败', 'error')
     }
     setSaving(false)
@@ -115,7 +116,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
         showToast('AI 汇总完成！', 'success')
       }
     } catch (e) {
-      console.error(e)
+      logger.error(e)
       showToast('AI 请求失败，请检查网络', 'error')
     } finally {
       setSummaryLoading(false)
@@ -131,7 +132,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       const blob = await domToImage.toBlob(shareCardRef.current, { scale: 2 })
       saveAs(blob, 'MindDiary-Share.png')
     } catch (err) {
-      console.error('Share image generation failed:', err)
+      logger.error('Share image generation failed:', err)
     } finally {
       setSharing(false)
     }

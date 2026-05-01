@@ -17,16 +17,16 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
     if (!visible) return
     setAutoCloseTimer(15)
     const interval = setInterval(() => {
-      setAutoCloseTimer(prev => {
-        if (prev <= 1) {
-          onClose()
-          return 0
-        }
-        return prev - 1
-      })
+      setAutoCloseTimer(prev => prev - 1)
     }, 1000)
     return () => clearInterval(interval)
-  }, [visible, onClose])
+  }, [visible])
+
+  useEffect(() => {
+    if (visible && autoCloseTimer <= 0) {
+      onClose()
+    }
+  }, [autoCloseTimer, visible, onClose])
 
   if (!visible) return null
 
@@ -73,8 +73,8 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
         <div style={{
           width: 72, height: 72, borderRadius: '50%',
           background: isWorkComplete
-            ? 'linear-gradient(135deg, var(--color-state-success), #4ade80)'
-            : 'linear-gradient(135deg, var(--accent), var(--accent-light))',
+            ? 'var(--color-state-success)'
+            : 'var(--accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           margin: '0 auto var(--space-lg)',
           boxShadow: isWorkComplete

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { formatShortDate } from '../utils/helpers'
+import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
 import { Search, FileText } from 'lucide-react'
@@ -41,7 +42,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
       const data = await diary.tags.getAll()
       setTags(data || [])
     } catch (error) {
-      console.error('Failed to load tags:', error)
+      logger.error('Failed to load tags:', error)
     }
   }
 
@@ -51,7 +52,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
       const data = await diary.entries.getAll({ limit: 50 })
       setResults(data || [])
     } catch (error) {
-      console.error('Failed to load entries:', error)
+      logger.error('Failed to load entries:', error)
     } finally {
       setLoading(false)
     }
@@ -77,7 +78,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
       }
       setResults(data || [])
     } catch (error) {
-      console.error('Search failed:', error)
+      logger.error('Search failed:', error)
     } finally {
       setLoading(false)
     }

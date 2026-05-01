@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
 import { mockSettings, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
+import { logger } from '../utils/logger'
 import type { AppSettings } from '../types'
 import type { SettingsContextAPI, SanitizedSettings } from '../types/api'
 
@@ -42,7 +43,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         if (IS_ELECTRON) {
             window.api.settings.getAll()
                 .then(s => { if (s && Object.keys(s).length) setSettings(s as unknown as AppSettings) })
-                .catch(err => console.error('[SettingsContext] Init failed:', err))
+                .catch(err => logger.error('[SettingsContext] Init failed:', err))
                 .finally(() => setSettingsInitialized(true))
         } else {
             const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS)

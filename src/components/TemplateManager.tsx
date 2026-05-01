@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Edit3, Check, X, FileText } from 'lucide-react'
 import { showToast } from './Toast'
 import { useDiary } from '../contexts/DiaryContext'
+import { logger } from '../utils/logger'
 import type { DiaryTemplate } from '../types'
 
 interface TemplateManagerProps {
@@ -25,7 +26,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
       const data = await templatesAPI.getAll()
       setTemplates(data || [])
     } catch (e) {
-      console.error('Failed to load templates:', e)
+      logger.error('Failed to load templates:', e)
     }
   }, [])
 
@@ -46,7 +47,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
       setNewContent('')
       loadTemplates()
     } catch (e) {
-      console.error(e)
+      logger.error(e)
       showToast('创建失败', 'error')
     }
   }
@@ -59,7 +60,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
       setEditingId(null)
       loadTemplates()
     } catch (e) {
-      console.error(e)
+      logger.error(e)
       showToast('更新失败', 'error')
     }
   }
@@ -75,7 +76,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
         showToast(result.message || '删除失败', 'error')
       }
     } catch (e) {
-      console.error(e)
+      logger.error(e)
       showToast('删除失败', 'error')
     }
   }

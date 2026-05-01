@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
+import { logger } from '../utils/logger'
 import { CalendarDays, Trophy } from 'lucide-react'
 
 function Countdown() {
@@ -18,7 +19,7 @@ function Countdown() {
         setExamDate(settings.examDate as string)
       }
     } catch (error) {
-      console.error('Failed to load exam date:', error)
+      logger.error('Failed to load exam date:', error)
     }
   }
 
