@@ -15,7 +15,7 @@ function Settings() {
   const [aiApiKeyMasked, setAiApiKeyMasked] = useState<string | null>(null)
   const [aiKeyDirty, setAiKeyDirty] = useState(false)
   const [clearKeyRequested, setClearKeyRequested] = useState(false)
-  const [aiModel, setAiModel] = useState('gpt-3.5-turbo')
+  const [aiModel, setAiModel] = useState('deepseek-v4-flash')
   const [autoSave, setAutoSave] = useState(true)
   const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
   const [autoBackup, setAutoBackup] = useState(false)
@@ -39,7 +39,7 @@ function Settings() {
       setAiEndpoint((settings.aiEndpoint as string) || '')
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
-      setAiModel((settings.aiModel as string) || 'gpt-3.5-turbo')
+      setAiModel((settings.aiModel as string) || 'deepseek-v4-flash')
       setAutoSave(coerceBoolean(settings.autoSave, true))
       setPomodoroMinutes(parseInt(String(settings.pomodoroMinutes)) || 25)
       setAutoBackup(coerceBoolean(settings.autoBackup, false))
@@ -264,14 +264,6 @@ function Settings() {
       </h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
-        <SettingsGeneral 
-            examDate={examDate} setExamDate={setExamDate}
-            theme={diary.theme} changeTheme={diary.changeTheme}
-            pomodoroMinutes={pomodoroMinutes} setPomodoroMinutes={setPomodoroMinutes}
-            pomodoroSound={pomodoroSound} setPomodoroSound={setPomodoroSound}
-            pomodoroAlert={pomodoroAlert} setPomodoroAlert={setPomodoroAlert}
-            autoSave={autoSave} setAutoSave={setAutoSave}
-        />
         <SettingsAI
             aiEndpoint={aiEndpoint} setAiEndpoint={setAiEndpoint}
             aiApiKeyPresent={aiApiKeyPresent}
@@ -280,6 +272,14 @@ function Settings() {
             aiKeyDirty={aiKeyDirty} setAiKeyDirty={setAiKeyDirty}
             clearKeyRequested={clearKeyRequested} setClearKeyRequested={setClearKeyRequested}
             aiModel={aiModel} setAiModel={setAiModel}
+        />
+        <SettingsGeneral 
+            examDate={examDate} setExamDate={setExamDate}
+            theme={diary.theme} changeTheme={diary.changeTheme}
+            pomodoroMinutes={pomodoroMinutes} setPomodoroMinutes={setPomodoroMinutes}
+            pomodoroSound={pomodoroSound} setPomodoroSound={setPomodoroSound}
+            pomodoroAlert={pomodoroAlert} setPomodoroAlert={setPomodoroAlert}
+            autoSave={autoSave} setAutoSave={setAutoSave}
         />
         <SettingsBackup 
             autoBackup={autoBackup} setAutoBackup={setAutoBackup}

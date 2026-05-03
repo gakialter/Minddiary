@@ -1,5 +1,7 @@
-import React from 'react'
-import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
+import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X } from 'lucide-react'
+import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
+import type { AIProvider, AIModel } from '../data/aiProviders'
 
 interface SettingsGeneralProps {
   examDate: string; setExamDate: (v: string) => void
@@ -122,6 +124,80 @@ export function SettingsGeneral({
     )
 }
 
+/* ──────────────────────────────────────────────────────
+   AI Settings — CC-Switch inspired provider+model UI
+   ────────────────────────────────────────────────────── */
+
+function ProviderChip({ provider, active, onClick }: {
+  provider: AIProvider; active: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 12px', borderRadius: 'var(--radius)',
+        border: active ? `2px solid var(--accent)` : '1px solid var(--border)',
+        background: active ? `var(--accent-light)` : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+        cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400,
+        transition: 'all 0.2s ease',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span>{provider.name}</span>
+    </button>
+  )
+}
+
+function ModelCard({ model, active, onClick }: {
+  model: AIModel; active: boolean; onClick: () => void
+}) {
+  const tagColors = model.tag ? getTagColor(model.tag) : null
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+        border: active ? `2px solid var(--accent)` : '1px solid var(--border)',
+        background: active ? `var(--accent-light)` : 'var(--bg-primary)',
+        cursor: 'pointer', width: '100%', textAlign: 'left',
+        transition: 'all 0.15s ease',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {active && (
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: 'var(--accent)', flexShrink: 0,
+            }} />
+          )}
+          <span style={{
+            fontSize: 13, fontWeight: active ? 600 : 500,
+            color: active ? 'var(--accent)' : 'var(--text-primary)',
+          }}>
+            {model.name}
+          </span>
+          {model.tag && tagColors && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '1px 6px',
+              borderRadius: 4, background: tagColors.bg, color: tagColors.text,
+              lineHeight: '16px',
+            }}>
+              {model.tag}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>
+          {model.desc}
+        </span>
+      </div>
+    </button>
+  )
+}
+
 export function SettingsAI({
     aiEndpoint, setAiEndpoint,
     aiApiKeyPresent, aiApiKeyMasked,
@@ -130,21 +206,123 @@ export function SettingsAI({
     clearKeyRequested, setClearKeyRequested,
     aiModel, setAiModel
 }: SettingsAIProps) {
+    // Determine the active provider from the current model or endpoint
+    const detectedProvider = useMemo(() => {
+      const byModel = getProviderByModel(aiModel)
+      if (byModel) return byModel.id
+      // Try matching by endpoint
+      const byEndpoint = AI_PROVIDERS.find(p => p.endpoint && aiEndpoint.includes(new URL(p.endpoint).hostname))
+      if (byEndpoint) return byEndpoint.id
+      return 'custom'
+    }, [aiModel, aiEndpoint])
+
+    const [activeProviderId, setActiveProviderId] = useState(detectedProvider)
+    const [customModelInput, setCustomModelInput] = useState(
+      activeProviderId === 'custom' ? aiModel : ''
+    )
+    const [showModelPicker, setShowModelPicker] = useState(false)
+    const [modelSearch, setModelSearch] = useState('')
+
+    const activeProvider = getProvider(activeProviderId) || AI_PROVIDERS[AI_PROVIDERS.length - 1]!
+
+    const handleSelectProvider = (providerId: string) => {
+      setActiveProviderId(providerId)
+      const provider = getProvider(providerId)
+      if (provider && provider.endpoint) {
+        setAiEndpoint(provider.endpoint)
+      }
+      // Auto-select first recommended model
+      if (provider && provider.id !== 'custom') {
+        const recommended = provider.models.find(m => m.tag === '推荐') || provider.models[0]
+        if (recommended) {
+          setAiModel(recommended.id)
+        }
+      }
+      setShowModelPicker(false)
+    }
+
+
+
+    const handleCustomModelChange = (value: string) => {
+      setCustomModelInput(value)
+      setAiModel(value)
+    }
+
+    // Filtered models for search
+    const filteredModels = useMemo(() => {
+      if (!modelSearch.trim()) return activeProvider.models
+      const q = modelSearch.toLowerCase()
+      return activeProvider.models.filter(
+        m => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q)
+      )
+    }, [activeProvider, modelSearch])
+
+    // Current model display
+    const currentModelObj = activeProvider.models.find(m => m.id === aiModel)
+    const currentModelDisplay = currentModelObj?.name || aiModel || '未选择'
+
     return (
-        <div style={sectionStyle}>
+        <div style={{ ...sectionStyle, gridColumn: '1 / -1' }}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Bot size={16} /> AI 助手设置
             </h3>
+
             <div style={fieldGroupStyle}>
+                {/* ── Provider Selection ── */}
                 <div>
-                    <label style={labelStyle}>API Endpoint</label>
+                    <label style={labelStyle}>选择供应商</label>
+                    <div style={{
+                      display: 'flex', flexWrap: 'wrap', gap: 8,
+                    }}>
+                      {AI_PROVIDERS.map(p => (
+                        <ProviderChip
+                          key={p.id}
+                          provider={p}
+                          active={activeProviderId === p.id}
+                          onClick={() => handleSelectProvider(p.id)}
+                        />
+                      ))}
+                    </div>
+                </div>
+
+                {/* ── Endpoint ── */}
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <label style={{ ...labelStyle, marginBottom: 0 }}>API 请求地址</label>
+                      {activeProvider.website && (
+                        <a
+                          href={activeProvider.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontSize: 12, color: 'var(--accent)',
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            textDecoration: 'none', opacity: 0.8,
+                          }}
+                        >
+                          官网 <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </div>
+                    <div style={{
+                        fontSize: 12, color: 'var(--text-muted)',
+                        background: 'var(--bg-tertiary)', padding: '6px 10px',
+                        borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: 6,
+                        marginTop: 'var(--space-sm)'
+                    }}>
+                        <Info size={14} style={{ color: 'var(--accent)' }} />
+                        <span>填写真实有效的 API 端点地址，留空将无法使用对应模型。</span>
+                    </div>
                     <input
                         type="text" className="input w-full"
-                        placeholder="https://api.openai.com/v1"
+                        placeholder="https://your-api-endpoint.com/v1"
                         value={aiEndpoint}
                         onChange={(e) => setAiEndpoint(e.target.value)}
+                        style={{ marginTop: 'var(--space-sm)' }}
                     />
                 </div>
+
+                {/* ── API Key ── */}
                 <div>
                     <label style={labelStyle}>API Key</label>
                     {aiApiKeyPresent && !aiKeyDirty && !clearKeyRequested ? (
@@ -195,19 +373,135 @@ export function SettingsAI({
                         </div>
                     )}
                 </div>
+
+                {/* ── Model Selection ── */}
                 <div>
-                    <label style={labelStyle}>模型</label>
-                    <select className="input w-full" value={aiModel} onChange={(e) => setAiModel(e.target.value)}>
-                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                        <option value="gpt-4">GPT-4</option>
-                        <option value="gpt-4o">GPT-4o</option>
-                        <option value="gpt-4o-mini">GPT-4o Mini</option>
-                        <option value="deepseek-chat">DeepSeek Chat</option>
-                        <option value="qwen-turbo">Qwen Turbo</option>
-                    </select>
+                    <label style={labelStyle}>模型名称</label>
+                    {activeProviderId === 'custom' ? (
+                      <div>
+                        <input
+                          type="text" className="input w-full"
+                          placeholder="输入自定义模型名称，如 gpt-4o"
+                          value={customModelInput}
+                          onChange={e => handleCustomModelChange(e.target.value)}
+                        />
+                        <div className="text-xs text-muted" style={{ marginTop: 4 }}>
+                          指定使用的模型名称，将直接传递给 API
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        {/* Current Selection Button */}
+                        <button
+                          onClick={() => setShowModelPicker(!showModelPicker)}
+                          className="input w-full"
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            cursor: 'pointer', textAlign: 'left',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                              width: 8, height: 8, borderRadius: '50%',
+                              background: 'var(--accent)',
+                            }} />
+                            <span style={{ fontWeight: 500 }}>{currentModelDisplay}</span>
+                            {currentModelObj?.tag && (
+                              <span style={{
+                                fontSize: 10, fontWeight: 600, padding: '1px 6px',
+                                borderRadius: 4,
+                                background: getTagColor(currentModelObj.tag).bg,
+                                color: getTagColor(currentModelObj.tag).text,
+                              }}>
+                                {currentModelObj.tag}
+                              </span>
+                            )}
+                          </div>
+                          <ChevronDown size={16} style={{
+                            color: 'var(--text-muted)',
+                            transform: showModelPicker ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 0.2s',
+                          }} />
+                        </button>
+
+                        {/* Dropdown: Model Picker */}
+                        {showModelPicker && (
+                          <div style={{
+                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                              marginTop: 8, background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+                              boxShadow: 'var(--shadow-lg)',
+                              overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                          }}>
+                            {/* Search */}
+                            {activeProvider.models.length > 3 && (
+                              <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 6,
+                                  padding: '4px 8px', background: 'var(--bg-primary)',
+                                  borderRadius: 8, border: '1px solid var(--border)',
+                                }}>
+                                  <Search size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                                  <input
+                                    type="text"
+                                    placeholder="搜索模型..."
+                                    value={modelSearch}
+                                    onChange={e => setModelSearch(e.target.value)}
+                                    style={{
+                                      width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                                      fontSize: 13, color: 'var(--text-primary)',
+                                    }}
+                                    autoFocus
+                                  />
+                                  {modelSearch && (
+                                    <button onClick={() => setModelSearch('')} style={{
+                                      background: 'none', border: 'none', cursor: 'pointer',
+                                      color: 'var(--text-muted)', padding: 0,
+                                    }}>
+                                      <X size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Model List */}
+                            <div style={{
+                              padding: 8, display: 'flex', flexDirection: 'column', gap: 4,
+                              maxHeight: 240, overflowY: 'auto',
+                            }}>
+                              {filteredModels.length === 0 ? (
+                                <div style={{
+                                  padding: '16px', textAlign: 'center',
+                                  color: 'var(--text-muted)', fontSize: 13,
+                                }}>
+                                  未找到匹配模型
+                                </div>
+                              ) : (
+                                filteredModels.map(model => (
+                                  <ModelCard
+                                    key={model.id}
+                                    model={model}
+                                    active={aiModel === model.id}
+                                    onClick={() => {
+                                      setAiModel(model.id)
+                                      setShowModelPicker(false)
+                                    }}
+                                  />
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
-                <div className="text-xs text-muted">
-                    留空则不启用 AI 功能。支持 OpenAI 兼容的 API（DeepSeek、Qwen 等）。
+
+                <div className="text-xs text-muted" style={{
+                  padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-tertiary)'
+                }}>
+                    留空则不启用 AI 功能。所有接口均兼容 OpenAI 格式，只需填写对应的 Endpoint 和 Key 即可使用。
                 </div>
             </div>
         </div>

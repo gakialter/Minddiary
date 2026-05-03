@@ -32,7 +32,7 @@ MindDiary 围绕"持续学习"这一核心动作，提供日记、番茄钟、�
 | 自定义日记模板，AI 智能汇总          | 自定义时长，Web Audio 完工音效 | SM-2 间隔重复排期复习            |
 | 分享卡片导出 (PNG)                   | 悬浮 Widget，拖拽自由定位      | AI 错题抽查与规律分析            |
 | **学习仪表盘**                 | **AI 助教**              | **数据主权**               |
-| 90 天热力图，多科耗时雷达图          | 兼容 OpenAI 标准接口           | SQLite 全量本地化                |
+| 90 天热力图，多科耗时雷达图          | 兼容 OpenAI 标准接口，7 大国产供应商一键切换 | SQLite 全量本地化                |
 | 考研倒计时，连续打卡统计             | Prompt 注入防护，请求超时熔断  | JSON 全量备份，敏感字段自动剔除  |
 | 72h 风险池 / 知识净增量 / 专注转化率 | 支持本地 LLM 及云端模型        | PDF / Markdown / JSON 三格式导出 |
 
@@ -87,7 +87,7 @@ src/
   hooks/        通用 Hooks
   types/        类型定义（数据模型 + API 签名）
   utils/        工具函数
-  data/         Mock 数据（浏览器开发模式）
+  data/         静态数据注册表（AI 模型供应商等）
 electron/
   main.ts       主进程入口
   preload.ts    contextBridge IPC
@@ -100,6 +100,24 @@ tests/          Vitest 单元测试 + 组件测试
 ```
 
 ## 更新日志
+
+### v1.8.4 — AI 助手设置改版 (2026-05-03)
+
+**AI 供应商注册表**：
+- 新增 `src/data/aiProviders.ts`：2026 年国产大模型供应商注册表，覆盖 DeepSeek V4、Qwen3、GLM-5.1、Kimi K2.6、豆包、SiliconFlow 共 7 大供应商 20+ 个模型
+- 各供应商配有默认 API 端点和官网链接，支持一键跳转获取 API Key
+
+**设置界面重设计**：
+- 供应商选择器：纯文字芯片（Provider Chip）快速切换，选中后自动填充端点和推荐模型
+- 模型选择器：卡片式下拉列表，带搜索功能和模型描述
+- 保留"自定义"入口：手动输入任意 OpenAI 兼容的模型名称
+- 默认模型从 `gpt-3.5-turbo` 更新为 `deepseek-v4-flash`
+
+**品牌规范对齐（Zen Forest）**：
+- 全面移除 UI 中的 Emoji，使用 Lucide 图标或纯文字
+- 统一使用语义化 CSS Token（`var(--accent)`、`var(--radius)`、`var(--shadow-lg)`）
+- 移除高饱和度供应商品牌色，选中态统一使用品牌松绿
+- 清理未使用的 Lucide 导入和死代码
 
 ### v1.8.3 — 架构重构与性能起飞 (2026-05-02)
 
