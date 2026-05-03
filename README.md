@@ -66,40 +66,28 @@ MindDiary 围绕"持续学习"这一核心动作，提供日记、番茄钟、�
 ## 快速开始
 
 ```bash
-git clone https://github.com/gakialter/Minddiary.git
-cd Minddiary
-npm install
+git clone https://github.com/gakialter/Mind### v1.8.5 — 审计整改与品牌抛光 (2026-05-04)
 
-npm run dev        # Vite + Electron 开发模式
-npm run typecheck  # 全量类型检查
-npm run test       # 单元测试 (52+)
-npm run build      # 构建当前平台发布包
-```
+**无障碍 (Accessibility)**：
+- 全局 icon-only 按钮补齐 `aria-label` 与 `title`（错题编辑/删除/掌握切换、设置模型搜索清除）
+- SVG 装饰图标标注 `aria-hidden`，屏幕阅读器不再误读
 
-也可从 [Releases](https://github.com/gakialter/Minddiary/releases) 直接下载安装包。
+**性能优化 (Performance)**：
+- 全项目 `<img>` 标签统一添加 `loading="lazy" decoding="async"`（MistakeItem/MistakeBook/ImageGallery/BreakReviewModal）
+- 长列表图片不再一次性请求，消除卡顿
 
-## 项目结构
+**主题系统合规 (Theming)**：
+- `MoodIcon` 心情标签：6 种硬编码 hex/rgba 全部迁移为 `color-mix`，完美适配品牌色
+- 暗色/亮色模式切换时心情图标自动无缝转换
 
-```
-src/
-  components/   React UI 组件
-  contexts/     状态管理 (Diary / Settings / Pomodoro / Data)
-  hooks/        通用 Hooks
-  types/        类型定义（数据模型 + API 签名）
-  utils/        工具函数
-  data/         静态数据注册表（AI 模型供应商等）
-electron/
-  main.ts       主进程入口
-  preload.ts    contextBridge IPC
-  database.ts   SQLite CRUD
-  fileManager.ts  附件文件管理
-  aiService.ts  AI API 代理（密钥仅驻留主进程）
-docs/
-  brand.md      品牌规范 (SSOT)
-tests/          Vitest 单元测试 + 组件测试
-```
+**品牌净化 (Brand)**：
+- 侧边栏移除冗余 Logo 图标和文字，极简回归
+- 导航激活态：圆角缩减至 `--radius-sm`，背景色降低对比度
+- Layout 关闭按钮 hover 改用 `color-mix` 配合 `--danger` token
+- 移除未使用的依赖与残余代码
 
-## 更新日志
+<details>
+<summary>更早版本</summary>
 
 ### v1.8.4 — AI 助手设置改版 (2026-05-03)
 
@@ -129,7 +117,7 @@ tests/          Vitest 单元测试 + 组件测试
 **安全与工程规范**：
 - **安全加固**：为 `SettingsContext` 实现严格的参数白名单及 `sanitizePatch` 过滤，收束 IPC 通信层风险。
 - **代码净化**：全局清理 15 处 `any` 类型定义，并完成 58 处无序 `console.*` 到中心化 `logger.ts` 的接口迁移。
-- **异常恢复**：为全局 `ErrorBoundary` 增加 `onReset` 路由重置机制，修复界面组件崩溃后的“重试”死循环。
+- **异常恢复**：为全局 `ErrorBoundary` 增加 `onReset` 路由重置机制，修复界面组件崩溃后的"重试"死循环。
 
 ### v1.8.2 — Bug 修复与安全加固 (2026-04-27)
 
@@ -174,9 +162,6 @@ tests/          Vitest 单元测试 + 组件测试
 - 品牌视觉统一：Welcome 页与 CommanderHero 仪表盘重设，确立 Logo + Lucide 为基准的图标体系
 - 番茄钟自定义时长接入核心循环流
 - 样式架构分离：Tailwind 负责布局，CSS 变量负责语义
-
-<details>
-<summary>更早版本</summary>
 
 ### v1.7.1 — 交互抛光 (2026-04-20)
 

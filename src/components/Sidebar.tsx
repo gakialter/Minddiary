@@ -1,6 +1,5 @@
 import React from 'react';
 import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import Logo from './Logo';
 
 interface SidebarProps {
   activeView: string
@@ -33,20 +32,8 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
 
   return (
     <div className="sidebar" style={{ backgroundColor: 'var(--bg-primary)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-      {/* Brand */}
-      <div className="px-4 py-4 mb-2">
-        <div className="flex items-center gap-3" style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
-          <div className="flex h-10 w-10 items-center justify-center shrink-0">
-            <img src="/images/app-icon.svg" className="w-full h-full object-contain" alt="MindDiary" />
-          </div>
-          {!isCollapsed && (
-            <div className="min-w-0">
-              <div className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>考研日记</div>
-              <div className="text-[13px] leading-tight mt-0.5" style={{ color: 'var(--text-secondary)' }}>记录每一天</div>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Top spacing to replace the removed brand logo area */}
+      <div className="pt-2"></div>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-1">
@@ -58,13 +45,14 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
             onClick={() => onViewChange(item.id)}
             className={`flex h-11 items-center transition-colors border-0 outline-none appearance-none ${
               isCollapsed 
-                ? 'w-11 justify-center mx-auto rounded-xl' 
-                : 'w-full gap-2.5 px-3 rounded-xl text-[14px] font-medium'
+                ? 'w-11 justify-center mx-auto rounded-lg' 
+                : 'w-full gap-2.5 px-3 rounded-lg text-[14px] font-medium'
             } ${
               isActive
-                ? 'bg-[var(--accent-light)] text-[var(--accent)]'
+                ? 'text-[var(--accent)]'
                 : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
             }`}
+            style={isActive ? { background: 'rgba(15,118,110,0.08)' } : undefined}
           >
             <span className={`shrink-0 flex items-center justify-center ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
               {React.cloneElement(item.icon, { size: 18 })}

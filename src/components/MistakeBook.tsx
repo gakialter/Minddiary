@@ -314,6 +314,8 @@ export default function MistakeBook() {
                                         <img
                                             src={`local://${imgPath}`}
                                             alt={`图片 ${idx + 1}`}
+                                            loading="lazy"
+                                            decoding="async"
                                             style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
                                         />
                                         <button

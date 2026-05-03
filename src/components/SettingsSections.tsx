@@ -457,8 +457,8 @@ export function SettingsAI({
                                     <button onClick={() => setModelSearch('')} style={{
                                       background: 'none', border: 'none', cursor: 'pointer',
                                       color: 'var(--text-muted)', padding: 0,
-                                    }}>
-                                      <X size={13} />
+                                    }} aria-label="清除搜索" title="清除搜索">
+                                      <X size={13} aria-hidden />
                                     </button>
                                   )}
                                 </div>

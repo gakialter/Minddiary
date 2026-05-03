@@ -201,6 +201,8 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
                                 src={safeFileUrl(att.filepath)}
                                 alt={att.filename}
                                 onClick={() => setPreview(att)}
+                                loading="lazy"
+                                decoding="async"
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                                 className="gallery-img"

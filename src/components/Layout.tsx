@@ -54,8 +54,8 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
       {hasCustomTitlebar && (
         <div className="titlebar titlebar-custom">
           <div className="flex items-center gap-sm">
-            <div style={{ width: 18, height: 18, position: 'relative', top: '-1px' }}>
-              <img src="/images/app-icon.svg" className="w-full h-full object-contain" alt="MindDiary" style={{ borderRadius: 4 }} />
+            <div style={{ width: 16, height: 16, color: 'var(--text-secondary)' }}>
+              <Logo size={16} />
             </div>
             <span className="text-sm font-semibold text-secondary">MindDiary</span>
           </div>
@@ -98,7 +98,7 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
               onClick={handleClose}
               title="关闭"
               aria-label="关闭窗口"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; e.currentTarget.style.color = 'var(--danger)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--danger) 15%, transparent)'; e.currentTarget.style.color = 'var(--danger)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
             >
               <svg width="12" height="12" viewBox="0 0 12 12">

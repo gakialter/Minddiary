@@ -154,6 +154,8 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                                 key={idx}
                                                 src={`local://${imgPath}`}
                                                 alt={`图片 ${idx + 1}`}
+                                                loading="lazy"
+                                                decoding="async"
                                                 style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
                                             />
                                         ))}

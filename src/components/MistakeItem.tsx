@@ -47,16 +47,23 @@ export function MistakeItem({
                 </div>
                 <div className="flex gap-xs">
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
-                        onClick={() => toggleMastered(m.id)}>
-                        {m.mastered ? <><Undo2 size={13} /> 重新加入计划</> : <><CheckCircle2 size={13} /> 彻底掌握</>}
+                        onClick={() => toggleMastered(m.id)}
+                        aria-label={m.mastered ? "撤销掌握，重新加入计划" : "标记为已彻底掌握"}
+                    >
+                        {m.mastered ? <><Undo2 size={13} aria-hidden /> 重新加入计划</> : <><CheckCircle2 size={13} aria-hidden /> 彻底掌握</>}
                     </button>
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={() => handleEdit(m)}><Pencil size={13} /></button>
+                        onClick={() => handleEdit(m)}
+                        aria-label="编辑错题"
+                        title="编辑错题"
+                    ><Pencil size={13} aria-hidden /></button>
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         onClick={() => handleDelete(m.id)}
                         onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
                         onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
-                    ><Trash2 size={13} /></button>
+                        aria-label="删除错题"
+                        title="删除错题"
+                    ><Trash2 size={13} aria-hidden /></button>
                 </div>
             </div>
             <div className="content-selectable" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
@@ -68,7 +75,9 @@ export function MistakeItem({
                         <img
                             key={idx}
                             src={`local://${imgPath}`}
-                            alt={`图片 ${idx + 1}`}
+                            alt={`错题附图 ${idx + 1}`}
+                            loading="lazy"
+                            decoding="async"
                             style={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
                         />
                     ))}

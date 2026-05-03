@@ -14,17 +14,17 @@ function MoodIcon({ mood, size = 24, style = {} }: MoodIconProps) {
         
         switch (mood) {
             case 'motivated':
-                return { icon: <Laugh size={iconSize} />, color: '#854D0E', bg: 'rgba(133,77,14,0.12)' } // Earth Brown
+                return { icon: <Laugh size={iconSize} />, color: 'var(--warning)', bg: 'color-mix(in srgb, var(--warning) 12%, transparent)' }
             case 'happy':
-                return { icon: <Smile size={iconSize} />, color: '#2F8F6B', bg: 'rgba(47,143,107,0.12)' } // Forest Green
+                return { icon: <Smile size={iconSize} />, color: 'var(--success)', bg: 'color-mix(in srgb, var(--success) 12%, transparent)' }
             case 'calm':
-                return { icon: <Meh size={iconSize} />, color: '#0F766E', bg: 'rgba(15,118,110,0.12)' } // Deep Pine
+                return { icon: <Meh size={iconSize} />, color: 'var(--accent)', bg: 'color-mix(in srgb, var(--accent) 12%, transparent)' }
             case 'tired':
-                return { icon: <Annoyed size={iconSize} />, color: '#475569', bg: 'rgba(71,85,105,0.12)' } // Slate
+                return { icon: <Annoyed size={iconSize} />, color: 'var(--text-secondary)', bg: 'color-mix(in srgb, var(--text-secondary) 12%, transparent)' }
             case 'anxious':
-                return { icon: <Zap size={iconSize} />, color: '#C65A3A', bg: 'rgba(198,90,58,0.12)' } // Clay Red
+                return { icon: <Zap size={iconSize} />, color: 'var(--danger)', bg: 'color-mix(in srgb, var(--danger) 12%, transparent)' }
             case 'sad':
-                return { icon: <Frown size={iconSize} />, color: '#0E7490', bg: 'rgba(14,116,144,0.12)' } // Ocean Slate
+                return { icon: <Frown size={iconSize} />, color: 'color-mix(in srgb, var(--accent) 50%, var(--text-secondary))', bg: 'color-mix(in srgb, color-mix(in srgb, var(--accent) 50%, var(--text-secondary)) 12%, transparent)' }
             default:
                 // Default empty state / unknown
                 return { icon: <CircleDashed size={iconSize} />, color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' }
