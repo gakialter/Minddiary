@@ -78,3 +78,6 @@ docs/assets/verification_*
 # Personal tooling (do not push)
 sync_skills.ps1
 CLAUDE_REVIEW_PROMPT.md
+
+# Claude Code local config
+.claude/
