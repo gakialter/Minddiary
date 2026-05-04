@@ -144,6 +144,15 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details>
+<summary>v1.8.6 — 数据层重构与稳定性巩固 (2026-05-05)</summary>
+
+- **状态管理重构**：完全拆分 `DataContext` 单体架构，将核心逻辑解耦为 12 个独立的 API 工厂函数（`entries`, `tags`, `pomodoro` 等）
+- **性能与并发修复**：重写状态懒加载逻辑，利用 `useState` 惰性初始化与 `useMemo` 缓存彻底解决子组件（AppContent）初次渲染拿不到数据的竞态问题及依赖循环
+- **类型安全**：消除 Vitest 及 React 生态带来的强类型拦截警告，测试覆盖率重回 100%
+
+</details>
+
+<details>
 <summary>v1.8.5 — 审计整改与品牌抛光 (2026-05-04)</summary>
 
 **无障碍**：全局 icon-only 按钮补齐 `aria-label`，SVG 装饰图标标注 `aria-hidden`
