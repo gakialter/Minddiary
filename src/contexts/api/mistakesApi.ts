@@ -1,13 +1,13 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
-import type { Mistake, MistakeFilters, Subject } from '../../types'
+import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData } from '../../types'
 import type { MistakesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createMistakesApi = (
     mistakesRef: MutableRefObject<Mistake[]>,
     subjectsRef: MutableRefObject<Subject[]>,
-    saveToLocal: (key: string, data: any) => void
+    saveToLocal: SaveToLocalFn
 ): MistakesContextAPI => ({
     getAll: async (filters: MistakeFilters = {}) => {
         if (IS_ELECTRON) return window.api.mistakes.getAll(filters)
@@ -36,7 +36,7 @@ export const createMistakesApi = (
         }
         return { data: result, total, masteredTotal };
     },
-    create: async (data: any) => {
+    create: async (data: Partial<Mistake>) => {
         if (IS_ELECTRON) {
             const { id } = await window.api.mistakes.create(data)
             return { ...data, id, mastered: false } as Mistake
@@ -57,11 +57,11 @@ export const createMistakesApi = (
     update: async (id: number, data: Partial<Mistake>) => {
         if (IS_ELECTRON) {
             await window.api.mistakes.update(id, data)
-            return data as any
+            return data
         }
         mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, ...data } : m)
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
-        return data as any
+        return data
     },
     delete: async (id: number) => {
         if (IS_ELECTRON) {
@@ -82,7 +82,7 @@ export const createMistakesApi = (
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
         return { mastered: true }
     },
-    review: async (id: number, data: any) => {
+    review: async (id: number, data: ReviewData) => {
         if (IS_ELECTRON) {
             await window.api.mistakes.review(id, data);
             return { success: true };

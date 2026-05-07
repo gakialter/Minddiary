@@ -65,18 +65,6 @@ function TagManager() {
 
   // Zen Forest Palette
   const presetColors = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
-  const LEGACY_COLOR_MAP: Record<string, string> = {
-    '#8b5cf6': '#475569', // Purple -> Slate
-    '#6366f1': '#0E7490', // Indigo -> Ocean
-    '#3b82f6': '#0F766E', // Blue -> Pine
-    '#10b981': '#2F8F6B', // Emerald -> Forest
-    '#f59e0b': '#854D0E', // Amber -> Earth
-    '#ec4899': '#C65A3A', // Pink -> Clay
-    '#ef4444': '#C65A3A', // Red -> Clay
-    '#f43f5e': '#C65A3A', // Rose -> Clay
-    '#06b6d4': '#0E7490', // Cyan -> Ocean
-    '#14b8a6': '#0F766E'  // Teal -> Pine
-  }
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'var(--space-xl)', width: '100%' }}>
@@ -148,7 +136,7 @@ function TagManager() {
         ) : (
           <div className="tag-grid">
             {tags.map(tag => {
-              const displayColor = LEGACY_COLOR_MAP[tag.color?.toLowerCase()] || tag.color || '#0F766E';
+              const displayColor = tag.color || '#0F766E';
               return (
               <div
                 key={tag.id}

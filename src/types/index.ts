@@ -185,6 +185,16 @@ export interface StorageKeys {
   SUBJECTS: string
 }
 
+// ─── Shared Callback Types ──────────────────────────────────────────────────
+export type SaveToLocalFn = <T>(key: string, data: T) => void
+
+export interface ReviewData {
+  ease_factor: number
+  review_interval: number
+  next_review_date: string
+  review_count: number
+}
+
 // ─── Diary Templates ───────────────────────────────────────────────────────
 export interface DiaryTemplate {
   id: number

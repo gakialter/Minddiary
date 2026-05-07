@@ -1,12 +1,12 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
-import type { DiaryEntry, EntryFilters } from '../../types'
+import type { DiaryEntry, EntryFilters, NewEntry, SaveToLocalFn } from '../../types'
 import type { EntriesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createEntriesApi = (
     entriesRef: MutableRefObject<DiaryEntry[]>,
-    saveToLocal: (key: string, data: any) => void
+    saveToLocal: SaveToLocalFn
 ): EntriesContextAPI => ({
     getAll: async (filters: EntryFilters = {}) => {
         if (IS_ELECTRON) return window.api.entries.getAll(filters)
@@ -40,7 +40,7 @@ export const createEntriesApi = (
             .map(e => ({ ...e, content_snippet: e.content?.substring(0, 200) }))
             .sort((a, b) => b.date.localeCompare(a.date))
     },
-    create: async (data) => {
+    create: async (data: NewEntry) => {
         if (IS_ELECTRON) return window.api.entries.create(data)
         
         const newEntry: DiaryEntry = {
@@ -55,7 +55,7 @@ export const createEntriesApi = (
         saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
         return newEntry
     },
-    update: async (id: number, data) => {
+    update: async (id: number, data: Partial<DiaryEntry>) => {
         if (IS_ELECTRON) return window.api.entries.update(id, data)
         
         const updatedEntry: DiaryEntry = {

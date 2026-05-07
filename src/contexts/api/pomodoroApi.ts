@@ -1,4 +1,5 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
+import type { PomodoroSession } from '../../types'
 import type { PomodoroContextAPI } from '../../types/api'
 
 export const createPomodoroApi = (): PomodoroContextAPI => ({
@@ -10,7 +11,7 @@ export const createPomodoroApi = (): PomodoroContextAPI => ({
         if (IS_ELECTRON) return window.api.pomodoro.getRange(start, end)
         return []
     },
-    addSession: async (session: any) => {
+    addSession: async (session: Pick<PomodoroSession, 'subject_id' | 'duration'>) => {
         if (IS_ELECTRON) return window.api.pomodoro.addSession(session)
         return true
     },

@@ -158,18 +158,6 @@ export default function StudyProgress() {
 
     // Zen Forest Palette
     const COLORS = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
-    
-    // Auto-remap legacy generic colors to Zen Forest colors
-    const LEGACY_COLOR_MAP: Record<string, string> = {
-        '#8b5cf6': '#475569', // Purple -> Slate
-        '#6366f1': '#0E7490', // Indigo -> Ocean
-        '#3b82f6': '#0F766E', // Blue -> Pine
-        '#10b981': '#2F8F6B', // Emerald -> Forest
-        '#f59e0b': '#854D0E', // Amber -> Earth
-        '#ec4899': '#C65A3A', // Pink -> Clay
-        '#f43f5e': '#C65A3A', // Rose -> Clay
-        '#14b8a6': '#0F766E'  // Teal -> Pine
-    }
 
     return (
         <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
@@ -286,7 +274,7 @@ export default function StudyProgress() {
                     ))
                 ) : (
                     subjectMetrics.map(subject => {
-                        const displayColor = LEGACY_COLOR_MAP[subject.color?.toLowerCase()] || subject.color || '#0F766E';
+                        const displayColor = subject.color || '#0F766E';
                         return (
                         <div key={subject.id} className="card progress-card" style={{
                             padding: 'var(--space-xl)',

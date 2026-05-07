@@ -77,7 +77,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         return true
     })
 
-    const saveToLocal = useCallback((key: string, data: any) => {
+    const saveToLocal = useCallback(<T,>(key: string, data: T) => {
         if (!IS_ELECTRON) localStorage.setItem(key, JSON.stringify(data))
     }, [])
 

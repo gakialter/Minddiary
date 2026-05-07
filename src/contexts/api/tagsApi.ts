@@ -1,13 +1,13 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
-import type { Tag, DiaryEntry } from '../../types'
+import type { Tag, DiaryEntry, SaveToLocalFn } from '../../types'
 import type { TagsContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createTagsApi = (
     tagsRef: MutableRefObject<Tag[]>,
     entriesRef: MutableRefObject<DiaryEntry[]>,
-    saveToLocal: (key: string, data: any) => void
+    saveToLocal: SaveToLocalFn
 ): TagsContextAPI => ({
     getAll: async () => {
         if (IS_ELECTRON) return window.api.tags.getAll()

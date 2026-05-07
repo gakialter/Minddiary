@@ -9,7 +9,7 @@ export const createTemplatesApi = (): TemplatesContextAPI => ({
         const raw = localStorage.getItem('minddiary-templates')
         return raw ? JSON.parse(raw) : []
     },
-    create: async (data: any) => {
+    create: async (data: Partial<DiaryTemplate>) => {
         if (IS_ELECTRON) return window.api.templates.create(data)
         const templates: DiaryTemplate[] = JSON.parse(localStorage.getItem('minddiary-templates') || '[]')
         const newTpl: DiaryTemplate = {
@@ -25,7 +25,7 @@ export const createTemplatesApi = (): TemplatesContextAPI => ({
         localStorage.setItem('minddiary-templates', JSON.stringify(templates))
         return newTpl
     },
-    update: async (id: number, data: any) => {
+    update: async (id: number, data: Partial<DiaryTemplate>) => {
         if (IS_ELECTRON) return window.api.templates.update(id, data)
         const templates: DiaryTemplate[] = JSON.parse(localStorage.getItem('minddiary-templates') || '[]')
         const idx = templates.findIndex(t => t.id === id)

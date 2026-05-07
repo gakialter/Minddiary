@@ -1,4 +1,5 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
+import type { AttachmentData } from '../../types'
 import type { AttachmentsContextAPI } from '../../types/api'
 
 export const createAttachmentsApi = (): AttachmentsContextAPI => ({
@@ -6,7 +7,7 @@ export const createAttachmentsApi = (): AttachmentsContextAPI => ({
         if (IS_ELECTRON) return window.api.attachments.getByEntry(entryId)
         return []
     },
-    save: async (entryId: number, data: any) => {
+    save: async (entryId: number, data: AttachmentData) => {
         if (IS_ELECTRON) return window.api.attachments.save(entryId, data)
         return true
     },

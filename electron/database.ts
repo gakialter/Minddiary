@@ -134,6 +134,29 @@ function initialize() {
     // Index for due-review queries
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_mistakes_next_review ON mistakes(next_review_date)'); } catch { /* ignore */ }
 
+    // ── v2.1 Migration: Cleanse legacy non-brand colors in tags & subjects ──
+    const LEGACY_TO_BRAND: Record<string, string> = {
+        '#8b5cf6': '#475569', // Purple → Slate
+        '#6366f1': '#0E7490', // Indigo → Ocean
+        '#3b82f6': '#0F766E', // Blue → Pine
+        '#10b981': '#2F8F6B', // Emerald → Forest
+        '#f59e0b': '#854D0E', // Amber → Earth
+        '#ec4899': '#C65A3A', // Pink → Clay
+        '#ef4444': '#C65A3A', // Red → Clay
+        '#f43f5e': '#C65A3A', // Rose → Clay
+        '#06b6d4': '#0E7490', // Cyan → Ocean
+        '#14b8a6': '#0F766E', // Teal → Pine
+    };
+    const migrateColors = db.transaction(() => {
+        const updateTag = db.prepare('UPDATE tags SET color = ? WHERE LOWER(color) = ?');
+        const updateSubject = db.prepare('UPDATE subjects SET color = ? WHERE LOWER(color) = ?');
+        for (const [legacy, brand] of Object.entries(LEGACY_TO_BRAND)) {
+            updateTag.run(brand, legacy);
+            updateSubject.run(brand, legacy);
+        }
+    });
+    try { migrateColors(); } catch { /* safe to ignore on fresh DB */ }
+
     // ── Seed default diary templates (only if table is empty) ──
     const templateCount = db.prepare('SELECT COUNT(*) as count FROM diary_templates').get() as { count: number };
     if (templateCount.count === 0) {

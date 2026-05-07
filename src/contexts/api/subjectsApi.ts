@@ -1,12 +1,12 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
-import type { Subject } from '../../types'
+import type { Subject, SaveToLocalFn } from '../../types'
 import type { SubjectsContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createSubjectsApi = (
     subjectsRef: MutableRefObject<Subject[]>,
-    saveToLocal: (key: string, data: any) => void
+    saveToLocal: SaveToLocalFn
 ): SubjectsContextAPI => ({
     getAll: async () => {
         if (IS_ELECTRON) return window.api.subjects.getAll()
