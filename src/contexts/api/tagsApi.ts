@@ -41,4 +41,23 @@ export const createTagsApi = (
         saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
         return true
     },
+    setEntryTags: async (entryId: number, tagIds: number[]) => {
+        if (IS_ELECTRON) return window.api.tags.setEntryTags(entryId, tagIds)
+
+        // Defensive: deduplicate and coerce to number in case upstream passes
+        // string ids (e.g. from DOM attributes). Safe to remove once all
+        // callers are fully typed.
+        const normalizedTagIds = Array.from(new Set(tagIds.map(Number)))
+        entriesRef.current = entriesRef.current.map(entry =>
+            entry.id === entryId ? { ...entry, tags: normalizedTagIds } : entry
+        )
+        saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
+    },
+    getEntryTags: async (entryId: number) => {
+        if (IS_ELECTRON) return window.api.tags.getEntryTags(entryId)
+
+        const entry = entriesRef.current.find(e => e.id === entryId)
+        const tagIds = entry?.tags || []
+        return tagsRef.current.filter(tag => tagIds.includes(tag.id))
+    },
 })

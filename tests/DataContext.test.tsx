@@ -217,6 +217,8 @@ describe('DataContext', () => {
         mood: null,
       })
       await result.current.tags.getAll()
+      await result.current.tags.setEntryTags(7, [1, 2])
+      await result.current.tags.getEntryTags(7)
       await result.current.mistakes.getAll({ mastered: false })
       await result.current.subjects.getAll()
       await result.current.pomodoro.getStats('2026-05-05')
@@ -238,6 +240,8 @@ describe('DataContext', () => {
       mood: null,
     })
     expect(window.api.tags.getAll).toHaveBeenCalledTimes(1)
+    expect(window.api.tags.setEntryTags).toHaveBeenCalledWith(7, [1, 2])
+    expect(window.api.tags.getEntryTags).toHaveBeenCalledWith(7)
     expect(window.api.mistakes.getAll).toHaveBeenCalledWith({ mastered: false })
     expect(window.api.subjects.getAll).toHaveBeenCalledTimes(1)
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
@@ -283,6 +287,45 @@ describe('DataContext', () => {
     expect(allEntries).toHaveLength(1)
     expect(allEntries[0]).toEqual(createdEntry)
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([createdEntry])
+  })
+
+  it('sets, resolves, persists, and removes entry tags in browser fallback storage', async () => {
+    mocks.isElectron = false
+    const entry: DiaryEntry = {
+      ...mockEntries[0]!,
+      id: 11,
+      tags: [],
+    }
+    const tags = mockTags.slice(0, 2)
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([entry]))
+    localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(tags))
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await act(async () => {
+      await result.current.tags.setEntryTags(11, [tags[1]!.id])
+    })
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
+      expect.objectContaining({ id: 11, tags: [tags[1]!.id] }),
+    ])
+
+    const entryTags = await result.current.tags.getEntryTags(11)
+    expect(entryTags).toEqual([tags[1]])
+
+    await act(async () => {
+      await result.current.tags.delete(tags[1]!.id)
+    })
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
+      expect.objectContaining({ id: 11, tags: [] }),
+    ])
   })
 
   it('creates mistakes in browser fallback storage and toggles mastered state', async () => {

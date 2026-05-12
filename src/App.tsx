@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Download, Frown, RotateCcw } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
@@ -52,6 +52,7 @@ function AppContent() {
   // ─── Local UI state ───
   const [entry, setEntry] = useState<DiaryEntry | null>(null)
   const [loading, setLoading] = useState(false)
+  const loadRequestId = useRef(0)
   const [isFirstLaunch, setIsFirstLaunch] = useState(() => !localStorage.getItem('started'))
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -87,32 +88,79 @@ function AppContent() {
     loadEntry(selectedDate)
   }, [selectedDate])
 
-  const loadEntry = async (date: string) => {
-    setLoading(true)
+  /** Create a blank entry shell for a given date (used when no saved entry exists). */
+  const createEmptyEntry = (date: string): DiaryEntry => ({
+    id: 0, date, title: '', content: '', mood: null,
+    tags: [], word_count: 0, created_at: '', updated_at: '',
+  })
+
+  const loadEntryTags = async (loadedEntry: DiaryEntry) => {
+    if (!loadedEntry.id) return loadedEntry.tags || []
     try {
-      const data = await diary.entries.getByDate(date)
-      if (data) {
-        setEntry(data)
-      } else {
-        setEntry({ date, title: '', content: '', mood: null, tags: [], word_count: 0, created_at: '', updated_at: '', id: 0 } as DiaryEntry)
-      }
+      const entryTags = await diary.tags.getEntryTags(loadedEntry.id)
+      return entryTags.map(tag => tag.id)
     } catch (error) {
-      logger.error('Failed to load entry:', error)
-      setEntry({ date, title: '', content: '', mood: null, tags: [], word_count: 0, created_at: '', updated_at: '', id: 0 } as DiaryEntry)
-    } finally {
-      setLoading(false)
+      logger.error('Failed to load entry tags:', error)
+      return loadedEntry.tags || []
     }
   }
 
-  const saveEntry = async (updated: Record<string, unknown>) => {
+  const loadEntry = async (date: string) => {
+    // Guard against race conditions when the user switches dates rapidly:
+    // each call captures a unique requestId; if a newer call has started by the
+    // time an older one resolves, the older result is silently discarded.
+    const currentRequestId = ++loadRequestId.current
+    setLoading(true)
     try {
+      const data = await diary.entries.getByDate(date)
+      if (currentRequestId !== loadRequestId.current) return // stale request
+      if (data) {
+        const tagIds = await loadEntryTags(data)
+        if (currentRequestId !== loadRequestId.current) return // stale after tag fetch
+        setEntry({ ...data, tags: tagIds })
+      } else {
+        setEntry(createEmptyEntry(date))
+      }
+    } catch (error) {
+      logger.error('Failed to load entry:', error)
+      if (currentRequestId === loadRequestId.current) {
+        setEntry(createEmptyEntry(date))
+      }
+    } finally {
+      if (currentRequestId === loadRequestId.current) {
+        setLoading(false)
+      }
+    }
+  }
+
+  // saveEntry receives Partial<DiaryEntry>. Tags are stripped out and saved
+  // separately via setEntryTags after the entry itself is persisted. When
+  // called from MoodPicker (which passes the full entry spread), `tags` will
+  // be present but is deliberately handled via setEntryTags rather than being
+  // sent to entries.create/update. When `tags` is absent (undefined), the
+  // setEntryTags call is skipped — this is intentional.
+  const saveEntry = async (updated: Partial<DiaryEntry>) => {
+    try {
+      const { tags, ...entryData } = updated
+      const tagIds = Array.isArray(tags) ? tags : undefined
       let saved: DiaryEntry | null = null
       if (entry?.id) {
-        saved = await diary.entries.update(entry.id, updated)
+        saved = await diary.entries.update(entry.id, entryData)
       } else {
-        saved = await diary.entries.create({ title: '', content: '', mood: null, ...updated, date: selectedDate })
+        saved = await diary.entries.create({
+          date: selectedDate,
+          title: entryData.title || '',
+          content: entryData.content || '',
+          mood: entryData.mood ?? null,
+          ...(entryData.images ? { images: entryData.images } : {}),
+        })
       }
-      if (saved) setEntry(saved)
+      if (saved) {
+        if (tagIds) {
+          await diary.tags.setEntryTags(saved.id, tagIds)
+        }
+        setEntry({ ...saved, tags: tagIds || saved.tags || [] })
+      }
     } catch (error) {
       logger.error('Failed to save entry:', error)
     }

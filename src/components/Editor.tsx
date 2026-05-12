@@ -5,11 +5,11 @@ import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
-import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react'
+import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
 import { logger } from '../utils/logger'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
-import type { DiaryEntry, AIMessage, DiaryTemplate } from '../types'
+import type { DiaryEntry, AIMessage, DiaryTemplate, Tag } from '../types'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
@@ -32,7 +32,7 @@ interface PomodoroRecord {
 
 interface EditorProps {
   entry: DiaryEntry | null
-  onSave: (data: { title: string; content: string }) => Promise<void>
+  onSave: (data: { title: string; content: string; tags: number[] }) => Promise<void>
   loading: boolean
 }
 
@@ -49,6 +49,8 @@ function Editor({ entry, onSave, loading }: EditorProps) {
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [showTemplateManager, setShowTemplateManager] = useState(false)
   const [quickTemplates, setQuickTemplates] = useState<DiaryTemplate[]>([])
+  const [availableTags, setAvailableTags] = useState<Tag[]>([])
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
   const shareCardRef = useRef<HTMLDivElement>(null)
@@ -69,13 +71,31 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     }).catch(() => {})
   }, [showTemplateManager])
 
+  // Load tags for diary assignment.
+  useEffect(() => {
+    diary.tags.getAll().then(data => {
+      setAvailableTags(data || [])
+    }).catch(error => {
+      logger.error('Failed to load tags:', error)
+      setAvailableTags([])
+    })
+  }, [diary.tags])
+
   // Sync from entry prop (only when entry changes reference)
   useEffect(() => {
     if (entry && entry !== entryRef.current) {
       entryRef.current = entry
       setTitle(entry.title || '')
       setContent(entry.content || '')
+      setSelectedTagIds(entry.tags || [])
       setWordCount(calculateWordCount(entry.content || ''))
+      isDirty.current = false
+    } else if (!entry) {
+      entryRef.current = null
+      setTitle('')
+      setContent('')
+      setSelectedTagIds([])
+      setWordCount(0)
       isDirty.current = false
     }
   }, [entry])
@@ -85,14 +105,14 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     setSaving(true)
     isDirty.current = false
     try {
-      await onSave({ title, content })
+      await onSave({ title, content, tags: selectedTagIds })
       if (isManual) showToast('保存成功', 'success')
     } catch (err) {
       logger.error('Save failed:', err)
       showToast('保存失败', 'error')
     }
     setSaving(false)
-  }, [entry, title, content, onSave])
+  }, [entry, title, content, selectedTagIds, onSave])
 
   const handleAiSummary = useCallback(async () => {
     if (!content.trim()) {
@@ -159,6 +179,19 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     const val = e.target.value
     setContent(val)
     setWordCount(calculateWordCount(val))
+    isDirty.current = true
+  }
+
+  const handleTagToggle = (tagId: number) => {
+    setSelectedTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    )
+    isDirty.current = true
+  }
+
+  const handleClearTags = () => {
+    if (selectedTagIds.length === 0) return
+    setSelectedTagIds([])
     isDirty.current = true
   }
 
@@ -256,6 +289,70 @@ function Editor({ entry, onSave, loading }: EditorProps) {
             <ImagePlus size={14} /> 分享
           </button>
         </div>
+      </div>
+
+      <div
+        className="flex flex-col gap-xs"
+        style={{
+          padding: 'var(--space-sm) 0',
+          borderBottom: '1px solid var(--border-light)'
+        }}
+      >
+        <div className="flex items-center justify-between gap-sm">
+          <div className="flex items-center gap-xs text-xs text-muted">
+            <TagsIcon size={14} style={{ color: 'var(--accent)' }} />
+            <span>先在“标签管理”创建标签，再在这里选择标签，之后可在“搜索”中按标签回顾。</span>
+          </div>
+          {selectedTagIds.length > 0 && (
+            <button
+              type="button"
+              className="button button-secondary text-xs"
+              onClick={handleClearTags}
+              style={{ padding: '3px 8px', background: 'transparent', flexShrink: 0 }}
+            >
+              <X size={12} /> 清空
+            </button>
+          )}
+        </div>
+        {availableTags.length > 0 ? (
+          <div className="flex flex-wrap gap-xs">
+            {availableTags.map(tag => {
+              const selected = selectedTagIds.includes(tag.id)
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  className="button button-secondary text-xs"
+                  aria-pressed={selected}
+                  onClick={() => handleTagToggle(tag.id)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 10px',
+                    background: selected ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))' : 'transparent',
+                    borderColor: selected ? 'var(--accent)' : 'var(--border)',
+                    color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: tag.color || 'var(--accent)',
+                      flexShrink: 0
+                    }}
+                  />
+                  {tag.name}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-muted">还没有可选标签，请先到“标签管理”创建。</div>
+        )}
       </div>
 
       <TemplateManager

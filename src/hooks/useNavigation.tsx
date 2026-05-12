@@ -17,7 +17,7 @@ import Settings from '../components/Settings'
 
 interface ViewRenderProps {
   entry: DiaryEntry | null
-  saveEntry: (data: Record<string, unknown>) => Promise<void>
+  saveEntry: (data: Partial<DiaryEntry>) => Promise<void>
   loading: boolean
   selectedDate: string
   setSelectedDate: (date: string) => void
@@ -49,7 +49,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
     render: (props) => (
       <div style={{ display: 'flex', gap: 0, height: '100%' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 'var(--space)' }}>
-          <Editor entry={props.entry} onSave={props.saveEntry as (data: { title: string; content: string }) => Promise<void>} loading={props.loading} />
+          <Editor entry={props.entry} onSave={props.saveEntry} loading={props.loading} />
         </div>
         <div style={{
           width: 280, borderLeft: '1px solid var(--border)',

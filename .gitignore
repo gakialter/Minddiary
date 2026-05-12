@@ -81,3 +81,4 @@ CLAUDE_REVIEW_PROMPT.md
 
 # Claude Code local config
 .claude/
+node_modules

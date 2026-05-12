@@ -51,6 +51,7 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 
 - Markdown 编辑，Ctrl+S 即时保存
 - 自定义日记模板，AI 智能汇总
+- 标签分类：在「标签管理」创建标签，编辑日记时选择标签，在「搜索」中按标签筛选回顾
 - 分享卡片导出 (PNG)
 
 ### 番茄钟
@@ -142,6 +143,17 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 - 动画以 `transform` + `opacity` 为主，尊重 `prefers-reduced-motion`
 
 ## 更新日志
+
+<details open>
+<summary>v1.8.7 — 日记标签系统 (2026-05-12)</summary>
+
+- **端到端标签流程**：编辑器内联标签选择区，支持加载、选择、取消、清空，随自动保存 / Ctrl+S 一起保存 ([#4](https://github.com/gakialter/Minddiary/issues/4))
+- **TagsContextAPI 补齐**：新增 `setEntryTags` / `getEntryTags`，浏览器 fallback 持久化 `entry.tags`
+- **保存链路重构**：`App.saveEntry` 拆分 tags 独立保存，正确处理新建日记 id=0 场景
+- **竞态防护**：`loadEntry` 新增 requestId 守卫，快速切换日期不再覆盖旧数据
+- **测试覆盖**：新增 App / Editor 标签集成测试，DataContext 标签持久化全链路测试，共 18 项通过
+
+</details>
 
 <details>
 <summary>v1.8.6 — 数据层重构与稳定性巩固 (2026-05-05)</summary>
