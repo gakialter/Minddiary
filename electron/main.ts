@@ -7,17 +7,13 @@ const fs = require('fs');
 const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
+const { createExportHandlers } = require('./exportHandlers');
 
 import type {
     NewEntry, EntryFilters, Tag, Subject,
     PomodoroSession, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData
 } from '../src/types/index';
-
-interface FileFilter {
-    name: string
-    extensions: string[]
-}
 
 // Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
 const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
@@ -397,47 +393,19 @@ ipcMain.handle('templates:delete', (_: unknown, id: number) => db.deleteTemplate
 
 // ==================== Export ====================
 
-/** Show a native Save-As dialog and return the chosen path (or null). */
-ipcMain.handle('export:showSaveDialog', async (_: unknown, options: { title: string; defaultPath?: string; filters?: FileFilter[] }) => {
-    const result = await dialog.showSaveDialog(mainWindow, options);
-    return result.canceled ? null : result.filePath;
+const exportHandlers = createExportHandlers({
+    app,
+    BrowserWindow,
+    dialog,
+    fs,
+    path,
+    getMainWindow: () => mainWindow,
 });
 
-/** Write a UTF-8 text file (Markdown / JSON export). */
-ipcMain.handle('export:writeFile', async (_: unknown, { filepath, content }: { filepath: string; content: string }) => {
-    await fs.promises.writeFile(filepath, content, 'utf-8');
-});
-
-/**
- * PDF export via Electron's native printToPDF.
- * A temporary hidden BrowserWindow loads the self-contained HTML generated
- * by the renderer, then Chromium paginates and rasterises it to PDF.
- * Chinese text renders perfectly because the system fonts are used directly —
- * no font embedding or subsetting required.
- */
-ipcMain.handle('export:toPDF', async (_: unknown, { htmlContent, savePath }: { htmlContent: string; savePath: string }) => {
-    const tmpPath = path.join(app.getPath('temp'), 'minddiary_export_tmp.html');
-    await fs.promises.writeFile(tmpPath, htmlContent, 'utf-8');
-
-    const win = new BrowserWindow({
-        show: false,
-        width: 1000,
-        height: 1400,
-        webPreferences: { contextIsolation: true, nodeIntegration: false },
-    });
-
-    await win.loadFile(tmpPath);
-
-    const pdfBuffer = await win.webContents.printToPDF({
-        pageSize: 'A4',
-        printBackground: true,
-        margins: { marginType: 'custom', top: 0, bottom: 0, left: 0, right: 0 },
-    });
-
-    win.close();
-    await fs.promises.writeFile(savePath, pdfBuffer);
-    await fs.promises.unlink(tmpPath).catch(() => { }); // best-effort cleanup
-});
+/** Export paths must be authorized by showSaveDialog and consumed on first write. */
+ipcMain.handle('export:showSaveDialog', exportHandlers.showSaveDialog);
+ipcMain.handle('export:writeFile', exportHandlers.writeFile);
+ipcMain.handle('export:toPDF', exportHandlers.toPDF);
 
 // ==================== Auto Backup ====================
 
