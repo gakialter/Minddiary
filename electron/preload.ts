@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 import type { 
     NewEntry, EntryFilters, Tag, Subject, 
     PomodoroSession, Mistake, MistakeFilters, 
-    DiaryTemplate, AIMessage, AttachmentData
+    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent
 } from '../src/types/index';
 
 contextBridge.exposeInMainWorld('api', {
@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
         updateGeneral: (patch: {
             examDate?: string; theme?: string; pomodoroMinutes?: number;
             autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
+            countdownEvents?: CountdownEvent[];
         }) => ipcRenderer.invoke('settings:updateGeneral', patch),
         updateAI: (patch: {
             aiEndpoint?: string; aiModel?: string;

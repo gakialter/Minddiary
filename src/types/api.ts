@@ -4,7 +4,7 @@ import type {
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   AppSettings, AIMessage, AISettings, AIResponse,
-  TodayDashboardData, DiaryTemplate, ReviewData,
+  TodayDashboardData, DiaryTemplate, ReviewData, CountdownEvent,
 } from '.'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
@@ -42,6 +42,7 @@ export interface ElectronTagsAPI {
 export interface UpdateGeneralPatch {
   examDate?: string; theme?: string; pomodoroMinutes?: number
   autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean
+  countdownEvents?: CountdownEvent[]
 }
 
 export interface UpdateAIPatch {
@@ -55,6 +56,7 @@ export interface UpdateBackupPatch {
 
 export interface SanitizedSettings {
   theme?: string; examDate?: string; dailyGoal?: number
+  countdownEvents?: CountdownEvent[]
   autoSave?: string; notifications?: string
   aiEndpoint?: string; aiModel?: string
   pomodoroMinutes?: string

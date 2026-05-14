@@ -12,7 +12,7 @@ const { createExportHandlers } = require('./exportHandlers');
 import type {
     NewEntry, EntryFilters, Tag, Subject,
     PomodoroSession, Mistake, MistakeFilters,
-    DiaryTemplate, AIMessage, AttachmentData
+    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, CountdownEventType
 } from '../src/types/index';
 
 // Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
@@ -220,12 +220,14 @@ const SETTINGS_READ_WHITELIST: ReadonlySet<string> = new Set([
     'theme', 'examDate', 'dailyGoal', 'autoSave', 'notifications',
     'aiEndpoint', 'aiModel', 'pomodoroMinutes',
     'autoBackup', 'backupPath', 'pomodoroSound', 'pomodoroAlert',
+    'countdownEvents',
 ]);
 
 // Per-handler allowed patch keys and their expected JS types
 const GENERAL_PATCH_SCHEMA: Record<string, string> = {
     examDate: 'string', theme: 'string', pomodoroMinutes: 'number',
     autoSave: 'boolean', pomodoroSound: 'boolean', pomodoroAlert: 'boolean',
+    countdownEvents: 'object',
 };
 const AI_PATCH_SCHEMA: Record<string, string> = {
     aiEndpoint: 'string', aiModel: 'string',
@@ -256,6 +258,64 @@ function sanitizePatch<T extends Record<string, unknown>>(
     return out as T;
 }
 
+const COUNTDOWN_EVENT_TYPES: ReadonlySet<string> = new Set(['exam', 'holiday', 'deadline', 'custom']);
+
+function isCountdownEventType(value: unknown): value is CountdownEventType {
+    return typeof value === 'string' && COUNTDOWN_EVENT_TYPES.has(value);
+}
+
+function isCalendarDate(value: string): boolean {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function sanitizeCountdownEvents(rawEvents: unknown): CountdownEvent[] {
+    if (!Array.isArray(rawEvents)) {
+        throw new Error('Invalid countdownEvents: expected an array');
+    }
+
+    return rawEvents.map((rawEvent, index) => {
+        if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) {
+            throw new Error(`Invalid countdownEvents[${index}]: expected an object`);
+        }
+
+        const event = rawEvent as Record<string, unknown>;
+        const id = typeof event.id === 'string' ? event.id.trim() : '';
+        const title = typeof event.title === 'string' ? event.title.trim() : '';
+        const date = typeof event.date === 'string' ? event.date.trim() : '';
+        if (!id || !title || !isCalendarDate(date)) {
+            throw new Error(`Invalid countdownEvents[${index}]: id, title, and YYYY-MM-DD date are required`);
+        }
+
+        return {
+            id,
+            title,
+            date,
+            ...(isCountdownEventType(event.type) ? { type: event.type } : { type: 'custom' as const }),
+            ...(typeof event.pinned === 'boolean' ? { pinned: event.pinned } : {}),
+            ...(typeof event.archived === 'boolean' ? { archived: event.archived } : {}),
+        };
+    });
+}
+
+function parseStoredCountdownEvents(value: unknown): CountdownEvent[] | undefined {
+    if (Array.isArray(value)) return sanitizeCountdownEvents(value);
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+
+    try {
+        const parsed: unknown = JSON.parse(value);
+        return sanitizeCountdownEvents(parsed);
+    } catch {
+        logger.warn('[settings:getAll] Ignored invalid countdownEvents payload');
+        return undefined;
+    }
+}
+
 // Single-key getter — refuses sensitive keys AND unknown keys
 ipcMain.handle('settings:get', (_: unknown, key: string) => {
     if (typeof key !== 'string' || !SETTINGS_READ_WHITELIST.has(key)) {
@@ -270,7 +330,8 @@ ipcMain.handle('settings:getAll', () => {
     const all = db.getAllSettings();
     const safe: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(all)) {
-        if (!SENSITIVE_SETTINGS_KEYS.includes(k)) safe[k] = v;
+        if (SENSITIVE_SETTINGS_KEYS.includes(k)) continue;
+        safe[k] = k === 'countdownEvents' ? parseStoredCountdownEvents(v) : v;
     }
     const storedKey = db.getAiApiKey();
     safe['aiApiKeyMasked'] = maskApiKey(storedKey);
@@ -283,7 +344,11 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
     const patch = sanitizePatch<{
         examDate?: string; theme?: string; pomodoroMinutes?: number;
         autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
+        countdownEvents?: CountdownEvent[];
     }>(rawPatch, GENERAL_PATCH_SCHEMA);
+    const countdownEvents = patch.countdownEvents === undefined
+        ? undefined
+        : sanitizeCountdownEvents(patch.countdownEvents);
     const txn = db.getDb().transaction(() => {
         if (patch.examDate !== undefined) db.setSetting('examDate', patch.examDate);
         if (patch.theme !== undefined) db.setSetting('theme', patch.theme);
@@ -291,6 +356,7 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
         if (patch.autoSave !== undefined) db.setSetting('autoSave', String(patch.autoSave));
         if (patch.pomodoroSound !== undefined) db.setSetting('pomodoroSound', String(patch.pomodoroSound));
         if (patch.pomodoroAlert !== undefined) db.setSetting('pomodoroAlert', String(patch.pomodoroAlert));
+        if (countdownEvents !== undefined) db.setSetting('countdownEvents', JSON.stringify(countdownEvents));
     });
     txn();
     return { success: true };

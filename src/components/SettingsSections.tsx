@@ -2,9 +2,12 @@ import React, { useState, useMemo } from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X } from 'lucide-react'
 import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
+import CountdownEventsManager from './CountdownEventsManager'
+import type { CountdownEvent } from '../types'
 
 interface SettingsGeneralProps {
   examDate: string; setExamDate: (v: string) => void
+  countdownEvents: CountdownEvent[]; setCountdownEvents: (v: CountdownEvent[]) => void
   theme: string; changeTheme: (v: string) => void
   pomodoroMinutes: number; setPomodoroMinutes: (v: number) => void
   pomodoroSound: boolean; setPomodoroSound: (v: boolean) => void
@@ -54,6 +57,7 @@ const fieldGroupStyle: React.CSSProperties = {
 
 export function SettingsGeneral({
     examDate, setExamDate,
+    countdownEvents, setCountdownEvents,
     theme, changeTheme,
     pomodoroMinutes, setPomodoroMinutes,
     pomodoroSound, setPomodoroSound,
@@ -66,14 +70,12 @@ export function SettingsGeneral({
                 <ClipboardList size={16} /> 基本设置
             </h3>
             <div style={fieldGroupStyle}>
-                <div>
-                    <label style={labelStyle}>考研日期</label>
-                    <input
-                        type="date" className="input w-full"
-                        value={examDate}
-                        onChange={(e) => setExamDate(e.target.value)}
-                    />
-                </div>
+                <CountdownEventsManager
+                    examDate={examDate}
+                    setExamDate={setExamDate}
+                    events={countdownEvents}
+                    setEvents={setCountdownEvents}
+                />
                 <div>
                     <label style={labelStyle}>主题</label>
                     <select className="input w-full" value={theme} onChange={(e) => changeTheme(e.target.value)}>

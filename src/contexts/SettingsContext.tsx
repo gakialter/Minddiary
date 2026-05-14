@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
 import { mockSettings, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
+import { normalizeCountdownEvents } from '../utils/countdown'
 import { logger } from '../utils/logger'
 import type { AppSettings } from '../types'
 import type { SettingsContextAPI, SanitizedSettings } from '../types/api'
@@ -20,6 +21,14 @@ export const useSettings = (): SettingsContextValue => {
     const context = useContext(SettingsContext)
     if (!context) throw new Error('useSettings must be used within SettingsProvider')
     return context
+}
+
+const normalizeSettings = (rawSettings: Partial<AppSettings> | null | undefined): AppSettings => {
+    const merged = { ...mockSettings, ...(rawSettings || {}) }
+    return {
+        ...merged,
+        countdownEvents: normalizeCountdownEvents(merged.countdownEvents, merged.examDate),
+    }
 }
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
@@ -42,14 +51,14 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         if (IS_ELECTRON) {
             window.api.settings.getAll()
-                .then(s => { if (s && Object.keys(s).length) setSettings(s as unknown as AppSettings) })
+                .then(s => { if (s && Object.keys(s).length) setSettings(normalizeSettings(s as unknown as Partial<AppSettings>)) })
                 .catch(err => logger.error('[SettingsContext] Init failed:', err))
                 .finally(() => setSettingsInitialized(true))
         } else {
             const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS)
-            const val: AppSettings = raw ? JSON.parse(raw) : mockSettings
+            const val = normalizeSettings(raw ? JSON.parse(raw) as Partial<AppSettings> : mockSettings)
             setSettings(val)
-            if (!raw) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(mockSettings))
+            if (!raw) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(val))
             setSettingsInitialized(true)
         }
     }, [])
@@ -65,8 +74,10 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         getAll: async () => {
             if (IS_ELECTRON) {
                 const s = await window.api.settings.getAll()
-                if (s) setSettings(s as unknown as AppSettings)
-                return s
+                if (!s) return s
+                const normalized = normalizeSettings(s as unknown as Partial<AppSettings>)
+                setSettings(normalized)
+                return { ...s, countdownEvents: normalized.countdownEvents }
             }
             return { ...settings, aiApiKeyMasked: null, aiApiKeyPresent: false } as unknown as SanitizedSettings
         },
@@ -74,7 +85,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             if (IS_ELECTRON) {
                 await window.api.settings.updateGeneral(patch)
             }
-            setSettings(prev => ({ ...prev, ...patch }))
+            setSettings(prev => normalizeSettings({ ...prev, ...patch }))
             return { success: true }
         },
         updateAI: async (patch) => {

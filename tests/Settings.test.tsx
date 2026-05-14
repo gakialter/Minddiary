@@ -43,6 +43,9 @@ describe('Settings Component', () => {
         backupPath: 'C:\\Backups',
         pomodoroSound: true,
         pomodoroAlert: true,
+        countdownEvents: [
+          { id: 'summer', title: '暑假开始', date: '2026-07-01', type: 'holiday' },
+        ],
       }),
       updateGeneral: vi.fn().mockResolvedValue({ success: true }),
       updateAI: vi.fn().mockResolvedValue({ success: true }),
@@ -127,5 +130,70 @@ describe('Settings Component', () => {
     expect(settingsApi.updateGeneral).toHaveBeenCalled()
     expect(settingsApi.updateAI).toHaveBeenCalled()
     expect(settingsApi.updateBackup).toHaveBeenCalled()
+  })
+
+  it('adds, pins, and deletes countdown events in settings', async () => {
+    vi.useFakeTimers()
+    await act(async () => {
+      render(<Settings />)
+    })
+
+    expect(screen.getByText('暑假开始')).toBeInTheDocument()
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('关键日期标题'), { target: { value: '报名开始' } })
+      fireEvent.change(screen.getByLabelText('关键日期日期'), { target: { value: '2026-09-01' } })
+      fireEvent.change(screen.getByLabelText('关键日期类型'), { target: { value: 'deadline' } })
+      fireEvent.click(screen.getByRole('button', { name: /添加日期/ }))
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(settingsApi.updateGeneral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        countdownEvents: expect.arrayContaining([
+          expect.objectContaining({
+            title: '报名开始',
+            date: '2026-09-01',
+            type: 'deadline',
+          }),
+        ]),
+      }),
+    )
+
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '置顶 暑假开始' }))
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(settingsApi.updateGeneral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        countdownEvents: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'summer',
+            pinned: true,
+          }),
+        ]),
+      }),
+    )
+
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '删除 暑假开始' }))
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const calls = settingsApi.updateGeneral.mock.calls
+    const lastPatch = calls[calls.length - 1]?.[0]
+    expect(lastPatch?.countdownEvents.some((event: { id: string }) => event.id === 'summer')).toBe(false)
   })
 })

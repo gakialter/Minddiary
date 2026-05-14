@@ -1,64 +1,54 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
-import { logger } from '../utils/logger'
-import { CalendarDays, Trophy } from 'lucide-react'
+import {
+  formatCountdownLabel,
+  getDaysLeft,
+  getFeaturedCountdownEvent,
+  normalizeCountdownEvents,
+} from '../utils/countdown'
+import type { AppSettings } from '../types'
 
 function Countdown() {
   const diary = useDiary()
-  const [daysLeft, setDaysLeft] = useState<number | null>(null)
-  const [examDate, setExamDate] = useState('2025-12-21')
+  const settingsData = (diary.settingsData || {}) as Partial<AppSettings>
+  const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
-    loadExamDate()
+    const interval = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(interval)
   }, [])
 
-  const loadExamDate = async () => {
-    try {
-      const settings = await diary.settings.getAll()
-      if (settings?.examDate) {
-        setExamDate(settings.examDate as string)
-      }
-    } catch (error) {
-      logger.error('Failed to load exam date:', error)
-    }
-  }
+  const featuredEvent = useMemo(() => {
+    const events = normalizeCountdownEvents(settingsData.countdownEvents, settingsData.examDate)
+    return getFeaturedCountdownEvent(events, now)
+  }, [settingsData.countdownEvents, settingsData.examDate, now])
 
-  useEffect(() => {
-    const calculateDaysLeft = () => {
-      const today = new Date()
-      const exam = new Date(examDate)
-      const diff = exam.getTime() - today.getTime()
-      const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
-      setDaysLeft(days)
-    }
-
-    calculateDaysLeft()
-    const interval = setInterval(calculateDaysLeft, 60000)
-    return () => clearInterval(interval)
-  }, [examDate])
-
-  const getMessage = (days: number) => {
-    if (days < 0) return <><Trophy size={14} /> 已结束</>
-    if (days === 0) return '今天考试！'
-    if (days < 10) return `只剩 ${days} 天！`
-    if (days < 30) return `还有 ${days} 天`
-    if (days < 100) return `距考试 ${days} 天`
-    return `考试倒计时 ${days} 天`
-  }
-
-  if (daysLeft === null) return null
+  const daysLeft = featuredEvent ? getDaysLeft(featuredEvent.date, now) : null
+  const isUrgent = typeof daysLeft === 'number' && daysLeft >= 0 && daysLeft <= 30
 
   return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center', gap: 'var(--space-sm)',
-      padding: '4px 14px', borderRadius: 20,
-      background: daysLeft < 30 ? 'rgba(217,119,6,0.1)' : 'var(--bg-tertiary)',
-      color: daysLeft < 30 ? 'var(--warning)' : 'var(--accent)',
-      fontSize: 13,
-      border: '1px solid var(--border-light)'
-    }}>
-      <span style={{ display: 'flex', alignItems: 'center' }}><CalendarDays size={14} /></span>
-      <span className="font-semibold" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{getMessage(daysLeft)}</span>
+    <div
+      aria-label="关键日期倒计时"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 'var(--space-sm)',
+        padding: '4px 14px',
+        borderRadius: 20,
+        background: isUrgent ? 'rgba(217,119,6,0.1)' : 'var(--bg-tertiary)',
+        color: isUrgent ? 'var(--warning)' : 'var(--accent)',
+        fontSize: 13,
+        border: '1px solid var(--border-light)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center' }}>
+        <CalendarDays size={14} />
+      </span>
+      <span className="font-semibold">
+        {formatCountdownLabel(featuredEvent, now)}
+      </span>
     </div>
   )
 }

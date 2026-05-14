@@ -3,12 +3,15 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { sanitizeSettingsForExport } from '../utils/sanitize'
 import { coerceBoolean } from '../utils/helpers'
+import { normalizeCountdownEvents } from '../utils/countdown'
 import { logger } from '../utils/logger'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsAbout } from './SettingsSections'
+import type { CountdownEvent } from '../types'
 function Settings() {
   const diary = useDiary()
   const [examDate, setExamDate] = useState('2025-12-21')
+  const [countdownEvents, setCountdownEvents] = useState<CountdownEvent[]>([])
   const [aiEndpoint, setAiEndpoint] = useState('')
   const [aiApiKeyInput, setAiApiKeyInput] = useState('')
   const [aiApiKeyPresent, setAiApiKeyPresent] = useState(false)
@@ -35,7 +38,9 @@ function Settings() {
     try {
       const settings = await diary.settings.getAll()
       if (!settings) return
-      setExamDate((settings.examDate as string) || '2025-12-21')
+      const loadedExamDate = (settings.examDate as string) || '2025-12-21'
+      setExamDate(loadedExamDate)
+      setCountdownEvents(normalizeCountdownEvents(settings.countdownEvents, loadedExamDate))
       setAiEndpoint((settings.aiEndpoint as string) || '')
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
@@ -60,14 +65,16 @@ function Settings() {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, aiEndpoint, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, aiKeyDirty, clearKeyRequested])
+  }, [examDate, countdownEvents, aiEndpoint, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, aiKeyDirty, clearKeyRequested])
 
   const saveSettings = async () => {
     setSaving(true)
     try {
       await Promise.all([
         diary.settings.updateGeneral({
-          examDate, theme: diary.theme,
+          examDate,
+          countdownEvents: normalizeCountdownEvents(countdownEvents, examDate),
+          theme: diary.theme,
           pomodoroMinutes, autoSave, pomodoroSound, pomodoroAlert,
         }),
         diary.settings.updateBackup({ autoBackup, backupPath }),
@@ -275,6 +282,7 @@ function Settings() {
         />
         <SettingsGeneral 
             examDate={examDate} setExamDate={setExamDate}
+            countdownEvents={countdownEvents} setCountdownEvents={setCountdownEvents}
             theme={diary.theme} changeTheme={diary.changeTheme}
             pomodoroMinutes={pomodoroMinutes} setPomodoroMinutes={setPomodoroMinutes}
             pomodoroSound={pomodoroSound} setPomodoroSound={setPomodoroSound}

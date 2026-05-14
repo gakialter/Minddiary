@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { getTodayStr } from '../utils/helpers';
 import { useDiary } from '../contexts/DiaryContext';
 import { logger } from '../utils/logger';
+import { normalizeCountdownEvents } from '../utils/countdown';
 import { BarChart2, Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
 import type { PomodoroRangeEntry, Mistake } from '../types';
+import CountdownEventsPanel from './CountdownEventsPanel';
 
 interface DashboardStats {
     totalPomodoroMinutes: number
@@ -27,7 +29,7 @@ interface HeatmapDataPoint {
 }
 
 export default function Dashboard() {
-    const { pomodoro, dashboard, mistakes } = useDiary();
+    const { pomodoro, dashboard, mistakes, settingsData } = useDiary();
     const [stats, setStats] = useState<DashboardStats>({
         totalPomodoroMinutes: 0,
         sessionCount: 0,
@@ -146,6 +148,11 @@ export default function Dashboard() {
         return m > 0 ? `${h}h${m}m` : `${h}h`;
     };
 
+    const countdownEvents = useMemo(
+        () => normalizeCountdownEvents(settingsData?.countdownEvents, settingsData?.examDate),
+        [settingsData?.countdownEvents, settingsData?.examDate]
+    );
+
     if (loading) {
         return <div className="p-8 text-center text-muted">正在聚合并分析学习图谱...</div>;
     }
@@ -217,6 +224,8 @@ export default function Dashboard() {
                         {stats.dueMistakes > 0 ? '赶紧去错题本消灭它们吧！' : '太棒了，今天没有欠债！'}
                     </div>
                 </div>
+
+                <CountdownEventsPanel events={countdownEvents} />
             </div>
 
             {/* Main Layout: 2 Columns */}

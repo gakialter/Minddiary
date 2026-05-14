@@ -123,9 +123,21 @@ export interface PomodoroRangeEntry {
 }
 
 // ─── Settings ───────────────────────────────────────────────────────────────
+export type CountdownEventType = 'exam' | 'holiday' | 'deadline' | 'custom'
+
+export interface CountdownEvent {
+  id: string
+  title: string
+  date: string
+  type?: CountdownEventType
+  pinned?: boolean
+  archived?: boolean
+}
+
 export interface AppSettings {
   theme: string
   examDate: string
+  countdownEvents?: CountdownEvent[]
   dailyGoal: number
   autoSave: boolean
   notifications: boolean
