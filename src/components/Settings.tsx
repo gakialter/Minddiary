@@ -38,6 +38,17 @@ function Settings() {
   // Subscribe to updater status pushed from main process
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    
+    // Fetch initial cached status before subscribing
+    if (window.api?.updater?.getStatus) {
+      window.api.updater.getStatus().then(status => {
+        setUpdateStatus(current => {
+          // Only apply initial status if we haven't already received a push event
+          return current.status === 'idle' ? status : current
+        })
+      }).catch(err => console.error('Failed to get updater status', err))
+    }
+
     if (window.api?.updater?.onStatusChange) {
       cleanup = window.api.updater.onStatusChange((status: UpdateStatus) => {
         setUpdateStatus(status);

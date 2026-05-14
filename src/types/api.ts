@@ -165,6 +165,7 @@ export interface UpdateStatus {
 export interface ElectronUpdaterAPI {
   check: () => Promise<{ success: boolean; message?: string; info?: unknown }>
   install: () => Promise<void>
+  getStatus: () => Promise<UpdateStatus>
   onStatusChange: (callback: (status: UpdateStatus) => void) => () => void
 }
 

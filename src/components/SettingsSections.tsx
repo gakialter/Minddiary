@@ -605,7 +605,7 @@ export function SettingsAbout({
                     <span className="text-muted">存储：</span> <span>SQLite 本地数据库</span>
                 </div>
                 <div className="text-sm">
-                    <span className="text-muted">隐私：</span> <span>数据完全本地存储，无网络请求</span>
+                    <span className="text-muted">隐私：</span> <span>学习数据完全本地存储；AI 与更新检查仅在配置或触发时联网</span>
                 </div>
                 <div style={{ marginTop: 'var(--space-md)' }}>
                     {isDownloaded ? (

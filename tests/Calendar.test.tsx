@@ -139,4 +139,54 @@ describe('Calendar Component', () => {
       expect(mockGetRange).toHaveBeenCalledWith('2023-11-01', '2023-11-30')
     })
   })
+
+  it('8. 低于 30 分钟不显示专注标记', async () => {
+    mockGetDatesWithEntries.mockResolvedValue([])
+    mockGetRange.mockResolvedValue([
+      { date: '2023-10-06', total_minutes: 25, session_count: 1 }
+    ])
+
+    await renderCalendar()
+    expect(screen.queryByText('25m')).not.toBeInTheDocument()
+  })
+
+  it('9. pomodoro.getRange 失败时仍显示日记', async () => {
+    mockGetDatesWithEntries.mockResolvedValue([
+      { date: '2023-10-05', mood: 'happy' }
+    ])
+    mockGetRange.mockRejectedValue(new Error('Network error'))
+
+    await renderCalendar()
+    
+    const happyIcons = screen.getAllByTestId('mood-icon-happy')
+    expect(happyIcons.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('10. entries.getDatesWithEntries 失败时仍显示专注标记', async () => {
+    mockGetDatesWithEntries.mockRejectedValue(new Error('Network error'))
+    mockGetRange.mockResolvedValue([
+      { date: '2023-10-06', total_minutes: 40, session_count: 1 }
+    ])
+
+    await renderCalendar()
+    expect(await screen.findByText('40m')).toBeInTheDocument()
+  })
+
+  it('11. goToToday 使用本地日期', async () => {
+    const mockOnSelectDate = vi.fn()
+    
+    await act(async () => {
+      render(<Calendar selectedDate="2023-10-15" onSelectDate={mockOnSelectDate} />)
+    })
+
+    const fireEvent = (await import('@testing-library/react')).fireEvent
+    fireEvent.click(screen.getByText('回到今天'))
+
+    // The fake system time was set to '2023-10-15T12:00:00.000Z' in beforeEach
+    // The local date formatter `toDateStr` formats the local Date object.
+    const today = new Date()
+    const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    expect(mockOnSelectDate).toHaveBeenCalledWith(expected)
+  })
 })

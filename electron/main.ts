@@ -67,8 +67,11 @@ function createWindow() {
 
 // ==================== Auto Updater ====================
 
+let lastUpdaterStatus: Record<string, unknown> = { status: 'idle' }
+
 /** Push updater status to renderer via webContents.send (matches window:maximized-change pattern). */
 function pushUpdaterStatus(status: Record<string, unknown>) {
+    lastUpdaterStatus = status
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('updater:status', status);
     }
@@ -131,6 +134,10 @@ ipcMain.handle('updater:check', async () => {
 ipcMain.handle('updater:install', () => {
     if (!autoUpdater) return;
     autoUpdater.quitAndInstall(false, true); // 强制重启应用，避免闪退感
+});
+
+ipcMain.handle('updater:getStatus', () => {
+    return lastUpdaterStatus;
 });
 
 app.whenReady().then(() => {

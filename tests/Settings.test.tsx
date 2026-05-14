@@ -37,6 +37,9 @@ describe('Settings Component', () => {
       },
     }
 
+    // Mock getStatus on the window object
+    ;(window as any).api.updater.getStatus = vi.fn().mockResolvedValue({ status: 'idle' })
+
     settingsApi = {
       getAll: vi.fn().mockResolvedValue({
         examDate: '2026-12-25',
@@ -211,6 +214,32 @@ describe('Settings Component', () => {
       render(<Settings />)
     })
     expect((window as any).api.updater.onStatusChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls getStatus on mount to initialize cached status', async () => {
+    (window as any).api.updater.getStatus.mockResolvedValueOnce({ status: 'downloaded', version: '1.9.0' })
+    await act(async () => {
+      render(<Settings />)
+    })
+    
+    // It should fetch initial status and show restart button
+    const installBtn = await screen.findByTestId('update-install-btn')
+    expect(installBtn).toBeInTheDocument()
+    expect(installBtn.textContent).toContain('1.9.0')
+  })
+
+  it('cleans up updater subscription on unmount', async () => {
+    const mockCleanup = vi.fn()
+    ;(window as any).api.updater.onStatusChange.mockReturnValueOnce(mockCleanup)
+
+    let unmount: () => void
+    await act(async () => {
+      const res = render(<Settings />)
+      unmount = res.unmount
+    })
+
+    unmount!()
+    expect(mockCleanup).toHaveBeenCalledTimes(1)
   })
 
   it('calls updater.check when check button is clicked', async () => {

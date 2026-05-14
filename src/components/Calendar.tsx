@@ -3,7 +3,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { MOODS } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
-import type { DiaryEntry, MoodId, DateMood } from '../types'
+import type { MoodId, DateMood } from '../types'
 
 interface CalendarProps {
   selectedDate: string
@@ -20,7 +20,6 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
   const diary = useDiary()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [entriesByDate, setEntriesByDate] = useState<Record<string, CalendarDateData>>({})
-  const [loading, setLoading] = useState(false)
 
   const getFocusLevel = (totalMinutes: number): 0 | 1 | 2 | 3 => {
     if (totalMinutes >= 120) return 3
@@ -41,9 +40,8 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
       const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`
       const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-      setLoading(true)
       try {
-        const [dates, pomodoroRange] = await Promise.all([
+        const [datesResult, pomodoroRangeResult] = await Promise.allSettled([
           diary.entries.getDatesWithEntries(yearMonth),
           diary.pomodoro.getRange(startDate, endDate)
         ])
@@ -52,22 +50,28 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
 
         const map: Record<string, CalendarDateData> = {}
         
-        ;((dates || []) as DateMood[]).forEach(d => {
-          map[d.date] = { mood: d.mood, hasDiary: true, pomodoro: null }
-        })
+        if (datesResult.status === 'fulfilled') {
+          ;((datesResult.value || []) as DateMood[]).forEach(d => {
+            map[d.date] = { mood: d.mood, hasDiary: true, pomodoro: null }
+          })
+        } else {
+          logger.error('Failed to load diary entries for calendar:', datesResult.reason)
+        }
 
-        ;(pomodoroRange || []).forEach(p => {
-          if (!map[p.date]) {
-            map[p.date] = { mood: null, hasDiary: false, pomodoro: null }
-          }
-          map[p.date]!.pomodoro = { totalMinutes: p.total_minutes, sessionCount: p.session_count }
-        })
+        if (pomodoroRangeResult.status === 'fulfilled') {
+          ;(pomodoroRangeResult.value || []).forEach(p => {
+            if (!map[p.date]) {
+              map[p.date] = { mood: null, hasDiary: false, pomodoro: null }
+            }
+            map[p.date]!.pomodoro = { totalMinutes: p.total_minutes, sessionCount: p.session_count }
+          })
+        } else {
+          logger.error('Failed to load pomodoro range for calendar:', pomodoroRangeResult.reason)
+        }
 
         setEntriesByDate(map)
       } catch (error) {
-        if (!isCancelled) logger.error('Failed to load entries:', error)
-      } finally {
-        if (!isCancelled) setLoading(false)
+        if (!isCancelled) logger.error('Unexpected error loading calendar data:', error)
       }
     }
 
@@ -105,7 +109,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
   const goToToday = () => {
     const today = new Date()
     setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))
-    onSelectDate(today.toISOString().split('T')[0]!)
+    onSelectDate(toDateStr(today))
   }
 
   const formatMonthYear = (date: Date) => {
@@ -162,10 +166,12 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
             const hasDiary = !!data?.hasDiary
             const pomodoro = data?.pomodoro
             const focusLevel = pomodoro ? getFocusLevel(pomodoro.totalMinutes) : 0
+            const buttonTitle = date ? `${dateStr}${hasDiary ? '，已记录日记' : ''}${pomodoro ? `，专注 ${pomodoro.totalMinutes} 分钟` : ''}` : ''
 
             return (
               <button
                 key={index}
+                title={buttonTitle}
                 onClick={() => date && onSelectDate(dateStr)}
                 disabled={!date}
                 style={{
@@ -200,7 +206,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                           <div style={{ 
                             position: 'absolute', bottom: -2, right: -4, 
                             width: 10, height: 10, borderRadius: '50%',
-                            background: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)',
+                            background: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)',
                             border: '2px solid var(--bg-primary)'
                           }} />
                         )}
@@ -211,9 +217,9 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                       <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                          <div style={{ 
                             padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500,
-                            background: `color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)'} 15%, transparent)`,
-                            color: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)',
-                            border: `1px solid color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)'} 30%, transparent)`
+                            background: `color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)'} 15%, transparent)`,
+                            color: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)',
+                            border: `1px solid color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)'} 30%, transparent)`
                           }}>
                            {pomodoro?.totalMinutes || 0}m
                          </div>
@@ -255,7 +261,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
           <span className="text-sm text-secondary">专注 60m+</span>
         </div>
         <div className="flex items-center gap-sm">
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--danger)' }} />
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent-dark)' }} />
           <span className="text-sm text-secondary">专注 120m+</span>
         </div>
       </div>
