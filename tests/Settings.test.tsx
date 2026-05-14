@@ -17,13 +17,20 @@ describe('Settings Component', () => {
     updateAI: ReturnType<typeof vi.fn>
     updateBackup: ReturnType<typeof vi.fn>
   }
+  let statusCallback: (status: unknown) => void = () => {}
 
   beforeEach(() => {
+    statusCallback = () => {}
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).api = {
       ...((window as any).api),
       updater: {
-        check: vi.fn().mockResolvedValue({ success: true })
+        check: vi.fn().mockResolvedValue({ success: true }),
+        install: vi.fn().mockResolvedValue(undefined),
+        onStatusChange: vi.fn((cb: (status: unknown) => void) => {
+          statusCallback = cb
+          return vi.fn()
+        }),
       },
       settings: {
         selectBackupFolder: vi.fn().mockResolvedValue('D:\\NewBackupPath')
@@ -195,5 +202,90 @@ describe('Settings Component', () => {
     const calls = settingsApi.updateGeneral.mock.calls
     const lastPatch = calls[calls.length - 1]?.[0]
     expect(lastPatch?.countdownEvents.some((event: { id: string }) => event.id === 'summer')).toBe(false)
+  })
+
+  // ==================== Update Status Tests ====================
+
+  it('subscribes to onStatusChange on mount', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    expect((window as any).api.updater.onStatusChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls updater.check when check button is clicked', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    const btn = screen.getByTestId('update-check-btn')
+    await act(async () => {
+      fireEvent.click(btn)
+    })
+    expect((window as any).api.updater.check).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows "\u5df2\u662f\u6700\u65b0\u7248\u672c" on not-available status', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    // Initially no status line
+    expect(screen.queryByTestId('update-status')).not.toBeInTheDocument()
+
+    await act(async () => {
+      statusCallback({ status: 'not-available' })
+    })
+    expect(screen.getByText('已是最新版本')).toBeInTheDocument()
+  })
+
+  it('shows download progress bar', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'downloading', percent: 43, bytesPerSecond: 1258291, transferred: 5000000, total: 12000000 })
+    })
+    expect(screen.getByText(/43%/)).toBeInTheDocument()
+    expect(screen.getByTestId('update-progress-bar')).toBeInTheDocument()
+    expect(screen.getByText('1.2 MB/s')).toBeInTheDocument()
+  })
+
+  it('shows "\u91cd\u542f\u5b89\u88c5" button on downloaded status', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'downloaded', version: '1.9.0' })
+    })
+    const installBtn = screen.getByTestId('update-install-btn')
+    expect(installBtn).toBeInTheDocument()
+    expect(installBtn.textContent).toContain('重启安装')
+    expect(installBtn.textContent).toContain('1.9.0')
+  })
+
+  it('calls updater.install when restart button is clicked', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'downloaded', version: '1.9.0' })
+    })
+    const installBtn = screen.getByTestId('update-install-btn')
+    await act(async () => {
+      fireEvent.click(installBtn)
+    })
+    expect((window as any).api.updater.install).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows error message on error status', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'error', message: '网络连接失败' })
+    })
+    expect(screen.getByText('网络连接失败')).toBeInTheDocument()
+    // Button should show "\u91cd\u8bd5" text
+    const btn = screen.getByTestId('update-check-btn')
+    expect(btn.textContent).toContain('重\u8bd5')
   })
 })

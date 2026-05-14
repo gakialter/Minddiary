@@ -16,13 +16,21 @@ contextBridge.exposeInMainWorld('api', {
         close: () => ipcRenderer.invoke('window:close'),
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
         onMaximizedChange: (callback: (maximized: boolean) => void) => {
-            ipcRenderer.on('window:maximized-change', (_: unknown, maximized: boolean) => callback(maximized));
+            const listener = (_: unknown, maximized: boolean) => callback(maximized);
+            ipcRenderer.on('window:maximized-change', listener);
+            return () => ipcRenderer.removeListener('window:maximized-change', listener);
         },
     },
 
     // Updater
     updater: {
         check: () => ipcRenderer.invoke('updater:check'),
+        install: () => ipcRenderer.invoke('updater:install'),
+        onStatusChange: (callback: (status: unknown) => void) => {
+            const listener = (_: unknown, status: unknown) => callback(status as never);
+            ipcRenderer.on('updater:status', listener);
+            return () => ipcRenderer.removeListener('updater:status', listener);
+        },
     },
 
     // Entries

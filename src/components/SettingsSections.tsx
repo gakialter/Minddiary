@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react'
-import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X } from 'lucide-react'
+import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw } from 'lucide-react'
 import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
 import type { CountdownEvent } from '../types'
+import type { UpdateStatus } from '../types/api'
 
 interface SettingsGeneralProps {
   examDate: string; setExamDate: (v: string) => void
@@ -35,7 +36,8 @@ interface SettingsBackupProps {
 
 interface SettingsAboutProps {
   checkForUpdates: () => Promise<void>
-  checkingUpdate: boolean
+  installUpdate: () => Promise<void>
+  updateStatus: UpdateStatus
   version: string
 }
 
@@ -573,9 +575,23 @@ export function SettingsBackup({
     )
 }
 
+/** Format bytes/sec to human-readable speed string */
+function formatSpeed(bytesPerSecond: number): string {
+    if (bytesPerSecond >= 1024 * 1024) {
+        return (bytesPerSecond / (1024 * 1024)).toFixed(1) + ' MB/s'
+    }
+    return Math.round(bytesPerSecond / 1024) + ' KB/s'
+}
+
 export function SettingsAbout({
-    checkForUpdates, checkingUpdate, version
+    checkForUpdates, installUpdate, updateStatus, version
 }: SettingsAboutProps) {
+    const { status } = updateStatus
+    const isChecking = status === 'checking'
+    const isDownloading = status === 'downloading'
+    const isDownloaded = status === 'downloaded'
+    const isBusy = isChecking || status === 'available' || isDownloading
+
     return (
         <div style={sectionStyle}>
             <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -592,14 +608,108 @@ export function SettingsAbout({
                     <span className="text-muted">隐私：</span> <span>数据完全本地存储，无网络请求</span>
                 </div>
                 <div style={{ marginTop: 'var(--space-md)' }}>
-                    <button 
-                        className="button button-secondary w-full" 
-                        onClick={checkForUpdates}
-                        disabled={checkingUpdate}
-                    >
-                        {checkingUpdate ? '正在检查...' : <><RefreshCw size={15} /> 检查更新</>}
-                    </button>
+                    {isDownloaded ? (
+                        <button
+                            className="button button-primary w-full"
+                            onClick={installUpdate}
+                            data-testid="update-install-btn"
+                        >
+                            <RotateCw size={15} /> 重启安装 v{updateStatus.version}
+                        </button>
+                    ) : (
+                        <button
+                            className="button button-secondary w-full"
+                            onClick={checkForUpdates}
+                            disabled={isBusy}
+                            data-testid="update-check-btn"
+                        >
+                            {isChecking
+                                ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> 正在检查...</>
+                                : status === 'error'
+                                    ? <><RefreshCw size={15} /> 重试</>
+                                    : <><RefreshCw size={15} /> 检查更新</>}
+                        </button>
+                    )}
                 </div>
+
+                {/* ── Update Status Line ── */}
+                {status !== 'idle' && (
+                    <div data-testid="update-status" style={{
+                        display: 'flex', flexDirection: 'column', gap: 6,
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-tertiary)',
+                        animation: 'fadeIn 0.2s ease',
+                    }}>
+                        {status === 'checking' && (
+                            <span className="text-xs" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                                正在连接更新服务器...
+                            </span>
+                        )}
+
+                        {status === 'available' && (
+                            <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Download size={12} />
+                                发现新版本 v{updateStatus.version}，正在准备下载...
+                            </span>
+                        )}
+
+                        {status === 'not-available' && (
+                            <span className="text-xs" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <CheckCircle size={12} />
+                                已是最新版本
+                            </span>
+                        )}
+
+                        {status === 'downloading' && (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <Download size={12} />
+                                        正在下载... {updateStatus.percent ?? 0}%
+                                    </span>
+                                    {updateStatus.bytesPerSecond != null && updateStatus.bytesPerSecond > 0 && (
+                                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                            {formatSpeed(updateStatus.bytesPerSecond)}
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{
+                                    height: 4, borderRadius: 2,
+                                    background: 'var(--border)',
+                                    overflow: 'hidden',
+                                }}>
+                                    <div
+                                        data-testid="update-progress-bar"
+                                        style={{
+                                            height: '100%',
+                                            width: `${updateStatus.percent ?? 0}%`,
+                                            background: 'var(--accent)',
+                                            borderRadius: 2,
+                                            transition: 'width 0.3s ease',
+                                        }}
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        {status === 'downloaded' && (
+                            <span className="text-xs" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <CheckCircle size={12} />
+                                新版本 v{updateStatus.version} 已下载完毕，重启即可安装
+                            </span>
+                        )}
+
+                        {status === 'error' && (
+                            <span className="text-xs" style={{ color: 'var(--danger, #C65A3A)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertTriangle size={12} />
+                                {updateStatus.message || '检查更新失败'}
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
                     MindDiary · 面向备考场景的本地优先学习系统
                 </div>

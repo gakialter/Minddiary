@@ -16,7 +16,7 @@ export interface ElectronWindowAPI {
   maximize: () => Promise<boolean>
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
-  onMaximizedChange?: (callback: (maximized: boolean) => void) => void
+  onMaximizedChange?: (callback: (maximized: boolean) => void) => () => void
 }
 
 export interface ElectronEntriesAPI {
@@ -133,8 +133,39 @@ export interface ElectronExportAPI {
   toPDF: (htmlContent: string, savePath: string) => Promise<void>
 }
 
+// ─── Auto-Updater status (pushed from main via webContents.send) ─────────────
+
+export type UpdateStatusType =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateStatus {
+  status: UpdateStatusType
+  /** Available / downloaded version string */
+  version?: string
+  /** Markdown release notes (if provided by electron-updater) */
+  releaseNotes?: string
+  /** Download percent 0–100 */
+  percent?: number
+  /** Current download speed in bytes/sec */
+  bytesPerSecond?: number
+  /** Bytes transferred so far */
+  transferred?: number
+  /** Total download size in bytes */
+  total?: number
+  /** Human-readable error message */
+  message?: string
+}
+
 export interface ElectronUpdaterAPI {
   check: () => Promise<{ success: boolean; message?: string; info?: unknown }>
+  install: () => Promise<void>
+  onStatusChange: (callback: (status: UpdateStatus) => void) => () => void
 }
 
 export interface ElectronTemplatesAPI {

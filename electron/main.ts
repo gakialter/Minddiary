@@ -66,38 +66,71 @@ function createWindow() {
 }
 
 // ==================== Auto Updater ====================
+
+/** Push updater status to renderer via webContents.send (matches window:maximized-change pattern). */
+function pushUpdaterStatus(status: Record<string, unknown>) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('updater:status', status);
+    }
+}
+
 function initAutoUpdater() {
     if (!autoUpdater) return;
-    autoUpdater.checkForUpdatesAndNotify();
-    autoUpdater.on('update-available', () => {
-        dialog.showMessageBox({
-            type: 'info',
-            title: '发现新版本',
-            message: '发现新版本，正在后台下载。',
+
+    autoUpdater.on('checking-for-update', () => {
+        pushUpdaterStatus({ status: 'checking' });
+    });
+
+    autoUpdater.on('update-available', (info: { version: string; releaseNotes?: unknown }) => {
+        pushUpdaterStatus({
+            status: 'available',
+            version: info.version,
+            releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
         });
     });
-    autoUpdater.on('update-downloaded', () => {
-        dialog.showMessageBox({
-            type: 'info',
-            title: '更新准备就绪',
-            message: '新版本已下载完毕。是否现在重启应用安装更新？',
-            buttons: ['是', '稍后']
-        }).then((result: { response: number }) => {
-            if (result.response === 0) autoUpdater.quitAndInstall();
+
+    autoUpdater.on('update-not-available', () => {
+        pushUpdaterStatus({ status: 'not-available' });
+    });
+
+    autoUpdater.on('download-progress', (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+        pushUpdaterStatus({
+            status: 'downloading',
+            percent: Math.round(progress.percent),
+            bytesPerSecond: progress.bytesPerSecond,
+            transferred: progress.transferred,
+            total: progress.total,
         });
     });
+
+    autoUpdater.on('update-downloaded', (info: { version: string }) => {
+        pushUpdaterStatus({ status: 'downloaded', version: info.version });
+    });
+
+    autoUpdater.on('error', (err: Error) => {
+        pushUpdaterStatus({ status: 'error', message: err.message || String(err) });
+    });
+
+    // Silent check on startup (errors are pushed via the 'error' event)
+    autoUpdater.checkForUpdates().catch(() => {});
 }
 
 ipcMain.handle('updater:check', async () => {
     if (!autoUpdater) return { success: false, message: '环境不支持自动更新' };
-    
+
     try {
-        const result = await autoUpdater.checkForUpdates();
-        return { success: true, info: result?.updateInfo };
+        await autoUpdater.checkForUpdates();
+        // Status transitions are pushed to renderer via autoUpdater events
+        return { success: true };
     } catch (e: unknown) {
         logger.error('Update check failed:', e instanceof Error ? e.message : String(e));
         return { success: false, message: '检查更新失败: ' + (e instanceof Error ? e.message : String(e)) };
     }
+});
+
+ipcMain.handle('updater:install', () => {
+    if (!autoUpdater) return;
+    autoUpdater.quitAndInstall(false, true); // 强制重启应用，避免闪退感
 });
 
 app.whenReady().then(() => {

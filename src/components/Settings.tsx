@@ -8,6 +8,7 @@ import { logger } from '../utils/logger'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsAbout } from './SettingsSections'
 import type { CountdownEvent } from '../types'
+import type { UpdateStatus } from '../types/api'
 function Settings() {
   const diary = useDiary()
   const [examDate, setExamDate] = useState('2025-12-21')
@@ -24,7 +25,7 @@ function Settings() {
   const [autoBackup, setAutoBackup] = useState(false)
   const [backupPath, setBackupPath] = useState('')
   const [saving, setSaving] = useState(false)
-  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ status: 'idle' })
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [pomodoroSound, setPomodoroSound] = useState(true)
   const [pomodoroAlert, setPomodoroAlert] = useState(true)
@@ -33,6 +34,30 @@ function Settings() {
   useEffect(() => {
     loadSettings()
   }, [])
+
+  // Subscribe to updater status pushed from main process
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    if (window.api?.updater?.onStatusChange) {
+      cleanup = window.api.updater.onStatusChange((status: UpdateStatus) => {
+        setUpdateStatus(status);
+      });
+    }
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [])
+
+  // Auto-clear "not-available" after 5 seconds
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (updateStatus.status === 'not-available') {
+      timer = setTimeout(() => setUpdateStatus({ status: 'idle' }), 5000);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [updateStatus.status])
 
   const loadSettings = async () => {
     try {
@@ -246,20 +271,21 @@ function Settings() {
       showToast('此功能仅在桌面客户端可用', 'error')
       return
     }
-    
-    setCheckingUpdate(true)
-    showToast('正在检查更新...', 'info')
+
     try {
       const res = await window.api.updater.check()
-      if (res.success) {
-        showToast('检查完毕，若有新版本将在后台下载', 'success', 3000)
-      } else {
-        showToast(res.message || '环境不支持自动更新', 'error')
+      if (!res.success) {
+        setUpdateStatus({ status: 'error', message: res.message || '环境不支持自动更新' })
       }
-    } catch (e) {
-      showToast('更新检查失败，请重试', 'error')
-    } finally {
-      setCheckingUpdate(false)
+      // On success, main process pushes status via onStatusChange
+    } catch {
+      setUpdateStatus({ status: 'error', message: '更新检查失败，请重试' })
+    }
+  }
+
+  const installUpdate = async () => {
+    if (window.api?.updater?.install) {
+      await window.api.updater.install()
     }
   }
 
@@ -297,7 +323,8 @@ function Settings() {
         />
         <SettingsAbout 
             checkForUpdates={checkForUpdates}
-            checkingUpdate={checkingUpdate}
+            installUpdate={installUpdate}
+            updateStatus={updateStatus}
             version={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
         />
       </div>

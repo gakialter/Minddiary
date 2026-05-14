@@ -3,44 +3,82 @@ import { useDiary } from '../contexts/DiaryContext'
 import { MOODS } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
-import type { DiaryEntry, MoodId } from '../types'
+import type { DiaryEntry, MoodId, DateMood } from '../types'
 
 interface CalendarProps {
   selectedDate: string
   onSelectDate: (date: string) => void
 }
 
-interface DateMoodEntry {
-  date: string
+interface CalendarDateData {
   mood: MoodId | null
+  pomodoro: { totalMinutes: number; sessionCount: number } | null
+  hasDiary: boolean
 }
 
 function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
   const diary = useDiary()
   const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [entriesByDate, setEntriesByDate] = useState<Record<string, MoodId | null>>({})
+  const [entriesByDate, setEntriesByDate] = useState<Record<string, CalendarDateData>>({})
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    loadMonthEntries()
-  }, [currentMonth])
-
-  const loadMonthEntries = async () => {
-    const yearMonth = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`
-    setLoading(true)
-    try {
-      const dates = await diary.entries.getDatesWithEntries(yearMonth)
-      const map: Record<string, MoodId | null> = {}
-      ;((dates || []) as DateMoodEntry[]).forEach(d => {
-        map[d.date] = d.mood
-      })
-      setEntriesByDate(map)
-    } catch (error) {
-      logger.error('Failed to load entries:', error)
-    } finally {
-      setLoading(false)
-    }
+  const getFocusLevel = (totalMinutes: number): 0 | 1 | 2 | 3 => {
+    if (totalMinutes >= 120) return 3
+    if (totalMinutes >= 60) return 2
+    if (totalMinutes >= 30) return 1
+    return 0
   }
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadMonthEntries = async () => {
+      const yearMonth = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`
+      
+      const year = currentMonth.getFullYear()
+      const month = currentMonth.getMonth()
+      const lastDay = new Date(year, month + 1, 0).getDate()
+      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+      setLoading(true)
+      try {
+        const [dates, pomodoroRange] = await Promise.all([
+          diary.entries.getDatesWithEntries(yearMonth),
+          diary.pomodoro.getRange(startDate, endDate)
+        ])
+
+        if (isCancelled) return
+
+        const map: Record<string, CalendarDateData> = {}
+        
+        ;((dates || []) as DateMood[]).forEach(d => {
+          map[d.date] = { mood: d.mood, hasDiary: true, pomodoro: null }
+        })
+
+        ;(pomodoroRange || []).forEach(p => {
+          if (!map[p.date]) {
+            map[p.date] = { mood: null, hasDiary: false, pomodoro: null }
+          }
+          map[p.date]!.pomodoro = { totalMinutes: p.total_minutes, sessionCount: p.session_count }
+        })
+
+        setEntriesByDate(map)
+      } catch (error) {
+        if (!isCancelled) logger.error('Failed to load entries:', error)
+      } finally {
+        if (!isCancelled) setLoading(false)
+      }
+    }
+
+    loadMonthEntries()
+    
+    return () => {
+      isCancelled = true
+    }
+  }, [currentMonth, diary.entries, diary.pomodoro])
+
+
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear()
@@ -120,8 +158,10 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
             const dateStr = date ? toDateStr(date) : ''
             const isSelected = dateStr === selectedDate
             const isToday = dateStr === todayStr
-            const mood = entriesByDate[dateStr]
-            const hasEntry = dateStr in entriesByDate
+            const data = entriesByDate[dateStr]
+            const hasDiary = !!data?.hasDiary
+            const pomodoro = data?.pomodoro
+            const focusLevel = pomodoro ? getFocusLevel(pomodoro.totalMinutes) : 0
 
             return (
               <button
@@ -136,6 +176,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                   transition: 'background 0.15s', cursor: date ? 'pointer' : 'default',
                   background: isSelected ? 'rgba(139,92,246,0.15)' : (date ? '' : 'transparent'),
                   fontFamily: 'inherit',
+                  position: 'relative'
                 }}
                 onMouseEnter={(e) => { if (date && !isSelected) e.currentTarget.style.background = 'var(--bg-tertiary)' }}
                 onMouseLeave={(e) => { if (date && !isSelected) e.currentTarget.style.background = '' }}
@@ -152,13 +193,33 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                     }}>
                       {date.getDate()}
                     </span>
-                    {hasEntry && (
-                      <>
-                        <div style={{ marginBottom: 2 }}><MoodIcon mood={mood} size={20} /></div>
-                        <div className="text-xs text-muted">已记录</div>
-                      </>
+                    {hasDiary && (
+                      <div style={{ marginBottom: 2, position: 'relative' }}>
+                        <MoodIcon mood={data?.mood || null} size={20} />
+                        {focusLevel > 0 && (
+                          <div style={{ 
+                            position: 'absolute', bottom: -2, right: -4, 
+                            width: 10, height: 10, borderRadius: '50%',
+                            background: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)',
+                            border: '2px solid var(--bg-primary)'
+                          }} />
+                        )}
+                      </div>
                     )}
-                    {!hasEntry && date.getDay() !== 0 && date.getDay() !== 6 && (
+                    {hasDiary && <div className="text-xs text-muted">已记录</div>}
+                    {!hasDiary && focusLevel > 0 && (
+                      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                         <div style={{ 
+                            padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500,
+                            background: `color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)'} 15%, transparent)`,
+                            color: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)',
+                            border: `1px solid color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--danger)'} 30%, transparent)`
+                          }}>
+                           {pomodoro?.totalMinutes || 0}m
+                         </div>
+                      </div>
+                    )}
+                    {!hasDiary && focusLevel === 0 && date.getDay() !== 0 && date.getDay() !== 6 && (
                       <div className="text-xs text-muted" style={{ marginTop: 8 }}>点击添加</div>
                     )}
                   </>
@@ -185,6 +246,18 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
             <span className="text-sm text-secondary">{m.label}</span>
           </div>
         ))}
+        <div className="flex items-center gap-sm ml-4">
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--success)' }} />
+          <span className="text-sm text-secondary">专注 30m+</span>
+        </div>
+        <div className="flex items-center gap-sm">
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--warning)' }} />
+          <span className="text-sm text-secondary">专注 60m+</span>
+        </div>
+        <div className="flex items-center gap-sm">
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--danger)' }} />
+          <span className="text-sm text-secondary">专注 120m+</span>
+        </div>
       </div>
     </div>
   )

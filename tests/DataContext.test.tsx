@@ -28,6 +28,8 @@ const createWindowApiMock = (): ElectronAPI => ({
   },
   updater: {
     check: vi.fn().mockResolvedValue({ success: true }),
+    install: vi.fn().mockResolvedValue(undefined),
+    onStatusChange: vi.fn().mockReturnValue(() => {}),
   },
   entries: {
     create: vi.fn().mockResolvedValue({ id: 1 }),

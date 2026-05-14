@@ -79,6 +79,9 @@ docs/assets/verification_*
 sync_skills.ps1
 CLAUDE_REVIEW_PROMPT.md
 
+# Extracted artifacts (do not push)
+impeccable_extracted/
+
 # Claude Code local config
 .claude/
 node_modules

@@ -18,6 +18,8 @@ const mockApi: ElectronAPI = {
     },
     updater: {
         check: async () => ({ success: false, message: 'Mock environment' }),
+        install: async () => {},
+        onStatusChange: () => () => {},
     },
     entries: {
         create: async (entry) => ({ id: Date.now(), date: entry.date, title: entry.title || '', content: entry.content || '', mood: entry.mood || null, word_count: (entry.content || '').replace(/\s/g, '').length, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
