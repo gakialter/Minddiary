@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react'
-import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw } from 'lucide-react'
+import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2 } from 'lucide-react'
 import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
-import type { CountdownEvent } from '../types'
+import type { ActiveAppInfo, CountdownEvent, FocusWhitelistItem } from '../types'
 import type { UpdateStatus } from '../types/api'
 
 interface SettingsGeneralProps {
@@ -32,6 +32,57 @@ interface SettingsBackupProps {
   exportData: () => Promise<void>
   importData: () => Promise<void>
   showToast: (message: string, type?: 'success' | 'error' | 'info', duration?: number) => number
+}
+
+function createFocusWhitelistId(): string {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return crypto.randomUUID()
+    }
+    return `focus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+interface SettingsFocusProps {
+  focusGuardEnabled: boolean; setFocusGuardEnabled: (v: boolean) => void
+  focusGuardIntervalSec: number; setFocusGuardIntervalSec: (v: number) => void
+  focusWhitelist: FocusWhitelistItem[]; setFocusWhitelist: (v: FocusWhitelistItem[]) => void
+}
+
+function basenameOnly(value: string | undefined): string | undefined {
+    if (!value) return undefined
+    const normalized = value.replace(/\\/g, '/')
+    return normalized.split('/').filter(Boolean).pop() || value
+}
+
+function toFocusWhitelistItem(app: ActiveAppInfo): FocusWhitelistItem {
+    const executable = basenameOnly(app.executable)
+    const name = app.name || app.processName || executable || '未知应用'
+    return {
+        id: createFocusWhitelistId(),
+        name: name.trim().slice(0, 160),
+        ...(app.processName ? { processName: app.processName.trim().slice(0, 160) } : {}),
+        ...(executable ? { executable: executable.trim().slice(0, 160) } : {}),
+        enabled: true,
+        createdAt: new Date().toISOString(),
+    }
+}
+
+function toManualWhitelistItem(value: string): FocusWhitelistItem {
+    const trimmed = value.trim().slice(0, 160)
+    const looksLikeProcess = /\.[a-z0-9]{2,5}$/i.test(trimmed)
+    return {
+        id: createFocusWhitelistId(),
+        name: trimmed,
+        ...(looksLikeProcess ? { processName: trimmed } : {}),
+        enabled: true,
+        createdAt: new Date().toISOString(),
+    }
+}
+
+function isSameWhitelistTarget(a: FocusWhitelistItem, b: FocusWhitelistItem): boolean {
+    const normalize = (value: string | undefined) => (value || '').trim().toLowerCase()
+    return (!!a.processName && normalize(a.processName) === normalize(b.processName))
+        || (!!a.executable && normalize(a.executable) === normalize(b.executable))
+        || normalize(a.name) === normalize(b.name)
 }
 
 interface SettingsAboutProps {
@@ -131,6 +182,158 @@ export function SettingsGeneral({
 /* ──────────────────────────────────────────────────────
    AI Settings — CC-Switch inspired provider+model UI
    ────────────────────────────────────────────────────── */
+
+export function SettingsFocus({
+    focusGuardEnabled, setFocusGuardEnabled,
+    focusGuardIntervalSec, setFocusGuardIntervalSec,
+    focusWhitelist, setFocusWhitelist,
+}: SettingsFocusProps) {
+    const [manualApp, setManualApp] = useState('')
+    const [feedback, setFeedback] = useState('')
+
+    const addWhitelistItem = (item: FocusWhitelistItem) => {
+        const withoutDuplicate = focusWhitelist.filter(existing => !isSameWhitelistTarget(existing, item))
+        setFocusWhitelist([...withoutDuplicate, item])
+    }
+
+    const addCurrentApp = async () => {
+        setFeedback('')
+        try {
+            const app = await window.api?.focusGuard?.getActiveApp?.()
+            if (!app) {
+                setFeedback('无法读取当前应用，可手动添加。')
+                return
+            }
+            addWhitelistItem(toFocusWhitelistItem(app))
+        } catch {
+            setFeedback('无法读取当前应用，可手动添加。')
+        }
+    }
+
+    const addManualApp = () => {
+        const value = manualApp.trim()
+        if (!value) return
+        addWhitelistItem(toManualWhitelistItem(value))
+        setManualApp('')
+    }
+
+    return (
+        <div style={{ ...sectionStyle, gridColumn: '1 / -1' }}>
+            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ShieldCheck size={16} /> 专注模式
+            </h3>
+            <div style={fieldGroupStyle}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={focusGuardEnabled}
+                        onChange={(e) => setFocusGuardEnabled(e.target.checked)}
+                        style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                    />
+                    <span className="text-sm font-semibold">启用专注白名单提醒</span>
+                </label>
+
+                <div className="text-xs text-muted" style={{ lineHeight: 1.6 }}>
+                    开启后，番茄钟专注期间只提醒不在白名单内的应用。建议先加入网课、资料、输入法、浏览器或常用学习工具。
+                </div>
+
+                <div>
+                    <label htmlFor="focus-guard-interval" style={labelStyle}>检测间隔（秒）</label>
+                    <input
+                        id="focus-guard-interval"
+                        type="number"
+                        min={3}
+                        max={30}
+                        className="input"
+                        style={{ width: 120 }}
+                        value={focusGuardIntervalSec}
+                        onChange={(e) => {
+                            const next = Math.max(3, Math.min(30, Number(e.target.value) || 5))
+                            setFocusGuardIntervalSec(next)
+                        }}
+                    />
+                </div>
+
+                <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 220px' }}>
+                        <label htmlFor="focus-guard-manual-app" style={labelStyle}>应用名称或进程名</label>
+                        <input
+                            id="focus-guard-manual-app"
+                            className="input w-full"
+                            value={manualApp}
+                            onChange={(e) => setManualApp(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    addManualApp()
+                                }
+                            }}
+                            placeholder="例如 chrome.exe 或 Zotero"
+                        />
+                    </div>
+                    <button type="button" className="button button-secondary" onClick={addCurrentApp}>
+                        <Plus size={15} /> 添加当前应用
+                    </button>
+                    <button type="button" className="button button-primary" onClick={addManualApp}>
+                        手动添加
+                    </button>
+                </div>
+
+                {feedback && <div className="text-xs text-muted">{feedback}</div>}
+
+                {focusWhitelist.length === 0 ? (
+                    <div className="text-xs text-muted" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', lineHeight: 1.6 }}>
+                        当前没有白名单，除 MindDiary 外的应用都会触发提醒。
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {focusWhitelist.map(item => (
+                            <div
+                                key={item.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 12,
+                                    padding: '8px 10px',
+                                    border: '1px solid var(--border-light)',
+                                    borderRadius: 'var(--radius-sm)',
+                                    background: 'var(--bg-primary)',
+                                }}
+                            >
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={item.enabled}
+                                        onChange={(e) => setFocusWhitelist(focusWhitelist.map(current => (
+                                            current.id === item.id ? { ...current, enabled: e.target.checked } : current
+                                        )))}
+                                        aria-label={`${item.enabled ? '停用' : '启用'} ${item.name}`}
+                                        style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                                    />
+                                    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                        <span className="text-sm" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.name}</span>
+                                        <span className="text-xs text-muted">{item.processName || item.executable || '仅按应用名称匹配'}</span>
+                                    </span>
+                                </label>
+                                <button
+                                    type="button"
+                                    className="button button-secondary"
+                                    aria-label={`删除 ${item.name}`}
+                                    title={`删除 ${item.name}`}
+                                    onClick={() => setFocusWhitelist(focusWhitelist.filter(current => current.id !== item.id))}
+                                    style={{ width: 32, height: 32, padding: 0, borderRadius: 16, flexShrink: 0 }}
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
 
 function ProviderChip({ provider, active, onClick }: {
   provider: AIProvider; active: boolean; onClick: () => void

@@ -6,9 +6,27 @@ import { coerceBoolean } from '../utils/helpers'
 import { normalizeCountdownEvents } from '../utils/countdown'
 import { logger } from '../utils/logger'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
-import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsAbout } from './SettingsSections'
-import type { CountdownEvent } from '../types'
+import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbout } from './SettingsSections'
+import type { CountdownEvent, FocusWhitelistItem } from '../types'
 import type { UpdateStatus } from '../types/api'
+
+function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const candidate = item as Partial<FocusWhitelistItem>
+    if (!candidate.id || !candidate.name || typeof candidate.enabled !== 'boolean' || !candidate.createdAt) return []
+    return [{
+      id: String(candidate.id),
+      name: String(candidate.name),
+      ...(candidate.processName ? { processName: String(candidate.processName) } : {}),
+      ...(candidate.executable ? { executable: String(candidate.executable) } : {}),
+      enabled: candidate.enabled,
+      createdAt: String(candidate.createdAt),
+    }]
+  })
+}
+
 function Settings() {
   const diary = useDiary()
   const [examDate, setExamDate] = useState('2025-12-21')
@@ -29,6 +47,9 @@ function Settings() {
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [pomodoroSound, setPomodoroSound] = useState(true)
   const [pomodoroAlert, setPomodoroAlert] = useState(true)
+  const [focusGuardEnabled, setFocusGuardEnabled] = useState(false)
+  const [focusGuardIntervalSec, setFocusGuardIntervalSec] = useState(5)
+  const [focusWhitelist, setFocusWhitelist] = useState<FocusWhitelistItem[]>([])
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -87,6 +108,9 @@ function Settings() {
       setBackupPath((settings.backupPath as string) || '')
       setPomodoroSound(coerceBoolean(settings.pomodoroSound, true))
       setPomodoroAlert(coerceBoolean(settings.pomodoroAlert, true))
+      setFocusGuardEnabled(coerceBoolean(settings.focusGuardEnabled, false))
+      setFocusGuardIntervalSec(Math.max(3, Math.min(30, parseInt(String(settings.focusGuardIntervalSec)) || 5)))
+      setFocusWhitelist(normalizeFocusWhitelist(settings.focusWhitelist))
       setSettingsLoaded(true)
     } catch (error) {
       logger.error('Failed to load settings:', error)
@@ -101,7 +125,7 @@ function Settings() {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, countdownEvents, aiEndpoint, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, aiKeyDirty, clearKeyRequested])
+  }, [examDate, countdownEvents, aiEndpoint, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -112,6 +136,7 @@ function Settings() {
           countdownEvents: normalizeCountdownEvents(countdownEvents, examDate),
           theme: diary.theme,
           pomodoroMinutes, autoSave, pomodoroSound, pomodoroAlert,
+          focusGuardEnabled, focusGuardIntervalSec, focusWhitelist,
         }),
         diary.settings.updateBackup({ autoBackup, backupPath }),
       ])
@@ -331,6 +356,11 @@ function Settings() {
             backupPath={backupPath} setBackupPath={setBackupPath}
             exportData={exportData} importData={importData}
             showToast={showToast}
+        />
+        <SettingsFocus
+            focusGuardEnabled={focusGuardEnabled} setFocusGuardEnabled={setFocusGuardEnabled}
+            focusGuardIntervalSec={focusGuardIntervalSec} setFocusGuardIntervalSec={setFocusGuardIntervalSec}
+            focusWhitelist={focusWhitelist} setFocusWhitelist={setFocusWhitelist}
         />
         <SettingsAbout 
             checkForUpdates={checkForUpdates}

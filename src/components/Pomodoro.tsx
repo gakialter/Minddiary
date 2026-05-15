@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { usePomodoroTimer, usePomodoroData, usePomodoroActions } from '../contexts/PomodoroContext'
+import { useDiary } from '../contexts/DiaryContext'
+import { coerceBoolean } from '../utils/helpers'
+import { logger } from '../utils/logger'
+import { useFocusGuard } from '../hooks/useFocusGuard'
+import FocusGuardNotice from './FocusGuardNotice'
 import { Play, Pause, RotateCcw } from 'lucide-react'
+import type { ActiveAppInfo, FocusWhitelistItem } from '../types'
 
 const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
 const STORAGE_KEY = 'pomodoro-widget-position'
@@ -27,6 +33,50 @@ function clampPosition(x: number, y: number, elWidth = 160, elHeight = 56): Posi
   }
 }
 
+function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
+  return Array.isArray(value) ? value.filter((item): item is FocusWhitelistItem => (
+    !!item
+    && typeof item === 'object'
+    && typeof item.id === 'string'
+    && typeof item.name === 'string'
+    && typeof item.enabled === 'boolean'
+    && typeof item.createdAt === 'string'
+  )) : []
+}
+
+function createFocusWhitelistId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `focus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function basenameOnly(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const normalized = value.replace(/\\/g, '/')
+  return normalized.split('/').filter(Boolean).pop() || value
+}
+
+function activeAppToWhitelistItem(app: ActiveAppInfo): FocusWhitelistItem {
+  const executable = basenameOnly(app.executable)
+  const name = app.name || app.processName || executable || '未知应用'
+  return {
+    id: createFocusWhitelistId(),
+    name: name.trim().slice(0, 160),
+    ...(app.processName ? { processName: app.processName.trim().slice(0, 160) } : {}),
+    ...(executable ? { executable: executable.trim().slice(0, 160) } : {}),
+    enabled: true,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function sameFocusTarget(a: FocusWhitelistItem, b: FocusWhitelistItem): boolean {
+  const normalize = (value: string | undefined) => (value || '').trim().toLowerCase()
+  return (!!a.processName && normalize(a.processName) === normalize(b.processName))
+    || (!!a.executable && normalize(a.executable) === normalize(b.executable))
+    || normalize(a.name) === normalize(b.name)
+}
+
 interface PomodoroProps {
   isWidget: boolean
   onExpand: () => void
@@ -34,6 +84,7 @@ interface PomodoroProps {
 }
 
 export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroProps) {
+  const { settingsData, settings } = useDiary()
   const {
     mode, timeLeft, isRunning,
     progress, circleCircumference, miniCircumference,
@@ -50,6 +101,17 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     setMode, setSelectedSubject, setCustomMinutes,
     toggleTimer, resetTimer, formatTime,
   } = usePomodoroActions()
+
+  const [focusViolation, setFocusViolation] = useState<ActiveAppInfo | null>(null)
+  const focusWhitelist = useMemo(() => normalizeFocusWhitelist(settingsData?.focusWhitelist), [settingsData?.focusWhitelist])
+  const focusGuard = useFocusGuard({
+    enabled: coerceBoolean(settingsData?.focusGuardEnabled, false),
+    intervalSec: Number(settingsData?.focusGuardIntervalSec) || 5,
+    whitelist: focusWhitelist,
+    isRunning,
+    modeId: mode.id,
+    onViolation: setFocusViolation,
+  })
 
   // ─── Drag state (widget only) ───
   const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))
@@ -108,9 +170,38 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     }
   }, [isDragging, onExpand, pos])
 
+  const addViolationToWhitelist = useCallback(async (app: ActiveAppInfo) => {
+    const item = activeAppToWhitelistItem(app)
+    const nextWhitelist = [
+      ...focusWhitelist.filter(existing => !sameFocusTarget(existing, item)),
+      item,
+    ]
+    try {
+      await settings.updateGeneral({ focusWhitelist: nextWhitelist })
+      setFocusViolation(null)
+    } catch (error) {
+      logger.warn('[focusGuard] Failed to add app to whitelist:', error)
+    }
+  }, [focusWhitelist, settings])
+
+  const ignoreViolationForSession = useCallback((app: ActiveAppInfo) => {
+    focusGuard.ignoreAppFor(app, 5 * 60 * 1000)
+    setFocusViolation(null)
+  }, [focusGuard])
+
+  const focusNotice = focusViolation ? (
+    <FocusGuardNotice
+      app={focusViolation}
+      onAddToWhitelist={addViolationToWhitelist}
+      onIgnore={ignoreViolationForSession}
+      onDismiss={() => setFocusViolation(null)}
+    />
+  ) : null
+
   // ─── Widget (floating ball) ───
   if (isWidget) {
     return (
+      <>
       <div
         ref={widgetRef}
         className="pomodoro-mini card"
@@ -159,11 +250,14 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           </div>
         </div>
       </div>
+      {focusNotice}
+      </>
     )
   }
 
   // ─── Full-page view ───
   return (
+    <>
     <div className="pomodoro-container flex flex-col items-center w-full" style={{ padding: 'var(--space-xl) 0' }} data-testid="pomodoro-timer">
 
       {/* Mode Switcher */}
@@ -310,5 +404,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         )}
       </div>
     </div>
+    {focusNotice}
+    </>
   )
 }

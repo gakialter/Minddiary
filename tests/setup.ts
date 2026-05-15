@@ -73,6 +73,9 @@ if (typeof window !== 'undefined') {
         check: vi.fn().mockResolvedValue(true),
       }
     },
+    focusGuard: {
+      getActiveApp: vi.fn().mockResolvedValue(null),
+    },
     export: {
       toMarkdown: vi.fn().mockResolvedValue(true),
       toPDF: vi.fn().mockResolvedValue(true),

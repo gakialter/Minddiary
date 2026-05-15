@@ -14,10 +14,12 @@ const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
 describe('Pomodoro Component', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    window.api.focusGuard.getActiveApp = vi.fn().mockResolvedValue(null)
     
     // Default mock implementation
     mockUseDiary.mockReturnValue({
-      settingsData: { pomodoroMinutes: 25 },
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
       subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
       pomodoro: {
         getStats: vi.fn().mockResolvedValue([]),

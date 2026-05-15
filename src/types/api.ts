@@ -5,6 +5,7 @@ import type {
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   AppSettings, AIMessage, AISettings, AIResponse,
   TodayDashboardData, DiaryTemplate, ReviewData, CountdownEvent,
+  FocusWhitelistItem, ActiveAppInfo,
 } from '.'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
@@ -43,6 +44,9 @@ export interface UpdateGeneralPatch {
   examDate?: string; theme?: string; pomodoroMinutes?: number
   autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean
   countdownEvents?: CountdownEvent[]
+  focusGuardEnabled?: boolean
+  focusGuardIntervalSec?: number
+  focusWhitelist?: FocusWhitelistItem[]
 }
 
 export interface UpdateAIPatch {
@@ -62,6 +66,9 @@ export interface SanitizedSettings {
   pomodoroMinutes?: string
   autoBackup?: string; backupPath?: string
   pomodoroSound?: string; pomodoroAlert?: string
+  focusGuardEnabled?: string | boolean
+  focusGuardIntervalSec?: string | number
+  focusWhitelist?: FocusWhitelistItem[]
   aiApiKeyMasked: string | null
   aiApiKeyPresent: boolean
   [key: string]: unknown
@@ -133,6 +140,10 @@ export interface ElectronExportAPI {
   toPDF: (htmlContent: string, savePath: string) => Promise<void>
 }
 
+export interface ElectronFocusGuardAPI {
+  getActiveApp: () => Promise<ActiveAppInfo | null>
+}
+
 // ─── Auto-Updater status (pushed from main via webContents.send) ─────────────
 
 export type UpdateStatusType =
@@ -191,6 +202,7 @@ export interface ElectronAPI {
   ai: ElectronAIAPI
   notification: ElectronNotificationAPI
   export: ElectronExportAPI
+  focusGuard: ElectronFocusGuardAPI
   templates: ElectronTemplatesAPI
 }
 

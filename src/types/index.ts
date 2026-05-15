@@ -122,6 +122,23 @@ export interface PomodoroRangeEntry {
   session_count: number
 }
 
+export interface FocusWhitelistItem {
+  id: string
+  name: string
+  processName?: string
+  executable?: string
+  enabled: boolean
+  createdAt: string
+}
+
+export interface ActiveAppInfo {
+  name: string
+  processName?: string
+  executable?: string
+  title?: string
+  platform: NodeJS.Platform | string
+}
+
 // ─── Settings ───────────────────────────────────────────────────────────────
 export type CountdownEventType = 'exam' | 'holiday' | 'deadline' | 'custom'
 
@@ -144,6 +161,9 @@ export interface AppSettings {
   aiEndpoint: string
   aiModel: string
   pomodoroMinutes: number
+  focusGuardEnabled: boolean
+  focusGuardIntervalSec: number
+  focusWhitelist: FocusWhitelistItem[]
   autoBackup: boolean
   backupPath: string
   aiApiKeyMasked: string | null

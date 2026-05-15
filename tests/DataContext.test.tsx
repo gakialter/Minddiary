@@ -115,6 +115,9 @@ const createWindowApiMock = (): ElectronAPI => ({
     writeFile: vi.fn().mockResolvedValue(undefined),
     toPDF: vi.fn().mockResolvedValue(undefined),
   },
+  focusGuard: {
+    getActiveApp: vi.fn().mockResolvedValue(null),
+  },
   templates: {
     getAll: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({ id: 1 }),
