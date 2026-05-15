@@ -53,6 +53,9 @@ describe('Settings Component', () => {
         backupPath: 'C:\\Backups',
         pomodoroSound: true,
         pomodoroAlert: true,
+        focusGuardEnabled: false,
+        focusGuardIntervalSec: 5,
+        focusWhitelist: [],
         countdownEvents: [
           { id: 'summer', title: '暑假开始', date: '2026-07-01', type: 'holiday' },
         ],
@@ -124,6 +127,58 @@ describe('Settings Component', () => {
     )
     expect(settingsApi.updateAI).toHaveBeenCalled()
     expect(settingsApi.updateBackup).toHaveBeenCalled()
+  })
+
+  it('renders and saves focus mode whitelist settings', async () => {
+    vi.useFakeTimers()
+    await act(async () => {
+      render(<Settings />)
+    })
+
+    expect(screen.getByText('专注模式')).toBeInTheDocument()
+    expect(screen.getByText(/当前没有白名单/)).toBeInTheDocument()
+
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('启用专注白名单提醒'))
+      fireEvent.change(screen.getByLabelText('检测间隔（秒）'), { target: { value: '10' } })
+      fireEvent.change(screen.getByLabelText('应用名称或进程名'), { target: { value: 'chrome.exe' } })
+      fireEvent.click(screen.getByRole('button', { name: '手动添加' }))
+    })
+
+    expect(screen.getAllByText('chrome.exe').length).toBeGreaterThan(0)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(settingsApi.updateGeneral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        focusGuardEnabled: true,
+        focusGuardIntervalSec: 10,
+        focusWhitelist: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'chrome.exe',
+            processName: 'chrome.exe',
+            enabled: true,
+          }),
+        ]),
+      }),
+    )
+
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '删除 chrome.exe' }))
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const calls = settingsApi.updateGeneral.mock.calls
+    const lastPatch = calls[calls.length - 1]?.[0]
+    expect(lastPatch?.focusWhitelist).toEqual([])
   })
 
   it('saves via patch APIs on button click', async () => {

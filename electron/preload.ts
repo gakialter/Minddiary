@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 import type { 
     NewEntry, EntryFilters, Tag, Subject, 
     PomodoroSession, Mistake, MistakeFilters, 
-    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent
+    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
 
 contextBridge.exposeInMainWorld('api', {
@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('api', {
             examDate?: string; theme?: string; pomodoroMinutes?: number;
             autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
             countdownEvents?: CountdownEvent[];
+            focusGuardEnabled?: boolean; focusGuardIntervalSec?: number; focusWhitelist?: FocusWhitelistItem[];
         }) => ipcRenderer.invoke('settings:updateGeneral', patch),
         updateAI: (patch: {
             aiEndpoint?: string; aiModel?: string;
@@ -147,5 +148,10 @@ contextBridge.exposeInMainWorld('api', {
         showSaveDialog: (options: { title: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => ipcRenderer.invoke('export:showSaveDialog', options),
         writeFile: (filepath: string, content: string) => ipcRenderer.invoke('export:writeFile', { filepath, content }),
         toPDF: (htmlContent: string, savePath: string) => ipcRenderer.invoke('export:toPDF', { htmlContent, savePath }),
+    },
+
+    // Focus guard
+    focusGuard: {
+        getActiveApp: () => ipcRenderer.invoke('focusGuard:getActiveApp'),
     },
 });

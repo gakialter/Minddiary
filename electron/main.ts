@@ -8,11 +8,13 @@ const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
 const { createExportHandlers } = require('./exportHandlers');
+const { getActiveAppInfo } = require('./focusGuard');
 
 import type {
     NewEntry, EntryFilters, Tag, Subject,
     PomodoroSession, Mistake, MistakeFilters,
-    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, CountdownEventType
+    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, CountdownEventType,
+    FocusWhitelistItem
 } from '../src/types/index';
 
 // Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
@@ -260,7 +262,7 @@ const SETTINGS_READ_WHITELIST: ReadonlySet<string> = new Set([
     'theme', 'examDate', 'dailyGoal', 'autoSave', 'notifications',
     'aiEndpoint', 'aiModel', 'pomodoroMinutes',
     'autoBackup', 'backupPath', 'pomodoroSound', 'pomodoroAlert',
-    'countdownEvents',
+    'countdownEvents', 'focusGuardEnabled', 'focusGuardIntervalSec', 'focusWhitelist',
 ]);
 
 // Per-handler allowed patch keys and their expected JS types
@@ -268,6 +270,7 @@ const GENERAL_PATCH_SCHEMA: Record<string, string> = {
     examDate: 'string', theme: 'string', pomodoroMinutes: 'number',
     autoSave: 'boolean', pomodoroSound: 'boolean', pomodoroAlert: 'boolean',
     countdownEvents: 'object',
+    focusGuardEnabled: 'boolean', focusGuardIntervalSec: 'number', focusWhitelist: 'object',
 };
 const AI_PATCH_SCHEMA: Record<string, string> = {
     aiEndpoint: 'string', aiModel: 'string',
@@ -356,6 +359,81 @@ function parseStoredCountdownEvents(value: unknown): CountdownEvent[] | undefine
     }
 }
 
+const FOCUS_WHITELIST_MAX_ITEMS = 100;
+const FOCUS_WHITELIST_MAX_TEXT = 160;
+
+function sanitizeFocusGuardIntervalSec(value: number): number {
+    if (!Number.isFinite(value)) {
+        throw new Error('Invalid focusGuardIntervalSec: expected a finite number');
+    }
+    return Math.max(3, Math.min(30, Math.round(value)));
+}
+
+function sanitizeText(value: unknown, field: string, required = false): string | undefined {
+    if (value === undefined || value === null) {
+        if (required) throw new Error(`Invalid focusWhitelist item: ${field} is required`);
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        throw new Error(`Invalid focusWhitelist item: ${field} must be a string`);
+    }
+    const trimmed = value.trim().slice(0, FOCUS_WHITELIST_MAX_TEXT);
+    if (!trimmed && required) throw new Error(`Invalid focusWhitelist item: ${field} is required`);
+    return trimmed || undefined;
+}
+
+function basenameOnly(value: string): string {
+    const normalized = value.replace(/\\/g, '/');
+    return normalized.split('/').filter(Boolean).pop() || value;
+}
+
+function sanitizeFocusWhitelist(raw: unknown): FocusWhitelistItem[] {
+    if (!Array.isArray(raw)) {
+        throw new Error('Invalid focusWhitelist: expected an array');
+    }
+    if (raw.length > FOCUS_WHITELIST_MAX_ITEMS) {
+        throw new Error(`Invalid focusWhitelist: maximum ${FOCUS_WHITELIST_MAX_ITEMS} items`);
+    }
+
+    return raw.map((rawItem, index) => {
+        if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) {
+            throw new Error(`Invalid focusWhitelist[${index}]: expected an object`);
+        }
+        const item = rawItem as Record<string, unknown>;
+        if (typeof item.enabled !== 'boolean') {
+            throw new Error(`Invalid focusWhitelist[${index}].enabled: expected boolean`);
+        }
+
+        const id = sanitizeText(item.id, 'id', true)!;
+        const name = sanitizeText(item.name, 'name', true)!;
+        const processName = sanitizeText(item.processName, 'processName');
+        const executable = sanitizeText(item.executable, 'executable');
+        const createdAt = sanitizeText(item.createdAt, 'createdAt', true)!;
+
+        return {
+            id,
+            name,
+            ...(processName ? { processName } : {}),
+            ...(executable ? { executable: basenameOnly(executable) } : {}),
+            enabled: item.enabled,
+            createdAt,
+        };
+    });
+}
+
+function parseStoredFocusWhitelist(value: unknown): FocusWhitelistItem[] | undefined {
+    if (Array.isArray(value)) return sanitizeFocusWhitelist(value);
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+
+    try {
+        const parsed: unknown = JSON.parse(value);
+        return sanitizeFocusWhitelist(parsed);
+    } catch {
+        logger.warn('[settings:getAll] Ignored invalid focusWhitelist payload');
+        return undefined;
+    }
+}
+
 // Single-key getter — refuses sensitive keys AND unknown keys
 ipcMain.handle('settings:get', (_: unknown, key: string) => {
     if (typeof key !== 'string' || !SETTINGS_READ_WHITELIST.has(key)) {
@@ -371,7 +449,13 @@ ipcMain.handle('settings:getAll', () => {
     const safe: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(all)) {
         if (SENSITIVE_SETTINGS_KEYS.includes(k)) continue;
-        safe[k] = k === 'countdownEvents' ? parseStoredCountdownEvents(v) : v;
+        if (k === 'countdownEvents') {
+            safe[k] = parseStoredCountdownEvents(v);
+        } else if (k === 'focusWhitelist') {
+            safe[k] = parseStoredFocusWhitelist(v) || [];
+        } else {
+            safe[k] = v;
+        }
     }
     const storedKey = db.getAiApiKey();
     safe['aiApiKeyMasked'] = maskApiKey(storedKey);
@@ -385,10 +469,17 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
         examDate?: string; theme?: string; pomodoroMinutes?: number;
         autoSave?: boolean; pomodoroSound?: boolean; pomodoroAlert?: boolean;
         countdownEvents?: CountdownEvent[];
+        focusGuardEnabled?: boolean; focusGuardIntervalSec?: number; focusWhitelist?: FocusWhitelistItem[];
     }>(rawPatch, GENERAL_PATCH_SCHEMA);
     const countdownEvents = patch.countdownEvents === undefined
         ? undefined
         : sanitizeCountdownEvents(patch.countdownEvents);
+    const focusWhitelist = patch.focusWhitelist === undefined
+        ? undefined
+        : sanitizeFocusWhitelist(patch.focusWhitelist);
+    const focusGuardIntervalSec = patch.focusGuardIntervalSec === undefined
+        ? undefined
+        : sanitizeFocusGuardIntervalSec(patch.focusGuardIntervalSec);
     const txn = db.getDb().transaction(() => {
         if (patch.examDate !== undefined) db.setSetting('examDate', patch.examDate);
         if (patch.theme !== undefined) db.setSetting('theme', patch.theme);
@@ -397,6 +488,9 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
         if (patch.pomodoroSound !== undefined) db.setSetting('pomodoroSound', String(patch.pomodoroSound));
         if (patch.pomodoroAlert !== undefined) db.setSetting('pomodoroAlert', String(patch.pomodoroAlert));
         if (countdownEvents !== undefined) db.setSetting('countdownEvents', JSON.stringify(countdownEvents));
+        if (patch.focusGuardEnabled !== undefined) db.setSetting('focusGuardEnabled', String(patch.focusGuardEnabled));
+        if (focusGuardIntervalSec !== undefined) db.setSetting('focusGuardIntervalSec', String(focusGuardIntervalSec));
+        if (focusWhitelist !== undefined) db.setSetting('focusWhitelist', JSON.stringify(focusWhitelist));
     });
     txn();
     return { success: true };
@@ -455,6 +549,9 @@ ipcMain.handle('pomodoro:addSession', (_: unknown, session: PomodoroSession) => 
 ipcMain.handle('pomodoro:getStats', (_: unknown, date: string) => db.getPomodoroStats(date));
 ipcMain.handle('pomodoro:getDailyTotal', (_: unknown, date: string) => db.getDailyStudyMinutes(date));
 ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => db.getPomodoroRange(start, end));
+
+// ==================== Focus Guard ====================
+ipcMain.handle('focusGuard:getActiveApp', async () => getActiveAppInfo());
 
 // ==================== Dashboard ====================
 ipcMain.handle('dashboard:entryDatesRange', (_: unknown, start: string, end: string) => db.getEntryDatesRange(start, end));
