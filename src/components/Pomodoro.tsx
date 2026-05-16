@@ -261,6 +261,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     }
   }, [])
 
+  // Auto-exit Zen overlay when the timer completes
+  useEffect(() => {
+    if (zenVisible && timeLeft === 0) {
+      void exitZenMode()
+    }
+  }, [zenVisible, timeLeft, exitZenMode])
+
   const focusNotice = focusViolation ? (
     <FocusGuardNotice
       app={focusViolation}

@@ -200,4 +200,53 @@ describe('Pomodoro Component', () => {
 
     window.api.window.setFullScreen = electronSetFullScreen
   })
+
+  it('auto-exits Zen overlay when timer reaches 0 without resetting', async () => {
+    // Use a very short timer (1 minute = 60s) for fast completion
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 1, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession: vi.fn().mockResolvedValue(true),
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+
+    await renderPomodoro()
+
+    // Enter Zen mode (also starts the timer)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+
+    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+
+    // Advance timer to just before completion
+    await act(async () => {
+      vi.advanceTimersByTime(59_000)
+    })
+
+    // Zen should still be visible
+    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+
+    // Advance past the last second so timeLeft reaches 0
+    await act(async () => {
+      vi.advanceTimersByTime(1_000)
+    })
+
+    // Zen overlay should now be gone
+    expect(screen.queryByTestId('focus-zen-mode')).not.toBeInTheDocument()
+
+    // Fullscreen was exited
+    expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
+
+    // The reset button should still exist and the timer should NOT have been
+    // forcibly reset — the PomodoroContext handles mode transitions on its own
+    expect(screen.getByTestId('pomodoro-reset-btn')).toBeInTheDocument()
+  })
 })
