@@ -5,7 +5,8 @@ import { coerceBoolean } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
-import { Play, Pause, RotateCcw } from 'lucide-react'
+import FocusZenMode from './FocusZenMode'
+import { Play, Pause, RotateCcw, Maximize2 } from 'lucide-react'
 import type { ActiveAppInfo, FocusWhitelistItem } from '../types'
 
 const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
@@ -112,6 +113,11 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     modeId: mode.id,
     onViolation: setFocusViolation,
   })
+  const [zenVisible, setZenVisible] = useState(false)
+  const selectedSubjectName = useMemo(
+    () => subjects.find(subject => subject.id === selectedSubject)?.name,
+    [selectedSubject, subjects],
+  )
 
   // ─── Drag state (widget only) ───
   const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))
@@ -188,6 +194,72 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     focusGuard.ignoreAppFor(app, 5 * 60 * 1000)
     setFocusViolation(null)
   }, [focusGuard])
+
+  const requestAppFullscreen = useCallback(async () => {
+    let usedElectronFullscreen = false
+    try {
+      const setFullScreen = window.api?.window?.setFullScreen
+      if (setFullScreen) {
+        usedElectronFullscreen = await setFullScreen(true)
+      }
+    } catch (error) {
+      logger.warn('[zen] Electron fullscreen request failed:', error)
+    }
+
+    if (usedElectronFullscreen) return
+
+    try {
+      await document.documentElement.requestFullscreen?.()
+    } catch (error) {
+      logger.warn('[zen] Browser fullscreen request failed:', error)
+    }
+  }, [])
+
+  const enterZenMode = useCallback(async () => {
+    if (!isRunning) toggleTimer()
+    setZenVisible(true)
+    await requestAppFullscreen()
+  }, [isRunning, requestAppFullscreen, toggleTimer])
+
+  const exitZenMode = useCallback(async () => {
+    setZenVisible(false)
+    let usedElectronFullscreen = false
+    try {
+      const setFullScreen = window.api?.window?.setFullScreen
+      if (setFullScreen) {
+        await setFullScreen(false)
+        usedElectronFullscreen = true
+      }
+    } catch (error) {
+      logger.warn('[zen] Electron fullscreen exit failed:', error)
+    }
+
+    if (usedElectronFullscreen) return
+
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen()
+      }
+    } catch (error) {
+      logger.warn('[zen] Browser fullscreen exit failed:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    const removeFullScreenListener = window.api?.window?.onFullScreenChange?.((fullScreen: boolean) => {
+      if (!fullScreen) setZenVisible(false)
+    })
+
+    const handleDocumentFullscreenChange = () => {
+      if (!document.fullscreenElement) setZenVisible(false)
+    }
+
+    document.addEventListener('fullscreenchange', handleDocumentFullscreenChange)
+    return () => {
+      removeFullScreenListener?.()
+      document.removeEventListener('fullscreenchange', handleDocumentFullscreenChange)
+    }
+  }, [])
 
   const focusNotice = focusViolation ? (
     <FocusGuardNotice
@@ -351,6 +423,14 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         >
           <RotateCcw size={18} />
         </button>
+        <button
+          className="button button-secondary"
+          data-testid="pomodoro-enter-zen-btn"
+          style={{ minWidth: 150, height: 44, borderRadius: 22 }}
+          onClick={() => { void enterZenMode() }}
+        >
+          <Maximize2 size={18} /> 进入全屏专注
+        </button>
       </div>
 
       {/* Subject Select */}
@@ -404,6 +484,17 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         )}
       </div>
     </div>
+    <FocusZenMode
+      visible={zenVisible}
+      timeLeft={timeLeft}
+      modeLabel={mode.label}
+      modeColor={mode.color}
+      isRunning={isRunning}
+      onToggleTimer={toggleTimer}
+      onExit={exitZenMode}
+      formatTime={formatTime}
+      selectedSubjectName={selectedSubjectName}
+    />
     {focusNotice}
     </>
   )

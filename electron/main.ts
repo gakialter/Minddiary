@@ -56,6 +56,12 @@ function createWindow() {
     mainWindow.on('unmaximize', () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('window:maximized-change', false);
     });
+    mainWindow.on('enter-full-screen', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('window:fullscreen-change', true);
+    });
+    mainWindow.on('leave-full-screen', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('window:fullscreen-change', false);
+    });
 
     // Dev or production (E2E tests set NODE_ENV=production)
     const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
@@ -228,6 +234,15 @@ ipcMain.handle('window:close', () => {
 ipcMain.handle('window:isMaximized', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return false;
     return mainWindow.isMaximized();
+});
+ipcMain.handle('window:setFullScreen', (_event: unknown, fullScreen: boolean) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    mainWindow.setFullScreen(Boolean(fullScreen));
+    return mainWindow.isFullScreen();
+});
+ipcMain.handle('window:isFullScreen', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    return mainWindow.isFullScreen();
 });
 
 // ==================== Entries ====================

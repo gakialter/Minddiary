@@ -17,7 +17,10 @@ export interface ElectronWindowAPI {
   maximize: () => Promise<boolean>
   close: () => Promise<void>
   isMaximized: () => Promise<boolean>
+  setFullScreen: (fullScreen: boolean) => Promise<boolean>
+  isFullScreen: () => Promise<boolean>
   onMaximizedChange?: (callback: (maximized: boolean) => void) => () => void
+  onFullScreenChange?: (callback: (fullScreen: boolean) => void) => () => void
 }
 
 export interface ElectronEntriesAPI {

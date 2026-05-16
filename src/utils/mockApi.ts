@@ -15,6 +15,9 @@ const mockApi: ElectronAPI = {
         maximize: async () => false,
         close: async () => {},
         isMaximized: async () => false,
+        setFullScreen: async () => false,
+        isFullScreen: async () => false,
+        onFullScreenChange: () => () => {},
     },
     updater: {
         check: async () => ({ success: false, message: 'Mock environment' }),

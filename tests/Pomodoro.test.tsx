@@ -15,6 +15,19 @@ describe('Pomodoro Component', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     window.api.focusGuard.getActiveApp = vi.fn().mockResolvedValue(null)
+    window.api.window.setFullScreen = vi.fn().mockResolvedValue(true)
+    window.api.window.isFullScreen = vi.fn().mockResolvedValue(false)
+    window.api.window.onFullScreenChange = vi.fn().mockReturnValue(() => {})
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockResolvedValue(undefined),
+    })
+    Object.defineProperty(document, 'exitFullscreen', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockResolvedValue(undefined),
+    })
     
     // Default mock implementation
     mockUseDiary.mockReturnValue({
@@ -37,14 +50,18 @@ describe('Pomodoro Component', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the core pomodoro UI in full page view', async () => {
+  const renderPomodoro = async (isWidget = false) => {
     await act(async () => {
       render(
         <PomodoroProvider>
-          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
+          <Pomodoro isWidget={isWidget} onExpand={() => {}} isCollapsed={false} />
         </PomodoroProvider>
       )
     })
+  }
+
+  it('renders the core pomodoro UI in full page view', async () => {
+    await renderPomodoro()
     
     // Should display modes via testid
     expect(screen.getByTestId('pomodoro-mode-work')).toBeInTheDocument()
@@ -57,16 +74,11 @@ describe('Pomodoro Component', () => {
 
     // Start button
     expect(screen.getByTestId('pomodoro-start-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-enter-zen-btn')).toBeInTheDocument()
   })
 
   it('renders the mini widget correctly', async () => {
-    await act(async () => {
-      render(
-        <PomodoroProvider>
-          <Pomodoro isWidget={true} isCollapsed={false} onExpand={() => {}} />
-        </PomodoroProvider>
-      )
-    })
+    await renderPomodoro(true)
     
     // Mini widget should still show time
     expect(screen.getByTestId('pomodoro-widget')).toBeInTheDocument()
@@ -74,16 +86,11 @@ describe('Pomodoro Component', () => {
     
     // Should have draggable title
     expect(screen.getByTitle('拖拽移动 · 点击打开番茄钟')).toBeInTheDocument()
+    expect(screen.queryByTestId('pomodoro-enter-zen-btn')).not.toBeInTheDocument()
   })
 
   it('starts the timer when play is clicked', async () => {
-    await act(async () => {
-      render(
-        <PomodoroProvider>
-          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
-        </PomodoroProvider>
-      )
-    })
+    await renderPomodoro()
 
     const startBtn = screen.getByTestId('pomodoro-start-btn')
     fireEvent.click(startBtn)
@@ -100,13 +107,7 @@ describe('Pomodoro Component', () => {
   })
 
   it('can switch to break modes and time updates', async () => {
-    await act(async () => {
-      render(
-        <PomodoroProvider>
-          <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={false} />
-        </PomodoroProvider>
-      )
-    })
+    await renderPomodoro()
 
     const shortBreakBtn = screen.getByTestId('pomodoro-mode-short_break')
     fireEvent.click(shortBreakBtn)
@@ -117,5 +118,86 @@ describe('Pomodoro Component', () => {
     fireEvent.click(longBreakBtn)
 
     expect(screen.getByText('15:00')).toBeInTheDocument()
+  })
+
+  it('enters Zen mode and requests Electron fullscreen', async () => {
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+
+    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+    expect(screen.getByTestId('focus-zen-time')).toHaveTextContent('25:00')
+    expect(window.api.window.setFullScreen).toHaveBeenCalledWith(true)
+    expect(document.documentElement.requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('starts the current timer when entering Zen while idle', async () => {
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId('focus-zen-time')).toHaveTextContent('24:59')
+    expect(screen.getAllByText(/暂停/).length).toBeGreaterThan(0)
+  })
+
+  it('exits Zen without stopping or resetting the timer', async () => {
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    await act(async () => {
+      fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+      fireEvent.click(screen.getByTestId('focus-zen-exit-btn'))
+    })
+
+    expect(screen.queryByTestId('focus-zen-mode')).not.toBeInTheDocument()
+    expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
+    expect(screen.getByText('24:59')).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByText('24:58')).toBeInTheDocument()
+  })
+
+  it('exits Zen with Escape', async () => {
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+
+    expect(screen.queryByTestId('focus-zen-mode')).not.toBeInTheDocument()
+    expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
+  })
+
+  it('falls back to document fullscreen when Electron fullscreen API is unavailable', async () => {
+    const electronSetFullScreen = window.api.window.setFullScreen
+    delete (window.api.window as Partial<typeof window.api.window>).setFullScreen
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+
+    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+    expect(document.documentElement.requestFullscreen).toHaveBeenCalled()
+
+    window.api.window.setFullScreen = electronSetFullScreen
   })
 })
