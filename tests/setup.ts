@@ -6,10 +6,15 @@ if (typeof window !== 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(window as any).api = {
     window: {
+      platform: 'win32',
+      titlebarMode: 'custom',
       minimize: vi.fn(),
       maximize: vi.fn().mockResolvedValue(true),
       close: vi.fn(),
       isMaximized: vi.fn().mockResolvedValue(false),
+      setFullScreen: vi.fn().mockResolvedValue(true),
+      isFullScreen: vi.fn().mockResolvedValue(false),
+      onFullScreenChange: vi.fn().mockReturnValue(() => {}),
     },
     entries: {
       get: vi.fn().mockResolvedValue([]),

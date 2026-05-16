@@ -25,6 +25,9 @@ const createWindowApiMock = (): ElectronAPI => ({
     maximize: vi.fn().mockResolvedValue(false),
     close: vi.fn().mockResolvedValue(undefined),
     isMaximized: vi.fn().mockResolvedValue(false),
+    setFullScreen: vi.fn().mockResolvedValue(true),
+    isFullScreen: vi.fn().mockResolvedValue(false),
+    onFullScreenChange: vi.fn().mockReturnValue(() => {}),
   },
   updater: {
     check: vi.fn().mockResolvedValue({ success: true }),

@@ -15,10 +15,17 @@ contextBridge.exposeInMainWorld('api', {
         maximize: () => ipcRenderer.invoke('window:maximize'),
         close: () => ipcRenderer.invoke('window:close'),
         isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+        setFullScreen: (fullScreen: boolean) => ipcRenderer.invoke('window:setFullScreen', fullScreen),
+        isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
         onMaximizedChange: (callback: (maximized: boolean) => void) => {
             const listener = (_: unknown, maximized: boolean) => callback(maximized);
             ipcRenderer.on('window:maximized-change', listener);
             return () => ipcRenderer.removeListener('window:maximized-change', listener);
+        },
+        onFullScreenChange: (callback: (fullScreen: boolean) => void) => {
+            const listener = (_: unknown, fullScreen: boolean) => callback(fullScreen);
+            ipcRenderer.on('window:fullscreen-change', listener);
+            return () => ipcRenderer.removeListener('window:fullscreen-change', listener);
         },
     },
 
