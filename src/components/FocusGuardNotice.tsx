@@ -30,7 +30,7 @@ export default function FocusGuardNotice({
         right: 24,
         bottom: 24,
         width: 'min(360px, calc(100vw - 32px))',
-        zIndex: 950,
+        zIndex: 1100,
         padding: 'var(--space-md)',
         borderRadius: 'var(--radius-lg)',
         border: '1px solid var(--border)',

@@ -29,6 +29,12 @@ function maskApiKey(key: string | null | undefined): string | null {
 }
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
+const APP_USER_MODEL_ID = 'com.minddiary.app';
+
+function configureWindowsAppUserModelId() {
+    if (process.platform !== 'win32') return;
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 
 function resolveLocalProtocolPath(requestUrl: string): string {
     const rawPath = requestUrl.replace(/^local:\/\//, '');
@@ -176,6 +182,10 @@ ipcMain.handle('updater:getStatus', () => {
 });
 
 app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+        configureWindowsAppUserModelId();
+    }
+
     protocol.handle('local', (request: { url: string }) => {
         try {
             const resolved = resolveLocalProtocolPath(request.url);
@@ -581,7 +591,16 @@ ipcMain.handle('pomodoro:getDailyTotal', (_: unknown, date: string) => db.getDai
 ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => db.getPomodoroRange(start, end));
 
 // ==================== Focus Guard ====================
-ipcMain.handle('focusGuard:getActiveApp', async () => getActiveAppInfo());
+ipcMain.handle('focusGuard:getActiveApp', async () => {
+    try {
+        return await getActiveAppInfo();
+    } catch (error) {
+        console.error('[focusGuard][ipc] getActiveApp failed', {
+            message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+    }
+});
 
 // ==================== Dashboard ====================
 ipcMain.handle('dashboard:entryDatesRange', (_: unknown, start: string, end: string) => db.getEntryDatesRange(start, end));
@@ -617,7 +636,27 @@ ipcMain.handle('ai:summarize', (_: unknown, content: string) => aiService.summar
 
 // ==================== Notifications ====================
 ipcMain.handle('notification:show', (_: unknown, title: string, body: string) => {
-    new Notification({ title, body }).show();
+    const supported = Notification.isSupported();
+    if (!supported) {
+        throw new Error('System notifications are not supported on this device');
+    }
+    const notification = new Notification({ title, body });
+    notification.on('show', () => {
+        console.info('[notification][ipc] show event', {
+            title,
+            body,
+            timestamp: new Date().toISOString(),
+        });
+    });
+    notification.on('failed', (_event: unknown, error: unknown) => {
+        console.error('[notification][ipc] failed event', {
+            title,
+            body,
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+        });
+    });
+    notification.show();
 });
 
 // ==================== Templates ====================

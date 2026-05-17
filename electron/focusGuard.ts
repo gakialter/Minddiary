@@ -1,10 +1,23 @@
 const { execFile } = require('child_process');
 const path = require('path');
-const { logger } = require('./logger');
 
 import type { ActiveAppInfo } from '../src/types/index';
+import type { ExecFileException } from 'child_process';
 
 const POWERSHELL_TIMEOUT_MS = 3000;
+const POWERSHELL_EXECUTABLE = 'powershell.exe';
+const POWERSHELL_ARGS_PREFIX = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
+
+interface PowerShellRunResult {
+    stdout: string;
+    stderr: string;
+    code: string | number | null;
+    signal: NodeJS.Signals | null;
+    started: boolean;
+    pid?: number;
+    timedOut: boolean;
+    errorMessage?: string;
+}
 
 function asText(value: unknown, maxLength = 240): string | undefined {
     if (typeof value !== 'string') return undefined;
@@ -16,23 +29,46 @@ function basenameOnly(value: string): string {
     return path.basename(value.replace(/\//g, path.sep)).slice(0, 160);
 }
 
-function runPowerShell(script: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        execFile(
-            'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+function getPowerShellErrorDetails(error: Error | null): Pick<PowerShellRunResult, 'code' | 'signal' | 'timedOut' | 'errorMessage'> {
+    if (!error) {
+        return { code: 0, signal: null, timedOut: false };
+    }
+    const execError = error as ExecFileException & { killed?: boolean };
+    return {
+        code: execError.code ?? null,
+        signal: execError.signal ?? null,
+        timedOut: Boolean(execError.killed) || /timed out/i.test(execError.message),
+        errorMessage: execError.message,
+    };
+}
+
+function runPowerShell(script: string): Promise<PowerShellRunResult> {
+    const args = [...POWERSHELL_ARGS_PREFIX, script];
+
+    return new Promise((resolve) => {
+        let started = false;
+        let pid: number | undefined;
+        const child = execFile(
+            POWERSHELL_EXECUTABLE,
+            args,
             { timeout: POWERSHELL_TIMEOUT_MS, windowsHide: true, maxBuffer: 32 * 1024 },
             (error: Error | null, stdout: string, stderr: string) => {
-                if (error) {
-                    reject(error);
-                    return;
-                }
-                if (stderr && stderr.trim()) {
-                    logger.warn('[focusGuard] PowerShell stderr:', stderr.trim());
-                }
-                resolve(stdout.trim());
+                const errorDetails = getPowerShellErrorDetails(error);
+                const result: PowerShellRunResult = {
+                    stdout,
+                    stderr,
+                    started,
+                    ...(pid ? { pid } : {}),
+                    ...errorDetails,
+                };
+                resolve(result);
             },
         );
+
+        child.once('spawn', () => {
+            started = true;
+            pid = child.pid;
+        });
     });
 }
 
@@ -51,16 +87,19 @@ public static class MindDiaryForegroundWindow {
 "@
 $hwnd = [MindDiaryForegroundWindow]::GetForegroundWindow()
 if ($hwnd -eq [IntPtr]::Zero) { 'null'; exit 0 }
-[uint32]$pid = 0
-[MindDiaryForegroundWindow]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
-if ($pid -eq 0) { 'null'; exit 0 }
-$proc = Get-Process -Id $pid -ErrorAction Stop
+[uint32]$foregroundProcessId = 0
+[MindDiaryForegroundWindow]::GetWindowThreadProcessId($hwnd, [ref]$foregroundProcessId) | Out-Null
+if ($foregroundProcessId -eq 0) { 'null'; exit 0 }
+$proc = Get-Process -Id $foregroundProcessId -ErrorAction Stop
 $exePath = $null
 $description = $null
+$executablePathError = $null
 try {
   $exePath = $proc.MainModule.FileName
   $description = $proc.MainModule.FileVersionInfo.FileDescription
-} catch {}
+} catch {
+  $executablePathError = $_.Exception.Message
+}
 $processName = if ($proc.ProcessName.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) { $proc.ProcessName } else { "$($proc.ProcessName).exe" }
 $executable = if ($exePath) { [System.IO.Path]::GetFileName($exePath) } else { $processName }
 [pscustomobject]@{
@@ -68,14 +107,37 @@ $executable = if ($exePath) { [System.IO.Path]::GetFileName($exePath) } else { $
   processName = $processName
   executable = $executable
   title = $proc.MainWindowTitle
+  pid = $foregroundProcessId
   platform = 'win32'
 } | ConvertTo-Json -Compress
 `;
 
-    const output = await runPowerShell(script);
-    if (!output || output === 'null') return null;
+    const run = await runPowerShell(script);
+    if (run.errorMessage) {
+        const message = run.timedOut
+            ? 'PowerShell active-app detection timed out'
+            : 'PowerShell active-app detection failed';
+        const error = new Error(message);
+        (error as Error & { details?: PowerShellRunResult }).details = run;
+        throw error;
+    }
 
-    const parsed = JSON.parse(output) as Record<string, unknown>;
+    const output = run.stdout.trim();
+    if (!output) {
+        if (run.stderr.trim()) {
+            throw new Error('PowerShell active-app detection returned no output');
+        }
+        return null;
+    }
+    if (output === 'null') return null;
+
+    let parsed: Record<string, unknown>;
+    try {
+        parsed = JSON.parse(output) as Record<string, unknown>;
+    } catch (error) {
+        throw new Error('PowerShell active-app detection returned invalid JSON');
+    }
+
     const name = asText(parsed.name) || asText(parsed.processName) || asText(parsed.executable);
     if (!name) return null;
     const processName = asText(parsed.processName, 160);
@@ -91,13 +153,8 @@ $executable = if ($exePath) { [System.IO.Path]::GetFileName($exePath) } else { $
 }
 
 async function getActiveAppInfo(): Promise<ActiveAppInfo | null> {
-    try {
-        if (process.platform !== 'win32') return null;
-        return await getWindowsActiveAppInfo();
-    } catch (error) {
-        logger.warn('[focusGuard] Failed to detect active app:', error instanceof Error ? error.message : String(error));
-        return null;
-    }
+    if (process.platform !== 'win32') return null;
+    return await getWindowsActiveAppInfo();
 }
 
 module.exports = { getActiveAppInfo };

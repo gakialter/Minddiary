@@ -85,6 +85,16 @@ function isSameWhitelistTarget(a: FocusWhitelistItem, b: FocusWhitelistItem): bo
         || normalize(a.name) === normalize(b.name)
 }
 
+function isMindDiaryApp(app: ActiveAppInfo): boolean {
+    return [app.name, app.processName, app.executable]
+        .map(value => (value || '').toLowerCase())
+        .some(value => value.includes('minddiary') || value.includes('mind diary') || value.includes('electron'))
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
 interface SettingsAboutProps {
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
@@ -199,13 +209,21 @@ export function SettingsFocus({
     const addCurrentApp = async () => {
         setFeedback('')
         try {
+            setFeedback('3 秒后捕获前台应用，请切换到目标应用窗口。')
+            await delay(3000)
             const app = await window.api?.focusGuard?.getActiveApp?.()
             if (!app) {
                 setFeedback('无法读取当前应用，可手动添加。')
                 return
             }
+            if (isMindDiaryApp(app)) {
+                setFeedback('捕获到的是 MindDiary 自身，请切到目标应用后重试，或手动输入进程名。')
+                return
+            }
             addWhitelistItem(toFocusWhitelistItem(app))
-        } catch {
+            setFeedback(`已捕获：${app.processName || app.executable || app.name}`)
+        } catch (error) {
+            console.error('[focusGuard][settings] getActiveApp error', error instanceof Error ? error.message : String(error))
             setFeedback('无法读取当前应用，可手动添加。')
         }
     }

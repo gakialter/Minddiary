@@ -84,7 +84,8 @@ export function useFocusGuard({
       try {
         const app = await window.api?.focusGuard?.getActiveApp?.()
         if (!app) return
-        if (isFocusAppAllowed(app, whitelist)) return
+        const allowed = isFocusAppAllowed(app, whitelist)
+        if (allowed) return
 
         const key = activeAppKey(app)
         const now = Date.now()
@@ -97,7 +98,7 @@ export function useFocusGuard({
         lastNoticeAtRef.current.set(key, now)
         onViolationRef.current(app)
       } catch (error) {
-        logger.warn('[focusGuard] Active app check failed:', error)
+        logger.warn('[focusGuard] Active app check failed:', error instanceof Error ? error.message : String(error))
       }
     }
 
