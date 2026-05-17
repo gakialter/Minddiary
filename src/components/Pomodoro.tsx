@@ -85,7 +85,7 @@ interface PomodoroProps {
 }
 
 export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroProps) {
-  const { settingsData, settings } = useDiary()
+  const { settingsData, settings, notification } = useDiary()
   const {
     mode, timeLeft, isRunning,
     progress, circleCircumference, miniCircumference,
@@ -105,13 +105,21 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
 
   const [focusViolation, setFocusViolation] = useState<ActiveAppInfo | null>(null)
   const focusWhitelist = useMemo(() => normalizeFocusWhitelist(settingsData?.focusWhitelist), [settingsData?.focusWhitelist])
+  const handleFocusViolation = useCallback((app: ActiveAppInfo) => {
+    setFocusViolation(app)
+    const appLabel = app.name || app.processName || app.executable || 'unknown'
+    void notification.show('专注提醒', `当前应用不在专注白名单：${appLabel}`)
+      .catch(error => {
+        logger.warn('[focusGuard] Failed to show violation notification:', error instanceof Error ? error.message : String(error))
+      })
+  }, [notification])
   const focusGuard = useFocusGuard({
     enabled: coerceBoolean(settingsData?.focusGuardEnabled, false),
     intervalSec: Number(settingsData?.focusGuardIntervalSec) || 5,
     whitelist: focusWhitelist,
     isRunning,
     modeId: mode.id,
-    onViolation: setFocusViolation,
+    onViolation: handleFocusViolation,
   })
   const [zenVisible, setZenVisible] = useState(false)
   const selectedSubjectName = useMemo(
