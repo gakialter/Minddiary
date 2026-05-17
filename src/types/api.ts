@@ -124,7 +124,7 @@ export interface ElectronMistakesAPI {
   review: (id: number, data: ReviewData) => Promise<{ success: boolean }>
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
-  saveImage?: (data: { data: string, ext?: string }) => Promise<string>
+  saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
   getImagePath?: (filename: string) => Promise<string>
 }
 
@@ -240,7 +240,7 @@ export interface MistakesContextAPI {
   review: (id: number, data: ReviewData) => Promise<{ success: boolean }>
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
-  saveImage?: (data: { data: string, ext?: string }) => Promise<string>
+  saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
   getImagePath?: (filename: string) => Promise<string>
 }
 
@@ -283,7 +283,7 @@ export interface AIContextAPI {
 
 export interface AttachmentsContextAPI {
   getByEntry: (entryId: number) => Promise<Attachment[]>
-  save: (entryId: number, data: AttachmentData) => Promise<unknown>
+  save: (entryId: number, data: AttachmentData) => Promise<Attachment | boolean>
   delete: (id: number) => Promise<boolean | void>
 }
 

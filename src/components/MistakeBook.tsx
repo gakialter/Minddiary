@@ -7,6 +7,7 @@ import type { Mistake, Subject, MistakeFilters } from '../types'
 import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
+import { toLocalAssetUrl } from '../utils/localAssetUrl'
 
 interface MistakeFilter {
     subject_id: string
@@ -33,6 +34,8 @@ const serializeImagePaths = (paths: string[]): string | null => {
     if (paths.length === 1) return paths[0]!
     return JSON.stringify(paths)
 }
+
+const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
 
 export default function MistakeBook() {
     const diary = useDiary()
@@ -134,28 +137,51 @@ export default function MistakeBook() {
     }
 
     const handleImageFile = async (file: File) => {
-        if (!file.type.startsWith('image/') || !diary.mistakes.saveImage) return
+        if (!file.type.startsWith('image/')) {
+            showToast(`文件 ${file.name} 不是图片，已拒绝上传`, 'error')
+            return
+        }
+        if (file.size > MAX_IMAGE_FILE_BYTES) {
+            showToast(`图片 ${file.name} 超过 10MB，已拒绝上传`, 'error')
+            return
+        }
+        if (!diary.mistakes.saveImage) {
+            return
+        }
         
         try {
             const reader = new FileReader()
             reader.onload = async (e) => {
-                const base64 = e.target?.result?.toString().split(',')[1]
-                if (base64) {
-                    const ext = file.name ? file.name.substring(file.name.lastIndexOf('.')) : '.png'
-                    const filename = await diary.mistakes.saveImage!({ data: base64, ext: ext || '.png' })
-                    setForm(f => ({ ...f, image_paths: [...f.image_paths, filename] }))
-                    showToast('图片已上传', 'success')
+                try {
+                    const base64 = e.target?.result?.toString().split(',')[1]
+                    if (base64) {
+                        const ext = file.name ? file.name.substring(file.name.lastIndexOf('.')) : '.png'
+                        const filename = await diary.mistakes.saveImage!({
+                            data: base64,
+                            ext: ext || '.png',
+                            name: file.name,
+                            mimetype: file.type,
+                        })
+                        setForm(f => {
+                            const next = { ...f, image_paths: [...f.image_paths, filename] }
+                            return next
+                        })
+                        showToast('图片已上传', 'success')
+                    }
+                } catch (error) {
+                    logger.error('Failed to upload mistake image:', error instanceof Error ? error.message : String(error))
+                    showToast('图片上传失败', 'error')
                 }
             }
             reader.readAsDataURL(file)
         } catch (e) {
-            logger.error(e)
+            logger.error('Failed to read mistake image:', e instanceof Error ? e.message : String(e))
             showToast('图片上传失败', 'error')
         }
     }
 
     const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'))
+        const files = Array.from(e.target.files || [])
         files.forEach(file => handleImageFile(file))
         e.target.value = ''
     }
@@ -312,7 +338,7 @@ export default function MistakeBook() {
                                 {form.image_paths.map((imgPath, idx) => (
                                     <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
                                         <img
-                                            src={`local://${imgPath}`}
+                                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
                                             alt={`图片 ${idx + 1}`}
                                             loading="lazy"
                                             decoding="async"

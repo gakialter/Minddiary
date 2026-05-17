@@ -4,6 +4,7 @@ import { CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin } from 'lucide-react'
 import { isDueForReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import Latex from 'react-latex-next'
+import { toLocalAssetUrl } from '../utils/localAssetUrl'
 
 interface MistakeItemProps {
     mistake: Mistake
@@ -74,7 +75,7 @@ export function MistakeItem({
                     {parseImagePaths(m.image_path).map((imgPath, idx) => (
                         <img
                             key={idx}
-                            src={`local://${imgPath}`}
+                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
                             alt={`错题附图 ${idx + 1}`}
                             loading="lazy"
                             decoding="async"

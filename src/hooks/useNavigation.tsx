@@ -24,7 +24,8 @@ interface ViewRenderProps {
   changeDate: (date: string) => void
   setActiveView: (view: string) => void
   isSidebarCollapsed: boolean
-  ImageGallery: React.ComponentType<{ entryId?: number }> | null
+  ImageGallery: React.ComponentType<{ entryId?: number; ensureEntryId?: () => Promise<number | null> }> | null
+  ensureEntryId: () => Promise<number | null>
 }
 
 interface ViewConfig {
@@ -55,7 +56,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
           width: 280, borderLeft: '1px solid var(--border)',
           overflow: 'auto', flexShrink: 0, padding: 'var(--space-sm)'
         }}>
-          {props.ImageGallery && <props.ImageGallery entryId={props.entry?.id} />}
+          {props.ImageGallery && <props.ImageGallery entryId={props.entry?.id} ensureEntryId={props.ensureEntryId} />}
         </div>
       </div>
     ),

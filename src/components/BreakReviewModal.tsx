@@ -6,6 +6,7 @@ import { logger } from '../utils/logger'
 import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'
+import { toLocalAssetUrl } from '../utils/localAssetUrl'
 
 interface BreakReviewModalProps {
     onClose: () => void
@@ -152,7 +153,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                         {imgs.map((imgPath: string, idx: number) => (
                                             <img
                                                 key={idx}
-                                                src={`local://${imgPath}`}
+                                                src={toLocalAssetUrl(imgPath, 'mistake_images')}
                                                 alt={`图片 ${idx + 1}`}
                                                 loading="lazy"
                                                 decoding="async"
