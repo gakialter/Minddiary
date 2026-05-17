@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2, Monitor } from 'lucide-react'
 import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
@@ -200,6 +200,8 @@ export function SettingsFocus({
 }: SettingsFocusProps) {
     const [manualApp, setManualApp] = useState('')
     const [feedback, setFeedback] = useState('')
+    const currentPlatform = window.api?.window?.platform || ''
+    const isWindowsPlatform = currentPlatform === 'win32'
 
     const addWhitelistItem = (item: FocusWhitelistItem) => {
         const withoutDuplicate = focusWhitelist.filter(existing => !isSameWhitelistTarget(existing, item))
@@ -207,6 +209,10 @@ export function SettingsFocus({
     }
 
     const addCurrentApp = async () => {
+        if (!isWindowsPlatform) {
+            setFeedback('当前平台暂不支持自动捕获前台应用，请手动输入应用名称或进程名。')
+            return
+        }
         setFeedback('')
         try {
             setFeedback('3 秒后捕获前台应用，请切换到目标应用窗口。')
@@ -255,6 +261,32 @@ export function SettingsFocus({
                     开启后，番茄钟专注期间只提醒不在白名单内的应用。建议先加入网课、资料、输入法、浏览器或常用学习工具。
                 </div>
 
+                {!isWindowsPlatform && (
+                    <div
+                        data-testid="focus-guard-platform-hint"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 10,
+                            padding: '10px 14px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--bg-tertiary)',
+                            border: '1px solid var(--border-light)',
+                            lineHeight: 1.6,
+                        }}
+                    >
+                        <Monitor size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span className="text-xs" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                当前平台暂未完整支持前台应用检测
+                            </span>
+                            <span className="text-xs text-muted">
+                                你仍可以配置白名单，但系统可能无法准确判断当前应用。Windows 版本支持更完整的专注提醒。
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 <div>
                     <label htmlFor="focus-guard-interval" style={labelStyle}>检测间隔（秒）</label>
                     <input
@@ -289,7 +321,14 @@ export function SettingsFocus({
                             placeholder="例如 chrome.exe 或 Zotero"
                         />
                     </div>
-                    <button type="button" className="button button-secondary" onClick={addCurrentApp}>
+                    <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={addCurrentApp}
+                        disabled={!isWindowsPlatform}
+                        title={isWindowsPlatform ? undefined : '当前平台暂不支持自动捕获前台应用'}
+                        style={!isWindowsPlatform ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                    >
                         <Plus size={15} /> 添加当前应用
                     </button>
                     <button type="button" className="button button-primary" onClick={addManualApp}>
