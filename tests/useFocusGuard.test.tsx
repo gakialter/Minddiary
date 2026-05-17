@@ -2,6 +2,13 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useFocusGuard } from '../src/hooks/useFocusGuard'
 import type { ActiveAppInfo, FocusWhitelistItem } from '../src/types'
+import { logger } from '../src/utils/logger'
+
+vi.mock('../src/utils/logger', () => ({
+  logger: {
+    warn: vi.fn(),
+  },
+}))
 
 const activeApp = (overrides: Partial<ActiveAppInfo> = {}): ActiveAppInfo => ({
   name: 'Notion',
@@ -124,5 +131,64 @@ describe('useFocusGuard', () => {
 
     expect(window.api.focusGuard.getActiveApp).toHaveBeenCalled()
     expect(onViolation).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips the next interval if the previous check is still pending', async () => {
+    let resolvePromise: (app: ActiveAppInfo) => void
+    window.api.focusGuard.getActiveApp = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolvePromise = resolve
+    }))
+
+    renderGuard()
+
+    // initial call is triggered immediately
+    expect(window.api.focusGuard.getActiveApp).toHaveBeenCalledTimes(1)
+
+    // advance timer by one interval (5s)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    // should not have called again because the first is pending
+    expect(window.api.focusGuard.getActiveApp).toHaveBeenCalledTimes(1)
+
+    // resolve the first one
+    await act(async () => {
+      resolvePromise!(activeApp())
+      await Promise.resolve()
+    })
+
+    // advance timer by another interval
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+
+    // now it should be called again
+    expect(window.api.focusGuard.getActiveApp).toHaveBeenCalledTimes(2)
+  })
+
+  it('converges error logs on continuous failures', async () => {
+    const error = new Error('test error')
+    window.api.focusGuard.getActiveApp = vi.fn().mockRejectedValue(error)
+
+    renderGuard()
+
+    // Initial call (1st error)
+    await flushPromises()
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+
+    // 2nd to 9th errors (should not log)
+    for (let i = 2; i <= 9; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+    }
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+
+    // 10th error (should log again)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(logger.warn).toHaveBeenCalledTimes(2)
   })
 })

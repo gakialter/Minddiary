@@ -1,4 +1,4 @@
-const { execFile } = require('child_process');
+import { execFile } from 'child_process';
 const path = require('path');
 
 import type { ActiveAppInfo } from '../src/types/index';
@@ -152,9 +152,37 @@ $executable = if ($exePath) { [System.IO.Path]::GetFileName($exePath) } else { $
     };
 }
 
+let pendingActiveAppInfoPromise: Promise<ActiveAppInfo | null> | null = null;
+let cachedActiveAppInfo: ActiveAppInfo | null = null;
+let cachedActiveAppInfoAt: number = 0;
+const CACHE_TTL_MS = 750;
+
 async function getActiveAppInfo(): Promise<ActiveAppInfo | null> {
     if (process.platform !== 'win32') return null;
-    return await getWindowsActiveAppInfo();
+
+    const now = Date.now();
+    if (cachedActiveAppInfo && now - cachedActiveAppInfoAt < CACHE_TTL_MS) {
+        return cachedActiveAppInfo;
+    }
+
+    if (pendingActiveAppInfoPromise) {
+        return pendingActiveAppInfoPromise;
+    }
+
+    pendingActiveAppInfoPromise = (async () => {
+        try {
+            const result = await getWindowsActiveAppInfo();
+            if (result) {
+                cachedActiveAppInfo = result;
+                cachedActiveAppInfoAt = Date.now();
+            }
+            return result;
+        } finally {
+            pendingActiveAppInfoPromise = null;
+        }
+    })();
+
+    return pendingActiveAppInfoPromise;
 }
 
 module.exports = { getActiveAppInfo };
