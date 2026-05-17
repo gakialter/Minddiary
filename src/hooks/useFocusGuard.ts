@@ -65,6 +65,8 @@ export function useFocusGuard({
   const lastNoticeAtRef = useRef<Map<string, number>>(new Map())
   const ignoredUntilRef = useRef<Map<string, number>>(new Map())
   const onViolationRef = useRef(onViolation)
+  const isCheckingRef = useRef(false)
+  const consecutiveErrorsRef = useRef(0)
 
   useEffect(() => {
     onViolationRef.current = onViolation
@@ -81,8 +83,11 @@ export function useFocusGuard({
     const safeIntervalMs = Math.max(3, Math.min(30, Number(intervalSec) || 5)) * 1000
 
     const checkActiveApp = async () => {
+      if (isCheckingRef.current) return
+      isCheckingRef.current = true
       try {
         const app = await window.api?.focusGuard?.getActiveApp?.()
+        consecutiveErrorsRef.current = 0
         if (!app) return
         const allowed = isFocusAppAllowed(app, whitelist)
         if (allowed) return
@@ -98,7 +103,13 @@ export function useFocusGuard({
         lastNoticeAtRef.current.set(key, now)
         onViolationRef.current(app)
       } catch (error) {
-        logger.warn('[focusGuard] Active app check failed:', error instanceof Error ? error.message : String(error))
+        consecutiveErrorsRef.current++
+        const errCount = consecutiveErrorsRef.current
+        if (errCount === 1 || errCount % 10 === 0) {
+          logger.warn(`[focusGuard] Active app check failed (count: ${errCount}):`, error instanceof Error ? error.message : String(error))
+        }
+      } finally {
+        isCheckingRef.current = false
       }
     }
 
