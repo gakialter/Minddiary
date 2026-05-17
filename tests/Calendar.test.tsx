@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, cleanup, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Calendar from '../src/components/Calendar'
 import * as DiaryContext from '../src/contexts/DiaryContext'
@@ -17,7 +17,6 @@ describe('Calendar Component', () => {
   const mockGetRange = vi.fn()
 
   beforeEach(() => {
-    vi.clearAllMocks()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2023-10-15T12:00:00.000Z'))
     
@@ -38,22 +37,46 @@ describe('Calendar Component', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
+  /**
+   * Renders Calendar and waits for async data loading to complete.
+   *
+   * The Calendar component fires an async `useEffect` that calls
+   * `getDatesWithEntries` + `getRange` and then sets state. We must
+   * ensure both promises resolve **and** the resulting state update
+   * is flushed to the DOM before the test makes assertions.
+   *
+   * The strategy:
+   *   1. `act(async …)` covers the initial render + microtask flush.
+   *   2. `waitFor` (from @testing-library, **not** vi.waitFor) retries
+   *      until the mock has been called, giving slow CI runners enough
+   *      time for the Promise.allSettled inside `loadMonthEntries` to
+   *      settle and React to re-render.
+   */
   const renderCalendar = async (selectedDate = '2023-10-15') => {
     await act(async () => {
       render(<Calendar selectedDate={selectedDate} onSelectDate={vi.fn()} />)
     })
-    
-    // Wait for the async loadMonthEntries to finish
-    await vi.waitFor(() => {
+
+    // Wait for the async loadMonthEntries effect to fire and settle.
+    // Using @testing-library/react's waitFor which handles act() internally.
+    await waitFor(() => {
       expect(mockGetDatesWithEntries).toHaveBeenCalled()
       expect(mockGetRange).toHaveBeenCalled()
     })
+
+    // Flush any pending state updates from the resolved promises.
+    await act(async () => {
+      // Allow microtasks (Promise.allSettled callbacks, setState) to flush.
+      await Promise.resolve()
+    })
   }
 
-  it('1. 有日记但无专注记录时，仍显示 mood 和“已记录”', async () => {
+  it('1. 有日记但无专注记录时，仍显示 mood 和"已记录"', async () => {
     mockGetDatesWithEntries.mockResolvedValue([
       { date: '2023-10-05', mood: 'happy' }
     ])
@@ -75,7 +98,7 @@ describe('Calendar Component', () => {
 
     await renderCalendar()
     
-    // Check if 30m badge is rendered
+    // Check if 30m badge is rendered — use findByText for async safety
     expect(await screen.findByText('30m')).toBeInTheDocument()
     // It should not show '已记录'
     expect(screen.queryByText('已记录')).not.toBeInTheDocument()
@@ -130,12 +153,17 @@ describe('Calendar Component', () => {
     
     // Clear mock calls to specifically wait for the next call
     mockGetRange.mockClear()
+    mockGetDatesWithEntries.mockClear()
     
-    // 模拟点击下个月
     const fireEvent = (await import('@testing-library/react')).fireEvent
-    fireEvent.click(screen.getByText('下个月 →'))
-    
-    await vi.waitFor(() => {
+
+    // Wrap the click + subsequent async effect in act
+    await act(async () => {
+      fireEvent.click(screen.getByText('下个月 →'))
+    })
+
+    // Wait for the async effect triggered by month change
+    await waitFor(() => {
       expect(mockGetRange).toHaveBeenCalledWith('2023-11-01', '2023-11-30')
     })
   })
@@ -179,8 +207,16 @@ describe('Calendar Component', () => {
       render(<Calendar selectedDate="2023-10-15" onSelectDate={mockOnSelectDate} />)
     })
 
+    // Wait for initial load to complete
+    await waitFor(() => {
+      expect(mockGetDatesWithEntries).toHaveBeenCalled()
+    })
+
     const fireEvent = (await import('@testing-library/react')).fireEvent
-    fireEvent.click(screen.getByText('回到今天'))
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('回到今天'))
+    })
 
     // The fake system time was set to '2023-10-15T12:00:00.000Z' in beforeEach
     // The local date formatter `toDateStr` formats the local Date object.

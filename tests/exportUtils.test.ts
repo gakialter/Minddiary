@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment node
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateJSON, generateMarkdown, generatePdfHtml } from '../src/utils/exportUtils'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 type ExportEntry = NonNullable<Parameters<typeof generateMarkdown>[0]>[number]
 
