@@ -295,10 +295,13 @@ describe('PomodoroContext', () => {
       expect(result.current.timer.mode.id).toBe('short_break')
     })
 
-    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith({
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
       subject_id: null,
       duration: 25,
-    })
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 /),
+      completed_at: expect.stringMatching(/^2026-05-05 /),
+    }))
     expect(mocks.notificationShow).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
@@ -333,5 +336,78 @@ describe('PomodoroContext', () => {
       expect(result.current.timer.mode.id).toBe('custom')
       expect(result.current.timer.timeLeft).toBe(30 * 60)
     })
+  })
+
+  it('loads the new local day total on startup instead of inheriting yesterday', async () => {
+    vi.setSystemTime(new Date(2026, 4, 18, 0, 10, 0))
+    mocks.pomodoroGetStats.mockImplementation(async (date: string) => (
+      date === '2026-05-17' ? TODAY_STATS : []
+    ))
+    mocks.pomodoroGetDailyTotal.mockImplementation(async (date: string) => (
+      date === '2026-05-17' ? 25 : 0
+    ))
+
+    const { result } = renderPomodoroHook()
+
+    await flushAsyncWork()
+    await waitForExpect(() => {
+      expect(mocks.pomodoroGetStats).toHaveBeenCalledWith('2026-05-18')
+      expect(mocks.pomodoroGetDailyTotal).toHaveBeenCalledWith('2026-05-18')
+    })
+
+    expect(result.current.data.todayTotal).toBe(0)
+    expect(result.current.data.todayStats).toEqual([])
+  })
+
+  it('writes a new completed session to the session start local date key', async () => {
+    vi.setSystemTime(new Date(2026, 4, 18, 8, 0, 0))
+    mocks.pomodoroGetDailyTotal.mockImplementation(async (date: string) => (
+      date === '2026-05-18' ? 25 : 0
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000)
+    })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: null,
+      duration: 25,
+      date_key: '2026-05-18',
+      started_at: expect.stringMatching(/^2026-05-18 /),
+      completed_at: expect.stringMatching(/^2026-05-18 /),
+    }))
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalledWith(expect.objectContaining({
+      date_key: '2026-05-17',
+    }))
+  })
+
+  it('refreshes today total when the app stays open across local midnight', async () => {
+    vi.setSystemTime(new Date(2026, 4, 17, 23, 55, 0))
+    mocks.pomodoroGetStats.mockImplementation(async (date: string) => (
+      date === '2026-05-17' ? TODAY_STATS : []
+    ))
+    mocks.pomodoroGetDailyTotal.mockImplementation(async (date: string) => (
+      date === '2026-05-17' ? 25 : 0
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTotal).toBe(25)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1000)
+    })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroGetDailyTotal).toHaveBeenCalledWith('2026-05-18')
+    expect(result.current.data.todayTotal).toBe(0)
   })
 })

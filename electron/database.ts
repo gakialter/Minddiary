@@ -3,6 +3,7 @@ const path = require('path');
 const { app, safeStorage: ss } = require('electron');
 const { logger } = require('./logger');
 
+import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -80,6 +81,8 @@ function initialize() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER REFERENCES subjects(id),
       duration INTEGER NOT NULL,
+      date_key TEXT,
+      started_at DATETIME,
       completed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_pomodoro_completed ON pomodoro_sessions(completed_at);
@@ -119,6 +122,8 @@ function initialize() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+    migratePomodoroDateKey();
 
     // ── v2.0 Migration: Spaced Repetition columns on mistakes ──
     const srColumns = [
@@ -187,6 +192,28 @@ function initialize() {
             insertTpl.run(t.name, t.content, t.is_default, t.sort_order);
         }
     }
+}
+
+function hasColumn(tableName: string, columnName: string): boolean {
+    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
+    return columns.some(column => column.name === columnName);
+}
+
+function ensureColumn(tableName: string, columnName: string, definition: string) {
+    if (!hasColumn(tableName, columnName)) {
+        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    }
+}
+
+function migratePomodoroDateKey() {
+    ensureColumn('pomodoro_sessions', 'date_key', 'TEXT');
+    ensureColumn('pomodoro_sessions', 'started_at', 'DATETIME');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_pomodoro_date_key ON pomodoro_sessions(date_key)');
+    db.prepare(`
+        UPDATE pomodoro_sessions
+        SET date_key = DATE(completed_at, 'localtime')
+        WHERE date_key IS NULL OR date_key = ''
+    `).run();
 }
 
 // ==================== Entries ====================
@@ -386,12 +413,20 @@ function deleteSubject(id: number) {
 }
 
 // ==================== Pomodoro ====================
-function addPomodoroSession({ subject_id, duration }: PomodoroSession) {
+function normalizeOptionalDateTime(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function addPomodoroSession({ subject_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
+    const completedAt = normalizeOptionalDateTime(completed_at) || toLocalDateTimeString();
+    const startedAt = normalizeOptionalDateTime(started_at);
+    const dateKey = isDateKey(date_key) ? date_key : getLocalDateKey(startedAt ? new Date(startedAt) : new Date());
+
     const stmt = db.prepare(
-        'INSERT INTO pomodoro_sessions (subject_id, duration) VALUES (?, ?)'
+        'INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(subject_id || null, duration);
-    return { id: result.lastInsertRowid };
+    const result = stmt.run(subject_id || null, duration, dateKey, startedAt, completedAt);
+    return { id: result.lastInsertRowid, date_key: dateKey, started_at: startedAt, completed_at: completedAt };
 }
 
 function getPomodoroStats(date: string): PomodoroStat[] {
@@ -399,14 +434,14 @@ function getPomodoroStats(date: string): PomodoroStat[] {
     SELECT s.name as subject_name, s.color, SUM(p.duration) as total_minutes, COUNT(p.id) as session_count
     FROM pomodoro_sessions p
     LEFT JOIN subjects s ON p.subject_id = s.id
-    WHERE DATE(p.completed_at) = ?
+    WHERE p.date_key = ?
     GROUP BY p.subject_id
   `).all(date) as PomodoroStat[];
 }
 
 function getDailyStudyMinutes(date: string) {
     const row = db.prepare(
-        'SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE DATE(completed_at) = ?'
+        'SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE date_key = ?'
     ).get(date) as { total: number };
     return row.total;
 }
@@ -414,12 +449,12 @@ function getDailyStudyMinutes(date: string) {
 // Dashboard: daily totals over a date range
 function getPomodoroRange(startDate: string, endDate: string) {
     return db.prepare(`
-        SELECT DATE(completed_at) as date, 
-               SUM(duration) as total_minutes, 
+        SELECT date_key as date,
+               SUM(duration) as total_minutes,
                COUNT(id) as session_count
         FROM pomodoro_sessions
-        WHERE DATE(completed_at) BETWEEN ? AND ?
-        GROUP BY DATE(completed_at)
+        WHERE date_key BETWEEN ? AND ?
+        GROUP BY date_key
         ORDER BY date ASC
     `).all(startDate, endDate);
 }
@@ -437,10 +472,11 @@ function getEntryDatesRange(startDate: string, endDate: string) {
 function getStudyStreak() {
     const rows = db.prepare(`
         SELECT DISTINCT date FROM (
-            SELECT DATE(completed_at) as date FROM pomodoro_sessions
+            SELECT date_key as date FROM pomodoro_sessions
             UNION
             SELECT date FROM entries
         )
+        WHERE date IS NOT NULL
         ORDER BY date DESC
     `).all() as { date: string }[];
 
@@ -500,7 +536,7 @@ function getTodayDashboard(date: string): TodayDashboardData {
             SELECT COALESCE(SUM(duration), 0) as total_minutes,
                    COUNT(id) as session_count
             FROM pomodoro_sessions
-            WHERE DATE(completed_at) = ?
+            WHERE date_key = ?
         `).get(date) as { total_minutes: number; session_count: number };
 
         // 3. High Forgetting Risk Pool (< 72hrs)

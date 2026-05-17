@@ -1,4 +1,5 @@
 // Shared constants and helper functions for MindDiary
+import { getLocalDateKey } from './dateKey'
 import type { MoodId, MoodOption } from '../types'
 
 // ==================== Mood Constants ====================
@@ -24,11 +25,7 @@ export function formatShortDate(dateStr: string): string {
 }
 
 export function getTodayStr(): string {
-  const d = new Date()
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return getLocalDateKey()
 }
 
 // ==================== Text Helpers ====================

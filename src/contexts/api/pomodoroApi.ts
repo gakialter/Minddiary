@@ -11,7 +11,7 @@ export const createPomodoroApi = (): PomodoroContextAPI => ({
         if (IS_ELECTRON) return window.api.pomodoro.getRange(start, end)
         return []
     },
-    addSession: async (session: Pick<PomodoroSession, 'subject_id' | 'duration'>) => {
+    addSession: async (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => {
         if (IS_ELECTRON) return window.api.pomodoro.addSession(session)
         return true
     },

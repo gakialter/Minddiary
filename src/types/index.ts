@@ -106,6 +106,8 @@ export interface PomodoroSession {
   id?: number
   subject_id: number | null
   duration: number
+  date_key?: string
+  started_at?: string
   completed_at?: string
 }
 
