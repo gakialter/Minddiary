@@ -24,6 +24,43 @@ interface ChatMessage {
     id: number
 }
 
+const AI_CHAT_HISTORY_STORAGE_KEY = 'minddiary.ai.chatHistory'
+
+const isChatMessage = (value: unknown): value is ChatMessage => {
+    if (!value || typeof value !== 'object') return false
+    const message = value as Partial<ChatMessage>
+    return (
+        (message.role === 'user' || message.role === 'assistant') &&
+        typeof message.content === 'string' &&
+        typeof message.id === 'number' &&
+        Number.isFinite(message.id)
+    )
+}
+
+const loadCachedMessages = (): ChatMessage[] => {
+    try {
+        const raw = localStorage.getItem(AI_CHAT_HISTORY_STORAGE_KEY)
+        if (!raw) return []
+        const parsed: unknown = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed.filter(isChatMessage)
+    } catch {
+        return []
+    }
+}
+
+const saveCachedMessages = (messages: ChatMessage[]) => {
+    try {
+        if (messages.length === 0) {
+            localStorage.removeItem(AI_CHAT_HISTORY_STORAGE_KEY)
+            return
+        }
+        localStorage.setItem(AI_CHAT_HISTORY_STORAGE_KEY, JSON.stringify(messages))
+    } catch {
+        // Storage failures should not break the AI assistant UI.
+    }
+}
+
 interface QuickPrompt {
     icon: React.ReactElement
     label: string
@@ -32,7 +69,7 @@ interface QuickPrompt {
 
 export default function AIPanel({ entry }: AIPanelProps) {
     const { settingsData, ai: aiAPI, mistakes: mistakesAPI } = useDiary()
-    const [messages, setMessages] = useState<ChatMessage[]>([])
+    const [messages, setMessages] = useState<ChatMessage[]>(() => loadCachedMessages())
     const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -45,8 +82,18 @@ export default function AIPanel({ entry }: AIPanelProps) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages, loading])
 
+    useEffect(() => {
+        saveCachedMessages(messages)
+    }, [messages])
+
     const appendMessage = (role: 'user' | 'assistant', content: string) => {
         setMessages(prev => [...prev, { role, content, id: Date.now() + Math.random() }])
+    }
+
+    const clearMessages = () => {
+        generationRef.current++
+        setLoading(false)
+        setMessages([])
     }
 
     const cancelRequest = () => {
@@ -148,7 +195,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                         <span style={{ fontSize: 12, color: 'var(--success)' }}>● 在线待命</span>
                     </div>
                 </div>
-                <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setMessages([])}>
+                <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={clearMessages}>
                     <Trash2 size={14} /> 清空历史
                 </button>
             </div>
