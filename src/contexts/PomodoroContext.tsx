@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { useDiary } from './DiaryContext'
 import { coerceBoolean } from '../utils/helpers'
+import { getDelayUntilNextLocalDate, getLocalDateKey, toLocalDateTimeString } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import type { Subject, PomodoroStat } from '../types'
 
@@ -43,7 +44,7 @@ interface PomodoroActionsValue {
   resetTimer: () => void
   formatTime: (seconds: number) => string
   loadSubjects: () => Promise<void>
-  loadTodayStats: () => Promise<void>
+  loadTodayStats: (dateKey?: string) => Promise<void>
   setOnBreakStart: (cb: (() => void) | null) => void
   dismissAlert: () => void
 }
@@ -90,6 +91,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [selectedSubject, setSelectedSubject] = useState<number | null>(null)
   const [todayStats, setTodayStats] = useState<PomodoroStat[]>([])
   const [todayTotal, setTodayTotal] = useState(0)
+  const [todayDateKey, setTodayDateKey] = useState(() => getLocalDateKey())
+  const todayDateKeyRef = useRef(todayDateKey)
+  const sessionStartedAtRef = useRef<Date | null>(null)
   const onBreakStartRef = useRef<(() => void) | null>(null)
   const setOnBreakStart = useCallback((cb: (() => void) | null) => {
     onBreakStartRef.current = cb
@@ -104,6 +108,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   const endTimeRef = useRef<number | null>(null)
 
+  useEffect(() => {
+    todayDateKeyRef.current = todayDateKey
+  }, [todayDateKey])
+
   const loadSubjects = useCallback(async () => {
     try {
       const data = await subjectsAPI.getAll()
@@ -111,12 +119,13 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     } catch (e) { logger.error(e) }
   }, [subjectsAPI])
 
-  const loadTodayStats = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0]!
+  const loadTodayStats = useCallback(async (dateKey = getLocalDateKey()) => {
+    setTodayDateKey(dateKey)
+    todayDateKeyRef.current = dateKey
     try {
-      const stats = await pomodoroAPI.getStats(today)
+      const stats = await pomodoroAPI.getStats(dateKey)
       setTodayStats(stats || [])
-      const total = await pomodoroAPI.getDailyTotal(today)
+      const total = await pomodoroAPI.getDailyTotal(dateKey)
       setTodayTotal(total || 0)
     } catch (e) { logger.error(e) }
   }, [pomodoroAPI])
@@ -129,11 +138,32 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
   }, [loadSubjects, loadTodayStats])
 
+  useEffect(() => {
+    let timeout: number
+    const scheduleRolloverCheck = () => {
+      timeout = window.setTimeout(() => {
+        const nextDateKey = getLocalDateKey()
+        const previousDateKey = todayDateKeyRef.current
+        if (nextDateKey !== previousDateKey) {
+          setTodayStats([])
+          setTodayTotal(0)
+          todayDateKeyRef.current = nextDateKey
+          void loadTodayStats(nextDateKey)
+        }
+        scheduleRolloverCheck()
+      }, getDelayUntilNextLocalDate())
+    }
+
+    scheduleRolloverCheck()
+    return () => window.clearTimeout(timeout)
+  }, [loadTodayStats])
+
   // Reset timer when mode changes manually
   useEffect(() => {
     setTimeLeft(mode.time)
     setIsRunning(false)
     endTimeRef.current = null
+    sessionStartedAtRef.current = null
   }, [mode])
 
   // Update work/custom time if settings change while idle
@@ -182,9 +212,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
       // ── Alert modal ──
       if (alertEnabled) {
-        const newTotal = await pomodoroAPI.getDailyTotal(
-          new Date().toISOString().split('T')[0]!
-        ).catch(() => todayTotal)
+        const alertDateKey = getLocalDateKey()
+        const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
         setAlertState({
           visible: true,
           isWorkComplete: mode.id === 'work',
@@ -205,10 +234,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     if (mode.id === 'work' || mode.id === 'custom') {
       try {
+        const completedAt = new Date()
+        const startedAt = sessionStartedAtRef.current ?? new Date(completedAt.getTime() - mode.time * 1000)
+        const dateKey = getLocalDateKey(startedAt)
         await pomodoroAPI.addSession({
           subject_id: selectedSubject,
-          duration: mode.time / 60
+          duration: mode.time / 60,
+          date_key: dateKey,
+          started_at: toLocalDateTimeString(startedAt),
+          completed_at: toLocalDateTimeString(completedAt),
         })
+        sessionStartedAtRef.current = null
         loadTodayStats()
         await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
       } catch (e) { logger.error(e) }
@@ -245,13 +281,20 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [isRunning, handlePhaseComplete])
 
   const toggleTimer = useCallback(() => {
-    setIsRunning(prev => !prev)
-  }, [])
+    setIsRunning(prev => {
+      const next = !prev
+      if (next && (mode.id === 'work' || mode.id === 'custom') && timeLeft === mode.time) {
+        sessionStartedAtRef.current = new Date()
+      }
+      return next
+    })
+  }, [mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
     setIsRunning(false)
     setTimeLeft(mode.time)
     endTimeRef.current = null
+    sessionStartedAtRef.current = null
   }, [mode.time])
 
   const formatTime = useCallback((seconds: number): string => {

@@ -100,7 +100,7 @@ export interface ElectronSubjectsAPI {
 }
 
 export interface ElectronPomodoroAPI {
-  addSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration'>) => Promise<{ id: number }>
+  addSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => Promise<{ id: number; date_key?: string; started_at?: string | null; completed_at?: string }>
   getStats: (date: string) => Promise<PomodoroStat[]>
   getDailyTotal: (date: string) => Promise<number>
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
@@ -254,7 +254,7 @@ export interface SubjectsContextAPI {
 export interface PomodoroContextAPI {
   getStats: (date: string) => Promise<PomodoroStat[]>
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
-  addSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration'>) => Promise<unknown>
+  addSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => Promise<unknown>
   getDailyTotal: (date: string) => Promise<number>
 }
 
