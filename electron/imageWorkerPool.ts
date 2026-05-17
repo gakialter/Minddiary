@@ -9,7 +9,9 @@
  * dispatches tasks, and confirms final disk state.
  */
 
-const { Worker } = require('worker_threads');
+import type { Worker as NodeWorker } from 'worker_threads';
+
+const { Worker: NodeWorkerCtor } = require('worker_threads') as { Worker: typeof NodeWorker };
 const path = require('path');
 const os = require('os');
 const { logger } = require('./logger');
@@ -45,9 +47,10 @@ interface WorkerError {
 
 // ── Pool internals ──────────────────────────────────────────────────────────
 interface PoolWorker {
-    worker: InstanceType<typeof import('worker_threads').Worker>;
+    worker: NodeWorker;
     busy: boolean;
     id: number;
+    currentTaskId?: number;
 }
 
 interface PendingTask {
@@ -57,6 +60,7 @@ interface PendingTask {
     resolve: (value: WorkerResult['data']) => void;
     reject: (reason: WorkerError) => void;
     timer: ReturnType<typeof setTimeout>;
+    dispatched: boolean;
 }
 
 let workers: PoolWorker[] = [];
@@ -80,15 +84,16 @@ function initialize(size?: number): void {
 }
 
 function spawnWorker(id: number): void {
-    const worker = new Worker(getWorkerScript());
+    const worker = new NodeWorkerCtor(getWorkerScript());
     const poolWorker: PoolWorker = { worker, busy: false, id };
 
     worker.on('message', (result: WorkerResult) => {
         poolWorker.busy = false;
+        poolWorker.currentTaskId = undefined;
         // Find the pending task that matches this result
         const idx = pending.findIndex(t => t.id === result.id);
         if (idx === -1) return;
-        const task = pending.splice(idx, 1)[0];
+        const task = pending.splice(idx, 1)[0]!;
         clearTimeout(task.timer);
 
         if (result.success) {
@@ -104,6 +109,15 @@ function spawnWorker(id: number): void {
 
     worker.on('error', (err: Error) => {
         logger.error(`[imageWorkerPool] Worker ${id} error:`, err.message);
+        if (poolWorker.currentTaskId !== undefined) {
+            const taskIndex = pending.findIndex(t => t.id === poolWorker.currentTaskId);
+            if (taskIndex !== -1) {
+                const task = pending.splice(taskIndex, 1)[0]!;
+                clearTimeout(task.timer);
+                task.reject({ code: 'WORKER_TERMINATED', message: err.message });
+            }
+            poolWorker.currentTaskId = undefined;
+        }
         // Replace crashed worker
         poolWorker.busy = false;
         const idx = workers.indexOf(poolWorker);
@@ -122,16 +136,18 @@ function findFreeWorker(): PoolWorker | null {
 }
 
 function flushPending(): void {
-    while (pending.length > 0) {
+    while (pending.some(task => !task.dispatched)) {
         const free = findFreeWorker();
         if (!free) break;
-        const task = pending.shift()!;
+        const task = pending.find(t => !t.dispatched)!;
         dispatchTask(free, task);
     }
 }
 
 function dispatchTask(poolWorker: PoolWorker, task: PendingTask): void {
     poolWorker.busy = true;
+    poolWorker.currentTaskId = task.id;
+    task.dispatched = true;
     poolWorker.worker.postMessage({ id: task.id, type: task.type, payload: task.payload });
 }
 
@@ -143,23 +159,33 @@ function submit(type: string, payload: TaskPayload): Promise<WorkerResult['data'
             // Task timed out — remove from pending
             const idx = pending.findIndex(t => t.id === id);
             if (idx !== -1) {
-                pending.splice(idx, 1);
+                const task = pending.splice(idx, 1)[0]!;
+                if (task.dispatched) {
+                    const worker = workers.find(w => w.currentTaskId === id);
+                    if (worker) {
+                        worker.busy = false;
+                        worker.currentTaskId = undefined;
+                    }
+                }
                 reject({ code: 'WORKER_TERMINATED', message: `Task ${type} timed out after ${TASK_TIMEOUT_MS}ms` });
+                flushPending();
             }
         }, TASK_TIMEOUT_MS);
 
-        const task: PendingTask = { id, type, payload, resolve, reject, timer };
+        const task: PendingTask = { id, type, payload, resolve, reject, timer, dispatched: false };
+        pending.push(task);
 
         const free = findFreeWorker();
         if (free) {
             dispatchTask(free, task);
-        } else {
-            pending.push(task);
         }
     });
 }
 
 function shutdown(): void {
+    for (const task of pending) {
+        clearTimeout(task.timer);
+    }
     for (const pw of workers) {
         try { pw.worker.terminate(); } catch { /* ignore */ }
     }

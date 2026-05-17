@@ -4,6 +4,7 @@ let autoUpdater: typeof import('electron-updater').autoUpdater | null = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
 const fs = require('fs');
+const { fileURLToPath, pathToFileURL } = require('url');
 const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
@@ -28,6 +29,32 @@ function maskApiKey(key: string | null | undefined): string | null {
 }
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
+
+function resolveLocalProtocolPath(requestUrl: string): string {
+    const rawPath = requestUrl.replace(/^local:\/\//, '');
+    const decoded = decodeURIComponent(rawPath);
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
+        throw new Error('Path contains control characters');
+    }
+
+    const allowedBase = path.resolve(app.getPath('userData'));
+    const normalized = decoded.replace(/\\/g, '/');
+    let resolved: string;
+
+    if (/^\/?[A-Za-z]:\//.test(normalized)) {
+        const fileUrlPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
+        resolved = fileURLToPath(`file://${fileUrlPath}`);
+    } else {
+        resolved = path.resolve(allowedBase, normalized.replace(/^\/+/, ''));
+    }
+
+    const relative = path.relative(allowedBase, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Path outside userData');
+    }
+
+    return resolved;
+}
 
 function createWindow() {
     const isMac = process.platform === 'darwin';
@@ -150,26 +177,12 @@ ipcMain.handle('updater:getStatus', () => {
 
 app.whenReady().then(() => {
     protocol.handle('local', (request: { url: string }) => {
-        const url = request.url.replace('local://', '');
         try {
-            const decoded = decodeURIComponent(url);
-            // Reject null bytes and non-printable control chars (except space)
-            if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
-                logger.warn('[local://] Rejected path with control characters');
-                return new Response('Forbidden', { status: 403 });
-            }
-            const resolved = path.resolve(decoded);
-            // Restrict local:// to userData directory (attachments & mistake_images)
-            const allowedBase = path.resolve(app.getPath('userData'));
-            const relative = path.relative(allowedBase, resolved);
-            if (relative.startsWith('..') || path.isAbsolute(relative)) {
-                logger.warn('[local://] Blocked access outside userData:', resolved);
-                return new Response('Forbidden', { status: 403 });
-            }
-            return net.fetch('file://' + resolved);
+            const resolved = resolveLocalProtocolPath(request.url);
+            return net.fetch(pathToFileURL(resolved).href);
         } catch (error) {
-            logger.error('File protocol parse error:', error);
-            return new Response('Not Found', { status: 404 });
+            logger.warn('[local://] Blocked local asset request:', request.url, error);
+            return new Response('Forbidden', { status: 403 });
         }
     });
 
@@ -548,7 +561,9 @@ ipcMain.handle('settings:updateBackup', (_: unknown, rawPatch: unknown) => {
 });
 
 // ==================== Attachments ====================
-ipcMain.handle('attachments:save', (_: unknown, entryId: number, fileData: AttachmentData) => fileManager.saveAttachment(entryId, fileData));
+ipcMain.handle('attachments:save', (_: unknown, entryId: number, fileData: AttachmentData) => {
+    return fileManager.saveAttachment(entryId, fileData);
+});
 ipcMain.handle('attachments:getByEntry', (_: unknown, entryId: number) => db.getAttachmentsByEntry(entryId));
 ipcMain.handle('attachments:delete', (_: unknown, id: number) => fileManager.deleteAttachment(id));
 ipcMain.handle('attachments:getPath', (_: unknown, filepath: string) => fileManager.getAttachmentPath(filepath));
@@ -591,7 +606,9 @@ ipcMain.handle('mistakes:toggleMastered', (_: unknown, id: number) => db.toggleM
 ipcMain.handle('mistakes:review', (_: unknown, id: number, data: Partial<Mistake>) => db.reviewMistake(id, data));
 ipcMain.handle('mistakes:getDueCount', (_: unknown, date: string) => db.getDueForReviewCount(date));
 ipcMain.handle('mistakes:getRandomDue', (_: unknown, date: string, subjectId?: number) => db.getRandomDueMistake(date, subjectId));
-ipcMain.handle('mistakes:saveImage', (_: unknown, data: AttachmentData) => fileManager.saveMistakeImage(data));
+ipcMain.handle('mistakes:saveImage', (_: unknown, data: AttachmentData & { ext?: string }) => {
+    return fileManager.saveMistakeImage(data);
+});
 ipcMain.handle('mistakes:getImagePath', (_: unknown, filename: string) => fileManager.getMistakeImagePath(filename));
 
 // ==================== AI ====================

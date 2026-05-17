@@ -102,7 +102,7 @@ export const createMistakesApi = (
         if (due.length === 0) return null;
         return due[Math.floor(Math.random() * due.length)] || null;
     },
-    saveImage: async (data: { data: string, ext?: string }) => {
+    saveImage: async (data: { data: string, ext?: string, name?: string, mimetype?: string }) => {
         if (IS_ELECTRON && window.api.mistakes.saveImage) {
             return window.api.mistakes.saveImage(data);
         }

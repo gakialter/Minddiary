@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Download, Frown, RotateCcw } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
@@ -166,6 +166,24 @@ function AppContent() {
     }
   }
 
+  const ensureEntryId = useCallback(async () => {
+    if (entry?.id) return entry.id
+    try {
+      const saved = await diary.entries.create({
+        date: selectedDate,
+        title: entry?.title || '',
+        content: entry?.content || '',
+        mood: entry?.mood ?? null,
+      })
+      const tagIds = entry?.tags || saved.tags || []
+      setEntry({ ...saved, tags: tagIds })
+      return saved.id
+    } catch (error) {
+      logger.error('Failed to create entry before image upload:', error)
+      return null
+    }
+  }, [diary.entries, entry, selectedDate])
+
   // ─── View rendering (data-driven) ───
   const renderView = () => {
     const config = VIEW_CONFIG[activeView] || VIEW_CONFIG.editor!
@@ -175,6 +193,7 @@ function AppContent() {
       changeDate, setActiveView,
       isSidebarCollapsed,
       ImageGallery,
+      ensureEntryId,
     })
   }
 

@@ -1,11 +1,19 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import MistakeBook from '../src/components/MistakeBook'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 
+const toastMock = vi.hoisted(() => ({
+  showToast: vi.fn(),
+}))
+
 // Mock useDiary to return dummy APIs
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(),
+}))
+
+vi.mock('../src/components/Toast', () => ({
+  showToast: toastMock.showToast,
 }))
 
 const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
@@ -136,6 +144,71 @@ describe('MistakeBook Component', () => {
       notes: '',
       image_path: null,
     })
+  })
+
+  it('uploads an image into form state and saves the image path', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/测试图片.png')
+
+    const { container } = render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const qInput = screen.getByPlaceholderText('问题 / 知识点')
+    await act(async () => {
+      fireEvent.change(qInput, { target: { value: 'Image Q' } })
+    })
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['image-bytes'], '测试图片.png', { type: 'image/png' })
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } })
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.saveImage).toHaveBeenCalledWith({
+        data: expect.any(String),
+        ext: '.png',
+        name: '测试图片.png',
+        mimetype: 'image/png',
+      })
+    })
+    expect(container.querySelector('img[src="local://mistake_images/%E6%B5%8B%E8%AF%95%E5%9B%BE%E7%89%87.png"]')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    })
+
+    expect(mistakesApi.create).toHaveBeenCalledWith({
+      subject_id: null,
+      question: 'Image Q',
+      answer: '',
+      notes: '',
+      image_path: 'mistake_images/测试图片.png',
+    })
+  })
+
+  it('rejects non-image files without writing form image data', async () => {
+    mistakesApi.saveImage = vi.fn()
+
+    const { container } = render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['not an image'], 'notes.txt', { type: 'text/plain' })
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } })
+    })
+
+    expect(mistakesApi.saveImage).not.toHaveBeenCalled()
+    expect(container.querySelector('img[src^="local://"]')).not.toBeInTheDocument()
+    expect(toastMock.showToast).toHaveBeenCalledWith(expect.stringContaining('图片'), 'error')
   })
 
   it('triggers delete API when delete button clicked', async () => {

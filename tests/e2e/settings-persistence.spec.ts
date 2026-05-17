@@ -18,45 +18,44 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
     await page.evaluate(() => {
-        const api = (window as any).api;
-        return Promise.all([
-            api.settings.set('pomodoroSound', 'true'),
-            api.settings.set('pomodoroAlert', 'true'),
-        ]);
+        return (window as any).api.settings.updateGeneral({
+            pomodoroSound: true,
+            pomodoroAlert: true,
+        });
     });
     await app.close();
 });
 
-test.describe('Settings Persistence (IPC → SQLite → reload)', () => {
-    test('pomodoroSound setting persists after set', async () => {
+test.describe('Settings Persistence (IPC to SQLite to readback)', () => {
+    test('pomodoroSound setting persists after updateGeneral', async () => {
         await page.evaluate(() =>
-            (window as any).api.settings.set('pomodoroSound', 'false')
+            (window as any).api.settings.updateGeneral({ pomodoroSound: false })
         );
         const value = await page.evaluate(() =>
-            (window as any).api.settings.get('pomodoroSound')
+            (window as any).api.settings.getAll().then((settings: any) => settings.pomodoroSound)
         );
         expect(value).toBe('false');
 
         await page.evaluate(() =>
-            (window as any).api.settings.set('pomodoroSound', 'true')
+            (window as any).api.settings.updateGeneral({ pomodoroSound: true })
         );
         const restored = await page.evaluate(() =>
-            (window as any).api.settings.get('pomodoroSound')
+            (window as any).api.settings.getAll().then((settings: any) => settings.pomodoroSound)
         );
         expect(restored).toBe('true');
     });
 
-    test('pomodoroAlert setting persists after set', async () => {
+    test('pomodoroAlert setting persists after updateGeneral', async () => {
         await page.evaluate(() =>
-            (window as any).api.settings.set('pomodoroAlert', 'false')
+            (window as any).api.settings.updateGeneral({ pomodoroAlert: false })
         );
         const value = await page.evaluate(() =>
-            (window as any).api.settings.get('pomodoroAlert')
+            (window as any).api.settings.getAll().then((settings: any) => settings.pomodoroAlert)
         );
         expect(value).toBe('false');
 
         await page.evaluate(() =>
-            (window as any).api.settings.set('pomodoroAlert', 'true')
+            (window as any).api.settings.updateGeneral({ pomodoroAlert: true })
         );
     });
 
@@ -67,23 +66,19 @@ test.describe('Settings Persistence (IPC → SQLite → reload)', () => {
         expect(Array.isArray(all) || typeof all === 'object').toBe(true);
     });
 
-    test('custom key round-trips correctly', async () => {
-        const testKey = '__e2e_test_key__';
-        const testVal = 'hello_from_e2e';
+    test('preload exposes only the patch-based settings API', async () => {
+        const settingKeys = await page.evaluate(() =>
+            Object.keys((window as any).api.settings)
+        );
 
-        await page.evaluate(({ key, val }: { key: string; val: string }) =>
-            (window as any).api.settings.set(key, val),
-            { key: testKey, val: testVal }
-        );
-        const retrieved = await page.evaluate((key: string) =>
-            (window as any).api.settings.get(key),
-            testKey
-        );
-        expect(retrieved).toBe(testVal);
-
-        await page.evaluate((key: string) =>
-            (window as any).api.settings.set(key, ''),
-            testKey
-        );
+        expect(settingKeys).toEqual(expect.arrayContaining([
+            'getAll',
+            'updateGeneral',
+            'updateAI',
+            'updateBackup',
+            'selectBackupFolder',
+        ]));
+        expect(settingKeys).not.toContain('set');
+        expect(settingKeys).not.toContain('get');
     });
 });

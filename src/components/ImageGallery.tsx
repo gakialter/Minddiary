@@ -5,13 +5,17 @@ import { showToast } from './Toast'
 import { logger } from '../utils/logger'
 import { Image as ImageIcon, Camera } from 'lucide-react'
 import type { Attachment } from '../types'
+import { toLocalAssetUrl } from '../utils/localAssetUrl'
 
 interface ImageGalleryProps {
     entryId?: number
+    ensureEntryId?: () => Promise<number | null>
     onImageInsert?: (url: string) => void
 }
 
-export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryProps) {
+const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
+
+export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: ImageGalleryProps) {
     const { attachments: attachmentsAPI } = useDiary()
     const [attachments, setAttachments] = useState<Attachment[]>([])
     const [preview, setPreview] = useState<Attachment | null>(null)
@@ -19,19 +23,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
     const [isDragging, setIsDragging] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    /**
-     * Sanitize attachment filepath to prevent path-traversal attacks.
-     * Rejects paths containing '..', and ensures the scheme is file://.
-     */
-    const safeFileUrl = (filepath: string | undefined): string => {
-        if (!filepath || typeof filepath !== 'string') return ''
-        // Block any path traversal sequences
-        if (filepath.includes('..')) {
-            logger.warn('[ImageGallery] Blocked path traversal attempt:', filepath)
-            return ''
-        }
-        return `file://${filepath}`
-    }
+    const safeFileUrl = (filepath: string | undefined): string => toLocalAssetUrl(filepath, 'attachments')
 
     useEffect(() => {
         if (entryId) loadAttachments()
@@ -47,8 +39,20 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
     }
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement> | { target: HTMLInputElement }) => {
-        const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'))
-        if (!files.length || !entryId) return
+        const selectedFiles = Array.from(e.target.files || [])
+        const invalidFiles = selectedFiles.filter(f => !f.type.startsWith('image/'))
+        invalidFiles.forEach(file => {
+            showToast(`文件 ${file.name} 不是图片，已拒绝上传`, 'error')
+        })
+        const oversizedFiles = selectedFiles.filter(f => f.type.startsWith('image/') && f.size > MAX_IMAGE_FILE_BYTES)
+        oversizedFiles.forEach(file => {
+            showToast(`图片 ${file.name} 超过 10MB，已拒绝上传`, 'error')
+        })
+        const files = selectedFiles.filter(f => f.type.startsWith('image/') && f.size <= MAX_IMAGE_FILE_BYTES)
+        const targetEntryId = entryId || await ensureEntryId?.()
+        if (!files.length || !targetEntryId) {
+            return
+        }
 
         setLoading(true)
         // Compress all selected images concurrently (max 4 in parallel) before
@@ -68,19 +72,24 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
                 continue
             }
             try {
-                await attachmentsAPI.save(entryId, {
+                const uploadResult = await attachmentsAPI.save(targetEntryId, {
                     name: file.name,
                     data: result.base64,
                     mimetype: result.blob.type,
                 })
+                if (uploadResult && typeof uploadResult === 'object' && 'filepath' in uploadResult) {
+                    const attachment = uploadResult as Attachment
+                    setAttachments(prev => [...prev, attachment])
+                    onImageInsert?.(safeFileUrl(attachment.filepath))
+                }
             } catch (err) { 
-                logger.error('Failed to upload:', err) 
+                logger.error('Failed to upload image:', err instanceof Error ? err.message : String(err))
                 showToast(`图片 ${file.name} 上传失败`, 'error')
             }
         }
 
         setLoading(false)
-        loadAttachments()
+        if (entryId) loadAttachments()
         if (compressed.some(c => !c.error && c.result)) {
             showToast('图片上传成功', 'success')
         }
@@ -104,8 +113,8 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
         e.stopPropagation()
         setIsDragging(false)
 
-        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
-        if (files.length && entryId) {
+        const files = Array.from(e.dataTransfer.files)
+        if (files.length && (entryId || ensureEntryId)) {
             const dt = new DataTransfer()
             files.forEach(f => dt.items.add(f))
             if (fileInputRef.current) {
@@ -132,7 +141,7 @@ export default function ImageGallery({ entryId, onImageInsert }: ImageGalleryPro
         setIsDragging(false)
     }
 
-    if (!entryId) {
+    if (!entryId && !ensureEntryId) {
         return (
             <div style={{ padding: 'var(--space-lg)' }}>
                 <p className="text-muted text-sm">请先保存日记后再添加图片</p>
