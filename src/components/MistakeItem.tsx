@@ -5,6 +5,7 @@ import { isDueForReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ClickableImage from './ClickableImage'
 import type { PreviewImage } from './ImagePreviewModal'
 
 interface MistakeItemProps {
@@ -79,13 +80,14 @@ export function MistakeItem({
                         const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
                         const alt = `错题附图 ${idx + 1}`
                         return (
-                            <button
+                            <ClickableImage
                                 key={idx}
-                                type="button"
-                                onClick={() => onPreviewImage({ src: imageUrl, alt })}
-                                aria-label={`放大查看${alt}`}
+                                src={imageUrl}
+                                alt={alt}
+                                onPreview={onPreviewImage}
+                                ariaLabel={`放大查看${alt}`}
                                 title={`放大查看${alt}`}
-                                style={{
+                                buttonStyle={{
                                     padding: 0,
                                     border: 'none',
                                     background: 'transparent',
@@ -93,15 +95,8 @@ export function MistakeItem({
                                     display: 'block',
                                     maxWidth: '100%',
                                 }}
-                            >
-                                <img
-                                    src={imageUrl}
-                                    alt={alt}
-                                    loading="lazy"
-                                    decoding="async"
-                                    style={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                                />
-                            </button>
+                                imageStyle={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                            />
                         )
                     })}
                 </div>

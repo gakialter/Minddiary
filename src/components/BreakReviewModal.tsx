@@ -7,6 +7,7 @@ import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface BreakReviewModalProps {
@@ -156,28 +157,22 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                             const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
                                             const alt = `错题复习图片 ${idx + 1}`
                                             return (
-                                                <button
+                                                <ClickableImage
                                                     key={idx}
-                                                    type="button"
-                                                    onClick={() => setPreviewImage({ src: imageUrl, alt })}
-                                                    aria-label={`放大查看${alt}`}
+                                                    src={imageUrl}
+                                                    alt={alt}
+                                                    onPreview={setPreviewImage}
+                                                    ariaLabel={`放大查看${alt}`}
                                                     title={`放大查看${alt}`}
-                                                    style={{
+                                                    buttonStyle={{
                                                         padding: 0,
                                                         border: 'none',
                                                         background: 'transparent',
                                                         cursor: 'zoom-in',
                                                         maxWidth: '100%',
                                                     }}
-                                                >
-                                                    <img
-                                                        src={imageUrl}
-                                                        alt={alt}
-                                                        loading="lazy"
-                                                        decoding="async"
-                                                        style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                                                    />
-                                                </button>
+                                                    imageStyle={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                                                />
                                             )
                                         })}
                                     </div>

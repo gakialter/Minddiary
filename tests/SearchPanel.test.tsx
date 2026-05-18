@@ -94,18 +94,33 @@ describe('SearchPanel diary results', () => {
       makeEntry({ id: 4, date: '2026-05-15' }),
     ])
 
-    render(<SearchPanel />)
+    const onSelectEntry = vi.fn()
+    render(<SearchPanel onSelectEntry={onSelectEntry} />)
 
     const result = await screen.findByTestId('search-result-4')
     fireEvent.click(within(result).getByRole('button', { name: /放大查看日记图片 diary\.png/ }))
 
     const dialog = await screen.findByRole('dialog', { name: '图片预览' })
     expect(within(dialog).getByAltText('diary.png')).toHaveAttribute('src', 'local://attachments/4_1779000000000.png')
+    expect(onSelectEntry).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '关闭图片预览' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
     })
+  })
+
+  it('selects a diary entry when the search result card is clicked', async () => {
+    mocks.entriesGetAll.mockResolvedValue([
+      makeEntry({ id: 4, date: '2026-05-15', title: '有图片的日记' }),
+    ])
+
+    const onSelectEntry = vi.fn()
+    render(<SearchPanel onSelectEntry={onSelectEntry} />)
+
+    fireEvent.click(await screen.findByTestId('search-result-4'))
+
+    expect(onSelectEntry).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }))
   })
 
   it('does not delete a diary result when confirmation is cancelled', async () => {

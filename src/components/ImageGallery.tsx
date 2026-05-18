@@ -6,6 +6,7 @@ import { logger } from '../utils/logger'
 import { Image as ImageIcon, Camera } from 'lucide-react'
 import type { Attachment } from '../types'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface ImageGalleryProps {
@@ -208,12 +209,13 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                             border: '1px solid var(--border-light)',
                             background: 'var(--bg-tertiary)'
                         }}>
-                            <button
-                                type="button"
-                                onClick={() => setPreview({ src: safeFileUrl(att.filepath), alt: att.filename })}
-                                aria-label={`放大查看日记图片 ${att.filename}`}
+                            <ClickableImage
+                                src={safeFileUrl(att.filepath)}
+                                alt={att.filename}
+                                onPreview={setPreview}
+                                ariaLabel={`放大查看日记图片 ${att.filename}`}
                                 title={`放大查看 ${att.filename}`}
-                                style={{
+                                buttonStyle={{
                                     width: '100%',
                                     height: '100%',
                                     padding: 0,
@@ -222,17 +224,10 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                                     cursor: 'zoom-in',
                                     display: 'block',
                                 }}
-                            >
-                                <img
-                                    src={safeFileUrl(att.filepath)}
-                                    alt={att.filename}
-                                    loading="lazy"
-                                    decoding="async"
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
-                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                    className="gallery-img"
-                                />
-                            </button>
+                                imageStyle={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
+                                onImageError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                imageClassName="gallery-img"
+                            />
                             <div className="gallery-overlay flex items-start justify-end" style={{
                                 position: 'absolute', inset: 0, padding: 'var(--space-xs)',
                                 background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%)',

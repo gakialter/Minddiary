@@ -5,6 +5,7 @@ import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
 import { Search, FileText, Trash2 } from 'lucide-react'
+import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import { showToast } from './Toast'
 import { isBlankDiaryEntry } from '../utils/diaryEntry'
@@ -336,31 +337,23 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
                 {entry.previewImages.length > 0 && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
                     {entry.previewImages.map((image, index) => (
-                      <button
+                      <ClickableImage
                         key={`${image.src}-${index}`}
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setPreviewImage(image)
-                        }}
-                        aria-label={`放大查看日记图片 ${image.alt}`}
+                        src={image.src}
+                        alt={image.alt}
+                        onPreview={setPreviewImage}
+                        stopPropagation
+                        ariaLabel={`放大查看日记图片 ${image.alt}`}
                         title={`放大查看 ${image.alt}`}
-                        style={{
+                        buttonStyle={{
                           padding: 0,
                           border: 'none',
                           background: 'transparent',
                           cursor: 'zoom-in',
                           display: 'block',
                         }}
-                      >
-                        <img
-                          src={image.src}
-                          alt={image.alt}
-                          loading="lazy"
-                          decoding="async"
-                          style={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
-                        />
-                      </button>
+                        imageStyle={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                      />
                     ))}
                   </div>
                 )}
