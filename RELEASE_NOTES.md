@@ -1,18 +1,18 @@
-# v1.9.0 - Focus Guard, Zen Focus, and Release Reliability
+# v1.9.1 - Image Preview and Diary Search Fixes
 
 ## Highlights
 
-- **Focus Guard**: Added the Windows focus whitelist guard, violation notifications, unsupported-platform guidance, and stronger active-window detection for focused study sessions.
-- **Zen Focus Mode**: Added a full-screen Pomodoro focus experience and exits it cleanly when a timer completes.
-- **AI Chat Continuity**: Preserved AI assistant conversation history across sidebar and navigation changes.
-- **Image Upload Reliability**: Hardened mistake-image upload, display, and local asset handling.
-- **Pomodoro Date Accuracy**: Unified local-date keys for Pomodoro totals and remaining dashboard/progress statistics lookups.
-- **Release Reliability**: Fixed Windows updater artifact naming so `latest.yml` references the uploaded installer asset exactly, and ensured the release workflow can read `RELEASE_NOTES.md`.
+- **Image Preview**: Diary attachments, search-result images, mistake-book images, mistake-edit images, and break-review images can now be clicked to open a larger preview.
+- **Mistake Editing Flow**: Re-editing a mistake now scrolls back to the edit form and focuses the question field, reducing manual scrolling.
+- **Blank Diary Search Cleanup**: Blank diary entries are filtered from search results, while non-empty entries with images or tags are preserved.
+- **Search Result Deletion**: Diary entries can be deleted directly from search results with a confirmation step to prevent accidental deletion.
 
-## Stability And Tests
+## Reliability
 
-- Stabilized Windows unit tests around timers, local assets, image workers, Focus Guard, and Pomodoro flows.
-- Expanded coverage for Focus Guard hooks, platform hints, image galleries, AI history persistence, date keys, and Pomodoro behavior.
+- Prevented transparent image-gallery overlays from blocking diary attachment thumbnail clicks.
+- Added modal behavior improvements such as Escape close, backdrop close, close-button event isolation, and body scroll locking.
+- Added request-race protection for enriched search results.
+- Preserved existing local-first attachment and mistake-image storage paths.
 
 ## Validation
 
@@ -21,4 +21,3 @@
 - `npm.cmd run build`
 - `npm.cmd run test:e2e`
 - `git diff --check`
-- GitHub CI: `test`, `build-verification (windows-latest)`, `build-verification (macos-14)`
