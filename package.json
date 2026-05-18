@@ -83,11 +83,15 @@
             "icon": "build/icon.png"
         },
         "nsis": {
+            "artifactName": "${productName}-Setup-${version}.${ext}",
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
             "shortcutName": "MindDiary"
+        },
+        "portable": {
+            "artifactName": "${productName}-Portable-${version}.${ext}"
         },
         "mac": {
             "target": [
