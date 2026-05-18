@@ -21,11 +21,14 @@ export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalP
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
+    const previousOverflow = document.body.style.overflow
 
+    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', handleKeyDown)
     closeButtonRef.current?.focus()
 
     return () => {
+      document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
       previouslyFocused?.focus()
     }
@@ -56,7 +59,10 @@ export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalP
         type="button"
         aria-label="关闭图片预览"
         title="关闭图片预览"
-        onClick={onClose}
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+        }}
         style={{
           position: 'fixed',
           top: 'var(--space-md)',

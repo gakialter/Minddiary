@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { formatShortDate } from '../utils/helpers'
 import { logger } from '../utils/logger'
@@ -6,6 +6,7 @@ import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
 import { Search, FileText, Trash2 } from 'lucide-react'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
+import { showToast } from './Toast'
 import { isBlankDiaryEntry } from '../utils/diaryEntry'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import type { Attachment, DiaryEntry, Tag } from '../types'
@@ -27,6 +28,12 @@ type SearchResultEntry = DiaryEntry & {
 
 function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   const diary = useDiary()
+  const getEntries = diary.entries.getAll
+  const searchEntries = diary.entries.search
+  const deleteEntry = diary.entries.delete
+  const getTags = diary.tags.getAll
+  const getEntryTags = diary.tags.getEntryTags
+  const getEntryAttachments = diary.attachments.getByEntry
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResultEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -38,37 +45,33 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   })
   const [tags, setTags] = useState<Tag[]>([])
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
+  const searchRequestIdRef = useRef(0)
 
-  useEffect(() => {
-    loadTags()
-    // Load recent entries on mount
-    loadRecent()
-  }, [])
-
-  const loadTags = async () => {
+  const loadTags = useCallback(async () => {
     try {
-      const data = await diary.tags.getAll()
+      const data = await getTags()
       setTags(data || [])
     } catch (error) {
       logger.error('Failed to load tags:', error)
     }
-  }
+  }, [getTags])
 
   const enrichResults = useCallback(async (entries: DiaryEntry[]): Promise<SearchResultEntry[]> => {
+    // TODO: replace per-entry tag/attachment IPC calls with batch APIs when the data layer exposes them.
     const enriched = await Promise.all(entries.map(async entry => {
       let entryTagIds = Array.isArray(entry.tags) ? entry.tags : []
       let attachments: Attachment[] = []
 
       if (entry.id) {
         try {
-          const entryTags = await diary.tags.getEntryTags(entry.id)
+          const entryTags = await getEntryTags(entry.id)
           entryTagIds = entryTags.map(tag => tag.id)
         } catch (error) {
           logger.error('Failed to load entry tags for search result:', error)
         }
 
         try {
-          attachments = await diary.attachments.getByEntry(entry.id)
+          attachments = await getEntryAttachments(entry.id)
         } catch (error) {
           logger.error('Failed to load entry attachments for search result:', error)
         }
@@ -95,50 +98,68 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
       ...entry,
       images: entry.previewImages.map(image => image.src),
     }))
-  }, [diary.attachments, diary.tags])
+  }, [getEntryAttachments, getEntryTags])
 
-  const loadRecent = async () => {
+  const loadRecent = useCallback(async () => {
+    const requestId = ++searchRequestIdRef.current
     try {
       setLoading(true)
-      const data = await diary.entries.getAll({ limit: 50 })
-      setResults(await enrichResults(data || []))
+      const data = await getEntries({ limit: 50 })
+      const enriched = await enrichResults(data || [])
+      if (requestId === searchRequestIdRef.current) {
+        setResults(enriched)
+      }
     } catch (error) {
       logger.error('Failed to load entries:', error)
     } finally {
-      setLoading(false)
+      if (requestId === searchRequestIdRef.current) {
+        setLoading(false)
+      }
     }
-  }
+  }, [enrichResults, getEntries])
+
+  useEffect(() => {
+    void loadTags()
+    // Load recent entries on mount
+    void loadRecent()
+  }, [loadRecent, loadTags])
 
   const handleSearch = useCallback(async () => {
     if (!query.trim() && !filters.mood && !filters.startDate && !filters.endDate && !filters.tagId) {
-      loadRecent()
+      await loadRecent()
       return
     }
 
-    setLoading(true)
+    const requestId = ++searchRequestIdRef.current
     try {
+      setLoading(true)
       let data: DiaryEntry[]
       if (query.trim()) {
-        data = await diary.entries.search(query)
+        data = await searchEntries(query)
       } else {
-        data = await diary.entries.getAll({
+        data = await getEntries({
           ...filters,
           mood: filters.mood ? filters.mood as import('../types').MoodId : undefined,
           tagId: filters.tagId ?? undefined,
         })
       }
-      setResults(await enrichResults(data || []))
+      const enriched = await enrichResults(data || [])
+      if (requestId === searchRequestIdRef.current) {
+        setResults(enriched)
+      }
     } catch (error) {
       logger.error('Search failed:', error)
     } finally {
-      setLoading(false)
+      if (requestId === searchRequestIdRef.current) {
+        setLoading(false)
+      }
     }
-  }, [query, filters, diary, enrichResults])
+  }, [query, filters, enrichResults, getEntries, loadRecent, searchEntries])
 
   const clearFilters = () => {
     setQuery('')
     setFilters({ mood: '', startDate: '', endDate: '', tagId: null })
-    loadRecent()
+    void loadRecent()
   }
 
   const handleEntryClick = (entry: DiaryEntry) => {
@@ -149,11 +170,15 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
 
   const handleDeleteEntry = async (event: React.MouseEvent<HTMLButtonElement>, entry: SearchResultEntry) => {
     event.stopPropagation()
+    if (!window.confirm('确认删除这篇日记吗？此操作不可恢复。')) return
+
     try {
-      await diary.entries.delete(entry.id)
+      await deleteEntry(entry.id)
       setResults(current => current.filter(item => item.id !== entry.id))
+      showToast('日记已删除', 'success')
     } catch (error) {
       logger.error('Failed to delete entry from search result:', error)
+      showToast('删除日记失败', 'error')
     }
   }
 
