@@ -5,6 +5,7 @@ import { isDueForReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import type { PreviewImage } from './ImagePreviewModal'
 
 interface MistakeItemProps {
     mistake: Mistake
@@ -13,6 +14,7 @@ interface MistakeItemProps {
     handleEdit: (m: Mistake) => void
     handleDelete: (id: number) => void
     handleReview: (m: Mistake, quality: number) => void
+    onPreviewImage: (image: PreviewImage) => void
 }
 
 export function MistakeItem({ 
@@ -21,7 +23,8 @@ export function MistakeItem({
     toggleMastered, 
     handleEdit, 
     handleDelete, 
-    handleReview 
+    handleReview,
+    onPreviewImage,
 }: MistakeItemProps) {
     return (
         <div className="card" style={{
@@ -72,16 +75,35 @@ export function MistakeItem({
             </div>
             {m.image_path && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
-                    {parseImagePaths(m.image_path).map((imgPath, idx) => (
-                        <img
-                            key={idx}
-                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
-                            alt={`错题附图 ${idx + 1}`}
-                            loading="lazy"
-                            decoding="async"
-                            style={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                        />
-                    ))}
+                    {parseImagePaths(m.image_path).map((imgPath, idx) => {
+                        const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
+                        const alt = `错题附图 ${idx + 1}`
+                        return (
+                            <button
+                                key={idx}
+                                type="button"
+                                onClick={() => onPreviewImage({ src: imageUrl, alt })}
+                                aria-label={`放大查看${alt}`}
+                                title={`放大查看${alt}`}
+                                style={{
+                                    padding: 0,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: 'zoom-in',
+                                    display: 'block',
+                                    maxWidth: '100%',
+                                }}
+                            >
+                                <img
+                                    src={imageUrl}
+                                    alt={alt}
+                                    loading="lazy"
+                                    decoding="async"
+                                    style={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                                />
+                            </button>
+                        )
+                    })}
                 </div>
             )}
             {m.answer && (

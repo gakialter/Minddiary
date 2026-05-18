@@ -7,6 +7,7 @@ import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface BreakReviewModalProps {
     onClose: () => void
@@ -21,6 +22,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
     const [phase, setPhase] = useState<ReviewPhase>('question')
     const [reviewDone, setReviewDone] = useState(false)
     const [noMistakes, setNoMistakes] = useState(false)
+    const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
 
     const loadRandomMistake = useCallback(async () => {
         setLoading(true)
@@ -150,16 +152,34 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                     : [mistake.image_path!]
                                 return imgs.length > 0 ? (
                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 'var(--space-md)' }}>
-                                        {imgs.map((imgPath: string, idx: number) => (
-                                            <img
-                                                key={idx}
-                                                src={toLocalAssetUrl(imgPath, 'mistake_images')}
-                                                alt={`图片 ${idx + 1}`}
-                                                loading="lazy"
-                                                decoding="async"
-                                                style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-                                            />
-                                        ))}
+                                        {imgs.map((imgPath: string, idx: number) => {
+                                            const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
+                                            const alt = `错题复习图片 ${idx + 1}`
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={() => setPreviewImage({ src: imageUrl, alt })}
+                                                    aria-label={`放大查看${alt}`}
+                                                    title={`放大查看${alt}`}
+                                                    style={{
+                                                        padding: 0,
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        cursor: 'zoom-in',
+                                                        maxWidth: '100%',
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={imageUrl}
+                                                        alt={alt}
+                                                        loading="lazy"
+                                                        decoding="async"
+                                                        style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                                                    />
+                                                </button>
+                                            )
+                                        })}
                                     </div>
                                 ) : null
                             })()}
@@ -239,6 +259,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                     </div>
                 )}
             </div>
+            <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
         </div>
     )
 }
