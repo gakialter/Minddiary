@@ -8,6 +8,7 @@ import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface MistakeFilter {
@@ -354,30 +355,22 @@ export default function MistakeBook() {
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--space-xs)' }}>
                                 {form.image_paths.map((imgPath, idx) => (
                                     <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
-                                                setPreviewImage({ src: imageUrl, alt: `错题编辑区图片 ${idx + 1}` })
-                                            }}
-                                            aria-label={`放大查看错题编辑区图片 ${idx + 1}`}
+                                        <ClickableImage
+                                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
+                                            alt={`图片 ${idx + 1}`}
+                                            // Preview alt intentionally differs from thumbnail alt to preserve pre-refactor behavior.
+                                            onPreview={({ src }) => setPreviewImage({ src, alt: `错题编辑区图片 ${idx + 1}` })}
+                                            ariaLabel={`放大查看错题编辑区图片 ${idx + 1}`}
                                             title={`放大查看图片 ${idx + 1}`}
-                                            style={{
+                                            buttonStyle={{
                                                 padding: 0,
                                                 border: 'none',
                                                 background: 'transparent',
                                                 cursor: 'zoom-in',
                                                 display: 'block',
                                             }}
-                                        >
-                                            <img
-                                                src={toLocalAssetUrl(imgPath, 'mistake_images')}
-                                                alt={`图片 ${idx + 1}`}
-                                                loading="lazy"
-                                                decoding="async"
-                                                style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
-                                            />
-                                        </button>
+                                            imageStyle={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                                        />
                                         <button
                                             type="button"
                                             onClick={() => setForm(f => ({ ...f, image_paths: f.image_paths.filter((_, i) => i !== idx) }))}
