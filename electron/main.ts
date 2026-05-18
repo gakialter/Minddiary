@@ -291,6 +291,7 @@ ipcMain.handle('tags:update', (_: unknown, id: number, tag: Partial<Tag>) => db.
 ipcMain.handle('tags:delete', (_: unknown, id: number) => db.deleteTag(id));
 ipcMain.handle('tags:setEntryTags', (_: unknown, entryId: number, tagIds: number[]) => db.setEntryTags(entryId, tagIds));
 ipcMain.handle('tags:getEntryTags', (_: unknown, entryId: number) => db.getEntryTags(entryId));
+ipcMain.handle('tags:getEntryTagsBatch', (_: unknown, entryIds: number[]) => db.getEntryTagsBatch(entryIds));
 
 // ==================== Settings ====================
 
@@ -575,6 +576,7 @@ ipcMain.handle('attachments:save', (_: unknown, entryId: number, fileData: Attac
     return fileManager.saveAttachment(entryId, fileData);
 });
 ipcMain.handle('attachments:getByEntry', (_: unknown, entryId: number) => db.getAttachmentsByEntry(entryId));
+ipcMain.handle('attachments:getByEntries', (_: unknown, entryIds: number[]) => db.getAttachmentsByEntries(entryIds));
 ipcMain.handle('attachments:delete', (_: unknown, id: number) => fileManager.deleteAttachment(id));
 ipcMain.handle('attachments:getPath', (_: unknown, filepath: string) => fileManager.getAttachmentPath(filepath));
 

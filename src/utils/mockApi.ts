@@ -42,6 +42,7 @@ const mockApi: ElectronAPI = {
         delete: async () => {},
         setEntryTags: async () => {},
         getEntryTags: async () => [],
+        getEntryTagsBatch: async () => ({}),
     },
     settings: {
         getAll: async () => ({ aiApiKeyMasked: null, aiApiKeyPresent: false }),
@@ -53,6 +54,7 @@ const mockApi: ElectronAPI = {
     attachments: {
         save: async () => ({ id: 0, entry_id: 0, filename: '', filepath: '', mimetype: '', created_at: '' }),
         getByEntry: async () => [],
+        getByEntries: async () => ({}),
         delete: async () => {},
         getPath: async () => '',
     },

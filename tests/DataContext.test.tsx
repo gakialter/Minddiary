@@ -52,6 +52,7 @@ const createWindowApiMock = (): ElectronAPI => ({
     delete: vi.fn().mockResolvedValue(undefined),
     setEntryTags: vi.fn().mockResolvedValue(undefined),
     getEntryTags: vi.fn().mockResolvedValue([]),
+    getEntryTagsBatch: vi.fn().mockResolvedValue({}),
   },
   settings: {
     getAll: vi.fn().mockResolvedValue({ aiApiKeyMasked: null, aiApiKeyPresent: false }),
@@ -63,6 +64,7 @@ const createWindowApiMock = (): ElectronAPI => ({
   attachments: {
     save: vi.fn().mockResolvedValue({ id: 1 }),
     getByEntry: vi.fn().mockResolvedValue([]),
+    getByEntries: vi.fn().mockResolvedValue({}),
     delete: vi.fn().mockResolvedValue(undefined),
     getPath: vi.fn().mockResolvedValue('mock-path.png'),
   },
@@ -228,6 +230,7 @@ describe('DataContext', () => {
       await result.current.tags.getAll()
       await result.current.tags.setEntryTags(7, [1, 2])
       await result.current.tags.getEntryTags(7)
+      await result.current.tags.getEntryTagsBatch([7, 8])
       await result.current.mistakes.getAll({ mastered: false })
       await result.current.subjects.getAll()
       await result.current.pomodoro.getStats('2026-05-05')
@@ -237,6 +240,7 @@ describe('DataContext', () => {
       await result.current.notification.show('title', 'body')
       await result.current.ai.chat([message])
       await result.current.attachments.getByEntry(7)
+      await result.current.attachments.getByEntries([7, 8])
       await result.current.attachments.save(7, attachmentData)
       await result.current.templates.getAll()
     })
@@ -251,6 +255,7 @@ describe('DataContext', () => {
     expect(window.api.tags.getAll).toHaveBeenCalledTimes(1)
     expect(window.api.tags.setEntryTags).toHaveBeenCalledWith(7, [1, 2])
     expect(window.api.tags.getEntryTags).toHaveBeenCalledWith(7)
+    expect(window.api.tags.getEntryTagsBatch).toHaveBeenCalledWith([7, 8])
     expect(window.api.mistakes.getAll).toHaveBeenCalledWith({ mastered: false })
     expect(window.api.subjects.getAll).toHaveBeenCalledTimes(1)
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
@@ -260,6 +265,7 @@ describe('DataContext', () => {
     expect(window.api.notification.show).toHaveBeenCalledWith('title', 'body')
     expect(window.api.ai.chat).toHaveBeenCalledWith([message])
     expect(window.api.attachments.getByEntry).toHaveBeenCalledWith(7)
+    expect(window.api.attachments.getByEntries).toHaveBeenCalledWith([7, 8])
     expect(window.api.attachments.save).toHaveBeenCalledWith(7, attachmentData)
     expect(window.api.templates.getAll).toHaveBeenCalledTimes(1)
   })
@@ -335,6 +341,47 @@ describe('DataContext', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
       expect.objectContaining({ id: 11, tags: [] }),
     ])
+  })
+
+  it('resolves entry tags by entry id in browser fallback batch', async () => {
+    mocks.isElectron = false
+    const tags = mockTags.slice(0, 2)
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([
+      { ...mockEntries[0]!, id: 11, tags: [tags[1]!.id] },
+      { ...mockEntries[1]!, id: 12, tags: [tags[0]!.id, tags[1]!.id] },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(tags))
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const tagsByEntry = await result.current.tags.getEntryTagsBatch([11, 12, 13, 11, 0, -2, 1.5])
+
+    expect(tagsByEntry).toEqual({
+      11: [tags[1]],
+      12: tags,
+      13: [],
+    })
+  })
+
+  it('returns empty attachment arrays by entry id in browser fallback batch', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.attachments.getByEntries([11, 12, 11, 0, -1, 2.5])).resolves.toEqual({
+      11: [],
+      12: [],
+    })
   })
 
   it('creates mistakes in browser fallback storage and toggles mastered state', async () => {

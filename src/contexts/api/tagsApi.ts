@@ -4,6 +4,12 @@ import type { Tag, DiaryEntry, SaveToLocalFn } from '../../types'
 import type { TagsContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
+const normalizeEntryIds = (entryIds: number[]): number[] => (
+    Array.from(new Set(
+        (Array.isArray(entryIds) ? entryIds : []).filter(entryId => Number.isInteger(entryId) && entryId > 0),
+    ))
+)
+
 export const createTagsApi = (
     tagsRef: MutableRefObject<Tag[]>,
     entriesRef: MutableRefObject<DiaryEntry[]>,
@@ -59,5 +65,21 @@ export const createTagsApi = (
         const entry = entriesRef.current.find(e => e.id === entryId)
         const tagIds = entry?.tags || []
         return tagsRef.current.filter(tag => tagIds.includes(tag.id))
+    },
+    getEntryTagsBatch: async (entryIds: number[]) => {
+        const validEntryIds = normalizeEntryIds(entryIds)
+        if (validEntryIds.length === 0) return {}
+        if (IS_ELECTRON) return window.api.tags.getEntryTagsBatch(validEntryIds)
+
+        const tagsById = new Map(tagsRef.current.map(tag => [tag.id, tag]))
+        const result: Record<number, Tag[]> = {}
+        for (const entryId of validEntryIds) {
+            const entry = entriesRef.current.find(item => item.id === entryId)
+            const tagIds = Array.isArray(entry?.tags) ? entry.tags : []
+            result[entryId] = tagIds
+                .map(tagId => tagsById.get(tagId))
+                .filter((tag): tag is Tag => Boolean(tag))
+        }
+        return result
     },
 })

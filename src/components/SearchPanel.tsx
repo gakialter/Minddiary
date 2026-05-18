@@ -27,14 +27,22 @@ type SearchResultEntry = DiaryEntry & {
   previewImages: PreviewImage[]
 }
 
+const normalizeEntryIds = (entries: DiaryEntry[]): number[] => (
+  Array.from(new Set(
+    entries
+      .map(entry => entry.id)
+      .filter(entryId => Number.isInteger(entryId) && entryId > 0),
+  ))
+)
+
 function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   const diary = useDiary()
   const getEntries = diary.entries.getAll
   const searchEntries = diary.entries.search
   const deleteEntry = diary.entries.delete
   const getTags = diary.tags.getAll
-  const getEntryTags = diary.tags.getEntryTags
-  const getEntryAttachments = diary.attachments.getByEntry
+  const getEntryTagsBatch = diary.tags.getEntryTagsBatch
+  const getEntryAttachmentsBatch = diary.attachments.getByEntries
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResultEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -58,25 +66,32 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   }, [getTags])
 
   const enrichResults = useCallback(async (entries: DiaryEntry[]): Promise<SearchResultEntry[]> => {
-    // TODO: replace per-entry tag/attachment IPC calls with batch APIs when the data layer exposes them.
-    const enriched = await Promise.all(entries.map(async entry => {
-      let entryTagIds = Array.isArray(entry.tags) ? entry.tags : []
-      let attachments: Attachment[] = []
+    const entryIds = normalizeEntryIds(entries)
+    let tagsByEntry: Record<number, Tag[]> = {}
+    let attachmentsByEntry: Record<number, Attachment[]> = {}
 
-      if (entry.id) {
-        try {
-          const entryTags = await getEntryTags(entry.id)
-          entryTagIds = entryTags.map(tag => tag.id)
-        } catch (error) {
-          logger.error('Failed to load entry tags for search result:', error)
-        }
+    if (entryIds.length > 0) {
+      const [tagResults, attachmentResults] = await Promise.all([
+        getEntryTagsBatch(entryIds).catch(error => {
+          logger.error('Failed to load entry tags batch for search results:', error)
+          return {}
+        }),
+        getEntryAttachmentsBatch(entryIds).catch(error => {
+          logger.error('Failed to load entry attachments batch for search results:', error)
+          return {}
+        }),
+      ])
+      tagsByEntry = tagResults
+      attachmentsByEntry = attachmentResults
+    }
 
-        try {
-          attachments = await getEntryAttachments(entry.id)
-        } catch (error) {
-          logger.error('Failed to load entry attachments for search result:', error)
-        }
-      }
+    const enriched = entries.map(entry => {
+      const hasValidId = Number.isInteger(entry.id) && entry.id > 0
+      const entryTags = hasValidId ? tagsByEntry[entry.id] ?? [] : []
+      const entryTagIds = hasValidId
+        ? entryTags.map(tag => tag.id)
+        : Array.isArray(entry.tags) ? entry.tags : []
+      const attachments = hasValidId ? attachmentsByEntry[entry.id] ?? [] : []
 
       const attachmentImages: PreviewImage[] = attachments.map((attachment, index) => ({
         src: toLocalAssetUrl(attachment.filepath, 'attachments'),
@@ -93,13 +108,13 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
         tags: entryTagIds,
         previewImages,
       }
-    }))
+    })
 
     return enriched.filter(entry => !isBlankDiaryEntry({
       ...entry,
       images: entry.previewImages.map(image => image.src),
     }))
-  }, [getEntryAttachments, getEntryTags])
+  }, [getEntryAttachmentsBatch, getEntryTagsBatch])
 
   const loadRecent = useCallback(async () => {
     const requestId = ++searchRequestIdRef.current
