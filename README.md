@@ -146,6 +146,18 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.9.0 — Focus Guard、Zen 专注与发布可靠性 (2026-05-18)</summary>
+
+- **Focus Guard**：新增 Windows 专注白名单守护、违规提醒、平台不支持提示，并优化活动窗口检测稳定性
+- **Zen 专注模式**：新增番茄钟全屏专注体验，并在计时完成时可靠退出 Zen 模式
+- **AI 对话连续性**：侧边栏和页面导航切换后保留 AI 助手对话历史
+- **图片上传可靠性**：加固错题图片上传、展示与本地资源路径处理
+- **本地日期统计**：统一 Pomodoro 今日/统计查询的本地日期键，修复跨时区日期残留
+- **发布阻塞修复**：固定 Windows installer artifact 命名，使 `latest.yml` 与 GitHub Release asset 名称一致；Release workflow 的 publish job 可读取 `RELEASE_NOTES.md`
+
+</details>
+
+<details>
 <summary>v1.8.10 — 稳定性与可访问性加固 (2026-05-15)</summary>
 
 - **Updater 状态缓存**：主进程持久化最新更新状态 (`lastUpdaterStatus`)，Settings 页挂载时通过 `updater:getStatus` 主动拉取，修复页面导航导致的进度丢失

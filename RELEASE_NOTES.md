@@ -1,16 +1,24 @@
-# v1.8.9 - Calendar Focus Markers & Inline Updater UX
+# v1.9.0 - Focus Guard, Zen Focus, and Release Reliability
 
 ## Highlights
 
-- **Calendar Focus Markers**: Pomodoro focus achievements now appear directly in calendar cells with three visual tiers (30m/60m/120m), using `color-mix` badges and dot indicators that coexist cleanly with diary mood icons.
-- **Inline Updater UX**: Update checks migrated from blocking system dialogs to a Push-based inline UI in Settings, with real-time download progress, speed display, and one-click restart install.
-- **Race Condition Prevention**: Calendar data loading uses `Promise.all` for batch queries with `isCancelled` closure guards to prevent stale async overwrite on fast month switching.
-- **Memory Leak Fix**: IPC `onStatusChange` now returns a proper `removeListener` cleanup function; React `useEffect` correctly unsubscribes on unmount.
-- **Timer Leak Fix**: "Not-available" auto-dismiss timer extracted to independent `useEffect` with `clearTimeout` on component teardown.
-- **TypeScript Fixes**: Resolved `DateMoodEntry` undefined type error and nullable object access in Calendar component.
+- **Focus Guard**: Added the Windows focus whitelist guard, violation notifications, unsupported-platform guidance, and stronger active-window detection for focused study sessions.
+- **Zen Focus Mode**: Added a full-screen Pomodoro focus experience and exits it cleanly when a timer completes.
+- **AI Chat Continuity**: Preserved AI assistant conversation history across sidebar and navigation changes.
+- **Image Upload Reliability**: Hardened mistake-image upload, display, and local asset handling.
+- **Pomodoro Date Accuracy**: Unified local-date keys for Pomodoro totals and remaining dashboard/progress statistics lookups.
+- **Release Reliability**: Fixed Windows updater artifact naming so `latest.yml` references the uploaded installer asset exactly, and ensured the release workflow can read `RELEASE_NOTES.md`.
+
+## Stability And Tests
+
+- Stabilized Windows unit tests around timers, local assets, image workers, Focus Guard, and Pomodoro flows.
+- Expanded coverage for Focus Guard hooks, platform hints, image galleries, AI history persistence, date keys, and Pomodoro behavior.
 
 ## Validation
 
 - `npm.cmd run typecheck`
 - `npm.cmd test -- --run`
 - `npm.cmd run build`
+- `npm.cmd run test:e2e`
+- `git diff --check`
+- GitHub CI: `test`, `build-verification (windows-latest)`, `build-verification (macos-14)`
