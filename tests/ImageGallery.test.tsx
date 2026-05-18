@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ImageGallery from '../src/components/ImageGallery'
 import type { Attachment } from '../src/types'
@@ -50,5 +50,20 @@ describe('ImageGallery diary attachments', () => {
       expect(image).toHaveAttribute('src', 'local://attachments/7_1779000000000.png')
     })
     expect(image.getAttribute('src')).not.toMatch(/^file:\/\//)
+  })
+
+  it('opens a full-size preview for diary images and closes it', async () => {
+    render(<ImageGallery entryId={7} />)
+
+    const previewButton = await screen.findByRole('button', { name: /放大查看日记图片 测试图片\.png/ })
+    fireEvent.click(previewButton)
+
+    const dialog = await screen.findByRole('dialog', { name: '图片预览' })
+    expect(within(dialog).getByAltText('测试图片.png')).toHaveAttribute('src', 'local://attachments/7_1779000000000.png')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
+    })
   })
 })

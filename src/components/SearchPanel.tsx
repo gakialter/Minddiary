@@ -4,8 +4,11 @@ import { formatShortDate } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
-import { Search, FileText } from 'lucide-react'
-import type { DiaryEntry, Tag } from '../types'
+import { Search, FileText, Trash2 } from 'lucide-react'
+import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
+import { isBlankDiaryEntry } from '../utils/diaryEntry'
+import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import type { Attachment, DiaryEntry, Tag } from '../types'
 
 interface SearchPanelProps {
   onSelectEntry?: (entry: DiaryEntry) => void
@@ -18,10 +21,14 @@ interface SearchFilters {
   tagId: number | null
 }
 
+type SearchResultEntry = DiaryEntry & {
+  previewImages: PreviewImage[]
+}
+
 function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   const diary = useDiary()
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<DiaryEntry[]>([])
+  const [results, setResults] = useState<SearchResultEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [filters, setFilters] = useState<SearchFilters>({
     mood: '',
@@ -30,6 +37,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
     tagId: null,
   })
   const [tags, setTags] = useState<Tag[]>([])
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
 
   useEffect(() => {
     loadTags()
@@ -46,11 +54,54 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
     }
   }
 
+  const enrichResults = useCallback(async (entries: DiaryEntry[]): Promise<SearchResultEntry[]> => {
+    const enriched = await Promise.all(entries.map(async entry => {
+      let entryTagIds = Array.isArray(entry.tags) ? entry.tags : []
+      let attachments: Attachment[] = []
+
+      if (entry.id) {
+        try {
+          const entryTags = await diary.tags.getEntryTags(entry.id)
+          entryTagIds = entryTags.map(tag => tag.id)
+        } catch (error) {
+          logger.error('Failed to load entry tags for search result:', error)
+        }
+
+        try {
+          attachments = await diary.attachments.getByEntry(entry.id)
+        } catch (error) {
+          logger.error('Failed to load entry attachments for search result:', error)
+        }
+      }
+
+      const attachmentImages: PreviewImage[] = attachments.map((attachment, index) => ({
+        src: toLocalAssetUrl(attachment.filepath, 'attachments'),
+        alt: attachment.filename || `日记图片 ${index + 1}`,
+      }))
+      const legacyImages: PreviewImage[] = (entry.images || []).map((src, index) => ({
+        src,
+        alt: `日记图片 ${index + 1}`,
+      }))
+      const previewImages = [...attachmentImages, ...legacyImages]
+
+      return {
+        ...entry,
+        tags: entryTagIds,
+        previewImages,
+      }
+    }))
+
+    return enriched.filter(entry => !isBlankDiaryEntry({
+      ...entry,
+      images: entry.previewImages.map(image => image.src),
+    }))
+  }, [diary.attachments, diary.tags])
+
   const loadRecent = async () => {
     try {
       setLoading(true)
       const data = await diary.entries.getAll({ limit: 50 })
-      setResults(data || [])
+      setResults(await enrichResults(data || []))
     } catch (error) {
       logger.error('Failed to load entries:', error)
     } finally {
@@ -59,7 +110,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   }
 
   const handleSearch = useCallback(async () => {
-    if (!query.trim() && !filters.mood && !filters.startDate && !filters.tagId) {
+    if (!query.trim() && !filters.mood && !filters.startDate && !filters.endDate && !filters.tagId) {
       loadRecent()
       return
     }
@@ -76,13 +127,13 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
           tagId: filters.tagId ?? undefined,
         })
       }
-      setResults(data || [])
+      setResults(await enrichResults(data || []))
     } catch (error) {
       logger.error('Search failed:', error)
     } finally {
       setLoading(false)
     }
-  }, [query, filters, diary])
+  }, [query, filters, diary, enrichResults])
 
   const clearFilters = () => {
     setQuery('')
@@ -93,6 +144,16 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   const handleEntryClick = (entry: DiaryEntry) => {
     if (onSelectEntry) {
       onSelectEntry(entry)
+    }
+  }
+
+  const handleDeleteEntry = async (event: React.MouseEvent<HTMLButtonElement>, entry: SearchResultEntry) => {
+    event.stopPropagation()
+    try {
+      await diary.entries.delete(entry.id)
+      setResults(current => current.filter(item => item.id !== entry.id))
+    } catch (error) {
+      logger.error('Failed to delete entry from search result:', error)
     }
   }
 
@@ -212,6 +273,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
             {results.map(entry => (
               <div
                 key={entry.id}
+                data-testid={`search-result-${entry.id}`}
                 className="card"
                 onClick={() => handleEntryClick(entry)}
                 style={{
@@ -224,7 +286,21 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
               >
                 <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
                   <div className="font-medium">{entry.title || '无标题'}</div>
-                  <div className="text-sm text-muted">{formatShortDate(entry.date)}</div>
+                  <div className="flex items-center gap-sm">
+                    <div className="text-sm text-muted">{formatShortDate(entry.date)}</div>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={(event) => handleDeleteEntry(event, entry)}
+                      onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
+                      onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
+                      aria-label={`删除日记 ${entry.title || formatShortDate(entry.date)}`}
+                      title="删除日记"
+                      style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Trash2 size={13} aria-hidden />
+                    </button>
+                  </div>
                 </div>
                 <div className="text-sm text-secondary" style={{
                   marginBottom: 4, overflow: 'hidden',
@@ -232,6 +308,37 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
                 }}>
                   {(entry as DiaryEntry & { content_snippet?: string }).content_snippet || entry.content?.substring(0, 200)}
                 </div>
+                {entry.previewImages.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
+                    {entry.previewImages.map((image, index) => (
+                      <button
+                        key={`${image.src}-${index}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setPreviewImage(image)
+                        }}
+                        aria-label={`放大查看日记图片 ${image.alt}`}
+                        title={`放大查看 ${image.alt}`}
+                        style={{
+                          padding: 0,
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'zoom-in',
+                          display: 'block',
+                        }}
+                      >
+                        <img
+                          src={image.src}
+                          alt={image.alt}
+                          loading="lazy"
+                          decoding="async"
+                          style={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-sm">
                   {entry.mood && <MoodIcon mood={entry.mood} size={20} />}
                   <span className="text-xs text-muted">{entry.word_count || 0} 字</span>
@@ -241,6 +348,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
           </div>
         )}
       </div>
+      <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
     </div>
   )
 }

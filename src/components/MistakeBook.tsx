@@ -8,6 +8,7 @@ import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
+import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface MistakeFilter {
     subject_id: string
@@ -50,9 +51,13 @@ export default function MistakeBook() {
     const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
     const [page, setPage] = useState(1)
     const [isDragging, setIsDragging] = useState(false)
+    const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
+    const [editScrollRequest, setEditScrollRequest] = useState(0)
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const formRef = useRef<HTMLDivElement>(null)
+    const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
         loadSubjects()
@@ -60,6 +65,15 @@ export default function MistakeBook() {
     }, [])
 
     useEffect(() => { loadMistakes() }, [filter, page])
+
+    useEffect(() => {
+        if (!showForm || !editingId || editScrollRequest === 0) return
+        const frameId = requestAnimationFrame(() => {
+            formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            questionTextareaRef.current?.focus({ preventScroll: true })
+        })
+        return () => cancelAnimationFrame(frameId)
+    }, [showForm, editingId, editScrollRequest])
 
     // Debounced search: update filter.search 300ms after user stops typing
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -134,6 +148,7 @@ export default function MistakeBook() {
             image_paths: parseImagePaths(m.image_path)
         })
         setShowForm(true)
+        setEditScrollRequest(request => request + 1)
     }
 
     const handleImageFile = async (file: File) => {
@@ -298,6 +313,7 @@ export default function MistakeBook() {
             {/* Add/Edit Form */}
             {showForm && (
                 <div className="card" 
+                     ref={formRef}
                      style={{ 
                          padding: 'var(--space-lg)', marginBottom: 'var(--space-md)',
                          border: isDragging ? '2px dashed var(--accent)' : '1px solid var(--border)' 
@@ -318,6 +334,7 @@ export default function MistakeBook() {
                             {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                         <textarea
+                            ref={questionTextareaRef}
                             className="input" placeholder="问题 / 知识点" rows={3}
                             value={form.question} onChange={e => setForm({ ...form, question: e.target.value })}
                             style={{ resize: 'vertical' }}
@@ -337,14 +354,32 @@ export default function MistakeBook() {
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--space-xs)' }}>
                                 {form.image_paths.map((imgPath, idx) => (
                                     <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
-                                        <img
-                                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
-                                            alt={`图片 ${idx + 1}`}
-                                            loading="lazy"
-                                            decoding="async"
-                                            style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
-                                        />
                                         <button
+                                            type="button"
+                                            onClick={() => {
+                                                const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
+                                                setPreviewImage({ src: imageUrl, alt: `错题编辑区图片 ${idx + 1}` })
+                                            }}
+                                            aria-label={`放大查看错题编辑区图片 ${idx + 1}`}
+                                            title={`放大查看图片 ${idx + 1}`}
+                                            style={{
+                                                padding: 0,
+                                                border: 'none',
+                                                background: 'transparent',
+                                                cursor: 'zoom-in',
+                                                display: 'block',
+                                            }}
+                                        >
+                                            <img
+                                                src={toLocalAssetUrl(imgPath, 'mistake_images')}
+                                                alt={`图片 ${idx + 1}`}
+                                                loading="lazy"
+                                                decoding="async"
+                                                style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                                            />
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={() => setForm(f => ({ ...f, image_paths: f.image_paths.filter((_, i) => i !== idx) }))}
                                             style={{ position: 'absolute', top: -8, right: -8, background: 'var(--color-state-danger)', color: 'white', borderRadius: '50%', width: 22, height: 22, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                             title="删除此图片"
@@ -396,6 +431,7 @@ export default function MistakeBook() {
                         handleEdit={handleEdit}
                         handleDelete={handleDelete}
                         handleReview={handleReview}
+                        onPreviewImage={setPreviewImage}
                     />
                 ))}
                 {mistakes.length === 0 && (
@@ -426,6 +462,7 @@ export default function MistakeBook() {
                         disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页 ›</button>
                 </div>
             )}
+            <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
         </div>
     )
 }

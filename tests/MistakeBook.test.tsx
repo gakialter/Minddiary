@@ -64,6 +64,7 @@ describe('MistakeBook Component', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('renders the empty state when no mistakes exist', async () => {
@@ -188,6 +189,57 @@ describe('MistakeBook Component', () => {
       notes: '',
       image_path: 'mistake_images/测试图片.png',
     })
+  })
+
+  it('opens a full-size preview for mistake images and closes it', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      { ...mockMistakes[0], image_path: 'mistake_images/first.png' },
+      mockMistakes[1],
+    ])
+
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    const previewButton = await screen.findByRole('button', { name: /放大查看错题附图 1/ })
+    await act(async () => {
+      fireEvent.click(previewButton)
+    })
+
+    expect(screen.getByRole('dialog', { name: '图片预览' })).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '关闭图片预览' }))
+    })
+
+    expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
+  })
+
+  it('scrolls to the edit form and focuses the question field after editing a mistake', async () => {
+    const scrollIntoView = vi.fn()
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {})
+    Element.prototype.scrollIntoView = scrollIntoView
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    await act(async () => {
+      fireEvent.click(editButtons[0]!)
+    })
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    })
+    expect(focusSpy).toHaveBeenCalled()
+
+    focusSpy.mockRestore()
   })
 
   it('rejects non-image files without writing form image data', async () => {
