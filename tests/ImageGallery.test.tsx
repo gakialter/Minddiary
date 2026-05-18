@@ -66,4 +66,33 @@ describe('ImageGallery diary attachments', () => {
       expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
     })
   })
+
+  it('lets thumbnail clicks pass through the overlay while keeping delete clickable', async () => {
+    const { container } = render(<ImageGallery entryId={7} />)
+
+    await screen.findByRole('img')
+
+    const overlay = container.querySelector<HTMLElement>('.gallery-overlay')
+    expect(overlay).not.toBeNull()
+    expect(overlay).toHaveStyle('pointer-events: none')
+
+    const deleteButton = overlay?.querySelector<HTMLButtonElement>('button')
+    expect(deleteButton).not.toBeNull()
+    expect(deleteButton).toHaveStyle('pointer-events: auto')
+  })
+
+  it('deletes an attachment from the overlay without opening the preview', async () => {
+    const { container } = render(<ImageGallery entryId={7} />)
+
+    await screen.findByRole('img')
+
+    const deleteButton = container.querySelector<HTMLButtonElement>('.gallery-overlay button')
+    expect(deleteButton).not.toBeNull()
+    fireEvent.click(deleteButton!)
+
+    await waitFor(() => {
+      expect(mocks.deleteAttachment).toHaveBeenCalledWith(1)
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
 })

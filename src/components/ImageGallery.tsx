@@ -236,7 +236,8 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                             <div className="gallery-overlay flex items-start justify-end" style={{
                                 position: 'absolute', inset: 0, padding: 'var(--space-xs)',
                                 background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%)',
-                                opacity: 0, transition: 'opacity 0.2s'
+                                opacity: 0, transition: 'opacity 0.2s',
+                                pointerEvents: 'none'
                             }}>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleDelete(att.id) }}
@@ -244,7 +245,8 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                                         width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.6)',
                                         color: 'white', border: 'none', cursor: 'pointer', fontSize: 14,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        backdropFilter: 'blur(4px)'
+                                        backdropFilter: 'blur(4px)',
+                                        pointerEvents: 'auto'
                                     }}
                                     title="删除图片"
                                     aria-label="删除图片"
