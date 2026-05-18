@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { logger } from '../utils/logger'
+import { getLocalDateKey } from '../utils/dateKey'
 import { Rocket, Target, Pencil, Trash2, Library, PlusCircle, Sparkles } from 'lucide-react'
 import type { Subject, Mistake, PomodoroStat } from '../types'
 
@@ -39,7 +40,7 @@ export default function StudyProgress() {
         try {
             const [subjData, pStats, mistData] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
-                pomodoroAPI.getStats(new Date().toISOString().split('T')[0]!).catch(() => [] as PomodoroStat[]),
+                pomodoroAPI.getStats(getLocalDateKey()).catch(() => [] as PomodoroStat[]),
                 mistakesAPI.getAll({}).catch(() => ({ data: [] } as any))
             ])
             setSubjects((subjData || []) as Subject[])

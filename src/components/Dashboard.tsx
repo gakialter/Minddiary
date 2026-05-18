@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getTodayStr } from '../utils/helpers';
+import { getLocalDateKey } from '../utils/dateKey';
 import { useDiary } from '../contexts/DiaryContext';
 import { logger } from '../utils/logger';
 import { normalizeCountdownEvents } from '../utils/countdown';
@@ -56,13 +57,13 @@ export default function Dashboard() {
             // 7 Days Range (Trend)
             const weekAgo = new Date(today);
             weekAgo.setDate(today.getDate() - 6);
-            const startWeek = weekAgo.toISOString().split('T')[0]!;
-            const endWeek = today.toISOString().split('T')[0]!;
+            const startWeek = getLocalDateKey(weekAgo);
+            const endWeek = getLocalDateKey(today);
 
             // 90 Days Range (Heatmap)
             const threeMonthsAgo = new Date(today);
             threeMonthsAgo.setDate(today.getDate() - 89);
-            const startHeatmap = threeMonthsAgo.toISOString().split('T')[0]!;
+            const startHeatmap = getLocalDateKey(threeMonthsAgo);
 
             const [
                 pomodoroWeek,
@@ -100,7 +101,7 @@ export default function Dashboard() {
             for (let i = 0; i < 7; i++) {
                 const d = new Date(weekAgo);
                 d.setDate(weekAgo.getDate() + i);
-                const dStr = d.toISOString().split('T')[0]!;
+                const dStr = getLocalDateKey(d);
                 const dayLabel = d.toLocaleDateString('zh-CN', { weekday: 'short' });
 
                 const dayData = (pomodoroWeek as PomodoroRangeEntry[]).find(p => p.date === dStr);
@@ -118,7 +119,7 @@ export default function Dashboard() {
             for (let i = 0; i < 90; i++) {
                 const d = new Date(threeMonthsAgo);
                 d.setDate(threeMonthsAgo.getDate() + i);
-                const dStr = d.toISOString().split('T')[0]!;
+                const dStr = getLocalDateKey(d);
                 formattedHeatmap.push({
                     date: dStr,
                     hasEntry: hMap.has(dStr),
