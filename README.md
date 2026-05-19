@@ -146,6 +146,18 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.9.2 — 搜索性能、今日决策刷新与 UI 层级整理 (2026-05-19)</summary>
+
+- **图片预览重构**：抽取 ClickableImage 通用组件，统一日记、搜索、错题本、休息复习等图片入口。
+- **搜索性能**：SearchPanel 标签与附件 metadata 改为 batch 查询，避免 2N 次逐条请求。
+- **今日决策刷新**：错题复习完成后触发共享数据刷新，统一今日待复习错题数来源。
+- **番茄钟模式文案**：专注、短休、长休、自定义模式显示对应开始按钮文案。
+- **系统主题**：跟随系统模式正确响应 OS 深浅色变化。
+- **UI 层级**：Modal / Overlay / Toast / Focus 层级改为语义化 z-index token，降低未来遮挡冲突风险。
+
+</details>
+
+<details>
 <summary>v1.9.1 — 图片预览与搜索体验修复 (2026-05-18)</summary>
 
 - **图片点击放大**：日记附件、搜索结果图片、错题本图片、错题编辑区图片、休息复习弹窗图片均支持点击放大预览
