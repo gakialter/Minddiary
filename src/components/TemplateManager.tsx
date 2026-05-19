@@ -92,7 +92,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
+        position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
         background: 'var(--bg-overlay)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         animation: 'page-fade-in 0.2s ease forwards',

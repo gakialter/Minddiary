@@ -69,7 +69,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
 
     return (
         <div style={{
-            position: 'fixed', inset: 0, zIndex: 9000,
+            position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
             background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             animation: 'page-fade-in 0.2s ease-out'

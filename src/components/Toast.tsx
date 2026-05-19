@@ -45,7 +45,7 @@ export function ToastContainer() {
         <div style={{
             position: 'fixed', bottom: 24, right: 24,
             display: 'flex', flexDirection: 'column', gap: 8,
-            zIndex: 10000, pointerEvents: 'none',
+            zIndex: 'var(--z-toast)', pointerEvents: 'none',
         }}>
             {toasts.map(toast => (
                 <ToastItem key={toast.id} toast={toast} dismiss={dismiss} />

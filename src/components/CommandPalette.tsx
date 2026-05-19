@@ -77,7 +77,7 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             background: 'var(--bg-overlay)', backdropFilter: 'blur(8px)',
             display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-            paddingTop: '15vh', zIndex: 9999,
+            paddingTop: '15vh', zIndex: 'var(--z-modal)',
             animation: 'page-fade-in 0.2s cubic-bezier(0.2, 0, 0, 1)'
         }} onClick={onClose}>
             <div

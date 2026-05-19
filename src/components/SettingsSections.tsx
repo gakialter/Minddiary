@@ -691,7 +691,7 @@ export function SettingsAI({
                         {/* Dropdown: Model Picker */}
                         {showModelPicker && (
                           <div style={{
-                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 'var(--z-dropdown)',
                               marginTop: 8, background: 'var(--bg-secondary)',
                               border: '1px solid var(--border)', borderRadius: 'var(--radius)',
                               boxShadow: 'var(--shadow-lg)',

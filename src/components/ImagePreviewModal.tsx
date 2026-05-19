@@ -45,7 +45,7 @@ export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalP
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 10000,
+        zIndex: 'var(--z-image-preview)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -77,6 +77,7 @@ export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalP
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          // Local stacking inside the image preview overlay.
           zIndex: 1,
           backdropFilter: 'blur(4px)',
         }}
