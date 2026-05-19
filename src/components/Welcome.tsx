@@ -12,7 +12,7 @@ export default function Welcome({ onStart }: WelcomeProps) {
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
             background: 'var(--bg-primary)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000,
+            zIndex: 'var(--z-overlay)',
             animation: 'page-fade-in 0.8s cubic-bezier(0.2, 0, 0, 1)'
         }}>
             <div style={{

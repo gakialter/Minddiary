@@ -50,6 +50,16 @@
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
 
+  /* Z-index scale */
+  --z-base: 0;
+  --z-dropdown: 1000;
+  --z-floating: 2000;
+  --z-focus-notice: 7000;
+  --z-overlay: 8000;
+  --z-modal: 9000;
+  --z-image-preview: 10000;
+  --z-toast: 11000;
+
   /* Spacing */
   --space-xs: 4px;
   --space-sm: 8px;

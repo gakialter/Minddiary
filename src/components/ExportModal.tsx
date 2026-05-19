@@ -116,7 +116,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                 background: 'rgba(0,0,0,0.55)',
                 backdropFilter: 'blur(6px)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                zIndex: 2000,
+                zIndex: 'var(--z-modal)',
             }}
         >
             <div

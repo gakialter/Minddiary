@@ -309,7 +309,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           border: `1px solid ${mode.color}20`,
           background: 'var(--bg-secondary)',
           backdropFilter: 'blur(16px)',
-          zIndex: 100,
+          zIndex: 'var(--z-floating)',
           transition: isDragging ? 'none' : 'box-shadow 0.3s, border-color 0.3s',
           cursor: isDragging ? 'grabbing' : 'grab',
           boxShadow: isDragging ? '0 12px 24px rgba(0,0,0,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
