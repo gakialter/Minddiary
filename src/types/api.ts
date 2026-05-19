@@ -227,7 +227,7 @@ export interface EntriesContextAPI {
 export interface TagsContextAPI {
   getAll: () => Promise<Tag[]>
   create: (data: Partial<Tag>) => Promise<Tag>
-  update: (id: number, data: Partial<Tag>) => Promise<Partial<Tag>>
+  update: (id: number, data: Partial<Tag>) => Promise<Tag>
   delete: (id: number) => Promise<boolean>
   setEntryTags: (entryId: number, tagIds: number[]) => Promise<void>
   getEntryTags: (entryId: number) => Promise<Tag[]>

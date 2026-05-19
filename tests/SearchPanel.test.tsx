@@ -38,7 +38,7 @@ vi.mock('../src/components/Toast', () => ({
   showToast: mocks.showToast,
 }))
 
-const tag: Tag = { id: 1, name: '数学', color: '#0F766E' }
+const tag: Tag = { id: 1, name: '数学', color: '#0F766E', icon: '📘', variant: 'soft', pattern: 'dots' }
 
 const makeEntry = (overrides: Partial<DiaryEntry>): DiaryEntry => ({
   id: 1,
@@ -111,6 +111,18 @@ describe('SearchPanel diary results', () => {
     render(<SearchPanel />)
 
     expect(await screen.findByTestId('search-result-2')).toBeInTheDocument()
+  })
+
+  it('shows tag badges on tagged search results', async () => {
+    mocks.entriesGetAll.mockResolvedValue([
+      makeEntry({ id: 3, date: '2026-05-16', title: 'tagged result' }),
+    ])
+
+    render(<SearchPanel />)
+
+    const result = await screen.findByTestId('search-result-3')
+    expect(within(result).getByTestId('tag-badge-1')).toHaveTextContent('📘')
+    expect(within(result).getByTestId('tag-badge-1')).toHaveTextContent(tag.name)
   })
 
   it('filters blank diary entries while keeping text, tagged, and image entries', async () => {

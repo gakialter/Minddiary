@@ -332,7 +332,9 @@ describe('DataContext', () => {
     ])
 
     const entryTags = await result.current.tags.getEntryTags(11)
-    expect(entryTags).toEqual([tags[1]])
+    expect(entryTags).toEqual([
+      { ...tags[1], icon: '', variant: 'soft', pattern: 'none' },
+    ])
 
     await act(async () => {
       await result.current.tags.delete(tags[1]!.id)
@@ -340,6 +342,55 @@ describe('DataContext', () => {
 
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
       expect.objectContaining({ id: 11, tags: [] }),
+    ])
+  })
+
+  it('normalizes legacy tags and persists style fields in browser fallback storage', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([]))
+    localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify([
+      { id: 1, name: 'legacy', color: '#0F766E' },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.tags.getAll()).resolves.toEqual([
+      { id: 1, name: 'legacy', color: '#0F766E', icon: '', variant: 'soft', pattern: 'none' },
+    ])
+
+    let createdTag: Awaited<ReturnType<typeof result.current.tags.create>> | undefined
+    await act(async () => {
+      createdTag = await result.current.tags.create({
+        name: 'focus',
+        color: '#C65A3A',
+        icon: ' 🌿🌿🌿🌿🌿 ',
+        variant: 'solid',
+        pattern: 'stripes',
+      })
+    })
+
+    expect(createdTag).toEqual({
+      id: 2,
+      name: 'focus',
+      color: '#C65A3A',
+      icon: '🌿🌿🌿🌿',
+      variant: 'solid',
+      pattern: 'stripes',
+    })
+
+    await act(async () => {
+      await result.current.tags.update(2, { icon: '☆', pattern: 'grid' })
+    })
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TAGS) || '[]')).toEqual([
+      { id: 1, name: 'legacy', color: '#0F766E' },
+      { id: 2, name: 'focus', color: '#C65A3A', icon: '☆', variant: 'solid', pattern: 'grid' },
     ])
   })
 
@@ -363,8 +414,8 @@ describe('DataContext', () => {
     const tagsByEntry = await result.current.tags.getEntryTagsBatch([11, 12, 13, 11, 0, -2, 1.5])
 
     expect(tagsByEntry).toEqual({
-      11: [tags[1]],
-      12: tags,
+      11: [{ ...tags[1], icon: '', variant: 'soft', pattern: 'none' }],
+      12: tags.map(tag => ({ ...tag, icon: '', variant: 'soft', pattern: 'none' })),
       13: [],
     })
   })
