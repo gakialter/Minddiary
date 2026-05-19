@@ -351,6 +351,9 @@ function createTag(data: Partial<Tag>): Tag {
         variant: data.variant,
         pattern: data.pattern,
     });
+    if (!newTag.name) {
+        throw new Error('Tag name is required');
+    }
     const stmt = db.prepare('INSERT INTO tags (name, color, icon, variant, pattern) VALUES (?, ?, ?, ?, ?)');
     const result = stmt.run(newTag.name, newTag.color, newTag.icon, newTag.variant, newTag.pattern);
     return { ...newTag, id: Number(result.lastInsertRowid) };
@@ -358,19 +361,18 @@ function createTag(data: Partial<Tag>): Tag {
 
 function updateTag(id: number, data: Partial<Tag>): Tag {
     const existingTag = getTagById(id);
-    const updatedTag = mergeTagPatch(
-        existingTag ?? normalizeTag({
-            id,
-            name: data.name,
-            color: data.color,
-            icon: data.icon,
-            variant: data.variant,
-            pattern: data.pattern,
-        }),
-        data
-    );
-    db.prepare('UPDATE tags SET name=?, color=?, icon=?, variant=?, pattern=? WHERE id=?')
+    if (!existingTag) {
+        throw new Error('Tag not found');
+    }
+    const updatedTag = mergeTagPatch(existingTag, data);
+    if (!updatedTag.name) {
+        throw new Error('Tag name is required');
+    }
+    const result = db.prepare('UPDATE tags SET name=?, color=?, icon=?, variant=?, pattern=? WHERE id=?')
         .run(updatedTag.name, updatedTag.color, updatedTag.icon, updatedTag.variant, updatedTag.pattern, id);
+    if (result.changes === 0) {
+        throw new Error('Tag not found');
+    }
     return updatedTag;
 }
 

@@ -86,7 +86,10 @@ function TagManager() {
 
   const handleCreateTag = async () => {
     const name = newTag.name.trim()
-    if (!name) return
+    if (!name) {
+      showToast('标签名不能为空', 'error')
+      return
+    }
     try {
       await diary.tags.create({
         name,
@@ -120,7 +123,10 @@ function TagManager() {
 
   const handleSaveEdit = async (id: number) => {
     const name = editDraft.name.trim()
-    if (!name) return
+    if (!name) {
+      showToast('标签名不能为空', 'error')
+      return
+    }
     await handleUpdateTag(id, {
       name,
       color: editDraft.color,

@@ -323,7 +323,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
                 <button
                   key={tag.id}
                   type="button"
-                  className="text-xs"
+                  className="text-xs rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-pressed={selected}
                   onClick={() => handleTagToggle(tag.id)}
                   style={{

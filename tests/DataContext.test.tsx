@@ -394,6 +394,26 @@ describe('DataContext', () => {
     ])
   })
 
+  it('rejects invalid browser fallback tag create and update requests', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([]))
+    localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify([
+      { id: 1, name: 'legacy', color: '#0F766E' },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.tags.update(404, { name: 'missing' })).rejects.toThrow('Tag not found')
+    await expect(result.current.tags.create({ name: '   ' })).rejects.toThrow('Tag name is required')
+    await expect(result.current.tags.update(1, { name: '   ' })).rejects.toThrow('Tag name is required')
+  })
+
   it('resolves entry tags by entry id in browser fallback batch', async () => {
     mocks.isElectron = false
     const tags = mockTags.slice(0, 2)

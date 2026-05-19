@@ -39,6 +39,9 @@ export const createTagsApi = (
             variant: data.variant,
             pattern: data.pattern,
         })
+        if (!newTag.name) {
+            throw new Error('Tag name is required')
+        }
         tagsRef.current = [...tagsRef.current, newTag]
         saveToLocal(STORAGE_KEYS.TAGS, tagsRef.current)
         return newTag
@@ -47,21 +50,17 @@ export const createTagsApi = (
         if (IS_ELECTRON) {
             return normalizeTag(await window.api.tags.update(id, data))
         }
-        let updatedTag: Tag | undefined
-        tagsRef.current = tagsRef.current.map(t => {
-            if (t.id !== id) return t
-            updatedTag = mergeTagPatch(normalizeTag(t), data)
-            return updatedTag
-        })
+        const existingTag = tagsRef.current.find(t => t.id === id)
+        if (!existingTag) {
+            throw new Error('Tag not found')
+        }
+        const updatedTag = mergeTagPatch(normalizeTag(existingTag), data)
+        if (!updatedTag.name) {
+            throw new Error('Tag name is required')
+        }
+        tagsRef.current = tagsRef.current.map(t => t.id === id ? updatedTag : t)
         saveToLocal(STORAGE_KEYS.TAGS, tagsRef.current)
-        return updatedTag ?? normalizeTag({
-            id,
-            name: data.name,
-            color: data.color,
-            icon: data.icon,
-            variant: data.variant,
-            pattern: data.pattern,
-        })
+        return updatedTag
     },
     delete: async (id: number) => {
         if (IS_ELECTRON) {

@@ -72,6 +72,8 @@ describe('Editor tag selection', () => {
 
     expect(tagA).toHaveAttribute('aria-pressed', 'true')
     expect(tagB).toHaveAttribute('aria-pressed', 'false')
+    expect(tagA).toHaveClass('focus-visible:ring-2')
+    expect(tagA).toHaveClass('focus-visible:ring-accent')
     expect(screen.getByTestId('tag-badge-1')).toHaveTextContent('🌿')
     expect(screen.getByTestId('tag-badge-2')).toHaveTextContent('☆')
 

@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   attachmentRows: [] as Attachment[],
   tagById: null as Tag | null,
   allTags: [] as Tag[],
+  runChanges: 1,
 }))
 
 vi.mock('electron', () => ({
@@ -61,7 +62,7 @@ vi.mock('better-sqlite3', () => {
       prepare: vi.fn((sql: string) => ({
         run: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
-          return { lastInsertRowid: 1 }
+          return { lastInsertRowid: 1, changes: state.runChanges }
         }),
         get: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
@@ -107,6 +108,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.attachmentRows = []
   state.tagById = null
   state.allTags = []
+  state.runChanges = 1
 
   const databaseModulePath = '../electron/database'
   const imported = await import(databaseModulePath) as unknown as DatabaseModule | { default: DatabaseModule }
@@ -188,6 +190,30 @@ describe('database batch entry metadata APIs', () => {
 
     const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE tags SET'))
     expect(updateCall?.params).toEqual(['focus', '#0E7490', '☆', 'soft', 'grid', 7])
+  })
+
+  it('throws when updating a missing tag id', async () => {
+    const database = await loadDatabase()
+
+    expect(() => database.updateTag(404, { name: 'missing' })).toThrow('Tag not found')
+    expect(state.preparedCalls.some(call => call.sql.includes('UPDATE tags SET'))).toBe(false)
+  })
+
+  it('throws when creating or updating tags with empty names', async () => {
+    const database = await loadDatabase()
+
+    expect(() => database.createTag({ name: '   ', color: '#0F766E' })).toThrow('Tag name is required')
+
+    state.tagById = {
+      id: 7,
+      name: 'focus',
+      color: '#0E7490',
+      icon: '',
+      variant: 'soft',
+      pattern: 'none',
+    }
+
+    expect(() => database.updateTag(7, { name: '   ' })).toThrow('Tag name is required')
   })
 
   it('groups entry tags by entry id and initializes empty arrays for misses', async () => {

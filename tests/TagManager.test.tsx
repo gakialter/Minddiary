@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   tagsCreate: vi.fn(),
   tagsUpdate: vi.fn(),
   tagsDelete: vi.fn(),
+  showToast: vi.fn(),
 }))
 
 vi.mock('../src/contexts/DiaryContext', () => ({
@@ -21,7 +22,7 @@ vi.mock('../src/contexts/DiaryContext', () => ({
 }))
 
 vi.mock('../src/components/Toast', () => ({
-  showToast: vi.fn(),
+  showToast: mocks.showToast,
 }))
 
 describe('TagManager styled tags', () => {
@@ -66,5 +67,29 @@ describe('TagManager styled tags', () => {
         pattern: 'dots',
       })
     })
+  })
+
+  it('shows feedback when saving an edited tag with an empty name', async () => {
+    mocks.tagsGetAll.mockResolvedValue([
+      {
+        id: 1,
+        name: 'focus',
+        color: '#0F766E',
+        icon: '',
+        variant: 'soft',
+        pattern: 'none',
+      },
+    ])
+
+    render(<TagManager />)
+
+    fireEvent.click(await screen.findByTitle('编辑'))
+    fireEvent.change(screen.getByTestId('tag-edit-name-1'), {
+      target: { value: '   ' },
+    })
+    fireEvent.click(screen.getByTitle('保存'))
+
+    expect(mocks.showToast).toHaveBeenCalledWith('标签名不能为空', 'error')
+    expect(mocks.tagsUpdate).not.toHaveBeenCalled()
   })
 })
