@@ -120,6 +120,21 @@ describe('Pomodoro Component', () => {
     expect(screen.getByText('15:00')).toBeInTheDocument()
   })
 
+  it('labels the idle start button by the current timer mode', async () => {
+    await renderPomodoro()
+
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始专注')
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-short_break'))
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始短休')
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-long_break'))
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始长休')
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-custom'))
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始计时')
+  })
+
   it('enters Zen mode and requests Electron fullscreen', async () => {
     await renderPomodoro()
 

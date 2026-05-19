@@ -95,7 +95,7 @@ export const mockEntries: DiaryEntry[] = [
 ]
 
 export const mockSettings: AppSettings = {
-  theme: 'auto',
+  theme: 'system',
   examDate: '2024-12-23',
   countdownEvents: [
     {

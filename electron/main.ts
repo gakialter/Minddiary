@@ -10,6 +10,7 @@ const fileManager = require('./fileManager');
 const aiService = require('./aiService');
 const { createExportHandlers } = require('./exportHandlers');
 const { getActiveAppInfo } = require('./focusGuard');
+import { getLocalDateKey } from '../src/utils/dateKey';
 
 import type {
     NewEntry, EntryFilters, Tag, Subject,
@@ -720,7 +721,7 @@ const runAutoBackup = async () => {
             }
         };
 
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateKey();
         const filename = `MindDiary_AutoBackup_${today}.json`;
         const fullPath = path.join(backupPath, filename);
 

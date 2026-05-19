@@ -309,6 +309,8 @@ export interface SettingsContextAPI {
 export interface DiaryContextValue {
   isReady: boolean
   initErrors: string[]
+  dataRefreshVersion: number
+  requestDataRefresh: () => void
 
   // Settings surface
   settingsData: AppSettings

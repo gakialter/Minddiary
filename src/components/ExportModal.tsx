@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle, XCircle, Check } from 'lucide-react'
 import { generateMarkdown, generateJSON, generatePdfHtml } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
+import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { Download, FileDown, FileText, FileJson } from 'lucide-react'
 
@@ -71,7 +72,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
 
             // 2. Show native Save-As dialog
             const fmt = FORMATS.find(f => f.id === selectedFormat)!
-            const defaultName = `MindDiary_${new Date().toISOString().split('T')[0]}${fmt.ext}`
+            const defaultName = `MindDiary_${getLocalDateKey()}${fmt.ext}`
             const savePath = await exportUtil.showSaveDialog({
                 title: `导出为 ${fmt.label}`,
                 defaultPath: defaultName,

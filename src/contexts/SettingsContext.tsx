@@ -16,6 +16,7 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null)
+const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
 
 export const useSettings = (): SettingsContextValue => {
     const context = useContext(SettingsContext)
@@ -23,10 +24,23 @@ export const useSettings = (): SettingsContextValue => {
     return context
 }
 
+const normalizeTheme = (theme: unknown): string => {
+    if (theme === 'auto') return 'system'
+    if (theme === 'light' || theme === 'dark' || theme === 'system') return theme
+    return 'system'
+}
+
+const getSystemDarkPreference = (): boolean => (
+    typeof window !== 'undefined'
+        ? window.matchMedia?.(SYSTEM_THEME_QUERY).matches ?? false
+        : false
+)
+
 const normalizeSettings = (rawSettings: Partial<AppSettings> | null | undefined): AppSettings => {
     const merged = { ...mockSettings, ...(rawSettings || {}) }
     return {
         ...merged,
+        theme: normalizeTheme(merged.theme),
         countdownEvents: normalizeCountdownEvents(merged.countdownEvents, merged.examDate),
     }
 }
@@ -36,15 +50,18 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     const [settingsInitialized, setSettingsInitialized] = useState(false)
 
     // ─── System dark mode detection ───────────────────────────────────────────
-    const [systemDark, setSystemDark] = useState(
-        () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-    )
+    const [systemDark, setSystemDark] = useState(getSystemDarkPreference)
     useEffect(() => {
-        const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+        const mq = window.matchMedia?.(SYSTEM_THEME_QUERY)
         if (!mq) return
+        setSystemDark(mq.matches)
         const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches)
-        mq.addEventListener('change', handler)
-        return () => mq.removeEventListener('change', handler)
+        if (mq.addEventListener) {
+            mq.addEventListener('change', handler)
+            return () => mq.removeEventListener('change', handler)
+        }
+        mq.addListener?.(handler)
+        return () => mq.removeListener?.(handler)
     }, [])
 
     // ─── Initialization ───────────────────────────────────────────────────────
@@ -77,7 +94,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 if (!s) return s
                 const normalized = normalizeSettings(s as unknown as Partial<AppSettings>)
                 setSettings(normalized)
-                return { ...s, countdownEvents: normalized.countdownEvents }
+                return { ...s, theme: normalized.theme, countdownEvents: normalized.countdownEvents }
             }
             return { ...settings, aiApiKeyMasked: null, aiApiKeyPresent: false } as unknown as SanitizedSettings
         },
@@ -124,9 +141,9 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // ─── Theme helpers ────────────────────────────────────────────────────────
-    const currentTheme = settings?.theme === 'auto' ? 'system' : (settings?.theme || 'system')
+    const currentTheme = normalizeTheme(settings?.theme)
     const isDarkMode = currentTheme === 'dark' || (currentTheme === 'system' && systemDark)
-    const changeTheme = (newTheme: string) => settingsAPI.updateGeneral({ theme: newTheme })
+    const changeTheme = (newTheme: string) => settingsAPI.updateGeneral({ theme: normalizeTheme(newTheme) })
 
     const value = useMemo((): SettingsContextValue => ({
         settingsData: settings,
