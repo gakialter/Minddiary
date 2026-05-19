@@ -263,6 +263,7 @@ export default function MistakeBook() {
                 m.review_count || 0
             )
             await diary.mistakes.review(m.id, result)
+            diary.requestDataRefresh()
             loadMistakes()
             if (quality >= 3) showToast('复习成功，已安排下次复习', 'success')
             else showToast('没关系，已重置学习进度', 'info')

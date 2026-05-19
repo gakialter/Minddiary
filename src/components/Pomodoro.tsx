@@ -286,6 +286,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
   ) : null
 
   // ─── Widget (floating ball) ───
+  const startButtonLabel = ({
+    work: '开始专注',
+    short_break: '开始短休',
+    long_break: '开始长休',
+    custom: '开始计时',
+  } as Record<string, string>)[mode.id] || '开始计时'
+
   if (isWidget) {
     return (
       <>
@@ -426,7 +433,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         >
           {isRunning
             ? <><Pause size={18} /> 暂停</>
-            : <><Play size={18} /> 开始专注</>}
+            : <><Play size={18} /> {startButtonLabel}</>}
         </button>
         <button
           className="button button-secondary"

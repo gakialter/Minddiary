@@ -4,6 +4,7 @@ import { showToast } from './Toast'
 import { sanitizeSettingsForExport } from '../utils/sanitize'
 import { coerceBoolean } from '../utils/helpers'
 import { normalizeCountdownEvents } from '../utils/countdown'
+import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbout } from './SettingsSections'
@@ -195,7 +196,7 @@ function Settings() {
 
       const a = document.createElement('a')
       a.href = url
-      a.download = `MindDiary_Backup_${new Date().toISOString().split('T')[0]}.json`
+      a.download = `MindDiary_Backup_${getLocalDateKey()}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)

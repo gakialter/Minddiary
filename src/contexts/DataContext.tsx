@@ -26,6 +26,8 @@ import { createTemplatesApi } from './api/templatesApi'
 interface DataContextValue {
     dataReady: boolean
     initErrors: string[]
+    dataRefreshVersion: number
+    requestDataRefresh: () => void
     entries: EntriesContextAPI
     tags: TagsContextAPI
     mistakes: MistakesContextAPI
@@ -54,6 +56,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const mistakesRef = useRef<Mistake[]>([])
     const subjectsRef = useRef<Subject[]>([])
     const [initErrors, setInitErrors] = useState<string[]>([])
+    const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
+    const requestDataRefresh = useCallback(() => {
+        setDataRefreshVersion(version => version + 1)
+    }, [])
 
     // ─── Initialization ───────────────────────────────────────────────────────
     const [initialized] = useState(() => {
@@ -99,8 +105,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const value = useMemo((): DataContextValue => ({
         dataReady: initialized,
         initErrors,
+        dataRefreshVersion,
+        requestDataRefresh,
         ...apis
-    }), [initialized, initErrors, apis])
+    }), [initialized, initErrors, dataRefreshVersion, requestDataRefresh, apis])
 
     return (
         <DataContext.Provider value={value}>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { calculateNextReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
+import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { BookOpen, X, Trophy, RotateCcw, Pin, CheckCircle } from 'lucide-react'
 import type { Mistake } from '../types'
@@ -30,7 +31,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
         setPhase('question')
         setReviewDone(false)
         try {
-            const today = new Date().toISOString().split('T')[0]!
+            const today = getLocalDateKey()
             const m = await diary.mistakes.getRandomDue(today)
             if (!m) {
                 setNoMistakes(true)
@@ -61,6 +62,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                 mistake.review_count || 0
             )
             await diary.mistakes.review(mistake.id, result)
+            diary.requestDataRefresh()
             setReviewDone(true)
         } catch (e) {
             logger.error(e)
@@ -183,6 +185,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                             {phase === 'question' && !reviewDone && (
                                 <button
                                     className="button button-primary"
+                                    data-testid="break-review-reveal-answer"
                                     style={{ width: '100%', justifyContent: 'center' }}
                                     onClick={() => setPhase('answer')}
                                 >
@@ -217,6 +220,7 @@ export default function BreakReviewModal({ onClose }: BreakReviewModalProps) {
                                             <button
                                                 key={rq.quality}
                                                 className="button button-secondary"
+                                                data-testid={`break-review-quality-${rq.quality}`}
                                                 style={{ flex: 1, color: rq.color, borderColor: rq.color + '55', fontSize: 13 }}
                                                 onClick={() => handleReview(rq.quality)}
                                             >

@@ -30,7 +30,7 @@ interface HeatmapDataPoint {
 }
 
 export default function Dashboard() {
-    const { pomodoro, dashboard, mistakes, settingsData } = useDiary();
+    const { pomodoro, dashboard, mistakes, todayDashboard, settingsData, dataRefreshVersion } = useDiary();
     const [stats, setStats] = useState<DashboardStats>({
         totalPomodoroMinutes: 0,
         sessionCount: 0,
@@ -46,7 +46,7 @@ export default function Dashboard() {
 
     useEffect(() => {
         loadDashboardData();
-    }, []);
+    }, [dataRefreshVersion]);
 
     const loadDashboardData = async () => {
         setLoading(true);
@@ -67,18 +67,25 @@ export default function Dashboard() {
 
             const [
                 pomodoroWeek,
-                streak,
                 mistakesList,
                 heatmapEntries,
                 pomodoroAllTime,
-                dueCount
+                todaySummary
             ] = await Promise.all([
                 pomodoro.getRange(startWeek, endWeek).catch(() => [] as PomodoroRangeEntry[]),
-                dashboard.streak().catch(() => 0),
                 mistakes.getAll({}).catch(() => [] as Mistake[]),
                 dashboard.entryDatesRange(startHeatmap, endWeek).catch(() => [] as Array<{ date: string; mood: string | null }>),
                 pomodoro.getRange('2000-01-01', endWeek).catch(() => [] as PomodoroRangeEntry[]),
-                mistakes.getDueCount(endWeek).catch(() => 0)
+                todayDashboard.getData(endWeek).catch(() => ({
+                    todayEntry: null,
+                    pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
+                    commanderMetrics: {
+                        riskPoolCount: 0,
+                        lockedKnowledgeGrowth: 0,
+                        focusConversionRate: 0,
+                    },
+                    streakDays: 0,
+                }))
             ]);
 
             // Calculate overall stats
@@ -90,10 +97,10 @@ export default function Dashboard() {
             setStats({
                 totalPomodoroMinutes: totalMins,
                 sessionCount: totalSessions,
-                streakDays: streak as number,
+                streakDays: todaySummary.streakDays,
                 masteredMistakes: (mistArray as Mistake[]).filter(m => m.mastered).length,
                 totalMistakes: (mistArray as Mistake[]).length,
-                dueMistakes: dueCount as number
+                dueMistakes: todaySummary.commanderMetrics.riskPoolCount
             });
 
             // Format Weekly Data (Ensure 7 days are represented even if 0)
@@ -218,7 +225,7 @@ export default function Dashboard() {
                     <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
                         <RefreshCw size={14} style={{ color: 'var(--color-state-danger)' }} /> 今日待复习错题
                     </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: stats.dueMistakes > 0 ? 'var(--color-state-danger)' : 'var(--color-state-success)' }}>
+                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" data-testid="dashboard-due-mistakes" style={{ color: stats.dueMistakes > 0 ? 'var(--color-state-danger)' : 'var(--color-state-success)' }}>
                         {stats.dueMistakes} <span className="text-sm font-normal text-muted">题</span>
                     </div>
                     <div className="text-sm text-muted mt-1">

@@ -62,6 +62,18 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 
 const renderSettingsHook = () => renderHook(() => useSettings(), { wrapper })
 
+const dispatchSystemThemeChange = (matches: boolean) => {
+  mocks.matchMediaMatches = matches
+  const event = { matches, media: '(prefers-color-scheme: dark)' } as MediaQueryListEvent
+  mocks.matchMediaListeners.forEach(listener => {
+    if (typeof listener === 'function') {
+      listener(event)
+    } else {
+      listener.handleEvent(event)
+    }
+  })
+}
+
 beforeEach(() => {
   mocks.isElectron = true
   mocks.matchMediaMatches = false
@@ -172,9 +184,36 @@ describe('SettingsContext', () => {
       })
 
       expect(result.current.theme).toBe('system')
+      expect(result.current.settingsData.theme).toBe('system')
       expect(result.current.isDarkMode).toBe(true)
     },
   )
+
+  it('updates system theme mode when prefers-color-scheme changes', async () => {
+    mocks.matchMediaMatches = false
+    vi.mocked(window.api.settings.getAll).mockResolvedValue(settingsFrom({ theme: 'system' }))
+
+    const { result } = renderSettingsHook()
+
+    await waitFor(() => {
+      expect(result.current.settingsReady).toBe(true)
+    })
+
+    expect(result.current.theme).toBe('system')
+    expect(result.current.isDarkMode).toBe(false)
+
+    await act(async () => {
+      dispatchSystemThemeChange(true)
+    })
+
+    expect(result.current.isDarkMode).toBe(true)
+
+    await act(async () => {
+      dispatchSystemThemeChange(false)
+    })
+
+    expect(result.current.isDarkMode).toBe(false)
+  })
 
   it('updates general settings when changeTheme is called', async () => {
     vi.mocked(window.api.settings.getAll).mockResolvedValue(settingsFrom({ theme: 'dark' }))

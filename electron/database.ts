@@ -565,15 +565,10 @@ function getTodayDashboard(date: string): TodayDashboardData {
     const getTodayData = db.transaction(() => {
         const dateObj = new Date(date + 'T00:00:00');
         
-        // 72 hours from today
-        const futureDate = new Date(dateObj);
-        futureDate.setDate(futureDate.getDate() + 3);
-        const futureDateStr = futureDate.toISOString().split('T')[0];
-
         // 7 days ago
         const pastDate = new Date(dateObj);
         pastDate.setDate(pastDate.getDate() - 7);
-        const pastDateStr = pastDate.toISOString().split('T')[0];
+        const pastDateStr = getLocalDateKey(pastDate);
 
         // 1. Today's diary entry
         const todayEntry = db.prepare(
@@ -588,11 +583,11 @@ function getTodayDashboard(date: string): TodayDashboardData {
             WHERE date_key = ?
         `).get(date) as { total_minutes: number; session_count: number };
 
-        // 3. High Forgetting Risk Pool (< 72hrs)
+        // 3. Today's due review pool. Keep this aligned with mistakes:getDueCount.
         const riskRow = db.prepare(`
             SELECT COUNT(*) as count FROM mistakes
             WHERE mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)
-        `).get(futureDateStr) as { count: number };
+        `).get(date) as { count: number };
 
         // 4. Locked Knowledge Growth (EF >= 2.5 and updated in last 7 days)
         const lockedRow = db.prepare(`

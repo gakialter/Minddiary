@@ -30,6 +30,8 @@ function DiaryBridge({ children }: { children: ReactNode }) {
         // Ready when BOTH sub-contexts are ready
         isReady: settingsCtx.settingsReady && dataCtx.dataReady,
         initErrors: dataCtx.initErrors,
+        dataRefreshVersion: dataCtx.dataRefreshVersion,
+        requestDataRefresh: dataCtx.requestDataRefresh,
 
         // Settings surface
         settingsData: settingsCtx.settingsData,

@@ -6,13 +6,18 @@ const mocks = vi.hoisted(() => ({
   getData: vi.fn(),
   loggerError: vi.fn(),
   getTodayStr: vi.fn(() => '2026-05-04'),
+  dataRefreshVersion: 0,
+  todayDashboard: undefined as unknown as { getData: ReturnType<typeof vi.fn> },
 }))
+
+mocks.todayDashboard = {
+  getData: mocks.getData,
+}
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(() => ({
-    todayDashboard: {
-      getData: mocks.getData,
-    },
+    todayDashboard: mocks.todayDashboard,
+    dataRefreshVersion: mocks.dataRefreshVersion,
   })),
 }))
 
@@ -92,11 +97,11 @@ const deferred = <T,>() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.dataRefreshVersion = 0
   vi.mocked(getTodayStr).mockReturnValue('2026-05-04')
   vi.mocked(useDiary).mockReturnValue({
-    todayDashboard: {
-      getData: mocks.getData,
-    },
+    todayDashboard: mocks.todayDashboard,
+    dataRefreshVersion: mocks.dataRefreshVersion,
   } as unknown as ReturnType<typeof useDiary>)
 })
 
@@ -166,5 +171,30 @@ describe('useTodayStats', () => {
     expect(result.current.error).toBeNull()
     expect(getData).toHaveBeenCalledTimes(1)
     expect(getData).toHaveBeenCalledWith('2026-05-04')
+  })
+
+  it('reloads when the shared data refresh version changes', async () => {
+    const getData = vi.mocked(mocks.getData)
+    getData.mockResolvedValueOnce(FULL_DATA)
+
+    const { result, rerender } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(FULL_DATA)
+    })
+
+    getData.mockResolvedValueOnce(UPDATED_DATA)
+    mocks.dataRefreshVersion = 1
+    vi.mocked(useDiary).mockReturnValue({
+      todayDashboard: mocks.todayDashboard,
+      dataRefreshVersion: mocks.dataRefreshVersion,
+    } as unknown as ReturnType<typeof useDiary>)
+
+    rerender()
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(UPDATED_DATA)
+    })
+    expect(getData).toHaveBeenCalledTimes(2)
   })
 })

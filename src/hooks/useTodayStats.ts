@@ -23,7 +23,7 @@ const EMPTY_STATE: TodayDashboardData = {
 }
 
 export function useTodayStats() {
-  const { todayDashboard } = useDiary()
+  const { todayDashboard, dataRefreshVersion } = useDiary()
   const [data, setData] = useState<TodayDashboardData>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +44,7 @@ export function useTodayStats() {
 
   useEffect(() => {
     refresh()
-  }, [refresh])
+  }, [refresh, dataRefreshVersion])
 
   return { data, loading, error, refresh }
 }
