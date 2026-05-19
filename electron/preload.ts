@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('api', {
         delete: (id: number) => ipcRenderer.invoke('tags:delete', id),
         setEntryTags: (entryId: number, tagIds: number[]) => ipcRenderer.invoke('tags:setEntryTags', entryId, tagIds),
         getEntryTags: (entryId: number) => ipcRenderer.invoke('tags:getEntryTags', entryId),
+        getEntryTagsBatch: (entryIds: number[]) => ipcRenderer.invoke('tags:getEntryTagsBatch', entryIds),
     },
 
     // Settings — narrow API per ADR-002: no plaintext key exposure, patch-only writes
@@ -94,6 +95,7 @@ contextBridge.exposeInMainWorld('api', {
     attachments: {
         save: (entryId: number, fileData: AttachmentData) => ipcRenderer.invoke('attachments:save', entryId, fileData),
         getByEntry: (entryId: number) => ipcRenderer.invoke('attachments:getByEntry', entryId),
+        getByEntries: (entryIds: number[]) => ipcRenderer.invoke('attachments:getByEntries', entryIds),
         delete: (id: number) => ipcRenderer.invoke('attachments:delete', id),
         getPath: (filepath: string) => ipcRenderer.invoke('attachments:getPath', filepath),
     },

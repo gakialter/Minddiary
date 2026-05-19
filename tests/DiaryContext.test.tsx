@@ -79,6 +79,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
     delete: vi.fn(),
     setEntryTags: vi.fn(),
     getEntryTags: vi.fn(),
+    getEntryTagsBatch: vi.fn(),
   },
   mistakes: {
     getAll: vi.fn(),
@@ -122,6 +123,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
   },
   attachments: {
     getByEntry: vi.fn(),
+    getByEntries: vi.fn(),
     save: vi.fn(),
     delete: vi.fn(),
   },

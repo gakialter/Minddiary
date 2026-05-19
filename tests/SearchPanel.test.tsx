@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   entriesDelete: vi.fn(),
   tagsGetAll: vi.fn(),
   tagsGetEntryTags: vi.fn(),
+  tagsGetEntryTagsBatch: vi.fn(),
   attachmentsGetByEntry: vi.fn(),
+  attachmentsGetByEntries: vi.fn(),
   showToast: vi.fn(),
 }))
 
@@ -23,9 +25,11 @@ vi.mock('../src/contexts/DiaryContext', () => ({
     tags: {
       getAll: mocks.tagsGetAll,
       getEntryTags: mocks.tagsGetEntryTags,
+      getEntryTagsBatch: mocks.tagsGetEntryTagsBatch,
     },
     attachments: {
       getByEntry: mocks.attachmentsGetByEntry,
+      getByEntries: mocks.attachmentsGetByEntries,
     },
   }),
 }))
@@ -65,12 +69,48 @@ describe('SearchPanel diary results', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.tagsGetAll.mockResolvedValue([tag])
     mocks.entriesDelete.mockResolvedValue(true)
-    mocks.tagsGetEntryTags.mockImplementation((entryId: number) => Promise.resolve(entryId === 3 ? [tag] : []))
-    mocks.attachmentsGetByEntry.mockImplementation((entryId: number) => Promise.resolve(entryId === 4 ? [imageAttachment] : []))
+    mocks.tagsGetEntryTags.mockResolvedValue([])
+    mocks.attachmentsGetByEntry.mockResolvedValue([])
+    mocks.tagsGetEntryTagsBatch.mockImplementation((entryIds: number[]) => Promise.resolve(
+      Object.fromEntries(entryIds.map(entryId => [entryId, entryId === 3 ? [tag] : []])),
+    ))
+    mocks.attachmentsGetByEntries.mockImplementation((entryIds: number[]) => Promise.resolve(
+      Object.fromEntries(entryIds.map(entryId => [entryId, entryId === 4 ? [imageAttachment] : []])),
+    ))
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('loads search result metadata once per batch API without per-entry lookups', async () => {
+    mocks.entriesGetAll.mockResolvedValue([
+      makeEntry({ id: 2, date: '2026-05-17', content: 'entry two' }),
+      makeEntry({ id: 3, date: '2026-05-16', content: 'entry three' }),
+      makeEntry({ id: 4, date: '2026-05-15', content: 'entry four' }),
+    ])
+
+    render(<SearchPanel />)
+
+    expect(await screen.findByTestId('search-result-2')).toBeInTheDocument()
+    expect(mocks.tagsGetEntryTagsBatch).toHaveBeenCalledTimes(1)
+    expect(mocks.tagsGetEntryTagsBatch).toHaveBeenCalledWith([2, 3, 4])
+    expect(mocks.attachmentsGetByEntries).toHaveBeenCalledTimes(1)
+    expect(mocks.attachmentsGetByEntries).toHaveBeenCalledWith([2, 3, 4])
+    expect(mocks.tagsGetEntryTags).not.toHaveBeenCalled()
+    expect(mocks.attachmentsGetByEntry).not.toHaveBeenCalled()
+  })
+
+  it('keeps rendering when batch metadata APIs return empty records', async () => {
+    mocks.entriesGetAll.mockResolvedValue([
+      makeEntry({ id: 2, date: '2026-05-17', title: 'metadata fallback result' }),
+    ])
+    mocks.tagsGetEntryTagsBatch.mockResolvedValue({})
+    mocks.attachmentsGetByEntries.mockResolvedValue({})
+
+    render(<SearchPanel />)
+
+    expect(await screen.findByTestId('search-result-2')).toBeInTheDocument()
   })
 
   it('filters blank diary entries while keeping text, tagged, and image entries', async () => {
@@ -180,8 +220,8 @@ describe('SearchPanel diary results', () => {
   })
 
   it('keeps the newest search results when an older recent-load request finishes later', async () => {
-    let resolveRecentTags: ((tags: Tag[]) => void) | undefined
-    let resolveSearchTags: ((tags: Tag[]) => void) | undefined
+    let resolveRecentTags: ((tagsByEntry: Record<number, Tag[]>) => void) | undefined
+    let resolveSearchTags: ((tagsByEntry: Record<number, Tag[]>) => void) | undefined
 
     mocks.entriesGetAll.mockResolvedValue([
       makeEntry({ id: 1, date: '2026-05-18', title: '最近日记', content: '旧结果' }),
@@ -189,20 +229,20 @@ describe('SearchPanel diary results', () => {
     mocks.entriesSearch.mockResolvedValue([
       makeEntry({ id: 2, date: '2026-05-17', title: '搜索日记', content: '新结果' }),
     ])
-    mocks.tagsGetEntryTags.mockImplementation((entryId: number) => {
-      if (entryId === 1) {
-        return new Promise<Tag[]>(resolve => {
+    mocks.tagsGetEntryTagsBatch.mockImplementation((entryIds: number[]) => {
+      if (entryIds.includes(1)) {
+        return new Promise<Record<number, Tag[]>>(resolve => {
           resolveRecentTags = resolve
         })
       }
-      if (entryId === 2) {
-        return new Promise<Tag[]>(resolve => {
+      if (entryIds.includes(2)) {
+        return new Promise<Record<number, Tag[]>>(resolve => {
           resolveSearchTags = resolve
         })
       }
-      return Promise.resolve([])
+      return Promise.resolve({})
     })
-    mocks.attachmentsGetByEntry.mockResolvedValue([])
+    mocks.attachmentsGetByEntries.mockResolvedValue({})
 
     render(<SearchPanel />)
 
@@ -215,12 +255,12 @@ describe('SearchPanel diary results', () => {
     })
 
     await act(async () => {
-      resolveSearchTags?.([])
+      resolveSearchTags?.({ 2: [] })
     })
     expect(await screen.findByTestId('search-result-2')).toBeInTheDocument()
 
     await act(async () => {
-      resolveRecentTags?.([])
+      resolveRecentTags?.({ 1: [] })
     })
 
     await waitFor(() => {

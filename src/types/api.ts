@@ -41,6 +41,7 @@ export interface ElectronTagsAPI {
   delete: (id: number) => Promise<void>
   setEntryTags: (entryId: number, tagIds: number[]) => Promise<void>
   getEntryTags: (entryId: number) => Promise<Tag[]>
+  getEntryTagsBatch: (entryIds: number[]) => Promise<Record<number, Tag[]>>
 }
 
 export interface UpdateGeneralPatch {
@@ -88,6 +89,7 @@ export interface ElectronSettingsAPI {
 export interface ElectronAttachmentsAPI {
   save: (entryId: number, fileData: AttachmentData) => Promise<Attachment>
   getByEntry: (entryId: number) => Promise<Attachment[]>
+  getByEntries: (entryIds: number[]) => Promise<Record<number, Attachment[]>>
   delete: (id: number) => Promise<void>
   getPath: (filepath: string) => Promise<string>
 }
@@ -229,6 +231,7 @@ export interface TagsContextAPI {
   delete: (id: number) => Promise<boolean>
   setEntryTags: (entryId: number, tagIds: number[]) => Promise<void>
   getEntryTags: (entryId: number) => Promise<Tag[]>
+  getEntryTagsBatch: (entryIds: number[]) => Promise<Record<number, Tag[]>>
 }
 
 export interface MistakesContextAPI {
@@ -283,6 +286,7 @@ export interface AIContextAPI {
 
 export interface AttachmentsContextAPI {
   getByEntry: (entryId: number) => Promise<Attachment[]>
+  getByEntries: (entryIds: number[]) => Promise<Record<number, Attachment[]>>
   save: (entryId: number, data: AttachmentData) => Promise<Attachment | boolean>
   delete: (id: number) => Promise<boolean | void>
 }

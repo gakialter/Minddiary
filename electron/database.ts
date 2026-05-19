@@ -1,14 +1,13 @@
-const BetterSqlite3 = require('better-sqlite3');
-const path = require('path');
-const { app, safeStorage: ss } = require('electron');
-const { logger } = require('./logger');
-
+import BetterSqlite3 from 'better-sqlite3';
+import path from 'path';
+import { app, safeStorage as ss } from 'electron';
+import { logger } from './logger';
 import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
     PomodoroSession, PomodoroStat, Mistake, MistakeFilters,
-    DiaryTemplate, TodayDashboardData, DateMood
+    DiaryTemplate, TodayDashboardData, DateMood, Attachment
 } from '../src/types/index';
 
 // NOTE: fully typing better-sqlite3 query results requires generics at every
@@ -308,6 +307,11 @@ function getAllTags(): Tag[] {
     return db.prepare('SELECT * FROM tags ORDER BY name').all() as Tag[];
 }
 
+function normalizeEntryIds(entryIds: number[]): number[] {
+    if (!Array.isArray(entryIds)) return [];
+    return Array.from(new Set(entryIds.filter(entryId => Number.isInteger(entryId) && entryId > 0)));
+}
+
 function createTag({ name, color }: Partial<Tag>): Tag {
     const stmt = db.prepare('INSERT INTO tags (name, color) VALUES (?, ?)');
     const defaultColor = '#0F766E';
@@ -344,6 +348,29 @@ function getEntryTags(entryId: number) {
     ).all(entryId);
 }
 
+function getEntryTagsBatch(entryIds: number[]): Record<number, Tag[]> {
+    const validEntryIds = normalizeEntryIds(entryIds);
+    if (validEntryIds.length === 0) return {};
+
+    const result: Record<number, Tag[]> = {};
+    for (const entryId of validEntryIds) {
+        result[entryId] = [];
+    }
+
+    const placeholders = validEntryIds.map(() => '?').join(', ');
+    const rows = db.prepare(
+        `SELECT et.entry_id, t.* FROM tags t JOIN entry_tags et ON t.id = et.tag_id WHERE et.entry_id IN (${placeholders})`
+    ).all(...validEntryIds) as Array<Tag & { entry_id: number }>;
+
+    for (const row of rows) {
+        const { entry_id, ...tag } = row;
+        if (result[entry_id]) {
+            result[entry_id].push(tag);
+        }
+    }
+    return result;
+}
+
 // ==================== Settings ====================
 function getSetting(key: string) {
     const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: unknown } | undefined;
@@ -375,6 +402,28 @@ function addAttachment(entryId: number, { filename, filepath, mimetype }: { file
 
 function getAttachmentsByEntry(entryId: number) {
     return db.prepare('SELECT * FROM attachments WHERE entry_id=?').all(entryId);
+}
+
+function getAttachmentsByEntries(entryIds: number[]): Record<number, Attachment[]> {
+    const validEntryIds = normalizeEntryIds(entryIds);
+    if (validEntryIds.length === 0) return {};
+
+    const result: Record<number, Attachment[]> = {};
+    for (const entryId of validEntryIds) {
+        result[entryId] = [];
+    }
+
+    const placeholders = validEntryIds.map(() => '?').join(', ');
+    const rows = db.prepare(
+        `SELECT * FROM attachments WHERE entry_id IN (${placeholders})`
+    ).all(...validEntryIds) as Attachment[];
+
+    for (const attachment of rows) {
+        if (result[attachment.entry_id]) {
+            result[attachment.entry_id].push(attachment);
+        }
+    }
+    return result;
 }
 
 function getAttachmentById(id: number) {
@@ -800,9 +849,9 @@ module.exports = {
     initialize,
     createEntry, updateEntry, deleteEntry, getEntryById, getEntryByDate,
     getAllEntries, searchEntries, getDatesWithEntries,
-    getAllTags, createTag, updateTag, deleteTag, setEntryTags, getEntryTags,
+    getAllTags, createTag, updateTag, deleteTag, setEntryTags, getEntryTags, getEntryTagsBatch,
     getSetting, setSetting, getAllSettings,
-    addAttachment, getAttachmentsByEntry, getAttachmentById, removeAttachment,
+    addAttachment, getAttachmentsByEntry, getAttachmentsByEntries, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
     addPomodoroSession, getPomodoroStats, getDailyStudyMinutes,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
