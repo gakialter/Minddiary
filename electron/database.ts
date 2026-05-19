@@ -3,6 +3,15 @@ import path from 'path';
 import { app, safeStorage as ss } from 'electron';
 import { logger } from './logger';
 import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey';
+import {
+    DEFAULT_TAG_PATTERN,
+    DEFAULT_TAG_VARIANT,
+    TAG_PATTERNS,
+    TAG_VARIANTS,
+    mergeTagPatch,
+    normalizeTag,
+    normalizeTagList,
+} from '../src/utils/tagStyle';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -49,7 +58,10 @@ function initialize() {
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
-      color TEXT DEFAULT '#0F766E'
+      color TEXT DEFAULT '#0F766E',
+      icon TEXT DEFAULT '',
+      variant TEXT DEFAULT 'soft',
+      pattern TEXT DEFAULT 'none'
     );
 
     CREATE TABLE IF NOT EXISTS entry_tags (
@@ -123,6 +135,7 @@ function initialize() {
   `);
 
     migratePomodoroDateKey();
+    migrateTagStyleColumns();
 
     // ── v2.0 Migration: Spaced Repetition columns on mistakes ──
     const srColumns = [
@@ -215,6 +228,18 @@ function migratePomodoroDateKey() {
     `).run();
 }
 
+function migrateTagStyleColumns() {
+    ensureColumn('tags', 'icon', "TEXT DEFAULT ''");
+    ensureColumn('tags', 'variant', "TEXT DEFAULT 'soft'");
+    ensureColumn('tags', 'pattern', "TEXT DEFAULT 'none'");
+
+    db.prepare("UPDATE tags SET icon = '' WHERE icon IS NULL").run();
+    db.prepare(`UPDATE tags SET variant = ? WHERE variant IS NULL OR variant NOT IN (${TAG_VARIANTS.map(() => '?').join(', ')})`)
+        .run(DEFAULT_TAG_VARIANT, ...TAG_VARIANTS);
+    db.prepare(`UPDATE tags SET pattern = ? WHERE pattern IS NULL OR pattern NOT IN (${TAG_PATTERNS.map(() => '?').join(', ')})`)
+        .run(DEFAULT_TAG_PATTERN, ...TAG_PATTERNS);
+}
+
 // ==================== Entries ====================
 function createEntry({ date, title, content, mood }: NewEntry) {
     const wordCount = (content || '').replace(/\s/g, '').length;
@@ -304,7 +329,7 @@ function getDatesWithEntries(yearMonth: string): DateMood[] {
 
 // ==================== Tags ====================
 function getAllTags(): Tag[] {
-    return db.prepare('SELECT * FROM tags ORDER BY name').all() as Tag[];
+    return normalizeTagList(db.prepare('SELECT * FROM tags ORDER BY name').all() as Tag[]);
 }
 
 function normalizeEntryIds(entryIds: number[]): number[] {
@@ -312,16 +337,43 @@ function normalizeEntryIds(entryIds: number[]): number[] {
     return Array.from(new Set(entryIds.filter(entryId => Number.isInteger(entryId) && entryId > 0)));
 }
 
-function createTag({ name, color }: Partial<Tag>): Tag {
-    const stmt = db.prepare('INSERT INTO tags (name, color) VALUES (?, ?)');
-    const defaultColor = '#0F766E';
-    const result = stmt.run(name, color || defaultColor);
-    return { id: Number(result.lastInsertRowid), name: name!, color: color || defaultColor };
+function getTagById(id: number): Tag | undefined {
+    const tag = db.prepare('SELECT * FROM tags WHERE id=?').get(id) as Tag | undefined;
+    return tag ? normalizeTag(tag) : undefined;
 }
 
-function updateTag(id: number, { name, color }: Tag): Tag {
-    db.prepare('UPDATE tags SET name=?, color=? WHERE id=?').run(name, color, id);
-    return { id, name, color };
+function createTag(data: Partial<Tag>): Tag {
+    const newTag = normalizeTag({
+        id: 0,
+        name: data.name,
+        color: data.color,
+        icon: data.icon,
+        variant: data.variant,
+        pattern: data.pattern,
+    });
+    if (!newTag.name) {
+        throw new Error('Tag name is required');
+    }
+    const stmt = db.prepare('INSERT INTO tags (name, color, icon, variant, pattern) VALUES (?, ?, ?, ?, ?)');
+    const result = stmt.run(newTag.name, newTag.color, newTag.icon, newTag.variant, newTag.pattern);
+    return { ...newTag, id: Number(result.lastInsertRowid) };
+}
+
+function updateTag(id: number, data: Partial<Tag>): Tag {
+    const existingTag = getTagById(id);
+    if (!existingTag) {
+        throw new Error('Tag not found');
+    }
+    const updatedTag = mergeTagPatch(existingTag, data);
+    if (!updatedTag.name) {
+        throw new Error('Tag name is required');
+    }
+    const result = db.prepare('UPDATE tags SET name=?, color=?, icon=?, variant=?, pattern=? WHERE id=?')
+        .run(updatedTag.name, updatedTag.color, updatedTag.icon, updatedTag.variant, updatedTag.pattern, id);
+    if (result.changes === 0) {
+        throw new Error('Tag not found');
+    }
+    return updatedTag;
 }
 
 function deleteTag(id: number) {
@@ -342,10 +394,10 @@ function setEntryTags(entryId: number, tagIds: number[]) {
     return { success: true };
 }
 
-function getEntryTags(entryId: number) {
-    return db.prepare(
+function getEntryTags(entryId: number): Tag[] {
+    return normalizeTagList(db.prepare(
         'SELECT t.* FROM tags t JOIN entry_tags et ON t.id = et.tag_id WHERE et.entry_id = ?'
-    ).all(entryId);
+    ).all(entryId) as Tag[]);
 }
 
 function getEntryTagsBatch(entryIds: number[]): Record<number, Tag[]> {
@@ -365,7 +417,7 @@ function getEntryTagsBatch(entryIds: number[]): Record<number, Tag[]> {
     for (const row of rows) {
         const { entry_id, ...tag } = row;
         if (result[entry_id]) {
-            result[entry_id].push(tag);
+            result[entry_id].push(normalizeTag(tag));
         }
     }
     return result;

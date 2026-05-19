@@ -41,10 +41,16 @@ export interface DateMood {
 }
 
 // ─── Tags ───────────────────────────────────────────────────────────────────
+export type TagVariant = 'solid' | 'soft' | 'outline' | 'ghost'
+export type TagPattern = 'none' | 'dots' | 'stripes' | 'grid' | 'leaf'
+
 export interface Tag {
   id: number
   name: string
   color: string
+  icon?: string
+  variant?: TagVariant
+  pattern?: TagPattern
 }
 
 // ─── Subjects ───────────────────────────────────────────────────────────────

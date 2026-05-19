@@ -4,6 +4,7 @@ import { formatShortDate } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import { SkeletonText } from './Skeleton'
+import TagBadge from './TagBadge'
 import { Search, FileText, Trash2 } from 'lucide-react'
 import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
@@ -25,6 +26,7 @@ interface SearchFilters {
 
 type SearchResultEntry = DiaryEntry & {
   previewImages: PreviewImage[]
+  displayTags: Tag[]
 }
 
 const normalizeEntryIds = (entries: DiaryEntry[]): number[] => (
@@ -106,6 +108,7 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
       return {
         ...entry,
         tags: entryTagIds,
+        displayTags: entryTags,
         previewImages,
       }
     })
@@ -369,6 +372,13 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
                         }}
                         imageStyle={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
                       />
+                    ))}
+                  </div>
+                )}
+                {entry.displayTags.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: 'var(--space-xs) 0' }}>
+                    {entry.displayTags.map(tag => (
+                      <TagBadge key={tag.id} tag={tag} size="sm" />
                     ))}
                   </div>
                 )}

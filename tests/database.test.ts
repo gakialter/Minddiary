@@ -12,14 +12,21 @@ type BatchTagRow = Tag & { entry_id: number }
 
 type DatabaseModule = {
   initialize: () => void
+  getAllTags: () => Tag[]
+  createTag: (tag: Partial<Tag>) => Tag
+  updateTag: (id: number, tag: Partial<Tag>) => Tag
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAttachmentsByEntries: (entryIds: number[]) => Record<number, Attachment[]>
 }
 
 const state = vi.hoisted(() => ({
   preparedCalls: [] as PreparedCall[],
+  execCalls: [] as string[],
   tagRows: [] as BatchTagRow[],
   attachmentRows: [] as Attachment[],
+  tagById: null as Tag | null,
+  allTags: [] as Tag[],
+  runChanges: 1,
 }))
 
 vi.mock('electron', () => ({
@@ -48,25 +55,38 @@ vi.mock('better-sqlite3', () => {
   const MockBetterSqlite3 = vi.fn(function MockBetterSqlite3() {
     return {
       pragma: vi.fn(),
-      exec: vi.fn(),
+      exec: vi.fn((sql: string) => {
+        state.execCalls.push(sql)
+      }),
       transaction: vi.fn((callback: () => void) => vi.fn(callback)),
       prepare: vi.fn((sql: string) => ({
         run: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
-          return { lastInsertRowid: 1 }
+          return { lastInsertRowid: 1, changes: state.runChanges }
         }),
         get: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
           if (sql.includes('COUNT(*)')) return { count: 1 }
+          if (sql.includes('FROM tags') && sql.includes('WHERE id=?')) return state.tagById
           return undefined
         }),
         all: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
           if (sql.startsWith('PRAGMA table_info')) {
-            return [{ name: 'date_key' }, { name: 'started_at' }]
+            const tableName = sql.match(/PRAGMA table_info\(([^)]+)\)/)?.[1]
+            if (tableName === 'tags') {
+              return [{ name: 'id' }, { name: 'name' }, { name: 'color' }]
+            }
+            if (tableName === 'pomodoro_sessions') {
+              return [{ name: 'date_key' }, { name: 'started_at' }]
+            }
+            return []
           }
           if (sql.includes('FROM tags') && sql.includes('entry_tags')) {
             return state.tagRows
+          }
+          if (sql.includes('FROM tags')) {
+            return state.allTags
           }
           if (sql.includes('FROM attachments')) {
             return state.attachmentRows
@@ -80,17 +100,24 @@ vi.mock('better-sqlite3', () => {
   return { default: MockBetterSqlite3 }
 })
 
-async function loadDatabase(): Promise<DatabaseModule> {
+async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {}): Promise<DatabaseModule> {
   vi.resetModules()
   state.preparedCalls = []
+  state.execCalls = []
   state.tagRows = []
   state.attachmentRows = []
+  state.tagById = null
+  state.allTags = []
+  state.runChanges = 1
 
   const databaseModulePath = '../electron/database'
   const imported = await import(databaseModulePath) as unknown as DatabaseModule | { default: DatabaseModule }
   const database = 'default' in imported ? imported.default : imported
   database.initialize()
-  state.preparedCalls = []
+  if (!options.preserveInitializeCalls) {
+    state.preparedCalls = []
+    state.execCalls = []
+  }
   return database
 }
 
@@ -113,6 +140,82 @@ describe('database batch entry metadata APIs', () => {
     expect(state.preparedCalls).toEqual([])
   })
 
+  it('migrates legacy tag tables with style columns and safe defaults', async () => {
+    await loadDatabase({ preserveInitializeCalls: true })
+
+    expect(state.execCalls).toEqual(expect.arrayContaining([
+      expect.stringContaining('ALTER TABLE tags ADD COLUMN icon'),
+      expect.stringContaining('ALTER TABLE tags ADD COLUMN variant'),
+      expect.stringContaining('ALTER TABLE tags ADD COLUMN pattern'),
+    ]))
+  })
+
+  it('creates styled tags and preserves omitted fields on partial updates', async () => {
+    const database = await loadDatabase()
+
+    const created = database.createTag({
+      name: 'focus',
+      color: '#0E7490',
+      icon: ' 🌿🌿🌿🌿🌿 ',
+      variant: 'solid',
+      pattern: 'dots',
+    })
+
+    expect(created).toEqual({
+      id: 1,
+      name: 'focus',
+      color: '#0E7490',
+      icon: '🌿🌿🌿🌿',
+      variant: 'solid',
+      pattern: 'dots',
+    })
+
+    state.tagById = {
+      id: 7,
+      name: 'focus',
+      color: '#0E7490',
+      icon: '',
+      variant: 'soft',
+      pattern: 'none',
+    }
+
+    expect(database.updateTag(7, { icon: '☆', pattern: 'grid' })).toEqual({
+      id: 7,
+      name: 'focus',
+      color: '#0E7490',
+      icon: '☆',
+      variant: 'soft',
+      pattern: 'grid',
+    })
+
+    const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE tags SET'))
+    expect(updateCall?.params).toEqual(['focus', '#0E7490', '☆', 'soft', 'grid', 7])
+  })
+
+  it('throws when updating a missing tag id', async () => {
+    const database = await loadDatabase()
+
+    expect(() => database.updateTag(404, { name: 'missing' })).toThrow('Tag not found')
+    expect(state.preparedCalls.some(call => call.sql.includes('UPDATE tags SET'))).toBe(false)
+  })
+
+  it('throws when creating or updating tags with empty names', async () => {
+    const database = await loadDatabase()
+
+    expect(() => database.createTag({ name: '   ', color: '#0F766E' })).toThrow('Tag name is required')
+
+    state.tagById = {
+      id: 7,
+      name: 'focus',
+      color: '#0E7490',
+      icon: '',
+      variant: 'soft',
+      pattern: 'none',
+    }
+
+    expect(() => database.updateTag(7, { name: '   ' })).toThrow('Tag name is required')
+  })
+
   it('groups entry tags by entry id and initializes empty arrays for misses', async () => {
     const database = await loadDatabase()
     state.tagRows = [
@@ -123,10 +226,10 @@ describe('database batch entry metadata APIs', () => {
 
     expect(database.getEntryTagsBatch([2, 4, 5])).toEqual({
       2: [
-        { id: 10, name: 'math', color: '#0F766E' },
-        { id: 11, name: 'english', color: '#0E7490' },
+        { id: 10, name: 'math', color: '#0F766E', icon: '', variant: 'soft', pattern: 'none' },
+        { id: 11, name: 'english', color: '#0E7490', icon: '', variant: 'soft', pattern: 'none' },
       ],
-      4: [{ id: 12, name: 'review', color: '#475569' }],
+      4: [{ id: 12, name: 'review', color: '#475569', icon: '', variant: 'soft', pattern: 'none' }],
       5: [],
     })
 

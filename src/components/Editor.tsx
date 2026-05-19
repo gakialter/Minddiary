@@ -5,6 +5,7 @@ import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
+import TagBadge from './TagBadge'
 import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
 import { logger } from '../utils/logger'
@@ -322,30 +323,18 @@ function Editor({ entry, onSave, loading }: EditorProps) {
                 <button
                   key={tag.id}
                   type="button"
-                  className="button button-secondary text-xs"
+                  className="text-xs rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-pressed={selected}
                   onClick={() => handleTagToggle(tag.id)}
                   style={{
                     display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '3px 10px',
-                    background: selected ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))' : 'transparent',
-                    borderColor: selected ? 'var(--accent)' : 'var(--border)',
-                    color: selected ? 'var(--text-primary)' : 'var(--text-secondary)'
+                    padding: 0,
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer'
                   }}
                 >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: tag.color || 'var(--accent)',
-                      flexShrink: 0
-                    }}
-                  />
-                  {tag.name}
+                  <TagBadge tag={tag} selected={selected} interactive size="md" />
                 </button>
               )
             })}

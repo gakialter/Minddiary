@@ -1,6 +1,7 @@
 // Mock API for browser development (when Electron APIs are not available)
 import type { ElectronAPI } from '../types/api'
 import { logger } from './logger'
+import { normalizeTag } from './tagStyle'
 
 const mockEntries: Record<string, unknown> = {}
 
@@ -37,8 +38,8 @@ const mockApi: ElectronAPI = {
     },
     tags: {
         getAll: async () => [],
-        create: async (tag) => ({ id: Date.now(), name: tag.name || '', color: tag.color || '#6366f1' }),
-        update: async (id, tag) => ({ id, name: tag.name || '', color: tag.color || '#6366f1' }),
+        create: async (tag) => normalizeTag({ id: Date.now(), ...tag }),
+        update: async (id, tag) => normalizeTag({ id, ...tag }),
         delete: async () => {},
         setEntryTags: async () => {},
         getEntryTags: async () => [],

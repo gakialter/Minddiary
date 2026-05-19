@@ -4,8 +4,8 @@ import Editor from '../src/components/Editor'
 import type { DiaryEntry, Tag } from '../src/types'
 
 const tags: Tag[] = [
-  { id: 1, name: 'Tag A', color: '#0F766E' },
-  { id: 2, name: 'Tag B', color: '#C65A3A' },
+  { id: 1, name: 'Tag A', color: '#0F766E', icon: '🌿', variant: 'solid', pattern: 'dots' },
+  { id: 2, name: 'Tag B', color: '#C65A3A', icon: '☆', variant: 'outline', pattern: 'grid' },
 ]
 
 const mocks = vi.hoisted(() => ({
@@ -72,6 +72,10 @@ describe('Editor tag selection', () => {
 
     expect(tagA).toHaveAttribute('aria-pressed', 'true')
     expect(tagB).toHaveAttribute('aria-pressed', 'false')
+    expect(tagA).toHaveClass('focus-visible:ring-2')
+    expect(tagA).toHaveClass('focus-visible:ring-accent')
+    expect(screen.getByTestId('tag-badge-1')).toHaveTextContent('🌿')
+    expect(screen.getByTestId('tag-badge-2')).toHaveTextContent('☆')
 
     fireEvent.click(tagB)
     fireEvent.click(tagA)
