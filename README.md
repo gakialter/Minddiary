@@ -146,6 +146,17 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.9.3 — 标签样式增强 (2026-05-19)</summary>
+
+- **标签样式增强**：标签支持颜色、emoji / 短符号图标、展示样式和预设纹理。
+- **标签管理**：TagManager 可在创建和编辑标签时配置样式字段。
+- **统一展示**：Editor 与 SearchPanel 使用新的 TagBadge 呈现样式化标签。
+- **兼容与边界**：SQLite / browser fallback 兼容旧标签数据；自定义图案仅限轻量符号与预设 CSS 纹理，不支持图片、远程资源、SVG 或本地路径。
+- **跟进修复**：补齐空标签名提示、不存在标签 update 抛错，以及 Editor 标签按钮 focus-visible 可见焦点。
+
+</details>
+
+<details>
 <summary>v1.9.2 — 搜索性能、今日决策刷新与 UI 层级整理 (2026-05-19)</summary>
 
 - **图片预览重构**：抽取 ClickableImage 通用组件，统一日记、搜索、错题本、休息复习等图片入口。
