@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockEntries, mockMistakes, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
-import type { AIMessage, DiaryEntry, DiaryTemplate, Mistake } from '../src/types'
+import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake } from '../src/types'
 import type { ElectronAPI } from '../src/types/api'
 
 const mocks = vi.hoisted(() => ({
@@ -62,7 +62,14 @@ const createWindowApiMock = (): ElectronAPI => ({
     selectBackupFolder: vi.fn().mockResolvedValue(null),
   },
   attachments: {
-    save: vi.fn().mockResolvedValue({ id: 1 }),
+    save: vi.fn().mockResolvedValue({
+      id: 1,
+      entry_id: 7,
+      filename: 'a.png',
+      filepath: 'attachments/a.png',
+      mimetype: 'image/png',
+      created_at: '2026-05-05T00:00:00.000Z',
+    }),
     getByEntry: vi.fn().mockResolvedValue([]),
     getByEntries: vi.fn().mockResolvedValue({}),
     delete: vi.fn().mockResolvedValue(undefined),
@@ -218,6 +225,8 @@ describe('DataContext', () => {
 
     const message: AIMessage = { role: 'user', content: 'hello' }
     const attachmentData = { name: 'a.png', data: 'base64', mimetype: 'image/png' }
+    let chatResult: Awaited<ReturnType<typeof result.current.ai.chat>> | undefined
+    let savedAttachment: Attachment | undefined
 
     await act(async () => {
       await result.current.entries.getAll({ limit: 3 })
@@ -238,10 +247,10 @@ describe('DataContext', () => {
       await result.current.todayDashboard.getData('2026-05-05')
       await result.current.exportUtil.showSaveDialog({ defaultPath: 'export.md' })
       await result.current.notification.show('title', 'body')
-      await result.current.ai.chat([message])
+      chatResult = await result.current.ai.chat([message])
       await result.current.attachments.getByEntry(7)
       await result.current.attachments.getByEntries([7, 8])
-      await result.current.attachments.save(7, attachmentData)
+      savedAttachment = await result.current.attachments.save(7, attachmentData)
       await result.current.templates.getAll()
     })
 
@@ -264,9 +273,18 @@ describe('DataContext', () => {
     expect(window.api.export.showSaveDialog).toHaveBeenCalledWith({ defaultPath: 'export.md' })
     expect(window.api.notification.show).toHaveBeenCalledWith('title', 'body')
     expect(window.api.ai.chat).toHaveBeenCalledWith([message])
+    expect(chatResult).toEqual({ content: 'mock response' })
     expect(window.api.attachments.getByEntry).toHaveBeenCalledWith(7)
     expect(window.api.attachments.getByEntries).toHaveBeenCalledWith([7, 8])
     expect(window.api.attachments.save).toHaveBeenCalledWith(7, attachmentData)
+    expect(savedAttachment).toEqual({
+      id: 1,
+      entry_id: 7,
+      filename: 'a.png',
+      filepath: 'attachments/a.png',
+      mimetype: 'image/png',
+      created_at: '2026-05-05T00:00:00.000Z',
+    })
     expect(window.api.templates.getAll).toHaveBeenCalledTimes(1)
   })
 
@@ -440,7 +458,41 @@ describe('DataContext', () => {
     })
   })
 
-  it('returns empty attachment arrays by entry id in browser fallback batch', async () => {
+  it('rejects unsupported browser fallback attachment writes', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.attachments.save(11, {
+      name: 'a.png',
+      data: 'base64',
+      mimetype: 'image/png',
+    })).rejects.toMatchObject({
+      name: 'UnsupportedError',
+      message: '浏览器端目前不支持附件存储，请使用 Electron 客户端体验完整功能。',
+    })
+  })
+
+  it('rejects unsupported browser fallback attachment deletes', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.attachments.delete(11)).rejects.toMatchObject({
+      name: 'UnsupportedError',
+      message: '浏览器端目前不支持附件存储，请使用 Electron 客户端体验完整功能。',
+    })
+  })
+
+  it('returns empty attachment arrays for valid entry ids in browser fallback batch', async () => {
     mocks.isElectron = false
     seedEmptyBrowserStorage()
     const { result } = renderDataHook()
@@ -452,6 +504,23 @@ describe('DataContext', () => {
     await expect(result.current.attachments.getByEntries([11, 12, 11, 0, -1, 2.5])).resolves.toEqual({
       11: [],
       12: [],
+    })
+  })
+
+  it('returns unsupported AI status in browser fallback chat', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.ai.chat([
+      { role: 'user', content: 'hello' },
+    ])).resolves.toEqual({
+      error: '浏览器端目前不支持直接调用 AI 接口，请使用 Electron 客户端体验完整功能。',
+      unsupported: true,
     })
   })
 

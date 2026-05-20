@@ -67,6 +67,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
             maxSizeKB: 512,
         })
 
+        let uploadedAny = false
         for (const { file, result, error } of compressed) {
             if (error || !result) {
                 logger.error('Compression failed for', file.name, error)
@@ -74,25 +75,23 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                 continue
             }
             try {
-                const uploadResult = await attachmentsAPI.save(targetEntryId, {
+                const attachment = await attachmentsAPI.save(targetEntryId, {
                     name: file.name,
                     data: result.base64,
                     mimetype: result.blob.type,
                 })
-                if (uploadResult && typeof uploadResult === 'object' && 'filepath' in uploadResult) {
-                    const attachment = uploadResult as Attachment
-                    setAttachments(prev => [...prev, attachment])
-                    onImageInsert?.(safeFileUrl(attachment.filepath))
-                }
+                uploadedAny = true
+                setAttachments(prev => [...prev, attachment])
+                onImageInsert?.(safeFileUrl(attachment.filepath))
             } catch (err) { 
                 logger.error('Failed to upload image:', err instanceof Error ? err.message : String(err))
-                showToast(`图片 ${file.name} 上传失败`, 'error')
+                showToast(err instanceof Error ? err.message : `图片 ${file.name} 上传失败`, 'error')
             }
         }
 
         setLoading(false)
         if (entryId) loadAttachments()
-        if (compressed.some(c => !c.error && c.result)) {
+        if (uploadedAny) {
             showToast('图片上传成功', 'success')
         }
         e.target.value = ''
