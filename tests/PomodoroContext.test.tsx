@@ -338,6 +338,138 @@ describe('PomodoroContext', () => {
     })
   })
 
+  it('preserves a paused custom timer and resumes from the paused time', async () => {
+    localStorage.setItem('pomodoro-custom-minutes', '10')
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+    })
+    await waitForExpect(() => {
+      expect(result.current.timer.mode.id).toBe('custom')
+      expect(result.current.timer.timeLeft).toBe(10 * 60)
+    })
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(result.current.timer.timeLeft).toBe(8 * 60 + 30)
+  })
+
+  it('resets a paused custom timer back to the full custom duration', async () => {
+    localStorage.setItem('pomodoro-custom-minutes', '10')
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+    })
+    await waitForExpect(() => {
+      expect(result.current.timer.timeLeft).toBe(10 * 60)
+    })
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      result.current.actions.resetTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(10 * 60)
+  })
+
+  it('updates the displayed custom time when custom minutes change while idle', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+    })
+    await waitForExpect(() => {
+      expect(result.current.timer.mode.id).toBe('custom')
+      expect(result.current.timer.timeLeft).toBe(30 * 60)
+    })
+
+    await act(async () => {
+      result.current.actions.setCustomMinutes(45)
+    })
+
+    await waitForExpect(() => {
+      expect(result.current.data.customMinutes).toBe(45)
+      expect(result.current.timer.timeLeft).toBe(45 * 60)
+    })
+    expect(localStorage.getItem('pomodoro-custom-minutes')).toBe('45')
+  })
+
+  it('does not overwrite a paused custom countdown when custom minutes change', async () => {
+    localStorage.setItem('pomodoro-custom-minutes', '10')
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+    })
+    await waitForExpect(() => {
+      expect(result.current.timer.timeLeft).toBe(10 * 60)
+    })
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      result.current.actions.setCustomMinutes(20)
+    })
+
+    await waitForExpect(() => {
+      expect(result.current.data.customMinutes).toBe(20)
+    })
+    expect(localStorage.getItem('pomodoro-custom-minutes')).toBe('20')
+    expect(result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      result.current.actions.resetTimer()
+    })
+
+    expect(result.current.timer.timeLeft).toBe(20 * 60)
+    expect(result.current.timer.mode.time).toBe(20 * 60)
+  })
+
   it('loads the new local day total on startup instead of inheriting yesterday', async () => {
     vi.setSystemTime(new Date(2026, 4, 18, 0, 10, 0))
     mocks.pomodoroGetStats.mockImplementation(async (date: string) => (
