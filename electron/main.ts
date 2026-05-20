@@ -4,13 +4,16 @@ let autoUpdater: typeof import('electron-updater').autoUpdater | null = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
 const path = require('path');
 const fs = require('fs');
-const { fileURLToPath, pathToFileURL } = require('url');
+const { pathToFileURL } = require('url');
 const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
 const { createExportHandlers } = require('./exportHandlers');
 const { getActiveAppInfo } = require('./focusGuard');
-import { getLocalDateKey } from '../src/utils/dateKey';
+import { createAutoBackup } from './backup';
+import { resolveLocalProtocolPath } from './pathSecurity';
+import { buildSafeSettingsPayload } from './settingsSecurity';
+import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
 
 import type {
     NewEntry, EntryFilters, Tag, Subject,
@@ -19,48 +22,12 @@ import type {
     FocusWhitelistItem
 } from '../src/types/index';
 
-// Keys that must never appear in exported/backup files (mirrors src/utils/sanitize.js)
-const SENSITIVE_SETTINGS_KEYS = ['aiApiKey'];
-
-// ── API Key safety ──────────────────────────────────────────────────────────
-function maskApiKey(key: string | null | undefined): string | null {
-    if (!key) return null;
-    if (key.length <= 8) return '********';
-    return key.slice(0, 3) + '***' + key.slice(-4);
-}
-
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 
 function configureWindowsAppUserModelId() {
     if (process.platform !== 'win32') return;
     app.setAppUserModelId(APP_USER_MODEL_ID);
-}
-
-function resolveLocalProtocolPath(requestUrl: string): string {
-    const rawPath = requestUrl.replace(/^local:\/\//, '');
-    const decoded = decodeURIComponent(rawPath);
-    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
-        throw new Error('Path contains control characters');
-    }
-
-    const allowedBase = path.resolve(app.getPath('userData'));
-    const normalized = decoded.replace(/\\/g, '/');
-    let resolved: string;
-
-    if (/^\/?[A-Za-z]:\//.test(normalized)) {
-        const fileUrlPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
-        resolved = fileURLToPath(`file://${fileUrlPath}`);
-    } else {
-        resolved = path.resolve(allowedBase, normalized.replace(/^\/+/, ''));
-    }
-
-    const relative = path.relative(allowedBase, resolved);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        throw new Error('Path outside userData');
-    }
-
-    return resolved;
 }
 
 function createWindow() {
@@ -119,8 +86,33 @@ function pushUpdaterStatus(status: Record<string, unknown>) {
     }
 }
 
+function getAppUpdateConfigPath(): string {
+    return app.isPackaged
+        ? path.join(process.resourcesPath, 'app-update.yml')
+        : path.join(app.getAppPath(), 'dev-app-update.yml');
+}
+
+function canUseAutoUpdater(): boolean {
+    return !!autoUpdater && isAutoUpdateConfigured({
+        isPackaged: app.isPackaged,
+        appUpdateConfigPath: getAppUpdateConfigPath(),
+        fsExists: fs.existsSync,
+    });
+}
+
+function pushAutoUpdateNotConfigured(): { success: false; message: string; status: string } {
+    const status = getAutoUpdateNotConfiguredStatus();
+    logger.warn('[updater] Auto update source is not configured');
+    pushUpdaterStatus(status);
+    return { success: false, message: status.message, status: status.status };
+}
+
 function initAutoUpdater() {
     if (!autoUpdater) return;
+    if (!canUseAutoUpdater()) {
+        pushAutoUpdateNotConfigured();
+        return;
+    }
 
     autoUpdater.on('checking-for-update', () => {
         pushUpdaterStatus({ status: 'checking' });
@@ -162,6 +154,7 @@ function initAutoUpdater() {
 
 ipcMain.handle('updater:check', async () => {
     if (!autoUpdater) return { success: false, message: '环境不支持自动更新' };
+    if (!canUseAutoUpdater()) return pushAutoUpdateNotConfigured();
 
     try {
         await autoUpdater.checkForUpdates();
@@ -189,7 +182,7 @@ app.whenReady().then(() => {
 
     protocol.handle('local', (request: { url: string }) => {
         try {
-            const resolved = resolveLocalProtocolPath(request.url);
+            const resolved = resolveLocalProtocolPath(request.url, app.getPath('userData'));
             return net.fetch(pathToFileURL(resolved).href);
         } catch (error) {
             logger.warn('[local://] Blocked local asset request:', request.url, error);
@@ -486,20 +479,14 @@ ipcMain.handle('settings:get', (_: unknown, key: string) => {
 // Returns all settings but replaces aiApiKey with masked status
 ipcMain.handle('settings:getAll', () => {
     const all = db.getAllSettings();
-    const safe: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(all)) {
-        if (SENSITIVE_SETTINGS_KEYS.includes(k)) continue;
+    const safe = buildSafeSettingsPayload(all, db.getAiApiKey());
+    for (const [k, v] of Object.entries(safe)) {
         if (k === 'countdownEvents') {
             safe[k] = parseStoredCountdownEvents(v);
         } else if (k === 'focusWhitelist') {
             safe[k] = parseStoredFocusWhitelist(v) || [];
-        } else {
-            safe[k] = v;
         }
     }
-    const storedKey = db.getAiApiKey();
-    safe['aiApiKeyMasked'] = maskApiKey(storedKey);
-    safe['aiApiKeyPresent'] = !!storedKey;
     return safe;
 });
 
@@ -692,58 +679,28 @@ const runAutoBackup = async () => {
         const backupPath = db.getSetting('backupPath');
         if (String(autoBackup) !== 'true' || !backupPath) return;
 
-        if (!fs.existsSync(backupPath)) {
-            fs.mkdirSync(backupPath, { recursive: true });
-        }
-
         const entries = db.getAllEntries({ includeContent: true });
         const tags = db.getAllTags();
         const subjects = db.getAllSubjects();
         const mistakes = db.getAllMistakes({});
         const pomodoro = db.getPomodoroRange('1970-01-01', '2099-12-31');
-        const allSettings = db.getAllSettings();
 
-        // Strip sensitive keys (e.g. AI API key) before writing to disk
-        const safeSettings = Object.fromEntries(
-            Object.entries(allSettings || {}).filter(([key]) => !SENSITIVE_SETTINGS_KEYS.includes(key))
-        );
-
-        const payload = {
-            version: app.getVersion(),
-            timestamp: new Date().toISOString(),
+        await createAutoBackup({
+            backupPath,
+            userDataPath: app.getPath('userData'),
+            appVersion: app.getVersion(),
+            schemaVersion: 1,
+            keep: 7,
+            logger,
             data: {
                 entries,
                 tags,
                 subjects,
                 mistakes,
                 pomodoro,
-                settings: safeSettings,
-            }
-        };
-
-        const today = getLocalDateKey();
-        const filename = `MindDiary_AutoBackup_${today}.json`;
-        const fullPath = path.join(backupPath, filename);
-
-        await fs.promises.writeFile(fullPath, JSON.stringify(payload, null, 2), 'utf8');
-
-        const files = await fs.promises.readdir(backupPath);
-        const backupFiles = [];
-        for (const file of files) {
-            if (file.startsWith('MindDiary_AutoBackup_') && file.endsWith('.json')) {
-                const stat = await fs.promises.stat(path.join(backupPath, file));
-                backupFiles.push({ name: file, time: stat.mtimeMs });
-            }
-        }
-
-        backupFiles.sort((a, b) => b.time - a.time);
-
-        if (backupFiles.length > 7) {
-            const toDelete = backupFiles.slice(7);
-            for (const file of toDelete) {
-                await fs.promises.unlink(path.join(backupPath, file.name)).catch(() => {});
-            }
-        }
+                settings: db.getAllSettings(),
+            },
+        });
     } catch (e: unknown) {
         logger.error('Auto backup failed:', e instanceof Error ? e.message : String(e));
     }

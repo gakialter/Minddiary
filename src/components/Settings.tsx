@@ -222,6 +222,17 @@ function Settings() {
       const file = target.files?.[0]
       if (!file) return
 
+      // TODO: support restoring automatic zip backups from manifest.json, database.json, and media entries.
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        showToast('自动备份 ZIP 当前不能直接导入；请保留该灾备包，后续版本会提供恢复入口。', 'error')
+        return
+      }
+
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        showToast('请选择 JSON 备份文件；自动备份 ZIP 当前不支持直接导入。', 'error')
+        return
+      }
+
       if (file.size > 50 * 1024 * 1024) {
         showToast('文件过大（超过 50MB），请选择有效的备份文件', 'error')
         return
@@ -312,7 +323,10 @@ function Settings() {
     try {
       const res = await window.api.updater.check()
       if (!res.success) {
-        setUpdateStatus({ status: 'error', message: res.message || '环境不支持自动更新' })
+        setUpdateStatus({
+          status: res.status === 'auto-update-not-configured' ? 'auto-update-not-configured' : 'error',
+          message: res.message || '环境不支持自动更新',
+        })
       }
       // On success, main process pushes status via onStatusChange
     } catch {

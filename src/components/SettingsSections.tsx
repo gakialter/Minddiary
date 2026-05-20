@@ -793,7 +793,7 @@ export function SettingsBackup({
                         <span className="text-sm font-semibold">开启静默自动备份</span>
                     </label>
                     <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-sm)' }}>
-                        开启后，每24小时及启动时自动在指定目录备份 JSON 文件。
+                        开启后，每24小时及启动时自动在指定目录生成 ZIP 灾备包（数据库 + 附件）。
                     </div>
 
                     <div style={{ opacity: autoBackup ? 1 : 0.5, pointerEvents: autoBackup ? 'auto' : 'none', transition: 'opacity 0.2s', marginBottom: 'var(--space-md)' }}>
@@ -828,7 +828,7 @@ export function SettingsBackup({
                     </button>
                 </div>
                 <div className="text-xs text-muted">
-                    数据全部存储在本地，导出可做备份。
+                    数据全部存储在本地。内置导入当前仅支持手动导出的 JSON；自动备份 ZIP 请保留为灾备包，后续版本将提供恢复入口。
                 </div>
             </div>
         </div>
@@ -965,6 +965,13 @@ export function SettingsAbout({
                             <span className="text-xs" style={{ color: 'var(--danger, #C65A3A)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <AlertTriangle size={12} />
                                 {updateStatus.message || '检查更新失败'}
+                            </span>
+                        )}
+
+                        {status === 'auto-update-not-configured' && (
+                            <span className="text-xs" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertTriangle size={12} />
+                                {updateStatus.message || '当前版本未配置自动更新源'}
                             </span>
                         )}
                     </div>

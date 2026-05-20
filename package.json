@@ -6,6 +6,10 @@
         "node": ">=20.12.0"
     },
     "author": "MindDiary Team",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/gakialter/Minddiary.git"
+    },
     "main": "electron-dist/electron/main.js",
     "scripts": {
         "build:electron": "tsc -p tsconfig.electron.json",
@@ -70,6 +74,13 @@
             "output": "release",
             "buildResources": "build"
         },
+        "publish": [
+            {
+                "provider": "github",
+                "owner": "gakialter",
+                "repo": "Minddiary"
+            }
+        ],
         "files": [
             "dist/**/*",
             "electron-dist/**/*",
