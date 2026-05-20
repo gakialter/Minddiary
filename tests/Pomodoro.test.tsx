@@ -14,6 +14,7 @@ const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
 describe('Pomodoro Component', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    localStorage.clear()
     window.api.focusGuard.getActiveApp = vi.fn().mockResolvedValue(null)
     window.api.window.setFullScreen = vi.fn().mockResolvedValue(true)
     window.api.window.isFullScreen = vi.fn().mockResolvedValue(false)
@@ -46,6 +47,7 @@ describe('Pomodoro Component', () => {
   })
 
   afterEach(() => {
+    localStorage.clear()
     vi.useRealTimers()
     vi.clearAllMocks()
   })

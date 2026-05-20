@@ -54,6 +54,170 @@ const TimerContext = createContext<PomodoroTimerValue | null>(null)
 const DataContext = createContext<PomodoroDataValue | null>(null)
 const ActionsContext = createContext<PomodoroActionsValue | null>(null)
 
+const ACTIVE_POMODORO_SESSION_STORAGE_KEY = 'pomodoro-active-session-v1'
+const ACTIVE_SESSION_STALE_MS = 12 * 60 * 60 * 1000
+const RESTORE_CLOCK_SKEW_MS = 5 * 60 * 1000
+const MAX_POMODORO_MODE_SECONDS = 24 * 60 * 60
+
+type PomodoroModeId = 'work' | 'custom' | 'short_break' | 'long_break'
+
+type PersistedPomodoroSession = {
+  version: 1
+  modeId: PomodoroModeId
+  modeTime: number
+  customMinutes: number
+  selectedSubject: number | null
+  timeLeft: number
+  isRunning: boolean
+  startedAtMs: number | null
+  endTimeMs: number | null
+  savedAtMs: number
+}
+
+type PersistedSessionRestore =
+  | { status: 'missing' }
+  | { status: 'invalid' }
+  | { status: 'stale' }
+  | { status: 'paused'; session: PersistedPomodoroSession; timeLeft: number }
+  | { status: 'running'; session: PersistedPomodoroSession; timeLeft: number }
+  | { status: 'expired'; session: PersistedPomodoroSession }
+
+function isPomodoroModeId(value: unknown): value is PomodoroModeId {
+  return value === 'work' || value === 'custom' || value === 'short_break' || value === 'long_break'
+}
+
+function isFocusModeId(value: string): boolean {
+  return value === 'work' || value === 'custom'
+}
+
+function isValidTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function isValidPositiveSeconds(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value > 0
+    && value <= MAX_POMODORO_MODE_SECONDS
+}
+
+function clampSeconds(value: number, max: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(Math.ceil(value), max))
+}
+
+function clearPersistedActiveSession() {
+  try {
+    localStorage.removeItem(ACTIVE_POMODORO_SESSION_STORAGE_KEY)
+  } catch { /* ignore */ }
+}
+
+function writePersistedActiveSession(session: PersistedPomodoroSession) {
+  try {
+    localStorage.setItem(ACTIVE_POMODORO_SESSION_STORAGE_KEY, JSON.stringify(session))
+  } catch { /* ignore */ }
+}
+
+function getModeFromPersistedSession(
+  session: PersistedPomodoroSession,
+  dynamicModes: Record<string, PomodoroMode>,
+): PomodoroMode | null {
+  const baseMode = Object.values(dynamicModes).find(candidate => candidate.id === session.modeId)
+  return baseMode ? { ...baseMode, time: session.modeTime } : null
+}
+
+function parsePersistedActiveSession(nowMs: number): PersistedSessionRestore {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(ACTIVE_POMODORO_SESSION_STORAGE_KEY)
+  } catch {
+    return { status: 'missing' }
+  }
+
+  if (!raw) return { status: 'missing' }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { status: 'invalid' }
+  }
+
+  if (!parsed || typeof parsed !== 'object') return { status: 'invalid' }
+  const candidate = parsed as Partial<PersistedPomodoroSession>
+
+  if (
+    candidate.version !== 1
+    || !isPomodoroModeId(candidate.modeId)
+    || !isValidPositiveSeconds(candidate.modeTime)
+    || !isValidPositiveSeconds(candidate.timeLeft)
+    || candidate.timeLeft > candidate.modeTime
+    || typeof candidate.isRunning !== 'boolean'
+    || !isValidTimestamp(candidate.savedAtMs)
+    || typeof candidate.customMinutes !== 'number'
+    || !Number.isFinite(candidate.customMinutes)
+    || candidate.customMinutes < 1
+    || candidate.customMinutes > 120
+    || (
+      candidate.selectedSubject !== null
+      && (
+        typeof candidate.selectedSubject !== 'number'
+        || !Number.isInteger(candidate.selectedSubject)
+        || candidate.selectedSubject < 0
+      )
+    )
+  ) {
+    return { status: 'invalid' }
+  }
+
+  if (
+    nowMs - candidate.savedAtMs > ACTIVE_SESSION_STALE_MS
+    || candidate.savedAtMs - nowMs > RESTORE_CLOCK_SKEW_MS
+  ) {
+    return { status: 'stale' }
+  }
+
+  if (candidate.startedAtMs !== null) {
+    if (!isValidTimestamp(candidate.startedAtMs)) return { status: 'invalid' }
+    if (candidate.startedAtMs - nowMs > RESTORE_CLOCK_SKEW_MS) return { status: 'stale' }
+  } else if (isFocusModeId(candidate.modeId)) {
+    return { status: 'invalid' }
+  }
+
+  const session: PersistedPomodoroSession = {
+    version: 1,
+    modeId: candidate.modeId,
+    modeTime: candidate.modeTime,
+    customMinutes: candidate.customMinutes,
+    selectedSubject: candidate.selectedSubject ?? null,
+    timeLeft: candidate.timeLeft,
+    isRunning: candidate.isRunning,
+    startedAtMs: candidate.startedAtMs ?? null,
+    endTimeMs: candidate.endTimeMs ?? null,
+    savedAtMs: candidate.savedAtMs,
+  }
+
+  if (!session.isRunning) {
+    return { status: 'paused', session, timeLeft: clampSeconds(session.timeLeft, session.modeTime) }
+  }
+
+  if (!isValidTimestamp(session.endTimeMs)) return { status: 'invalid' }
+
+  if (session.endTimeMs - nowMs > session.modeTime * 1000 + RESTORE_CLOCK_SKEW_MS) {
+    return { status: 'stale' }
+  }
+
+  const overdueMs = nowMs - session.endTimeMs
+  if (overdueMs > ACTIVE_SESSION_STALE_MS) return { status: 'stale' }
+  if (overdueMs >= 0) return { status: 'expired', session }
+
+  return {
+    status: 'running',
+    session,
+    timeLeft: Math.max(1, clampSeconds((session.endTimeMs - nowMs) / 1000, session.modeTime)),
+  }
+}
+
 const MODES: Record<string, PomodoroMode> = {
   WORK: { id: 'work', label: '专注', time: 25 * 60, color: 'var(--accent)' },
   SHORT_BREAK: { id: 'short_break', label: '短休', time: 5 * 60, color: 'var(--success)' },
@@ -82,7 +246,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     CUSTOM: { id: 'custom', label: '自定义', time: customMinutes * 60, color: 'var(--warning)' }
   }), [customWorkTime, customMinutes])
 
-  const [mode, setMode] = useState<PomodoroMode>(dynamicModes.WORK!)
+  const [mode, setModeState] = useState<PomodoroMode>(dynamicModes.WORK!)
   const [timeLeft, setTimeLeft] = useState<number>(dynamicModes.WORK!.time)
   const [isRunning, setIsRunning] = useState(false)
 
@@ -107,10 +271,19 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
 
   const endTimeRef = useRef<number | null>(null)
+  const activeSessionRef = useRef(false)
+  const restoreAttemptedRef = useRef(false)
+  const skipNextPersistWriteRef = useRef(false)
+  const modeRef = useRef(mode)
+  const lastTickRemainingRef = useRef(timeLeft)
 
   useEffect(() => {
     todayDateKeyRef.current = todayDateKey
   }, [todayDateKey])
+
+  useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -158,29 +331,71 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout)
   }, [loadTodayStats])
 
-  // Reset timer when mode changes manually
-  useEffect(() => {
-    setTimeLeft(mode.time)
-    setIsRunning(false)
+  const clearActiveSessionState = useCallback(() => {
+    activeSessionRef.current = false
     endTimeRef.current = null
     sessionStartedAtRef.current = null
-  }, [mode])
+    clearPersistedActiveSession()
+  }, [])
+
+  const setIdleMode = useCallback((nextMode: PomodoroMode) => {
+    modeRef.current = nextMode
+    lastTickRemainingRef.current = nextMode.time
+    endTimeRef.current = null
+    setModeState(nextMode)
+    setTimeLeft(nextMode.time)
+    setIsRunning(false)
+  }, [])
+
+  const setMode = useCallback<React.Dispatch<React.SetStateAction<PomodoroMode>>>((nextModeAction) => {
+    const nextMode = typeof nextModeAction === 'function'
+      ? nextModeAction(modeRef.current)
+      : nextModeAction
+    clearActiveSessionState()
+    setIdleMode(nextMode)
+  }, [clearActiveSessionState, setIdleMode])
 
   // Update work/custom time if settings change while idle.
   // Paused focus sessions keep their original duration until reset or mode change.
   useEffect(() => {
-    if (isRunning || sessionStartedAtRef.current) return
+    if (isRunning || activeSessionRef.current || sessionStartedAtRef.current) return
     if (mode.id === 'work') {
-      setMode(dynamicModes.WORK!)
+      setIdleMode(dynamicModes.WORK!)
     } else if (mode.id === 'custom') {
-      setMode(dynamicModes.CUSTOM!)
-      setTimeLeft(customMinutes * 60)
+      setIdleMode(dynamicModes.CUSTOM!)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customWorkTime, customMinutes, isRunning])
+  }, [customWorkTime, customMinutes, isRunning, setIdleMode])
+
+  const addPomodoroSessionRecord = useCallback(async ({
+    durationSeconds,
+    subjectId,
+    startedAt,
+    completedAt,
+  }: {
+    durationSeconds: number
+    subjectId: number | null
+    startedAt: Date
+    completedAt: Date
+  }) => {
+    const dateKey = getLocalDateKey(startedAt)
+    await pomodoroAPI.addSession({
+      subject_id: subjectId,
+      duration: durationSeconds / 60,
+      date_key: dateKey,
+      started_at: toLocalDateTimeString(startedAt),
+      completed_at: toLocalDateTimeString(completedAt),
+    })
+    loadTodayStats()
+  }, [pomodoroAPI, loadTodayStats])
 
   // Phase-complete handler
   const handlePhaseComplete = useCallback(async () => {
+    const completedMode = mode
+    const completedSubject = selectedSubject
+    const startedAtForRecord = sessionStartedAtRef.current
+
+    clearActiveSessionState()
     setIsRunning(false)
     endTimeRef.current = null
 
@@ -217,8 +432,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
         setAlertState({
           visible: true,
-          isWorkComplete: mode.id === 'work',
-          duration: Math.round(mode.time / 60),
+          isWorkComplete: completedMode.id === 'work',
+          duration: Math.round(completedMode.time / 60),
           todayTotal: newTotal,
         })
       }
@@ -228,37 +443,104 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('番茄钟提醒', {
-        body: mode.id === 'work' ? '专注完成，休息一下吧！' : '休息结束，准备专注！',
+        body: completedMode.id === 'work' ? '专注完成，休息一下吧！' : '休息结束，准备专注！',
         icon: '/favicon.ico'
       })
     }
 
-    if (mode.id === 'work' || mode.id === 'custom') {
+    if (completedMode.id === 'work' || completedMode.id === 'custom') {
       try {
         const completedAt = new Date()
-        const startedAt = sessionStartedAtRef.current ?? new Date(completedAt.getTime() - mode.time * 1000)
-        const dateKey = getLocalDateKey(startedAt)
-        await pomodoroAPI.addSession({
-          subject_id: selectedSubject,
-          duration: mode.time / 60,
-          date_key: dateKey,
-          started_at: toLocalDateTimeString(startedAt),
-          completed_at: toLocalDateTimeString(completedAt),
+        const startedAt = startedAtForRecord ?? new Date(completedAt.getTime() - completedMode.time * 1000)
+        await addPomodoroSessionRecord({
+          durationSeconds: completedMode.time,
+          subjectId: completedSubject,
+          startedAt,
+          completedAt,
         })
-        sessionStartedAtRef.current = null
-        loadTodayStats()
         await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
       } catch (e) { logger.error(e) }
       // Fire break-start callback so App can show BreakReviewModal
       if (onBreakStartRef.current) {
         onBreakStartRef.current()
       }
-      setMode(dynamicModes.SHORT_BREAK!)
+      setIdleMode(dynamicModes.SHORT_BREAK!)
     } else {
       await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
-      setMode(dynamicModes.WORK!)
+      setIdleMode(dynamicModes.WORK!)
     }
-  }, [mode, selectedSubject, todayTotal, settingsData, pomodoroAPI, notificationAPI, loadTodayStats, dynamicModes])
+  }, [
+    mode,
+    selectedSubject,
+    todayTotal,
+    settingsData,
+    notificationAPI,
+    dynamicModes,
+    addPomodoroSessionRecord,
+    clearActiveSessionState,
+    setIdleMode,
+  ])
+
+  useEffect(() => {
+    if (restoreAttemptedRef.current) return
+    restoreAttemptedRef.current = true
+
+    const nowMs = Date.now()
+    const restore = parsePersistedActiveSession(nowMs)
+
+    if (restore.status === 'missing') return
+
+    if (restore.status === 'invalid' || restore.status === 'stale') {
+      clearActiveSessionState()
+      return
+    }
+
+    if (restore.status === 'expired') {
+      clearActiveSessionState()
+      const nextMode = isFocusModeId(restore.session.modeId)
+        ? dynamicModes.SHORT_BREAK!
+        : dynamicModes.WORK!
+      setIdleMode(nextMode)
+
+      if (isFocusModeId(restore.session.modeId) && restore.session.startedAtMs && restore.session.endTimeMs) {
+        void addPomodoroSessionRecord({
+          durationSeconds: restore.session.modeTime,
+          subjectId: restore.session.selectedSubject,
+          startedAt: new Date(restore.session.startedAtMs),
+          completedAt: new Date(restore.session.endTimeMs),
+        }).catch(error => logger.error(error))
+      }
+      return
+    }
+
+    const restoredMode = getModeFromPersistedSession(restore.session, dynamicModes)
+    if (!restoredMode) {
+      clearActiveSessionState()
+      return
+    }
+
+    skipNextPersistWriteRef.current = true
+    activeSessionRef.current = true
+    sessionStartedAtRef.current = restore.session.startedAtMs
+      ? new Date(restore.session.startedAtMs)
+      : null
+    lastTickRemainingRef.current = restore.timeLeft
+    endTimeRef.current = restore.status === 'running'
+      ? nowMs + restore.timeLeft * 1000
+      : null
+    modeRef.current = restoredMode
+
+    setCustomMinutes(restore.session.customMinutes)
+    setSelectedSubject(restore.session.selectedSubject)
+    setModeState(restoredMode)
+    setTimeLeft(restore.timeLeft)
+    setIsRunning(restore.status === 'running')
+  }, [
+    addPomodoroSessionRecord,
+    clearActiveSessionState,
+    dynamicModes,
+    setIdleMode,
+  ])
 
   // Main Timer Loop
   useEffect(() => {
@@ -267,8 +549,23 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       if (!endTimeRef.current) {
         endTimeRef.current = Date.now() + timeLeft * 1000
       }
+      lastTickRemainingRef.current = timeLeft
       interval = setInterval(() => {
-        const remaining = Math.max(0, Math.ceil((endTimeRef.current! - Date.now()) / 1000))
+        if (endTimeRef.current && Date.now() - endTimeRef.current > ACTIVE_SESSION_STALE_MS) {
+          clearInterval(interval!)
+          clearActiveSessionState()
+          setIdleMode(dynamicModes.WORK!)
+          return
+        }
+
+        const modeTime = Math.max(1, modeRef.current.time)
+        const previousRemaining = lastTickRemainingRef.current
+        let remaining = clampSeconds((endTimeRef.current! - Date.now()) / 1000, modeTime)
+        if (remaining > previousRemaining) {
+          remaining = previousRemaining
+          endTimeRef.current = Date.now() + previousRemaining * 1000
+        }
+        lastTickRemainingRef.current = remaining
         setTimeLeft(remaining)
         if (remaining <= 0) {
           clearInterval(interval!)
@@ -279,17 +576,51 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       endTimeRef.current = null
     }
     return () => { if (interval) clearInterval(interval) }
-  }, [isRunning, handlePhaseComplete])
+  }, [clearActiveSessionState, dynamicModes, handlePhaseComplete, isRunning, setIdleMode])
+
+  useEffect(() => {
+    if (!activeSessionRef.current || !isPomodoroModeId(mode.id)) return
+    if (skipNextPersistWriteRef.current) {
+      skipNextPersistWriteRef.current = false
+      return
+    }
+
+    const persistedTimeLeft = Math.max(1, clampSeconds(timeLeft, mode.time))
+    const startedAtMs = sessionStartedAtRef.current?.getTime() ?? null
+    const endTimeMs = isRunning
+      ? endTimeRef.current ?? Date.now() + persistedTimeLeft * 1000
+      : null
+
+    writePersistedActiveSession({
+      version: 1,
+      modeId: mode.id,
+      modeTime: mode.time,
+      customMinutes,
+      selectedSubject,
+      timeLeft: persistedTimeLeft,
+      isRunning,
+      startedAtMs,
+      endTimeMs,
+      savedAtMs: Date.now(),
+    })
+  }, [customMinutes, isRunning, mode, selectedSubject, timeLeft])
 
   const toggleTimer = useCallback(() => {
-    setIsRunning(prev => {
-      const next = !prev
-      if (next && (mode.id === 'work' || mode.id === 'custom') && timeLeft === mode.time) {
+    const nextIsRunning = !isRunning
+    activeSessionRef.current = true
+    lastTickRemainingRef.current = timeLeft
+
+    if (nextIsRunning) {
+      if ((mode.id === 'work' || mode.id === 'custom') && !sessionStartedAtRef.current && timeLeft === mode.time) {
         sessionStartedAtRef.current = new Date()
       }
-      return next
-    })
-  }, [mode.id, mode.time, timeLeft])
+      endTimeRef.current = Date.now() + timeLeft * 1000
+    } else {
+      endTimeRef.current = null
+    }
+
+    setIsRunning(nextIsRunning)
+  }, [isRunning, mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
     const resetMode = mode.id === 'custom'
@@ -298,12 +629,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         ? dynamicModes.WORK!
         : mode
 
-    setIsRunning(false)
-    setMode(resetMode)
-    setTimeLeft(resetMode.time)
-    endTimeRef.current = null
-    sessionStartedAtRef.current = null
-  }, [dynamicModes, mode])
+    clearActiveSessionState()
+    setIdleMode(resetMode)
+  }, [clearActiveSessionState, dynamicModes, mode, setIdleMode])
 
   const formatTime = useCallback((seconds: number): string => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -311,7 +639,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     return `${m}:${s}`
   }, [])
 
-  const progress = 1 - (timeLeft / mode.time)
+  const progress = mode.time > 0
+    ? Math.max(0, Math.min(1, 1 - (timeLeft / mode.time)))
+    : 0
   const circleCircumference = 2 * Math.PI * 90
   const miniCircumference = 2 * Math.PI * 18
 
