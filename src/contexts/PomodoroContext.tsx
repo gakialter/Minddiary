@@ -166,9 +166,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     sessionStartedAtRef.current = null
   }, [mode])
 
-  // Update work/custom time if settings change while idle
+  // Update work/custom time if settings change while idle.
+  // Paused focus sessions keep their original duration until reset or mode change.
   useEffect(() => {
-    if (isRunning) return
+    if (isRunning || sessionStartedAtRef.current) return
     if (mode.id === 'work') {
       setMode(dynamicModes.WORK!)
     } else if (mode.id === 'custom') {
@@ -291,11 +292,18 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
+    const resetMode = mode.id === 'custom'
+      ? dynamicModes.CUSTOM!
+      : mode.id === 'work'
+        ? dynamicModes.WORK!
+        : mode
+
     setIsRunning(false)
-    setTimeLeft(mode.time)
+    setMode(resetMode)
+    setTimeLeft(resetMode.time)
     endTimeRef.current = null
     sessionStartedAtRef.current = null
-  }, [mode.time])
+  }, [dynamicModes, mode])
 
   const formatTime = useCallback((seconds: number): string => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0')
