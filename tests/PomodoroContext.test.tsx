@@ -296,6 +296,7 @@ describe('PomodoroContext', () => {
 
     first.unmount()
 
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const second = renderPomodoroHook()
     await flushAsyncWork()
 
@@ -303,6 +304,18 @@ describe('PomodoroContext', () => {
     expect(second.result.current.timer.isRunning).toBe(true)
     expect(second.result.current.timer.timeLeft).toBeGreaterThanOrEqual(24 * 60 - 1)
     expect(second.result.current.timer.timeLeft).toBeLessThanOrEqual(24 * 60)
+    const activeSessionWrites = setItemSpy.mock.calls
+      .filter(([key]) => key === ACTIVE_SESSION_STORAGE_KEY)
+      .map(([, value]) => JSON.parse(String(value)) as { isRunning: boolean; modeId: string; timeLeft: number; endTimeMs: number | null })
+
+    expect(activeSessionWrites.length).toBeGreaterThan(0)
+    expect(activeSessionWrites[0]).toEqual(expect.objectContaining({
+      modeId: 'work',
+      isRunning: true,
+    }))
+    expect(activeSessionWrites[0]!.timeLeft).toBeGreaterThanOrEqual(24 * 60 - 1)
+    expect(activeSessionWrites[0]!.timeLeft).toBeLessThanOrEqual(24 * 60)
+    expect(activeSessionWrites[0]!.endTimeMs).toEqual(expect.any(Number))
 
     await act(async () => {
       vi.advanceTimersByTime(30_000)

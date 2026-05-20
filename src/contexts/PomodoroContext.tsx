@@ -273,6 +273,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const endTimeRef = useRef<number | null>(null)
   const activeSessionRef = useRef(false)
   const restoreAttemptedRef = useRef(false)
+  const skipNextPersistWriteRef = useRef(false)
   const modeRef = useRef(mode)
   const lastTickRemainingRef = useRef(timeLeft)
 
@@ -518,6 +519,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    skipNextPersistWriteRef.current = true
     activeSessionRef.current = true
     sessionStartedAtRef.current = restore.session.startedAtMs
       ? new Date(restore.session.startedAtMs)
@@ -578,6 +580,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!activeSessionRef.current || !isPomodoroModeId(mode.id)) return
+    if (skipNextPersistWriteRef.current) {
+      skipNextPersistWriteRef.current = false
+      return
+    }
 
     const persistedTimeLeft = Math.max(1, clampSeconds(timeLeft, mode.time))
     const startedAtMs = sessionStartedAtRef.current?.getTime() ?? null
