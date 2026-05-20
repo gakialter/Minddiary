@@ -113,6 +113,8 @@ const TODAY_STATS: PomodoroStat[] = [
   { subject_name: 'Math', color: '#0F766E', total_minutes: 25, session_count: 1 },
 ]
 
+const ACTIVE_SESSION_STORAGE_KEY = 'pomodoro-active-session-v1'
+
 const settingsData = (overrides: Partial<AppSettings> = {}): AppSettings => ({
   theme: 'auto',
   examDate: '2026-12-25',
@@ -274,6 +276,221 @@ describe('PomodoroContext', () => {
       result.current.actions.resetTimer()
     })
 
+    expect(result.current.timer.timeLeft).toBe(25 * 60)
+    expect(result.current.timer.isRunning).toBe(false)
+  })
+
+  it('restores a running work session after reload and continues counting down', async () => {
+    const first = renderPomodoroHook()
+
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(first.result.current.timer.mode.id).toBe('work')
+    expect(first.result.current.timer.isRunning).toBe(true)
+    expect(first.result.current.timer.timeLeft).toBe(24 * 60)
+
+    first.unmount()
+
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(second.result.current.timer.mode.id).toBe('work')
+    expect(second.result.current.timer.isRunning).toBe(true)
+    expect(second.result.current.timer.timeLeft).toBeGreaterThanOrEqual(24 * 60 - 1)
+    expect(second.result.current.timer.timeLeft).toBeLessThanOrEqual(24 * 60)
+
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(second.result.current.timer.timeLeft).toBeGreaterThanOrEqual(23 * 60 + 29)
+    expect(second.result.current.timer.timeLeft).toBeLessThanOrEqual(23 * 60 + 30)
+  })
+
+  it('restores a paused custom session after reload and resumes from the paused time', async () => {
+    localStorage.setItem('pomodoro-custom-minutes', '10')
+    const first = renderPomodoroHook()
+
+    await act(async () => {
+      first.result.current.actions.setMode(first.result.current.timer.dynamicModes.CUSTOM!)
+    })
+    await waitForExpect(() => {
+      expect(first.result.current.timer.mode.id).toBe('custom')
+      expect(first.result.current.timer.timeLeft).toBe(10 * 60)
+    })
+
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+
+    expect(first.result.current.timer.isRunning).toBe(false)
+    expect(first.result.current.timer.timeLeft).toBe(9 * 60)
+
+    first.unmount()
+
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(second.result.current.timer.mode.id).toBe('custom')
+    expect(second.result.current.timer.isRunning).toBe(false)
+    expect(second.result.current.timer.timeLeft).toBe(9 * 60)
+
+    await act(async () => {
+      second.result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(second.result.current.timer.timeLeft).toBe(8 * 60 + 30)
+  })
+
+  it('clears the persisted active session on reset and remounts as idle work', async () => {
+    const first = renderPomodoroHook()
+
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+
+    await act(async () => {
+      first.result.current.actions.resetTimer()
+    })
+
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+
+    first.unmount()
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(second.result.current.timer.mode.id).toBe('work')
+    expect(second.result.current.timer.timeLeft).toBe(25 * 60)
+    expect(second.result.current.timer.isRunning).toBe(false)
+  })
+
+  it('completes a recently expired running work session during reload only once', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const first = renderPomodoroHook()
+
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+
+    first.unmount()
+
+    await act(async () => {
+      vi.advanceTimersByTime(25 * 60 * 1000 + 5_000)
+    })
+
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: null,
+      duration: 25,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:25:/),
+    }))
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+    expect(second.result.current.timer.mode.id).toBe('short_break')
+    expect(second.result.current.timer.isRunning).toBe(false)
+
+    second.unmount()
+    const third = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(third.result.current.timer.mode.id).toBe('work')
+    expect(third.result.current.timer.isRunning).toBe(false)
+  })
+
+  it('discards a stale active session without recording it', async () => {
+    const now = new Date(2026, 4, 5, 8, 0, 0).getTime()
+    vi.setSystemTime(now)
+    localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      modeId: 'work',
+      modeTime: 25 * 60,
+      customMinutes: 30,
+      selectedSubject: null,
+      timeLeft: 20 * 60,
+      isRunning: true,
+      startedAtMs: now - 13 * 60 * 60 * 1000,
+      endTimeMs: now - 12 * 60 * 60 * 1000,
+      savedAtMs: now - 13 * 60 * 60 * 1000,
+    }))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+    expect(result.current.timer.mode.id).toBe('work')
+    expect(result.current.timer.timeLeft).toBe(25 * 60)
+    expect(result.current.timer.isRunning).toBe(false)
+  })
+
+  it('does not increase the countdown after a backward system clock jump', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    const beforeJump = result.current.timer.timeLeft
+    expect(beforeJump).toBe(24 * 60)
+
+    await act(async () => {
+      vi.setSystemTime(new Date(Date.now() - 5 * 60 * 1000))
+      vi.advanceTimersByTime(1_000)
+    })
+
+    expect(result.current.timer.timeLeft).toBeLessThanOrEqual(beforeJump)
+    expect(result.current.timer.progress).toBeGreaterThanOrEqual(0)
+    expect(result.current.timer.progress).toBeLessThanOrEqual(1)
+  })
+
+  it('discards a running session after a large forward system clock jump', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+
+    await act(async () => {
+      vi.setSystemTime(new Date(Date.now() + 13 * 60 * 60 * 1000))
+      vi.advanceTimersByTime(1_000)
+    })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+    expect(result.current.timer.mode.id).toBe('work')
     expect(result.current.timer.timeLeft).toBe(25 * 60)
     expect(result.current.timer.isRunning).toBe(false)
   })
