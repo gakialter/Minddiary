@@ -194,6 +194,7 @@ export interface AISettings {
 export interface AIResponse {
   content?: string
   error?: string
+  unsupported?: boolean
 }
 
 // ─── Today Dashboard ────────────────────────────────────────────────────────

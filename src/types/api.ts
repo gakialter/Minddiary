@@ -288,8 +288,8 @@ export interface AIContextAPI {
 export interface AttachmentsContextAPI {
   getByEntry: (entryId: number) => Promise<Attachment[]>
   getByEntries: (entryIds: number[]) => Promise<Record<number, Attachment[]>>
-  save: (entryId: number, data: AttachmentData) => Promise<Attachment | boolean>
-  delete: (id: number) => Promise<boolean | void>
+  save: (entryId: number, data: AttachmentData) => Promise<Attachment>
+  delete: (id: number) => Promise<void>
 }
 
 export interface TemplatesContextAPI {
