@@ -1,19 +1,29 @@
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
-const { fileURLToPath } = require('url');
 const db = require('./database');
 const pool = require('./imageWorkerPool');
 const { logger } = require('./logger');
+import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
 
 import type { Attachment, AttachmentData } from '../src/types/index';
 
 let attachmentsDir: string;
 let mistakeImagesDir: string;
 
+function getAttachmentsDir(): string {
+    if (!attachmentsDir) attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    return attachmentsDir;
+}
+
+function getMistakeImagesDir(): string {
+    if (!mistakeImagesDir) mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
+    return mistakeImagesDir;
+}
+
 function initialize(): void {
-    attachmentsDir = path.join(app.getPath('userData'), 'attachments');
-    mistakeImagesDir = path.join(app.getPath('userData'), 'mistake_images');
+    attachmentsDir = getAttachmentsDir();
+    mistakeImagesDir = getMistakeImagesDir();
     // Sync mkdir for bootstrap (directories needed before first async operation)
     if (!fs.existsSync(attachmentsDir)) {
         fs.mkdirSync(attachmentsDir, { recursive: true });
@@ -66,7 +76,7 @@ async function saveAttachment(entryId: number, { name, data, mimetype }: Attachm
     const timestamp = Date.now();
     const ext = path.extname(name);
     const safeFilename = `${entryId}_${timestamp}${ext}`;
-    const filepath = path.join(attachmentsDir, safeFilename);
+    const filepath = path.join(getAttachmentsDir(), safeFilename);
 
     try {
         // Offload buffer write to worker pool
@@ -91,7 +101,7 @@ async function saveAttachment(entryId: number, { name, data, mimetype }: Attachm
 async function deleteAttachment(id: number): Promise<{ success: boolean }> {
     const attachment = db.getAttachmentById(id) as Attachment | undefined;
     if (attachment) {
-        const filepath = path.join(attachmentsDir, attachment.filepath);
+        const filepath = path.join(getAttachmentsDir(), attachment.filepath);
         try {
             await fs.promises.unlink(filepath);
         } catch (err: unknown) {
@@ -107,7 +117,7 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 
     const results = await Promise.allSettled(
         attachments.map(async (attachment) => {
-            const filepath = path.join(attachmentsDir, attachment.filepath);
+            const filepath = path.join(getAttachmentsDir(), attachment.filepath);
             await fs.promises.unlink(filepath).catch((err: unknown) => {
                 if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
             });
@@ -132,8 +142,9 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 }
 
 function getAttachmentPath(filepath: string): string {
-    const resolved = path.resolve(attachmentsDir, filepath);
-    const relative = path.relative(attachmentsDir, resolved);
+    const baseDir = getAttachmentsDir();
+    const resolved = path.resolve(baseDir, filepath);
+    const relative = path.relative(baseDir, resolved);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
         throw { code: 'PATH_TRAVERSAL', message: 'Invalid attachment path' };
     }
@@ -151,7 +162,7 @@ async function saveMistakeImage({ data, ext = '.png', mimetype }: { data: string
 
     const timestamp = Date.now();
     const safeFilename = `mistake_${timestamp}${extLower}`;
-    const filepath = path.join(mistakeImagesDir, safeFilename);
+    const filepath = path.join(getMistakeImagesDir(), safeFilename);
 
     try {
         await pool.submit('writeBuffer', { bufferB64: data, filepath, expectedExt: extLower });
@@ -177,32 +188,16 @@ async function deleteMistakeImage(urlPathname: string): Promise<void> {
 
 async function deleteSingleMistakeImage(urlPathname: string): Promise<void> {
     try {
-        const normalized = urlPathname.replace(/^local:\/\//, '').replace(/\\/g, '/');
-        const decoded = decodeURIComponent(normalized);
-        let filepath: string;
-        if (/^\/?[A-Za-z]:\//.test(decoded)) {
-            const fileUrlPath = decoded.startsWith('/') ? decoded : `/${decoded}`;
-            filepath = fileURLToPath(`file://${fileUrlPath}`);
-        } else if (decoded.startsWith('mistake_images/')) {
-            filepath = path.resolve(app.getPath('userData'), decoded);
-        } else {
-            filepath = path.resolve(mistakeImagesDir, decoded.replace(/^\/+/, ''));
-        }
-        const relative = path.relative(mistakeImagesDir, filepath);
-        if (relative.startsWith('..') || path.isAbsolute(relative)) {
-            throw { code: 'PATH_TRAVERSAL', message: 'Invalid image path' };
-        }
-        await fs.promises.unlink(filepath).catch((err: unknown) => {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-        });
+        await deleteManagedMistakeImage(urlPathname);
     } catch (e) {
         logger.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
     }
 }
 
 function getMistakeImagePath(filename: string): string {
-    const resolved = path.resolve(mistakeImagesDir, filename);
-    const relative = path.relative(mistakeImagesDir, resolved);
+    const baseDir = getMistakeImagesDir();
+    const resolved = path.resolve(baseDir, filename);
+    const relative = path.relative(baseDir, resolved);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
         throw { code: 'PATH_TRAVERSAL', message: 'Invalid image path' };
     }
@@ -211,5 +206,6 @@ function getMistakeImagePath(filename: string): string {
 
 module.exports = {
     initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath,
-    saveMistakeImage, deleteMistakeImage, getMistakeImagePath
+    saveMistakeImage, deleteMistakeImage, deleteManagedMistakeImage,
+    getMistakeImageReferenceKey, getMistakeImagePath
 };

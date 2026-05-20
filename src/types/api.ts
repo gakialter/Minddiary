@@ -159,6 +159,7 @@ export type UpdateStatusType =
   | 'downloading'
   | 'downloaded'
   | 'error'
+  | 'auto-update-not-configured'
 
 export interface UpdateStatus {
   status: UpdateStatusType
@@ -179,7 +180,7 @@ export interface UpdateStatus {
 }
 
 export interface ElectronUpdaterAPI {
-  check: () => Promise<{ success: boolean; message?: string; info?: unknown }>
+  check: () => Promise<{ success: boolean; message?: string; status?: UpdateStatusType; info?: unknown }>
   install: () => Promise<void>
   getStatus: () => Promise<UpdateStatus>
   onStatusChange: (callback: (status: UpdateStatus) => void) => () => void

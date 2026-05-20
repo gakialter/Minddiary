@@ -115,6 +115,19 @@ npm run build:win    # Windows
 npm run build:mac    # macOS
 ```
 
+### Windows signing and auto update release notes
+
+- Auto updates use the GitHub release feed configured in `package.json` through `build.publish`.
+- Windows code signing is optional for local builds. Unsigned installers can trigger Windows SmartScreen warnings.
+- Signed Windows releases should provide `CSC_LINK` and `CSC_KEY_PASSWORD` in the release environment.
+- `npm run build` must continue to work without signing secrets; release signing is only enabled when the certificate variables are present.
+
+### Automatic backup and restore scope
+
+- Silent automatic backups are zip disaster recovery packages that include `manifest.json`, `database.json`, and managed media directories such as `attachments/` and `mistake_images/`.
+- The current built-in import flow restores manually exported JSON backups only. It does not restore automatic zip backups inside the app yet.
+- TODO: support restoring automatic zip backups, including manifest validation, `database.json`, managed media directories, and zip-slip path validation.
+
 ## 项目结构
 
 ```

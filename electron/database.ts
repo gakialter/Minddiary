@@ -2,6 +2,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import path from 'path';
 import { app, safeStorage as ss } from 'electron';
 import { logger } from './logger';
+import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
 import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey';
 import {
     DEFAULT_TAG_PATTERN,
@@ -25,6 +26,8 @@ import type {
 let db: Database.Database;
 
 let customDbPath: string | null = null;
+const API_KEY_ENCRYPTION_UNAVAILABLE_MESSAGE = '当前系统加密能力不可用，无法安全保存 API Key';
+const API_KEY_ENCRYPTION_PREFIX = 'enc:v1:';
 
 function setCustomDbPath(p: string) {
     customDbPath = p;
@@ -736,7 +739,82 @@ function createMistake({ subject_id, question, answer, notes, image_path }: Part
     return { id: result.lastInsertRowid };
 }
 
-function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: Partial<Mistake>) {
+function parseMistakeImagePaths(raw: unknown): string[] {
+    if (typeof raw !== 'string') return [];
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+                return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+            }
+        } catch {
+            return [trimmed];
+        }
+    }
+    return [trimmed];
+}
+
+function getRemovedMistakeImageRefs(oldValue: unknown, newValue: unknown): string[] {
+    const newKeys = new Set(
+        parseMistakeImagePaths(newValue)
+            .map(ref => getMistakeImageReferenceKey(ref))
+            .filter((key: string | null): key is string => !!key),
+    );
+    const removed: string[] = [];
+    const seen = new Set<string>();
+
+    for (const ref of parseMistakeImagePaths(oldValue)) {
+        const key = getMistakeImageReferenceKey(ref);
+        if (!key) {
+            removed.push(ref);
+            continue;
+        }
+        if (!newKeys.has(key) && !seen.has(key)) {
+            removed.push(ref);
+            seen.add(key);
+        }
+    }
+
+    return removed;
+}
+
+function isMistakeImageStillReferenced(ref: string, excludingId: number): boolean {
+    const targetKey = getMistakeImageReferenceKey(ref);
+    if (!targetKey) return false;
+    const rows = db.prepare('SELECT id, image_path FROM mistakes WHERE id <> ? AND image_path IS NOT NULL').all(excludingId) as { id: number; image_path: string | null }[];
+    return rows.some(row => parseMistakeImagePaths(row.image_path).some(candidate => (
+        getMistakeImageReferenceKey(candidate) === targetKey
+    )));
+}
+
+async function cleanupRemovedMistakeImages(mistakeId: number, oldValue: unknown, newValue: unknown): Promise<void> {
+    for (const ref of getRemovedMistakeImageRefs(oldValue, newValue)) {
+        const key = getMistakeImageReferenceKey(ref);
+        if (!key) {
+            logger.warn('[database] Skipped unmanaged mistake image cleanup', ref);
+            continue;
+        }
+        if (isMistakeImageStillReferenced(ref, mistakeId)) {
+            continue;
+        }
+        try {
+            await deleteManagedMistakeImage(ref);
+        } catch (error) {
+            logger.warn(
+                '[database] Failed to delete removed mistake image',
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+    }
+}
+
+async function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: Partial<Mistake>) {
+    const previous = image_path !== undefined
+        ? db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null } | undefined
+        : undefined;
+    const previousImagePath = previous?.image_path ?? null;
     const updates = [];
     const params = [];
     if (subject_id !== undefined) { updates.push('subject_id = ?'); params.push(subject_id); }
@@ -748,6 +826,9 @@ function updateMistake(id: number, { subject_id, question, answer, notes, master
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(id);
     db.prepare(`UPDATE mistakes SET ${updates.join(', ')} WHERE id=?`).run(...params);
+    if (image_path !== undefined) {
+        await cleanupRemovedMistakeImages(id, previousImagePath, image_path ?? null);
+    }
     return { success: true };
 }
 
@@ -755,8 +836,7 @@ async function deleteMistake(id: number) {
     try {
         const mistake = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null } | undefined;
         if (mistake && mistake.image_path) {
-            const fileManager = require('./fileManager');
-            await fileManager.deleteMistakeImage(mistake.image_path);
+            await cleanupRemovedMistakeImages(id, mistake.image_path, null);
         }
     } catch(e) { logger.error('Failed to cleanup mistake image', e); }
 
@@ -868,28 +948,57 @@ function deleteTemplate(id: number) {
 
 // ── AI Key (safeStorage-aware) ──────────────────────────────────────────────
 
+function encryptAiApiKeyForStorage(key: string): string {
+    const encrypted = ss.encryptString(key);
+    return `${API_KEY_ENCRYPTION_PREFIX}${encrypted.toString('base64')}`;
+}
+
+function decryptAiApiKeyFromStorage(raw: string): string {
+    const payload = raw.startsWith(API_KEY_ENCRYPTION_PREFIX)
+        ? raw.slice(API_KEY_ENCRYPTION_PREFIX.length)
+        : raw;
+    return ss.decryptString(Buffer.from(payload, 'base64'));
+}
+
 function getAiApiKey(): string | null {
     const raw = getSetting('aiApiKey');
     if (!raw || typeof raw !== 'string' || raw.length === 0) return null;
-    if (ss.isEncryptionAvailable()) {
+    if (!ss.isEncryptionAvailable()) {
+        logger.warn('[db] safeStorage unavailable - ignoring persisted API key');
+        return null;
+    }
+
+    if (raw.startsWith(API_KEY_ENCRYPTION_PREFIX)) {
         try {
-            const buf = Buffer.from(raw, 'base64');
-            return ss.decryptString(buf);
+            return decryptAiApiKeyFromStorage(raw);
         } catch {
-            return raw; // legacy plaintext
+            logger.warn('[db] Failed to decrypt stored API key');
+            return null;
         }
     }
-    return raw;
+
+    try {
+        const decrypted = decryptAiApiKeyFromStorage(raw);
+        setSetting('aiApiKey', encryptAiApiKeyForStorage(decrypted));
+        logger.info('[db] Migrated legacy encrypted API key format');
+        return decrypted;
+    } catch {
+        setSetting('aiApiKey', encryptAiApiKeyForStorage(raw));
+        logger.info('[db] Migrated legacy plaintext API key to encrypted storage');
+        return raw;
+    }
 }
 
 function setAiApiKey(key: string): void {
-    if (ss.isEncryptionAvailable()) {
-        const encrypted = ss.encryptString(key);
-        setSetting('aiApiKey', encrypted.toString('base64'));
-    } else {
-        logger.warn('[db] safeStorage unavailable — storing API key as plaintext');
-        setSetting('aiApiKey', key);
+    if (key === '') {
+        setSetting('aiApiKey', '');
+        return;
     }
+    if (!ss.isEncryptionAvailable()) {
+        logger.warn('[db] safeStorage unavailable - refusing to persist API key');
+        throw new Error(API_KEY_ENCRYPTION_UNAVAILABLE_MESSAGE);
+    }
+    setSetting('aiApiKey', encryptAiApiKeyForStorage(key));
 }
 
 module.exports = {

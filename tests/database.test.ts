@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { safeStorage } from 'electron'
+import { logger } from '../electron/logger'
 import type { Attachment, Tag } from '../src/types'
 
 type PreparedCall = {
@@ -9,6 +11,7 @@ type PreparedCall = {
 }
 
 type BatchTagRow = Tag & { entry_id: number }
+type MistakeImageRow = { id: number; image_path: string | null }
 
 type DatabaseModule = {
   initialize: () => void
@@ -17,6 +20,11 @@ type DatabaseModule = {
   updateTag: (id: number, tag: Partial<Tag>) => Tag
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAttachmentsByEntries: (entryIds: number[]) => Record<number, Attachment[]>
+  updateMistake: (id: number, mistake: { image_path?: string | null; question?: string }) => Promise<{ success: boolean }>
+  deleteMistake: (id: number) => Promise<{ success: boolean }>
+  getAiApiKey: () => string | null
+  setAiApiKey: (key: string) => void
+  getAllSettings: () => Record<string, unknown>
 }
 
 const state = vi.hoisted(() => ({
@@ -27,6 +35,17 @@ const state = vi.hoisted(() => ({
   tagById: null as Tag | null,
   allTags: [] as Tag[],
   runChanges: 1,
+  settings: {} as Record<string, unknown>,
+  mistakeRows: [] as MistakeImageRow[],
+}))
+
+const mistakeImageStorageState = vi.hoisted(() => ({
+  deleteManagedMistakeImage: vi.fn(async () => undefined),
+  getMistakeImageReferenceKey: vi.fn((ref: string) => {
+    const normalized = decodeURIComponent(ref.replace(/^local:\/\//, '').replace(/\\/g, '/'))
+    if (!normalized.startsWith('mistake_images/')) return null
+    return normalized.slice('mistake_images/'.length).toLowerCase()
+  }),
 }))
 
 vi.mock('electron', () => ({
@@ -51,6 +70,8 @@ vi.mock('../electron/logger', () => ({
   },
 }))
 
+vi.mock('../electron/mistakeImageStorage', () => mistakeImageStorageState)
+
 vi.mock('better-sqlite3', () => {
   const MockBetterSqlite3 = vi.fn(function MockBetterSqlite3() {
     return {
@@ -62,11 +83,36 @@ vi.mock('better-sqlite3', () => {
       prepare: vi.fn((sql: string) => ({
         run: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
+          if (sql.startsWith('INSERT OR REPLACE INTO settings')) {
+            state.settings[String(params[0])] = params[1]
+          }
+          if (sql.includes('UPDATE mistakes SET')) {
+            const id = Number(params[params.length - 1])
+            const row = state.mistakeRows.find(item => item.id === id)
+            if (row && sql.includes('image_path = ?')) {
+              const imagePathIndex = sql.split(', ').findIndex(part => part.includes('image_path = ?'))
+              row.image_path = params[imagePathIndex] as string | null
+            }
+          }
+          if (sql.includes('DELETE FROM mistakes WHERE id=?')) {
+            const id = Number(params[0])
+            state.mistakeRows = state.mistakeRows.filter(item => item.id !== id)
+          }
           return { lastInsertRowid: 1, changes: state.runChanges }
         }),
         get: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
           if (sql.includes('COUNT(*)')) return { count: 1 }
+          if (sql.includes('SELECT value FROM settings WHERE key=?')) {
+            const key = String(params[0])
+            return Object.prototype.hasOwnProperty.call(state.settings, key)
+              ? { value: state.settings[key] }
+              : undefined
+          }
+          if (sql.includes('SELECT image_path FROM mistakes WHERE id = ?')) {
+            const id = Number(params[0])
+            return state.mistakeRows.find(item => item.id === id)
+          }
           if (sql.includes('FROM tags') && sql.includes('WHERE id=?')) return state.tagById
           return undefined
         }),
@@ -88,8 +134,15 @@ vi.mock('better-sqlite3', () => {
           if (sql.includes('FROM tags')) {
             return state.allTags
           }
+          if (sql.includes('SELECT * FROM settings')) {
+            return Object.entries(state.settings).map(([key, value]) => ({ key, value }))
+          }
           if (sql.includes('FROM attachments')) {
             return state.attachmentRows
+          }
+          if (sql.includes('FROM mistakes') && sql.includes('id <> ?')) {
+            const excludedId = Number(params[0])
+            return state.mistakeRows.filter(row => row.id !== excludedId && row.image_path)
           }
           return []
         }),
@@ -109,6 +162,11 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.tagById = null
   state.allTags = []
   state.runChanges = 1
+  state.settings = {}
+  state.mistakeRows = []
+  mistakeImageStorageState.deleteManagedMistakeImage.mockReset()
+  mistakeImageStorageState.deleteManagedMistakeImage.mockResolvedValue(undefined)
+  mistakeImageStorageState.getMistakeImageReferenceKey.mockClear()
 
   const databaseModulePath = '../electron/database'
   const imported = await import(databaseModulePath) as unknown as DatabaseModule | { default: DatabaseModule }
@@ -130,6 +188,9 @@ function lastPreparedCall(): PreparedCall {
 describe('database batch entry metadata APIs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(false)
+    vi.mocked(safeStorage.encryptString).mockImplementation((value: string) => Buffer.from(value))
+    vi.mocked(safeStorage.decryptString).mockImplementation((value: Buffer) => value.toString('utf8'))
   })
 
   it('returns empty records for empty tag and attachment batch inputs without querying', async () => {
@@ -294,5 +355,126 @@ describe('database batch entry metadata APIs', () => {
     const call = lastPreparedCall()
     expect(call.sql).toContain('entry_id IN (?, ?)')
     expect(call.params).toEqual([2, 4])
+  })
+})
+
+describe('database AI key storage safety', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(false)
+    vi.mocked(safeStorage.encryptString).mockImplementation((value: string) => Buffer.from(`encrypted:${value}`))
+    vi.mocked(safeStorage.decryptString).mockImplementation((value: Buffer) => {
+      const raw = value.toString('utf8')
+      if (!raw.startsWith('encrypted:')) {
+        throw new Error('decrypt failed')
+      }
+      return raw.replace(/^encrypted:/, '')
+    })
+  })
+
+  it('stores encrypted API keys when safeStorage is available', async () => {
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true)
+    const database = await loadDatabase()
+
+    database.setAiApiKey('sk-secret-key')
+
+    expect(String(state.settings.aiApiKey)).not.toContain('sk-secret-key')
+    expect(state.settings.aiApiKey).toBe(`enc:v1:${Buffer.from('encrypted:sk-secret-key').toString('base64')}`)
+    expect(database.getAiApiKey()).toBe('sk-secret-key')
+  })
+
+  it('migrates legacy plaintext API keys when safeStorage is available', async () => {
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true)
+    const database = await loadDatabase()
+    state.settings.aiApiKey = 'sk-legacy-key'
+
+    expect(database.getAiApiKey()).toBe('sk-legacy-key')
+
+    expect(String(state.settings.aiApiKey)).toMatch(/^enc:v1:/)
+    expect(String(state.settings.aiApiKey)).not.toContain('sk-legacy-key')
+    const warningText = vi.mocked(logger.warn).mock.calls.flat().map(String).join(' ')
+    expect(warningText).not.toContain('sk-legacy-key')
+  })
+
+  it('does not re-encrypt API keys that already have the current encryption prefix', async () => {
+    vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true)
+    const database = await loadDatabase()
+    const encrypted = `enc:v1:${Buffer.from('encrypted:sk-current-key').toString('base64')}`
+    state.settings.aiApiKey = encrypted
+    vi.mocked(safeStorage.encryptString).mockClear()
+
+    expect(database.getAiApiKey()).toBe('sk-current-key')
+
+    expect(state.settings.aiApiKey).toBe(encrypted)
+    expect(safeStorage.encryptString).not.toHaveBeenCalled()
+  })
+
+  it('refuses to persist API keys when safeStorage is unavailable', async () => {
+    const database = await loadDatabase()
+
+    expect(() => database.setAiApiKey('sk-secret-key')).toThrow('当前系统加密能力不可用，无法安全保存 API Key')
+    expect(state.settings.aiApiKey).toBeUndefined()
+
+    const warningText = vi.mocked(logger.warn).mock.calls.flat().map(String).join(' ')
+    expect(warningText).toContain('safeStorage unavailable')
+    expect(warningText).not.toContain('sk-secret-key')
+  })
+})
+
+describe('database mistake image cleanup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('deletes a removed single-image legacy reference', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/old.png' }]
+
+    await expect(database.updateMistake(1, { image_path: null })).resolves.toEqual({ success: true })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/old.png')
+  })
+
+  it('deletes only the removed image from a JSON image list', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: JSON.stringify(['mistake_images/a.png', 'mistake_images/b.png']) }]
+
+    await database.updateMistake(1, { image_path: JSON.stringify(['mistake_images/b.png']) })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledTimes(1)
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/a.png')
+  })
+
+  it('does not delete a removed image still referenced by another mistake', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [
+      { id: 1, image_path: 'mistake_images/shared.png' },
+      { id: 2, image_path: 'mistake_images/shared.png' },
+    ]
+
+    await database.updateMistake(1, { image_path: null })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+
+  it('does not delete paths outside the managed mistake image directory', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'C:\\Users\\tester\\Desktop\\outside.png' }]
+
+    await database.updateMistake(1, { image_path: null })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Skipped unmanaged mistake image cleanup'), expect.any(String))
+  })
+
+  it('keeps the database update successful when physical deletion fails', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/fail.png' }]
+    mistakeImageStorageState.deleteManagedMistakeImage.mockRejectedValueOnce(new Error('disk locked'))
+
+    await expect(database.updateMistake(1, { image_path: null })).resolves.toEqual({ success: true })
+
+    expect(state.preparedCalls.some(call => call.sql.includes('UPDATE mistakes SET'))).toBe(true)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to delete removed mistake image'), 'disk locked')
   })
 })
