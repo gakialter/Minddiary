@@ -31,6 +31,19 @@ describe('updater configuration guard', () => {
     })).toBe(true)
   })
 
+  it('accepts package publish configuration as an explicit fallback', () => {
+    expect(isAutoUpdateConfigured({
+      isPackaged: true,
+      appUpdateConfigPath: 'C:\\missing\\app-update.yml',
+      fsExists: () => false,
+      packageMetadata: {
+        build: {
+          publish: [{ provider: 'github', owner: 'gakialter', repo: 'Minddiary' }],
+        },
+      },
+    })).toBe(true)
+  })
+
   it('recognizes a real GitHub publish configuration and rejects placeholders', () => {
     expect(hasPublishConfiguration({
       build: {

@@ -25,6 +25,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check Windows signing secrets
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CONFIGURED: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "### Windows signing preflight"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
+          if ($env:WINDOWS_SIGNING_CONFIGURED -ne 'true') {
+            $message = "CSC_LINK and CSC_KEY_PASSWORD must be configured before publishing a public Windows release."
+            Write-Host "::error::$message"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: false"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Unsigned installers can show Unknown Publisher and Windows SmartScreen warnings. Configure the secrets before pushing a release tag."
+            exit 1
+          }
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: true"
+
       - name: Build Electron
         run: npm run build:electron
 
@@ -35,7 +52,19 @@ jobs:
         run: npm run build:resources
 
       - name: Package Windows build
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --x64 --publish never
+
+      - name: Verify Windows signing
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CONFIGURED: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+        run: ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:($env:WINDOWS_SIGNING_CONFIGURED -eq 'true')
+
+      - name: Verify Windows update metadata
+        run: npx tsx scripts/verify-release-metadata.ts --platform win --release-dir release --package package.json
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

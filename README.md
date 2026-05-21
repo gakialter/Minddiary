@@ -119,8 +119,9 @@ npm run build:mac    # macOS
 
 - Auto updates use the GitHub release feed configured in `package.json` through `build.publish`.
 - Windows code signing is optional for local builds. Unsigned installers can trigger Windows SmartScreen warnings.
-- Signed Windows releases should provide `CSC_LINK` and `CSC_KEY_PASSWORD` in the release environment.
+- Public tag-based Windows releases must provide `CSC_LINK` and `CSC_KEY_PASSWORD` in the release environment.
 - `npm run build` must continue to work without signing secrets; release signing is only enabled when the certificate variables are present.
+- See [Release Checklist](./docs/release-checklist.md) for signing verification, update metadata checks, and SmartScreen guidance.
 
 ### Automatic backup and restore scope
 
