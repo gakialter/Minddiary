@@ -54,6 +54,8 @@ const createSettingsApiMock = (): ElectronSettingsAPI => ({
   updateAI: vi.fn<ElectronSettingsAPI['updateAI']>().mockResolvedValue({ success: true }),
   updateBackup: vi.fn<ElectronSettingsAPI['updateBackup']>().mockResolvedValue({ success: true }),
   selectBackupFolder: vi.fn<ElectronSettingsAPI['selectBackupFolder']>().mockResolvedValue(null),
+  selectBackupFile: vi.fn<ElectronSettingsAPI['selectBackupFile']>().mockResolvedValue(null),
+  restoreBackupFromZip: vi.fn<ElectronSettingsAPI['restoreBackupFromZip']>().mockResolvedValue({ success: false }),
 })
 
 const wrapper = ({ children }: { children: ReactNode }) => (

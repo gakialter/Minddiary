@@ -31,8 +31,14 @@ interface SettingsBackupProps {
   backupPath: string; setBackupPath: (v: string) => void
   exportData: () => Promise<void>
   importData: () => Promise<void>
+  restoreAutomaticBackupZip: () => Promise<void>
   showToast: (message: string, type?: 'success' | 'error' | 'info', duration?: number) => number
 }
+
+const RESTORE_ZIP_LABEL = '\u6062\u590d\u81ea\u52a8\u5907\u4efd ZIP'
+const RESTORE_ZIP_BUTTON = '\u4ece ZIP \u6062\u590d'
+const RESTORE_ZIP_HELP = '\u6062\u590d\u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e\u3001\u9644\u4ef6\u548c\u9519\u9898\u56fe\u7247\u3002\u4ec5\u652f\u6301 MindDiary \u751f\u6210\u7684\u81ea\u52a8\u5907\u4efd ZIP\u3002'
+const BACKUP_SCOPE_HELP = '\u6570\u636e\u5168\u90e8\u5b58\u50a8\u5728\u672c\u5730\u3002JSON \u5bfc\u5165\u7528\u4e8e\u624b\u52a8\u5bfc\u51fa\u7684\u5907\u4efd\uff1b\u81ea\u52a8\u5907\u4efd ZIP \u8bf7\u4f7f\u7528\u4e0a\u65b9\u6062\u590d\u5165\u53e3\u3002'
 
 function createFocusWhitelistId(): string {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -775,7 +781,7 @@ export function SettingsAI({
 export function SettingsBackup({
     autoBackup, setAutoBackup,
     backupPath, setBackupPath,
-    exportData, importData, showToast
+    exportData, importData, restoreAutomaticBackupZip, showToast
 }: SettingsBackupProps) {
     return (
         <div style={sectionStyle}>
@@ -827,8 +833,17 @@ export function SettingsBackup({
                         <FolderOpen size={15} /> 从 JSON 导入
                     </button>
                 </div>
+                <div>
+                    <label style={labelStyle}>{RESTORE_ZIP_LABEL}</label>
+                    <button className="button button-secondary w-full" onClick={restoreAutomaticBackupZip}>
+                        <RotateCw size={15} /> {RESTORE_ZIP_BUTTON}
+                    </button>
+                    <div className="text-xs text-muted" style={{ marginTop: 'var(--space-xs)' }}>
+                        {RESTORE_ZIP_HELP}
+                    </div>
+                </div>
                 <div className="text-xs text-muted">
-                    数据全部存储在本地。内置导入当前仅支持手动导出的 JSON；自动备份 ZIP 请保留为灾备包，后续版本将提供恢复入口。
+                    {BACKUP_SCOPE_HELP}
                 </div>
             </div>
         </div>

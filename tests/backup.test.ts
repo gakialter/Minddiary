@@ -89,4 +89,30 @@ describe('auto backup package', () => {
     expect(fs.existsSync(unknown)).toBe(true)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('unparseable backup date'), expect.stringContaining('MindDiary_AutoBackup_latest.zip'))
   })
+
+  it('strips sensitive settings when backup data uses database row-shaped settings', async () => {
+    const root = makeTempRoot()
+    const backupPath = path.join(root, 'backups')
+
+    const backupFile = await createAutoBackup({
+      backupPath,
+      userDataPath: path.join(root, 'userData'),
+      appVersion: '1.9.3',
+      schemaVersion: 1,
+      now: new Date('2026-05-20T01:02:03.004Z'),
+      keep: 7,
+      logger: { warn: vi.fn(), error: vi.fn() },
+      data: {
+        settings: [
+          { key: 'theme', value: 'dark' },
+          { key: 'aiApiKey', value: 'enc:v1:secret-key-material' },
+        ],
+      },
+    })
+
+    const zipText = fs.readFileSync(backupFile).toString('utf8')
+    expect(zipText).toContain('"theme"')
+    expect(zipText).not.toContain('aiApiKey')
+    expect(zipText).not.toContain('secret-key-material')
+  })
 })

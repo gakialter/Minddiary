@@ -77,6 +77,8 @@ test.describe('Settings Persistence (IPC to SQLite to readback)', () => {
             'updateAI',
             'updateBackup',
             'selectBackupFolder',
+            'selectBackupFile',
+            'restoreBackupFromZip',
         ]));
         expect(settingKeys).not.toContain('set');
         expect(settingKeys).not.toContain('get');

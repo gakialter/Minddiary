@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld('api', {
             autoBackup?: boolean; backupPath?: string;
         }) => ipcRenderer.invoke('settings:updateBackup', patch),
         selectBackupFolder: () => ipcRenderer.invoke('settings:selectBackupFolder'),
+        selectBackupFile: () => ipcRenderer.invoke('settings:selectBackupFile'),
+        restoreBackupFromZip: (filepath: string) => ipcRenderer.invoke('settings:restoreBackupFromZip', filepath),
     },
 
     // Templates

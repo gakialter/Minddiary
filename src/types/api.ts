@@ -62,6 +62,17 @@ export interface UpdateBackupPatch {
   autoBackup?: boolean; backupPath?: string
 }
 
+export interface RestoreBackupResult {
+  success: boolean
+  message?: string
+  manifest?: {
+    appVersion: string
+    createdAt: string
+    schemaVersion: number
+    backupFormatVersion: number
+  }
+}
+
 export interface SanitizedSettings {
   theme?: string; examDate?: string; dailyGoal?: number
   countdownEvents?: CountdownEvent[]
@@ -84,6 +95,8 @@ export interface ElectronSettingsAPI {
   updateAI: (patch: UpdateAIPatch) => Promise<{ success: boolean }>
   updateBackup: (patch: UpdateBackupPatch) => Promise<{ success: boolean }>
   selectBackupFolder: () => Promise<string | null>
+  selectBackupFile: () => Promise<string | null>
+  restoreBackupFromZip: (filepath: string) => Promise<RestoreBackupResult>
 }
 
 export interface ElectronAttachmentsAPI {
@@ -305,6 +318,8 @@ export interface SettingsContextAPI {
   updateAI: (patch: UpdateAIPatch) => Promise<unknown>
   updateBackup: (patch: UpdateBackupPatch) => Promise<unknown>
   selectBackupFolder?: () => Promise<string | null>
+  selectBackupFile?: () => Promise<string | null>
+  restoreBackupFromZip?: (filepath: string) => Promise<RestoreBackupResult>
 }
 
 export interface DiaryContextValue {

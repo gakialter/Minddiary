@@ -126,8 +126,10 @@ npm run build:mac    # macOS
 ### Automatic backup and restore scope
 
 - Silent automatic backups are zip disaster recovery packages that include `manifest.json`, `database.json`, and managed media directories such as `attachments/` and `mistake_images/`.
-- The current built-in import flow restores manually exported JSON backups only. It does not restore automatic zip backups inside the app yet.
-- TODO: support restoring automatic zip backups, including manifest validation, `database.json`, managed media directories, and zip-slip path validation.
+- Automatic backup ZIP restore is available from the desktop settings screen and overwrites the current database, attachments, and mistake images.
+- Before restoring, manually copy the current app data directory if you need an extra rollback point outside the built-in restore transaction.
+- Restore accepts only MindDiary-generated automatic backup ZIP files with a supported `backupFormatVersion` and non-future `schemaVersion`.
+- Corrupt ZIP files, unsupported compression methods, unsafe paths, hand-modified packages, and zip-slip entries are rejected before user data is replaced.
 
 ## 项目结构
 
