@@ -138,6 +138,18 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             }
             return null
         },
+        selectBackupFile: async () => {
+            if (IS_ELECTRON) {
+                return window.api.settings.selectBackupFile()
+            }
+            return null
+        },
+        restoreBackupFromZip: async (filepath) => {
+            if (IS_ELECTRON) {
+                return window.api.settings.restoreBackupFromZip(filepath)
+            }
+            return { success: false, message: 'Automatic ZIP restore is only supported in the desktop app.' }
+        },
     }
 
     // ─── Theme helpers ────────────────────────────────────────────────────────
@@ -157,6 +169,8 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             updateAI: settingsAPI.updateAI,
             updateBackup: settingsAPI.updateBackup,
             selectBackupFolder: settingsAPI.selectBackupFolder,
+            selectBackupFile: settingsAPI.selectBackupFile,
+            restoreBackupFromZip: settingsAPI.restoreBackupFromZip,
         },
     }), [settings, settingsInitialized, currentTheme, isDarkMode, changeTheme])
 

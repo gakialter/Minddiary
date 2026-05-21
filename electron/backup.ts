@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { stripSensitiveSettings } from './settingsSecurity';
+import { SENSITIVE_SETTINGS_KEYS, stripSensitiveSettings } from './settingsSecurity';
 
 export const BACKUP_FORMAT_VERSION = 2;
 const BACKUP_PREFIX = 'MindDiary_AutoBackup_';
@@ -153,6 +153,16 @@ async function collectDirectoryEntries(rootDir: string, zipRoot: string, date: D
     return entries;
 }
 
+function sanitizeBackupSettings(settings: unknown): unknown {
+    if (Array.isArray(settings)) {
+        return settings.filter(row => {
+            if (!row || typeof row !== 'object' || Array.isArray(row)) return true;
+            return !SENSITIVE_SETTINGS_KEYS.includes(String((row as Record<string, unknown>).key));
+        });
+    }
+    return stripSensitiveSettings(settings as Record<string, unknown> | null | undefined);
+}
+
 function sanitizeBackupData(data: Record<string, unknown>): Record<string, unknown> {
     const nestedData = data.data && typeof data.data === 'object' && !Array.isArray(data.data)
         ? data.data as Record<string, unknown>
@@ -161,7 +171,7 @@ function sanitizeBackupData(data: Record<string, unknown>): Record<string, unkno
         ...data,
         data: {
             ...nestedData,
-            settings: stripSensitiveSettings(nestedData.settings as Record<string, unknown> | null | undefined),
+            settings: sanitizeBackupSettings(nestedData.settings),
         },
     };
 }

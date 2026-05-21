@@ -51,6 +51,11 @@ const mockApi: ElectronAPI = {
         updateAI: async () => ({ success: true }),
         updateBackup: async () => ({ success: true }),
         selectBackupFolder: async () => null,
+        selectBackupFile: async () => null,
+        restoreBackupFromZip: async () => ({
+            success: false,
+            message: 'Automatic ZIP restore is only supported in the desktop app.',
+        }),
     },
     attachments: {
         save: async () => ({ id: 0, entry_id: 0, filename: '', filepath: '', mimetype: '', created_at: '' }),

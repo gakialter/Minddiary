@@ -11,6 +11,7 @@ const aiService = require('./aiService');
 const { createExportHandlers } = require('./exportHandlers');
 const { getActiveAppInfo } = require('./focusGuard');
 import { createAutoBackup } from './backup';
+import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
@@ -673,33 +674,39 @@ ipcMain.handle('export:toPDF', exportHandlers.toPDF);
 
 // ==================== Auto Backup ====================
 
+const allowedBackupRestorePaths = new Set<string>();
+
+function normalizeBackupZipPath(filepath: unknown): string {
+    if (typeof filepath !== 'string' || filepath.trim().length === 0) {
+        throw new Error('Invalid backup path');
+    }
+    if (filepath.includes('\0')) {
+        throw new Error('Invalid backup path');
+    }
+    const resolved = path.resolve(filepath);
+    if (!path.isAbsolute(resolved)) {
+        throw new Error('Backup path must be absolute');
+    }
+    if (path.extname(resolved).toLowerCase() !== '.zip') {
+        throw new Error('Backup path must be a .zip file');
+    }
+    return resolved;
+}
+
 const runAutoBackup = async () => {
     try {
         const autoBackup = db.getSetting('autoBackup');
         const backupPath = db.getSetting('backupPath');
         if (String(autoBackup) !== 'true' || !backupPath) return;
 
-        const entries = db.getAllEntries({ includeContent: true });
-        const tags = db.getAllTags();
-        const subjects = db.getAllSubjects();
-        const mistakes = db.getAllMistakes({});
-        const pomodoro = db.getPomodoroRange('1970-01-01', '2099-12-31');
-
         await createAutoBackup({
             backupPath,
             userDataPath: app.getPath('userData'),
             appVersion: app.getVersion(),
-            schemaVersion: 1,
+            schemaVersion: db.CURRENT_SCHEMA_VERSION,
             keep: 7,
             logger,
-            data: {
-                entries,
-                tags,
-                subjects,
-                mistakes,
-                pomodoro,
-                settings: db.getAllSettings(),
-            },
+            data: db.exportBackupData(),
         });
     } catch (e: unknown) {
         logger.error('Auto backup failed:', e instanceof Error ? e.message : String(e));
@@ -724,4 +731,39 @@ ipcMain.handle('settings:selectBackupFolder', async () => {
         buttonLabel: '选择',
     });
     return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('settings:selectBackupFile', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        title: 'Select automatic backup ZIP',
+        buttonLabel: 'Select',
+        filters: [{ name: 'MindDiary automatic backup', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const selected = normalizeBackupZipPath(result.filePaths[0]);
+    allowedBackupRestorePaths.add(selected);
+    return selected;
+});
+
+ipcMain.handle('settings:restoreBackupFromZip', async (_event: unknown, filepath: unknown) => {
+    try {
+        const zipPath = normalizeBackupZipPath(filepath);
+        if (!allowedBackupRestorePaths.has(zipPath)) {
+            throw new Error('Backup ZIP must be selected before restore');
+        }
+        allowedBackupRestorePaths.delete(zipPath);
+        const result = await restoreAutoBackupFromZip({
+            zipPath,
+            userDataPath: app.getPath('userData'),
+            currentSchemaVersion: db.CURRENT_SCHEMA_VERSION,
+            restoreDatabase: (data) => db.restoreBackupData(data),
+            logger,
+        });
+        return { success: true, manifest: result.manifest };
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('[backup-restore] Restore failed:', message);
+        return { success: false, message };
+    }
 });

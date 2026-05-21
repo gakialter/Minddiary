@@ -11,6 +11,13 @@ import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbo
 import type { CountdownEvent, FocusWhitelistItem } from '../types'
 import type { UpdateStatus } from '../types/api'
 
+const ZIP_RESTORE_UNSUPPORTED_MESSAGE = '\u6b64\u529f\u80fd\u4ec5\u5728\u684c\u9762\u5ba2\u6237\u7aef\u53ef\u7528'
+const ZIP_RESTORE_CONFIRM_MESSAGE = '\u6062\u590d\u81ea\u52a8\u5907\u4efd ZIP \u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e\u3001\u9644\u4ef6\u548c\u9519\u9898\u56fe\u7247\u3002\u5efa\u8bae\u5148\u624b\u52a8\u590d\u5236\u5f53\u524d\u6570\u636e\u76ee\u5f55\u3002\u662f\u5426\u7ee7\u7eed\uff1f'
+const ZIP_RESTORE_IN_PROGRESS_MESSAGE = '\u6b63\u5728\u6062\u590d\u81ea\u52a8\u5907\u4efd ZIP...'
+const ZIP_RESTORE_SUCCESS_MESSAGE = '\u6062\u590d\u6210\u529f\uff0c\u8bf7\u91cd\u542f\u5e94\u7528\u6216\u5237\u65b0\u6570\u636e\u3002'
+const ZIP_RESTORE_FAILED_PREFIX = '\u6062\u590d\u5931\u8d25'
+const ZIP_RESTORE_UNKNOWN_ERROR = '\u672a\u77e5\u9519\u8bef'
+
 function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
   if (!Array.isArray(value)) return []
   return value.flatMap(item => {
@@ -314,6 +321,33 @@ function Settings() {
     input.click()
   }
 
+  const restoreAutomaticBackupZip = async () => {
+    if (!diary.settings.selectBackupFile || !diary.settings.restoreBackupFromZip) {
+      showToast(ZIP_RESTORE_UNSUPPORTED_MESSAGE, 'error')
+      return
+    }
+
+    const filepath = await diary.settings.selectBackupFile()
+    if (!filepath) return
+    if (!window.confirm(ZIP_RESTORE_CONFIRM_MESSAGE)) return
+
+    try {
+      setSaving(true)
+      showToast(ZIP_RESTORE_IN_PROGRESS_MESSAGE, 'info')
+      const result = await diary.settings.restoreBackupFromZip(filepath)
+      if (!result.success) {
+        throw new Error(result.message || ZIP_RESTORE_UNKNOWN_ERROR)
+      }
+      diary.requestDataRefresh?.()
+      showToast(ZIP_RESTORE_SUCCESS_MESSAGE, 'success', 5000)
+    } catch (error: unknown) {
+      logger.error('Automatic ZIP restore failed:', error)
+      showToast(`${ZIP_RESTORE_FAILED_PREFIX}: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const checkForUpdates = async () => {
     if (!window.api?.updater?.check) {
       showToast('此功能仅在桌面客户端可用', 'error')
@@ -369,7 +403,7 @@ function Settings() {
         <SettingsBackup 
             autoBackup={autoBackup} setAutoBackup={setAutoBackup}
             backupPath={backupPath} setBackupPath={setBackupPath}
-            exportData={exportData} importData={importData}
+            exportData={exportData} importData={importData} restoreAutomaticBackupZip={restoreAutomaticBackupZip}
             showToast={showToast}
         />
         <SettingsFocus

@@ -60,6 +60,8 @@ const createWindowApiMock = (): ElectronAPI => ({
     updateAI: vi.fn().mockResolvedValue({ success: true }),
     updateBackup: vi.fn().mockResolvedValue({ success: true }),
     selectBackupFolder: vi.fn().mockResolvedValue(null),
+    selectBackupFile: vi.fn().mockResolvedValue(null),
+    restoreBackupFromZip: vi.fn().mockResolvedValue({ success: false }),
   },
   attachments: {
     save: vi.fn().mockResolvedValue({

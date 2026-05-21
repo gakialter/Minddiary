@@ -13,6 +13,12 @@ import {
     normalizeTag,
     normalizeTagList,
 } from '../src/utils/tagStyle';
+import {
+    DATABASE_BACKUP_TABLES,
+    normalizeBackupDatabaseData,
+    type DatabaseBackupRow,
+    type NormalizedBackupDatabaseData,
+} from './databaseBackupData';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -24,6 +30,7 @@ import type {
 // .get/.all/.run call site. That is a separate task; the exported function
 // signatures are typed, which is what matters for IPC callers.
 let db: Database.Database;
+const CURRENT_SCHEMA_VERSION = 1;
 
 let customDbPath: string | null = null;
 const API_KEY_ENCRYPTION_UNAVAILABLE_MESSAGE = '当前系统加密能力不可用，无法安全保存 API Key';
@@ -1001,7 +1008,47 @@ function setAiApiKey(key: string): void {
     setSetting('aiApiKey', encryptAiApiKeyForStorage(key));
 }
 
+function exportBackupData(): Record<string, unknown> {
+    const snapshot: Record<string, unknown> = {};
+    for (const definition of DATABASE_BACKUP_TABLES) {
+        const columns = definition.columns.join(', ');
+        snapshot[definition.key] = db.prepare(`SELECT ${columns} FROM ${definition.table}`).all() as DatabaseBackupRow[];
+    }
+    return snapshot;
+}
+
+function getNormalizedBackupRows(
+    data: NormalizedBackupDatabaseData,
+    key: typeof DATABASE_BACKUP_TABLES[number]['key'],
+): DatabaseBackupRow[] {
+    return data[key];
+}
+
+function insertBackupRows(table: string, allowedColumns: readonly string[], rows: DatabaseBackupRow[]): void {
+    for (const row of rows) {
+        const columns = allowedColumns.filter(column => Object.prototype.hasOwnProperty.call(row, column));
+        if (columns.length === 0) continue;
+        const placeholders = columns.map(() => '?').join(', ');
+        const statement = db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`);
+        statement.run(...columns.map(column => row[column]));
+    }
+}
+
+function restoreBackupData(data: Record<string, unknown>): void {
+    const normalized = normalizeBackupDatabaseData(data);
+    const transaction = db.transaction(() => {
+        for (const definition of [...DATABASE_BACKUP_TABLES].reverse()) {
+            db.prepare(`DELETE FROM ${definition.table}`).run();
+        }
+        for (const definition of DATABASE_BACKUP_TABLES) {
+            insertBackupRows(definition.table, definition.columns, getNormalizedBackupRows(normalized, definition.key));
+        }
+    });
+    transaction();
+}
+
 module.exports = {
+    CURRENT_SCHEMA_VERSION,
     initialize,
     createEntry, updateEntry, deleteEntry, getEntryById, getEntryByDate,
     getAllEntries, searchEntries, getDatesWithEntries,
@@ -1015,5 +1062,6 @@ module.exports = {
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
     setCustomDbPath, getDb: () => db,
-    getAiApiKey, setAiApiKey
+    getAiApiKey, setAiApiKey,
+    exportBackupData, restoreBackupData,
 };
