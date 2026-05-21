@@ -46,6 +46,28 @@ describe('database backup data normalization', () => {
     expect(normalized.pomodoro_sessions).toEqual([])
   })
 
+  it('filters sensitive settings from object-shaped restore payloads', () => {
+    const normalized = normalizeBackupDatabaseData({
+      settings: {
+        theme: 'dark',
+        aiApiKey: 'enc:v1:secret',
+      },
+    })
+
+    expect(normalized.settings).toEqual([{ key: 'theme', value: 'dark' }])
+  })
+
+  it('filters sensitive settings from row-shaped restore payloads', () => {
+    const normalized = normalizeBackupDatabaseData({
+      settings: [
+        { key: 'theme', value: 'dark' },
+        { key: 'aiApiKey', value: 'enc:v1:secret' },
+      ],
+    })
+
+    expect(normalized.settings).toEqual([{ key: 'theme', value: 'dark' }])
+  })
+
   it('rejects invalid table shapes before SQLite restore starts', () => {
     expect(() => normalizeBackupDatabaseData({
       entries: { id: 1 },

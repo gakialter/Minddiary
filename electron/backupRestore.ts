@@ -295,6 +295,9 @@ function validateManifest(raw: Record<string, unknown>, currentSchemaVersion: nu
     if (!Number.isInteger(schemaVersion)) {
         throw new Error('Invalid manifest.json: schemaVersion must be an integer');
     }
+    if ((schemaVersion as number) < 1) {
+        throw new Error(`Invalid manifest.json: schemaVersion must be at least 1, got ${schemaVersion}`);
+    }
     if ((schemaVersion as number) > currentSchemaVersion) {
         throw new Error(`Unsupported schema version: backup schema ${schemaVersion} is newer than current schema ${currentSchemaVersion}`);
     }

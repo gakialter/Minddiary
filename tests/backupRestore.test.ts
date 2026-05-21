@@ -236,6 +236,13 @@ describe('automatic backup ZIP restore', () => {
     ]), /schema/i)
   })
 
+  it.each([0, -1])('fails for invalid schemaVersion %s', async (schemaVersion) => {
+    await expectRejectedWithoutMutation(createStoredZip([
+      { name: 'manifest.json', data: JSON.stringify(makeManifest({ schemaVersion })) },
+      { name: 'database.json', data: JSON.stringify(makeDatabasePayload()) },
+    ]), /schemaVersion/i)
+  })
+
   it('fails for corrupt ZIP files', async () => {
     await expectRejectedWithoutMutation(Buffer.from('not a zip file', 'utf8'), /zip/i)
   })

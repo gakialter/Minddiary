@@ -1,3 +1,5 @@
+import { SENSITIVE_SETTINGS_KEYS } from './settingsSecurity';
+
 export type DatabaseBackupValue = string | number | null;
 export type DatabaseBackupRow = Record<string, DatabaseBackupValue>;
 
@@ -122,18 +124,25 @@ function normalizeSettingValue(value: unknown): string | null {
     return JSON.stringify(value);
 }
 
+function isSensitiveSettingKey(key: string): boolean {
+    return SENSITIVE_SETTINGS_KEYS.includes(key);
+}
+
 function normalizeSettings(raw: unknown): DatabaseBackupRow[] {
     if (raw === undefined) return [];
     if (Array.isArray(raw)) {
-        return raw.map((row, index) => {
+        return raw.flatMap((row, index) => {
             if (!isRecord(row) || typeof row.key !== 'string') {
                 throw new Error(`Invalid database backup: settings[${index}] must have a string key`);
             }
-            return { key: row.key, value: normalizeSettingValue(row.value) };
+            if (isSensitiveSettingKey(row.key)) return [];
+            return [{ key: row.key, value: normalizeSettingValue(row.value) }];
         });
     }
     if (isRecord(raw)) {
-        return Object.entries(raw).map(([key, value]) => ({ key, value: normalizeSettingValue(value) }));
+        return Object.entries(raw)
+            .filter(([key]) => !isSensitiveSettingKey(key))
+            .map(([key, value]) => ({ key, value: normalizeSettingValue(value) }));
     }
     throw new Error('Invalid database backup: settings must be an object or an array');
 }
