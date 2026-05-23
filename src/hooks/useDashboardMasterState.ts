@@ -62,10 +62,11 @@ export function useDashboardMasterState(data: TodayDashboardData | null): Dashbo
     }
 
     // State B: Steady progress (catch-all for healthy states)
+    const nextSession = pomodoroToday.sessionCount + 1;
     return {
         type: 'B',
         title: '今天没有明显遗忘风险，适合推进新内容。',
         subtitle: '建议完成后续番茄，并沉淀复盘记录维持高转化率。',
-        ctaText: '开始今天第 1 个有效番茄'
+        ctaText: `开始今天第 ${nextSession} 个有效番茄`
     };
 }

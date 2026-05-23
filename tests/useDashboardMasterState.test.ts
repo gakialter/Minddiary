@@ -121,4 +121,51 @@ describe('useDashboardMasterState', () => {
     expect(state.type).toBe('B')
     expect(state.title).toContain('没有明显遗忘风险')
   })
+
+  it('State B ctaText shows "第 1 个" when today has 0 sessions', () => {
+    const state = useDashboardMasterState(
+      makeMockData({
+        streakDays: 3,
+        commanderMetrics: { riskPoolCount: 0, focusConversionRate: 80 },
+        pomodoroToday: { sessionCount: 0 },
+      }),
+    )
+
+    expect(state.type).toBe('B')
+    expect(state.ctaText).toBe('开始今天第 1 个有效番茄')
+  })
+
+  it('State B ctaText shows "第 2 个" when today has 1 session', () => {
+    const state = useDashboardMasterState(
+      makeMockData({
+        streakDays: 3,
+        commanderMetrics: { riskPoolCount: 0, focusConversionRate: 80 },
+        pomodoroToday: { sessionCount: 1 },
+      }),
+    )
+
+    expect(state.type).toBe('B')
+    expect(state.ctaText).toBe('开始今天第 2 个有效番茄')
+  })
+
+  it('State B ctaText shows correct next number with multiple sessions', () => {
+    const state = useDashboardMasterState(
+      makeMockData({
+        streakDays: 10,
+        commanderMetrics: { riskPoolCount: 1, focusConversionRate: 90 },
+        pomodoroToday: { sessionCount: 5 },
+      }),
+    )
+
+    expect(state.type).toBe('B')
+    expect(state.ctaText).toBe('开始今天第 6 个有效番茄')
+  })
+
+  it('loading state (null data) does not show a session-count CTA', () => {
+    const state = useDashboardMasterState(null)
+
+    expect(state.type).toBe('D')
+    expect(state.ctaText).toBe('请稍候...')
+    expect(state.ctaText).not.toContain('有效番茄')
+  })
 })
