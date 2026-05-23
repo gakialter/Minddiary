@@ -16,6 +16,7 @@ interface PomodoroTimerValue {
   mode: PomodoroMode
   timeLeft: number
   isRunning: boolean
+  hasActiveTimerSession: boolean
   progress: number
   circleCircumference: number
   miniCircumference: number
@@ -272,6 +273,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   const endTimeRef = useRef<number | null>(null)
   const activeSessionRef = useRef(false)
+  const [hasActiveTimerSession, setHasActiveTimerSession] = useState(false)
   const restoreAttemptedRef = useRef(false)
   const skipNextPersistWriteRef = useRef(false)
   const modeRef = useRef(mode)
@@ -333,6 +335,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   const clearActiveSessionState = useCallback(() => {
     activeSessionRef.current = false
+    setHasActiveTimerSession(false)
     endTimeRef.current = null
     sessionStartedAtRef.current = null
     clearPersistedActiveSession()
@@ -521,6 +524,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     skipNextPersistWriteRef.current = true
     activeSessionRef.current = true
+    setHasActiveTimerSession(true)
     sessionStartedAtRef.current = restore.session.startedAtMs
       ? new Date(restore.session.startedAtMs)
       : null
@@ -608,6 +612,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const toggleTimer = useCallback(() => {
     const nextIsRunning = !isRunning
     activeSessionRef.current = true
+    setHasActiveTimerSession(true)
     lastTickRemainingRef.current = timeLeft
 
     if (nextIsRunning) {
@@ -647,8 +652,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   // Context Values
   const timerValue = useMemo((): PomodoroTimerValue => ({
-    mode, timeLeft, isRunning, progress, circleCircumference, miniCircumference, dynamicModes
-  }), [mode, timeLeft, isRunning, progress, circleCircumference, miniCircumference, dynamicModes])
+    mode, timeLeft, isRunning, hasActiveTimerSession, progress, circleCircumference, miniCircumference, dynamicModes
+  }), [mode, timeLeft, isRunning, hasActiveTimerSession, progress, circleCircumference, miniCircumference, dynamicModes])
 
   const dataValue = useMemo((): PomodoroDataValue => ({
     subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState

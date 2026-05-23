@@ -89,7 +89,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
   const {
     mode, timeLeft, isRunning,
     progress, circleCircumference, miniCircumference,
-    dynamicModes,
+    dynamicModes, hasActiveTimerSession,
   } = usePomodoroTimer()
 
   const {
@@ -356,22 +356,32 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
 
       {/* Mode Switcher */}
       <div className="flex gap-sm p-1 rounded-full bg-secondary" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 24, marginBottom: 'var(--space-2xl)' }}>
-        {Object.values(dynamicModes).map(m => (
-          <button
-            key={m.id}
-            onClick={() => setMode(m)}
-            data-testid={`pomodoro-mode-${m.id}`}
-            style={{
-              padding: '6px 16px', borderRadius: 20, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer',
-              background: mode.id === m.id ? 'var(--bg-primary)' : 'transparent',
-              color: mode.id === m.id ? m.color : 'var(--text-muted)',
-              boxShadow: mode.id === m.id ? 'var(--shadow-sm)' : 'none',
-              transition: 'all 0.3s'
-            }}
-          >
-            {m.label}
-          </button>
-        ))}
+        {Object.values(dynamicModes).map(m => {
+          const isCurrentMode = mode.id === m.id
+          const isFocusMode = mode.id === 'work' || mode.id === 'custom'
+          const shouldLockModeSwitch = hasActiveTimerSession && isFocusMode
+          const isSwitchDisabled = !isCurrentMode && shouldLockModeSwitch
+          return (
+            <button
+              key={m.id}
+              onClick={() => setMode(m)}
+              disabled={isSwitchDisabled}
+              data-testid={`pomodoro-mode-${m.id}`}
+              title={isSwitchDisabled ? '请先完成或重置当前专注' : undefined}
+              style={{
+                padding: '6px 16px', borderRadius: 20, fontSize: 14, fontWeight: 500, border: 'none',
+                cursor: isSwitchDisabled ? 'not-allowed' : 'pointer',
+                opacity: isSwitchDisabled ? 0.4 : 1,
+                background: isCurrentMode ? 'var(--bg-primary)' : 'transparent',
+                color: isCurrentMode ? m.color : 'var(--text-muted)',
+                boxShadow: isCurrentMode ? 'var(--shadow-sm)' : 'none',
+                transition: 'all 0.3s'
+              }}
+            >
+              {m.label}
+            </button>
+          )
+        })}
       </div>
 
       {mode.id === 'custom' && !isRunning && (

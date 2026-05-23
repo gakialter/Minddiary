@@ -772,4 +772,81 @@ describe('PomodoroContext', () => {
     expect(mocks.pomodoroGetDailyTotal).toHaveBeenCalledWith('2026-05-18')
     expect(result.current.data.todayTotal).toBe(0)
   })
+
+  it('hasActiveTimerSession is false initially', async () => {
+    const { result } = renderPomodoroHook()
+
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('hasActiveTimerSession becomes true after starting the timer', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(result.current.timer.isRunning).toBe(true)
+  })
+
+  it('hasActiveTimerSession remains true when timer is paused', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+  })
+
+  it('hasActiveTimerSession becomes false after resetTimer', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+
+    await act(async () => {
+      result.current.actions.resetTimer()
+    })
+
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+    expect(result.current.timer.isRunning).toBe(false)
+  })
+
+  it('hasActiveTimerSession is true after restoring a paused session', async () => {
+    const first = renderPomodoroHook()
+
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    await act(async () => {
+      first.result.current.actions.toggleTimer()
+    })
+
+    expect(first.result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(first.result.current.timer.isRunning).toBe(false)
+
+    first.unmount()
+
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(second.result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(second.result.current.timer.isRunning).toBe(false)
+    expect(second.result.current.timer.mode.id).toBe('work')
+  })
 })

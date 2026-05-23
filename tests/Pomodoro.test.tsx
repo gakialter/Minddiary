@@ -266,4 +266,98 @@ describe('Pomodoro Component', () => {
     // forcibly reset — the PomodoroContext handles mode transitions on its own
     expect(screen.getByTestId('pomodoro-reset-btn')).toBeInTheDocument()
   })
+
+  it('mode buttons are enabled when work mode is idle', async () => {
+    await renderPomodoro()
+
+    expect(screen.getByTestId('pomodoro-mode-short_break')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-custom')).not.toBeDisabled()
+  })
+
+  it('disables non-current mode buttons when work timer is running', async () => {
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId('pomodoro-mode-work')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-short_break')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-custom')).toBeDisabled()
+  })
+
+  it('disables non-current mode buttons when work timer is paused', async () => {
+    await renderPomodoro()
+
+    // Start
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    // Pause
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+
+    expect(screen.getByTestId('pomodoro-mode-short_break')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-custom')).toBeDisabled()
+  })
+
+  it('disables non-current mode buttons when custom timer is running', async () => {
+    await renderPomodoro()
+
+    // Switch to custom
+    fireEvent.click(screen.getByTestId('pomodoro-mode-custom'))
+
+    // Start custom timer
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId('pomodoro-mode-custom')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-work')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-short_break')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).toBeDisabled()
+  })
+
+  it('re-enables mode buttons after reset', async () => {
+    await renderPomodoro()
+
+    // Start and pause
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId('pomodoro-mode-short_break')).toBeDisabled()
+
+    // Reset
+    fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+
+    expect(screen.getByTestId('pomodoro-mode-short_break')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-custom')).not.toBeDisabled()
+  })
+
+  it('does not disable mode buttons when short_break timer is running', async () => {
+    await renderPomodoro()
+
+    // Switch to short break
+    fireEvent.click(screen.getByTestId('pomodoro-mode-short_break'))
+
+    // Start short break timer
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(screen.getByTestId('pomodoro-mode-work')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-long_break')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-custom')).not.toBeDisabled()
+  })
 })
