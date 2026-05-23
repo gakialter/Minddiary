@@ -8,6 +8,8 @@ import TemplateManager from './TemplateManager'
 import TagBadge from './TagBadge'
 import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
+import FormatToolbar from './common/FormatToolbar'
+import { useTextFormat } from '../hooks/useTextFormat'
 import { logger } from '../utils/logger'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
 import type { DiaryEntry, AIMessage, DiaryTemplate, Tag } from '../types'
@@ -55,6 +57,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
   const shareCardRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Load daily pomodoro total when the entry date changes
   useEffect(() => {
@@ -183,6 +186,15 @@ function Editor({ entry, onSave, loading }: EditorProps) {
     isDirty.current = true
   }
 
+  // Callback for FormatToolbar: update content when a format is applied
+  const handleFormatChange = useCallback((newValue: string) => {
+    setContent(newValue)
+    setWordCount(calculateWordCount(newValue))
+    isDirty.current = true
+  }, [])
+
+  const formatActions = useTextFormat(textareaRef, handleFormatChange)
+
   const handleTagToggle = (tagId: number) => {
     setSelectedTagIds(prev =>
       prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
@@ -238,8 +250,14 @@ function Editor({ entry, onSave, loading }: EditorProps) {
 
       {/* Unified Toolbar & Templates */}
       <div className="flex flex-wrap items-center justify-between" style={{ paddingBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-light)' }}>
-        {/* Left: Templates */}
-        <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
+        {/* Left: Format Toolbar + Templates */}
+        <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
+          <FormatToolbar
+            onBold={formatActions.bold}
+            onHighlight={formatActions.highlight}
+            onUnderline={formatActions.underline}
+          />
+          <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
           {quickTemplates.map(tpl => (
             <button
               key={tpl.id}
@@ -416,6 +434,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
           </div>
         )}
         <textarea
+          ref={textareaRef}
           className="w-full h-full font-mono resize-none"
           style={{
             fontSize: 15,
@@ -438,7 +457,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
         <div className="flex gap-lg">
           <div className="flex items-center gap-xs">
             <span className="font-medium text-secondary">Markdown 支持</span>
-            <span style={{ opacity: 0.7 }}>**粗体** · - 列表</span>
+            <span style={{ opacity: 0.7 }}>**粗体** · ==高亮== · ++下划线++ · - 列表</span>
           </div>
           <div className="flex items-center gap-xs">
             <span className="font-medium text-secondary">快捷保存</span>
