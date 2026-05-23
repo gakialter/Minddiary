@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import remarkTextFormatting from '../../utils/remarkTextFormatting'
 
 interface MarkdownRendererProps {
   children: string
@@ -61,12 +62,20 @@ const components: Components = {
   td: ({ children: c, ...props }) => (
     <td style={{ borderBottom: '1px solid var(--border-light)', padding: '8px 12px' }} {...props}>{c}</td>
   ),
+  // ==highlight== → <mark> with theme-aware background
+  mark: ({ children: c, ...props }) => (
+    <mark style={{ background: 'color-mix(in srgb, var(--warning) 30%, transparent)', color: 'inherit', padding: '1px 4px', borderRadius: 3 }} {...props}>{c}</mark>
+  ),
+  // ++underline++ → <u> with comfortable offset
+  u: ({ children: c, ...props }) => (
+    <u style={{ textDecoration: 'underline', textUnderlineOffset: 3, textDecorationColor: 'currentColor' }} {...props}>{c}</u>
+  ),
 }
 
 export default function MarkdownRenderer({ children, className }: MarkdownRendererProps) {
   return (
     <div className={`markdown-body content-selectable ${className || ''}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkTextFormatting]} components={components}>
         {children}
       </ReactMarkdown>
       <style>{`
