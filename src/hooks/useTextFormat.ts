@@ -1,4 +1,5 @@
 import { useCallback, type RefObject } from 'react'
+import { COLOR_WHITELIST, type MarkdownColorKey } from '../utils/remarkColor'
 
 /**
  * Describes a Markdown format that wraps selected text with a prefix and suffix.
@@ -97,5 +98,17 @@ export function useTextFormat(
   const highlight = useCallback(() => applyFormat(FORMAT_HIGHLIGHT), [applyFormat])
   const underline = useCallback(() => applyFormat(FORMAT_UNDERLINE), [applyFormat])
 
-  return { bold, highlight, underline, applyFormat }
+  const color = useCallback(
+    (colorKey: MarkdownColorKey) => {
+      if (!COLOR_WHITELIST.has(colorKey)) return
+      applyFormat({
+        prefix: `{color:${colorKey}}`,
+        suffix: '{/color}',
+        placeholder: '彩色文本',
+      })
+    },
+    [applyFormat],
+  )
+
+  return { bold, highlight, underline, color, applyFormat }
 }
