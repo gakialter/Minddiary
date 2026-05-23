@@ -663,6 +663,17 @@ a:focus:not(:focus-visible) {
   box-shadow: none;
 }
 
+/* ── Mistake Notes Markdown (compact inline) ───────────────────── */
+.mistake-notes-md {
+  flex: 1;
+  min-width: 0;
+}
+
+.mistake-notes-md p {
+  margin-bottom: 0 !important;
+  line-height: 1.6;
+}
+
 /* ── Accessibility: Reduced Motion ─────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

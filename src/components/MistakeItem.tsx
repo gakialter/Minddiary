@@ -7,6 +7,7 @@ import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import ClickableImage from './ClickableImage'
 import type { PreviewImage } from './ImagePreviewModal'
+import MarkdownRenderer from './common/MarkdownRenderer'
 
 interface MistakeItemProps {
     mistake: Mistake
@@ -108,7 +109,8 @@ export function MistakeItem({
             )}
             {m.notes && (
                 <div className="text-sm text-muted content-selectable" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                    <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} /> {m.notes}
+                    <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <MarkdownRenderer className="mistake-notes-md">{m.notes}</MarkdownRenderer>
                 </div>
             )}
             

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
@@ -9,6 +9,8 @@ import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import ClickableImage from './ClickableImage'
+import FormatToolbar from './common/FormatToolbar'
+import { useTextFormat } from '../hooks/useTextFormat'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 
 interface MistakeFilter {
@@ -59,6 +61,12 @@ export default function MistakeBook() {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const formRef = useRef<HTMLDivElement>(null)
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
+    const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+    const handleNotesValueChange = useCallback((newValue: string) => {
+        setForm(f => ({ ...f, notes: newValue }))
+    }, [])
+    const notesFormat = useTextFormat(notesTextareaRef, handleNotesValueChange)
 
     useEffect(() => {
         loadSubjects()
@@ -346,11 +354,20 @@ export default function MistakeBook() {
                             value={form.answer} onChange={e => setForm({ ...form, answer: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
-                        <textarea
-                            className="input" placeholder="备注（可选）" rows={2}
-                            value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-                            style={{ resize: 'vertical' }}
-                        />
+                        <div>
+                            <FormatToolbar
+                                onBold={notesFormat.bold}
+                                onHighlight={notesFormat.highlight}
+                                onUnderline={notesFormat.underline}
+                            />
+                            <textarea
+                                ref={notesTextareaRef}
+                                className="input" placeholder="备注（可选）" rows={2}
+                                value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
+                                style={{ resize: 'vertical', marginTop: 'var(--space-xs)' }}
+                                data-testid="mistake-notes-textarea"
+                            />
+                        </div>
                         {/* Multi-image thumbnails */}
                         {form.image_paths.length > 0 && (
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--space-xs)' }}>
