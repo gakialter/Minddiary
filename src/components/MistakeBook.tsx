@@ -359,6 +359,7 @@ export default function MistakeBook() {
                                 onBold={notesFormat.bold}
                                 onHighlight={notesFormat.highlight}
                                 onUnderline={notesFormat.underline}
+                                onColor={notesFormat.color}
                             />
                             <textarea
                                 ref={notesTextareaRef}

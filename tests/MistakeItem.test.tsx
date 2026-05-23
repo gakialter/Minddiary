@@ -72,6 +72,18 @@ describe('MistakeItem notes markdown rendering', () => {
     expect(u!.textContent).toBe('underlined')
   })
 
+  it('renders {color:red} notes as <span class="md-color-red">', () => {
+    const { container } = render(
+      <MistakeItem
+        mistake={{ ...baseMistake, notes: '{color:red}important{/color}' }}
+        {...defaultProps}
+      />
+    )
+    const span = container.querySelector('span.md-color-red')
+    expect(span).not.toBeNull()
+    expect(span!.textContent).toBe('important')
+  })
+
   it('renders mixed formatting in notes', () => {
     const { container } = render(
       <MistakeItem
