@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { applyTextFormat, FORMAT_BOLD, FORMAT_HIGHLIGHT, FORMAT_UNDERLINE } from '../src/hooks/useTextFormat'
 import FormatToolbar from '../src/components/common/FormatToolbar'
+import ColorPickerButton from '../src/components/common/ColorPickerButton'
 
 // ─── applyTextFormat unit tests ─────────────────────────────────────────────
 
@@ -92,6 +93,43 @@ describe('applyTextFormat', () => {
     const el = makeTextarea('abc', 0, 3)
     applyTextFormat(el, FORMAT_BOLD)
     expect(el.focus).toHaveBeenCalled()
+  })
+
+  describe('color ({color:KEY}text{/color})', () => {
+    it('wraps selected text with color markers', () => {
+      const el = makeTextarea('hello world', 6, 11)
+      const result = applyTextFormat(el, {
+        prefix: '{color:red}',
+        suffix: '{/color}',
+        placeholder: '彩色文本',
+      })
+      expect(result).toBe('hello {color:red}world{/color}')
+      expect(el.selectionStart).toBe(30)
+      expect(el.selectionEnd).toBe(30)
+    })
+
+    it('inserts placeholder when no text is selected', () => {
+      const el = makeTextarea('hello ', 6, 6)
+      const result = applyTextFormat(el, {
+        prefix: '{color:blue}',
+        suffix: '{/color}',
+        placeholder: '彩色文本',
+      })
+      expect(result).toBe('hello {color:blue}彩色文本{/color}')
+      // Placeholder '彩色文本' should be selected
+      expect(el.selectionStart).toBe(18)
+      expect(el.selectionEnd).toBe(22)
+    })
+
+    it('calls focus on the textarea after color insert', () => {
+      const el = makeTextarea('abc', 0, 3)
+      applyTextFormat(el, {
+        prefix: '{color:green}',
+        suffix: '{/color}',
+        placeholder: '彩色文本',
+      })
+      expect(el.focus).toHaveBeenCalled()
+    })
   })
 
   it('handles empty textarea', () => {
@@ -191,5 +229,79 @@ describe('FormatToolbar', () => {
     const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
     const prevented = !screen.getByTestId('format-bold').dispatchEvent(event)
     expect(prevented).toBe(true)
+  })
+
+  it('does not render color button when onColor is not provided', () => {
+    render(
+      <FormatToolbar
+        onBold={vi.fn()}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('format-color')).toBeNull()
+  })
+
+  it('renders color button when onColor is provided', () => {
+    render(
+      <FormatToolbar
+        onBold={vi.fn()}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+        onColor={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('format-color')).toBeInTheDocument()
+  })
+})
+
+// ─── ColorPickerButton component tests ──────────────────────────────────────
+
+describe('ColorPickerButton', () => {
+  it('renders the trigger button', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    expect(screen.getByTestId('format-color')).toBeInTheDocument()
+    expect(screen.getByLabelText('文字颜色')).toBeInTheDocument()
+  })
+
+  it('shows 7 color swatches after clicking the trigger', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    fireEvent.mouseDown(screen.getByTestId('format-color'))
+    expect(screen.getByTestId('color-picker-popover')).toBeInTheDocument()
+
+    const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray']
+    for (const color of colors) {
+      expect(screen.getByTestId(`color-swatch-${color}`)).toBeInTheDocument()
+    }
+  })
+
+  it('fires onSelectColor with the clicked color key', () => {
+    const onSelectColor = vi.fn()
+    render(<ColorPickerButton onSelectColor={onSelectColor} />)
+    fireEvent.mouseDown(screen.getByTestId('format-color'))
+    fireEvent.mouseDown(screen.getByTestId('color-swatch-red'))
+    expect(onSelectColor).toHaveBeenCalledWith('red')
+    expect(onSelectColor).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the popover after selecting a color', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    fireEvent.mouseDown(screen.getByTestId('format-color'))
+    expect(screen.getByTestId('color-picker-popover')).toBeInTheDocument()
+    fireEvent.mouseDown(screen.getByTestId('color-swatch-blue'))
+    expect(screen.queryByTestId('color-picker-popover')).toBeNull()
+  })
+
+  it('does not show popover initially', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    expect(screen.queryByTestId('color-picker-popover')).toBeNull()
+  })
+
+  it('each swatch has an aria-label', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    fireEvent.mouseDown(screen.getByTestId('format-color'))
+    expect(screen.getByLabelText('红色')).toBeInTheDocument()
+    expect(screen.getByLabelText('蓝色')).toBeInTheDocument()
+    expect(screen.getByLabelText('灰色')).toBeInTheDocument()
   })
 })

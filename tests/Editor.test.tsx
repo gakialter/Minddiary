@@ -106,7 +106,7 @@ describe('Editor format toolbar', () => {
     mocks.aiChat.mockResolvedValue({ content: '' })
   })
 
-  it('renders the format toolbar with bold, highlight, and underline buttons', async () => {
+  it('renders the format toolbar with bold, highlight, underline, and color buttons', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<Editor entry={entry} onSave={onSave} loading={false} />)
 
@@ -116,9 +116,10 @@ describe('Editor format toolbar', () => {
     expect(screen.getByTestId('format-bold')).toBeInTheDocument()
     expect(screen.getByTestId('format-highlight')).toBeInTheDocument()
     expect(screen.getByTestId('format-underline')).toBeInTheDocument()
+    expect(screen.getByTestId('format-color')).toBeInTheDocument()
   })
 
-  it('displays updated Markdown hint text with highlight and underline syntax', async () => {
+  it('displays updated Markdown hint text with highlight, underline, and color syntax', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<Editor entry={entry} onSave={onSave} loading={false} />)
 
@@ -126,6 +127,7 @@ describe('Editor format toolbar', () => {
       expect(screen.getByText(/==高亮==/)).toBeInTheDocument()
     })
     expect(screen.getByText(/\+\+下划线\+\+/)).toBeInTheDocument()
+    expect(screen.getByText(/\{color:red\}颜色\{\/color\}/)).toBeInTheDocument()
   })
 })
 

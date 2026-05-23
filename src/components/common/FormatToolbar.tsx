@@ -1,4 +1,6 @@
 import { Bold, Highlighter, Underline } from 'lucide-react'
+import type { MarkdownColorKey } from '../../utils/remarkColor'
+import ColorPickerButton from './ColorPickerButton'
 
 interface FormatToolbarProps {
   /** Callback when the bold button is clicked */
@@ -7,6 +9,8 @@ interface FormatToolbarProps {
   onHighlight: () => void
   /** Callback when the underline button is clicked */
   onUnderline: () => void
+  /** Optional callback for preset color insertion. When provided, a color picker button appears. */
+  onColor?: (color: MarkdownColorKey) => void
 }
 
 const btnStyle: React.CSSProperties = {
@@ -33,7 +37,7 @@ const btnStyle: React.CSSProperties = {
  * when a button is clicked (typically inserting Markdown markers
  * into a textarea via the useTextFormat hook).
  */
-export default function FormatToolbar({ onBold, onHighlight, onUnderline }: FormatToolbarProps) {
+export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor }: FormatToolbarProps) {
   // Use onMouseDown + preventDefault to avoid stealing focus from textarea
   const handleMouseDown = (e: React.MouseEvent, action: () => void) => {
     e.preventDefault()
@@ -109,6 +113,13 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline }: Form
       >
         <Underline size={14} />
       </button>
+
+      {onColor && (
+        <>
+          <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
+          <ColorPickerButton onSelectColor={onColor} />
+        </>
+      )}
     </div>
   )
 }

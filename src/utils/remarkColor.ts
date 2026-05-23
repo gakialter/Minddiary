@@ -12,8 +12,8 @@ import type { Root, Text, PhrasingContent, Parent } from 'mdast'
  * - Uses `data.hName` + `data.hProperties` for remark-rehype bridging.
  */
 
-/** Allowed color keys — any key not in this set is ignored. */
-export const COLOR_WHITELIST = new Set([
+/** Ordered list of allowed color keys — shared by toolbar and renderer. */
+export const COLOR_KEYS = [
   'red',
   'orange',
   'yellow',
@@ -21,7 +21,13 @@ export const COLOR_WHITELIST = new Set([
   'blue',
   'purple',
   'gray',
-])
+] as const
+
+/** Type-safe color key union derived from COLOR_KEYS. */
+export type MarkdownColorKey = typeof COLOR_KEYS[number]
+
+/** Allowed color keys — any key not in this set is ignored. */
+export const COLOR_WHITELIST: ReadonlySet<string> = new Set<string>(COLOR_KEYS)
 
 /**
  * Regex to match {color:KEY}text{/color}.

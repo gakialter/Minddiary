@@ -256,6 +256,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
             onBold={formatActions.bold}
             onHighlight={formatActions.highlight}
             onUnderline={formatActions.underline}
+            onColor={formatActions.color}
           />
           <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
           {quickTemplates.map(tpl => (
@@ -457,7 +458,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
         <div className="flex gap-lg">
           <div className="flex items-center gap-xs">
             <span className="font-medium text-secondary">Markdown 支持</span>
-            <span style={{ opacity: 0.7 }}>**粗体** · ==高亮== · ++下划线++ · - 列表</span>
+            <span style={{ opacity: 0.7 }}>**粗体** · ==高亮== · ++下划线++ · {'{'}color:red{'}'}颜色{'{'}/color{'}'} · - 列表</span>
           </div>
           <div className="flex items-center gap-xs">
             <span className="font-medium text-secondary">快捷保存</span>
