@@ -96,3 +96,36 @@ describe('Editor tag selection', () => {
     })
   })
 })
+
+describe('Editor format toolbar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tagsGetAll.mockResolvedValue([])
+    mocks.getDailyTotal.mockResolvedValue(0)
+    mocks.templatesGetAll.mockResolvedValue([])
+    mocks.aiChat.mockResolvedValue({ content: '' })
+  })
+
+  it('renders the format toolbar with bold, highlight, and underline buttons', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('format-toolbar')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('format-bold')).toBeInTheDocument()
+    expect(screen.getByTestId('format-highlight')).toBeInTheDocument()
+    expect(screen.getByTestId('format-underline')).toBeInTheDocument()
+  })
+
+  it('displays updated Markdown hint text with highlight and underline syntax', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/==高亮==/)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/\+\+下划线\+\+/)).toBeInTheDocument()
+  })
+})
+
