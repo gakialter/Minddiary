@@ -115,21 +115,21 @@ npm run build:win    # Windows
 npm run build:mac    # macOS
 ```
 
-### Windows signing and auto update release notes
+### Windows 签名与自动更新发布说明
 
-- Auto updates use the GitHub release feed configured in `package.json` through `build.publish`.
-- Windows code signing is optional for local builds. Unsigned installers can trigger Windows SmartScreen warnings.
-- Public tag-based Windows releases must provide `CSC_LINK` and `CSC_KEY_PASSWORD` in the release environment.
-- `npm run build` must continue to work without signing secrets; release signing is only enabled when the certificate variables are present.
-- See [Release Checklist](./docs/release-checklist.md) for signing verification, update metadata checks, and SmartScreen guidance.
+- 自动更新使用 `package.json` 中通过 `build.publish` 配置的 GitHub release feed。
+- 本地构建时，Windows 代码签名是可选的。未签名的安装包可能会触发 Windows SmartScreen 警告。
+- 基于 tag 的公开 Windows 发布必须在发布环境中提供 `CSC_LINK` 和 `CSC_KEY_PASSWORD`。
+- `npm run build` 必须在没有签名 secrets 的情况下继续工作；只有在存在证书变量时，才启用发布签名。
+- 有关签名验证、更新元数据检查和 SmartScreen 的指导，请参见 [Release Checklist](./docs/release-checklist.md)。
 
-### Automatic backup and restore scope
+### 自动备份与恢复范围
 
-- Silent automatic backups are zip disaster recovery packages that include `manifest.json`, `database.json`, and managed media directories such as `attachments/` and `mistake_images/`.
-- Automatic backup ZIP restore is available from the desktop settings screen and overwrites the current database, attachments, and mistake images.
-- Before restoring, manually copy the current app data directory if you need an extra rollback point outside the built-in restore transaction.
-- Restore accepts only MindDiary-generated automatic backup ZIP files with a supported `backupFormatVersion` and non-future `schemaVersion`.
-- Corrupt ZIP files, unsupported compression methods, unsafe paths, hand-modified packages, and zip-slip entries are rejected before user data is replaced.
+- 静默自动备份是 zip 格式的灾难恢复包，包含 `manifest.json`、`database.json` 以及托管的媒体目录，如 `attachments/` 和 `mistake_images/`。
+- 可在桌面设置界面执行自动备份 ZIP 的恢复操作，该操作会覆盖当前的数据库、附件和错题图片。
+- 在恢复之前，如果需要内置恢复事务之外的额外回滚点，请手动备份当前的 app data 目录。
+- 恢复操作仅接受由 MindDiary 生成的、具有受支持的 `backupFormatVersion` 且非未来 `schemaVersion` 的自动备份 ZIP 文件。
+- 损坏的 ZIP 文件、不支持的压缩方法、不安全的路径、手动修改的包以及 zip-slip 漏洞条目，都会在替换用户数据之前被拒绝。
 
 ## 项目结构
 
@@ -162,6 +162,14 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.9.4 — 小版本更新 / Feature & UX Update (2026-05-23)</summary>
+
+- **新功能**：新增 Dashboard 专注分布图表；日记与错题 notes 支持 Markdown 工具栏（加粗、高亮、下划线、预设颜色）；引入安全的 `{color:red}` 语法。
+- **修复与优化**：修复今日决策 CTA，防止专注模式切换丢失 session，优化暗色模式文字对比度，以及修复 CI 中 SearchPanel 测试偶发超时。
+
+</details>
+
+<details>
 <summary>v1.9.3 — 标签样式增强 (2026-05-19)</summary>
 
 - **标签样式增强**：标签支持颜色、emoji / 短符号图标、展示样式和预设纹理。
