@@ -7,6 +7,7 @@ import { normalizeCountdownEvents } from '../utils/countdown';
 import { BarChart2, Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
 import type { PomodoroRangeEntry, Mistake } from '../types';
 import CountdownEventsPanel from './CountdownEventsPanel';
+import FocusDistributionChart from './FocusDistributionChart';
 
 interface DashboardStats {
     totalPomodoroMinutes: number
@@ -325,6 +326,9 @@ export default function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Focus Distribution Chart */}
+            <FocusDistributionChart pomodoro={pomodoro} dataRefreshVersion={dataRefreshVersion} />
 
             <style>{`
                 .chart-tooltip::after {

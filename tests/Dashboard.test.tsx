@@ -6,6 +6,7 @@ import type { TodayDashboardData } from '../src/types'
 const mocks = vi.hoisted(() => ({
   dataRefreshVersion: 0,
   pomodoroGetRange: vi.fn(),
+  pomodoroGetStats: vi.fn(),
   dashboardStreak: vi.fn(),
   entryDatesRange: vi.fn(),
   mistakesGetAll: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(() => ({
     pomodoro: {
       getRange: mocks.pomodoroGetRange,
+      getStats: mocks.pomodoroGetStats,
     },
     dashboard: {
       streak: mocks.dashboardStreak,
@@ -55,6 +57,7 @@ const todayData = (riskPoolCount: number): TodayDashboardData => ({
 beforeEach(() => {
   mocks.dataRefreshVersion = 0
   mocks.pomodoroGetRange.mockResolvedValue([])
+  mocks.pomodoroGetStats.mockResolvedValue([])
   mocks.dashboardStreak.mockResolvedValue(99)
   mocks.entryDatesRange.mockResolvedValue([])
   mocks.mistakesGetAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
@@ -80,6 +83,18 @@ describe('Dashboard', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('dashboard-due-mistakes')).toHaveTextContent('1')
+    })
+  })
+
+  it('renders the focus distribution module', async () => {
+    mocks.pomodoroGetStats.mockResolvedValue([
+      { subject_name: '数学', color: '#0F766E', total_minutes: 60, session_count: 3 },
+    ])
+
+    render(<Dashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText('专注分布')).toBeInTheDocument()
     })
   })
 })
