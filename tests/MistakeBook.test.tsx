@@ -284,6 +284,33 @@ describe('MistakeBook Component', () => {
     expect(screen.getByTestId('format-bold')).toBeInTheDocument()
     expect(screen.getByTestId('format-highlight')).toBeInTheDocument()
     expect(screen.getByTestId('format-underline')).toBeInTheDocument()
+    expect(screen.getByTestId('format-color')).toBeInTheDocument()
+  })
+
+  it('wraps selected notes text with {color:...} when color is selected', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const textarea = screen.getByTestId('mistake-notes-textarea') as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'hello world' } })
+    })
+
+    textarea.setSelectionRange(6, 11)
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('format-color'))
+    })
+    
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('color-swatch-red'))
+    })
+
+    expect(textarea.value).toBe('hello {color:red}world{/color}')
   })
 
   it('wraps selected notes text with ** when bold is clicked', async () => {
