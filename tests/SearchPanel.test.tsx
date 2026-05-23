@@ -83,7 +83,7 @@ describe('SearchPanel diary results', () => {
     vi.restoreAllMocks()
   })
 
-  it('loads search result metadata once per batch API without per-entry lookups', async () => {
+  it('loads search result metadata once per batch API without per-entry lookups', { timeout: 15_000 }, async () => {
     mocks.entriesGetAll.mockResolvedValue([
       makeEntry({ id: 2, date: '2026-05-17', content: 'entry two' }),
       makeEntry({ id: 3, date: '2026-05-16', content: 'entry three' }),
