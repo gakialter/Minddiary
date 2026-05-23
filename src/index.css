@@ -86,6 +86,15 @@
   /* Fonts */
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+
+  /* Markdown color syntax – preset text colors (light mode) */
+  --md-color-red: #DC2626;
+  --md-color-orange: #EA580C;
+  --md-color-yellow: #CA8A04;
+  --md-color-green: #16A34A;
+  --md-color-blue: #2563EB;
+  --md-color-purple: #9333EA;
+  --md-color-gray: #6B7280;
 }
 
 [data-theme="dark"] {
@@ -120,6 +129,15 @@
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.2);
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.6);
+
+  /* Markdown color syntax – preset text colors (dark mode, brighter) */
+  --md-color-red: #F87171;
+  --md-color-orange: #FB923C;
+  --md-color-yellow: #FACC15;
+  --md-color-green: #4ADE80;
+  --md-color-blue: #60A5FA;
+  --md-color-purple: #C084FC;
+  --md-color-gray: #9CA3AF;
 }
 
 body {
@@ -662,6 +680,15 @@ a:focus:not(:focus-visible) {
   outline: none;
   box-shadow: none;
 }
+
+/* ── Markdown color syntax – safe preset text colors ───────────── */
+.md-color-red    { color: var(--md-color-red); }
+.md-color-orange { color: var(--md-color-orange); }
+.md-color-yellow { color: var(--md-color-yellow); }
+.md-color-green  { color: var(--md-color-green); }
+.md-color-blue   { color: var(--md-color-blue); }
+.md-color-purple { color: var(--md-color-purple); }
+.md-color-gray   { color: var(--md-color-gray); }
 
 /* ── Mistake Notes Markdown (compact inline) ───────────────────── */
 .mistake-notes-md {
