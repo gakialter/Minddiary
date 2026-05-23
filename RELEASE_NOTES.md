@@ -1,28 +1,36 @@
-# v1.9.3 - Tag Style Enhancements
+# MindDiary v1.9.4
 
-## Highlights
-- Expanded tag styles with colors, emoji / short-symbol icons, display variants, and preset texture patterns.
-- TagManager now supports creating and editing tag style fields in the same tag-management flow.
-- Editor and SearchPanel now render tags through the shared TagBadge presentation for consistent styled tag display.
+本次更新带来了更完整的日记 / 错题笔记编辑体验，以及新的专注数据洞察能力，同时修复了若干使用体验问题。
 
-## Compatibility
-- SQLite tags table migration remains backward-compatible while adding icon / variant / pattern fields.
-- Browser fallback continues to support legacy tag data and applies compatible defaults for older saved tags.
+## 新功能
 
-## Security Boundary
-- Custom tag artwork remains intentionally constrained.
-- Image upload, remote images, custom SVG, and local file paths are not supported.
-- Custom patterns are limited to emoji / short-symbol icons plus preset CSS textures.
+### Dashboard 专注分布图表
+- 新增专注时间分布图，按科目展示投入时间占比。
+- 支持“今日 / 近 7 天 / 近 30 天”范围切换。
+- 支持空状态和暗色模式显示。
 
-## Follow-up Fixes
-- Empty tag names now show a validation error.
-- Updating a tag that does not exist now throws instead of silently succeeding.
-- Editor tag buttons restore a visible focus-visible keyboard focus state.
+### 日记与错题笔记 Markdown 工具栏
+- 日记编辑器支持快捷插入：
+  - 加粗
+  - 高亮
+  - 下划线
+  - 预设文字颜色
+- 错题 notes 字段支持同样的基础格式能力。
+- 题目和答案仍保持原有 LaTeX 渲染逻辑。
 
-## Validation
-- npm.cmd install --package-lock-only
-- npm.cmd run typecheck
-- npm.cmd test -- --run
-- npm.cmd run build
-- npm.cmd run test:e2e
-- git diff --check
+### 安全的预设颜色语法
+- 支持 `{color:red}文字{/color}` 等预设颜色语法。
+- 仅允许 red / orange / yellow / green / blue / purple / gray。
+- 不支持任意 CSS、HEX 或 HTML 注入。
+
+## 修复与优化
+
+- 修复今日决策 CTA 始终显示“第 1 个有效番茄”的问题。
+- 防止专注计时中切换模式导致当前 session 丢失。
+- 优化暗色模式下引导文字和说明文字的可读性。
+- 修复 SearchPanel 测试在 CI 中偶发超时的问题。
+
+## 发布说明
+
+- Windows 安装包如未进行代码签名，可能出现 Unknown Publisher 或 Windows SmartScreen 提示。
+- macOS 构建由 GitHub Actions 自动生成。

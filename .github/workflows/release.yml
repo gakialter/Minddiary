@@ -33,14 +33,14 @@ jobs:
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "### Windows signing preflight"
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
           if ($env:WINDOWS_SIGNING_CONFIGURED -ne 'true') {
-            $message = "CSC_LINK and CSC_KEY_PASSWORD must be configured before publishing a public Windows release."
-            Write-Host "::error::$message"
+            $message = "CSC_LINK and CSC_KEY_PASSWORD are not configured. Building unsigned Windows release."
+            Write-Host "::warning::$message"
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: false"
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Unsigned installers can show Unknown Publisher and Windows SmartScreen warnings. Configure the secrets before pushing a release tag."
-            exit 1
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Windows artifacts will be unsigned. Users may see Unknown Publisher / Windows SmartScreen warnings."
+          } else {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: true"
           }
-          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: true"
 
       - name: Build Electron
         run: npm run build:electron
