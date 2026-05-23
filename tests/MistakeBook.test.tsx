@@ -270,4 +270,133 @@ describe('MistakeBook Component', () => {
 
     expect(screen.getByText('1+1=?')).toBeInTheDocument()
   })
+
+  it('renders the notes format toolbar when the form is open', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    expect(screen.getByTestId('format-toolbar')).toBeInTheDocument()
+    expect(screen.getByTestId('format-bold')).toBeInTheDocument()
+    expect(screen.getByTestId('format-highlight')).toBeInTheDocument()
+    expect(screen.getByTestId('format-underline')).toBeInTheDocument()
+  })
+
+  it('wraps selected notes text with ** when bold is clicked', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const textarea = screen.getByTestId('mistake-notes-textarea') as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'hello world' } })
+    })
+
+    // Simulate selecting "world" (index 6-11)
+    textarea.setSelectionRange(6, 11)
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('format-bold'))
+    })
+
+    expect(textarea.value).toBe('hello **world**')
+  })
+
+  it('wraps selected notes text with == when highlight is clicked', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const textarea = screen.getByTestId('mistake-notes-textarea') as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'hello world' } })
+    })
+
+    textarea.setSelectionRange(6, 11)
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('format-highlight'))
+    })
+
+    expect(textarea.value).toBe('hello ==world==')
+  })
+
+  it('wraps selected notes text with ++ when underline is clicked', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const textarea = screen.getByTestId('mistake-notes-textarea') as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'hello world' } })
+    })
+
+    textarea.setSelectionRange(6, 11)
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('format-underline'))
+    })
+
+    expect(textarea.value).toBe('hello ++world++')
+  })
+
+  it('saves markdown markers in notes as-is', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const qInput = screen.getByPlaceholderText('问题 / 知识点')
+    await act(async () => {
+      fireEvent.change(qInput, { target: { value: 'Q1' } })
+    })
+
+    const notesInput = screen.getByTestId('mistake-notes-textarea')
+    await act(async () => {
+      fireEvent.change(notesInput, { target: { value: '**bold** ==highlight== ++underline++' } })
+    })
+
+    const submitBtn = screen.getByRole('button', { name: '添加' })
+    await act(async () => {
+      fireEvent.click(submitBtn)
+    })
+
+    expect(mistakesApi.create).toHaveBeenCalledWith({
+      subject_id: null,
+      question: 'Q1',
+      answer: '',
+      notes: '**bold** ==highlight== ++underline++',
+      image_path: null,
+    })
+  })
+
+  it('does not render format toolbar for question/answer textareas', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    // Only one format toolbar should exist (for notes)
+    const toolbars = screen.getAllByTestId('format-toolbar')
+    expect(toolbars).toHaveLength(1)
+  })
 })
