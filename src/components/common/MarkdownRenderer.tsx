@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import remarkTextFormatting from '../../utils/remarkTextFormatting'
+import remarkColor, { COLOR_WHITELIST } from '../../utils/remarkColor'
 
 interface MarkdownRendererProps {
   children: string
@@ -70,12 +71,25 @@ const components: Components = {
   u: ({ children: c, ...props }) => (
     <u style={{ textDecoration: 'underline', textUnderlineOffset: 3, textDecorationColor: 'currentColor' }} {...props}>{c}</u>
   ),
+  // {color:KEY}text{/color} → <span class="md-color-KEY"> (whitelist only)
+  span: ({ children: c, className, ...props }) => {
+    // Only allow whitelisted md-color-* classes from remarkColor.
+    // Any other className or data is stripped to prevent injection.
+    if (typeof className === 'string' && className.startsWith('md-color-')) {
+      const colorKey = className.slice('md-color-'.length)
+      if (COLOR_WHITELIST.has(colorKey)) {
+        return <span className={className} {...props}>{c}</span>
+      }
+    }
+    // Fallback: render as plain span without any className
+    return <span>{c}</span>
+  },
 }
 
 export default function MarkdownRenderer({ children, className }: MarkdownRendererProps) {
   return (
     <div className={`markdown-body content-selectable ${className || ''}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkTextFormatting]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkTextFormatting, remarkColor]} components={components}>
         {children}
       </ReactMarkdown>
       <style>{`

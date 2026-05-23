@@ -202,4 +202,95 @@ describe('MarkdownRenderer', () => {
     expect(mark).not.toBeNull()
     expect(mark!.textContent).toBe('引用高亮')
   })
+
+  // ── Color syntax {color:KEY}text{/color} ────────────────────────────
+
+  it('renders {color:red}重点{/color} as span.md-color-red', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'{color:red}重点{/color}'}</MarkdownRenderer>,
+    )
+    const span = container.querySelector('span.md-color-red')
+    expect(span).not.toBeNull()
+    expect(span!.textContent).toBe('重点')
+  })
+
+  it('renders all 7 whitelisted colors', () => {
+    const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray']
+    for (const color of colors) {
+      const { container } = render(
+        <MarkdownRenderer>{`{color:${color}}text{/color}`}</MarkdownRenderer>,
+      )
+      const span = container.querySelector(`span.md-color-${color}`)
+      expect(span).not.toBeNull()
+      expect(span!.textContent).toBe('text')
+    }
+  })
+
+  it('does NOT render non-whitelisted color as md-color-* span', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'{color:evil}hack{/color}'}</MarkdownRenderer>,
+    )
+    const span = container.querySelector('span.md-color-evil')
+    expect(span).toBeNull()
+    // Content should still be visible as plain text
+    expect(container.textContent).toContain('{color:evil}hack{/color}')
+  })
+
+  it('renders color mixed with bold, highlight, and underline', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'**粗体** ==高亮== ++下划线++ {color:blue}蓝色{/color}'}</MarkdownRenderer>,
+    )
+    expect(container.querySelector('strong')!.textContent).toBe('粗体')
+    expect(container.querySelector('mark')!.textContent).toBe('高亮')
+    expect(container.querySelector('u')!.textContent).toBe('下划线')
+    expect(container.querySelector('span.md-color-blue')!.textContent).toBe('蓝色')
+  })
+
+  it('does not use dangerouslySetInnerHTML for color rendering', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'{color:red}safe{/color}'}</MarkdownRenderer>,
+    )
+    const span = container.querySelector('span.md-color-red')
+    expect(span).not.toBeNull()
+    // Verify it's a real React-rendered DOM node with a child text node
+    expect(span!.childNodes[0]!.nodeType).toBe(Node.TEXT_NODE)
+  })
+
+  it('does NOT parse color syntax inside inline code', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'`{color:red}not colored{/color}`'}</MarkdownRenderer>,
+    )
+    expect(container.querySelector('span.md-color-red')).toBeNull()
+    expect(container.querySelector('code')!.textContent).toBe('{color:red}not colored{/color}')
+  })
+
+  it('does NOT parse color syntax inside fenced code blocks', () => {
+    const md = '```\n{color:red}not colored{/color}\n```'
+    const { container } = render(
+      <MarkdownRenderer>{md}</MarkdownRenderer>,
+    )
+    expect(container.querySelector('span.md-color-red')).toBeNull()
+    expect(container.querySelector('pre')!.textContent).toContain('{color:red}not colored{/color}')
+  })
+
+  it('renders multiple colors in one paragraph', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'{color:red}红{/color}和{color:green}绿{/color}'}</MarkdownRenderer>,
+    )
+    const red = container.querySelector('span.md-color-red')
+    const green = container.querySelector('span.md-color-green')
+    expect(red).not.toBeNull()
+    expect(red!.textContent).toBe('红')
+    expect(green).not.toBeNull()
+    expect(green!.textContent).toBe('绿')
+  })
+
+  it('does not render style attribute on color span', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'{color:red}text{/color}'}</MarkdownRenderer>,
+    )
+    const span = container.querySelector('span.md-color-red')
+    expect(span).not.toBeNull()
+    expect(span!.getAttribute('style')).toBeNull()
+  })
 })
