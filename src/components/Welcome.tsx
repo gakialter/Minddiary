@@ -91,7 +91,7 @@ function ProofItem({ icon, label }: { icon: React.ReactNode; label: string }) {
             color: 'var(--text-muted)',
             fontSize: 12
         }}>
-            <span style={{ color: 'var(--text-muted)', opacity: 0.8 }}>{icon}</span>
+            <span style={{ color: 'var(--text-muted)' }}>{icon}</span>
             <span>{label}</span>
         </div>
     )

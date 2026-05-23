@@ -100,10 +100,10 @@
 
   --text-primary: #ECF0EE;
   --text-secondary: #90A09A;
-  --text-muted: #64746A;
+  --text-muted: #8A9B93;
 
   --border: rgba(255, 255, 255, 0.1);
-  --border-light: rgba(255, 255, 255, 0.05);
+  --border-light: rgba(255, 255, 255, 0.08);
 
   --accent: #14B8A6;
   /* Brighter teal for contrast */

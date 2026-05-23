@@ -116,7 +116,7 @@ const sectionStyle: React.CSSProperties = {
 }
 
 const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 13, color: 'var(--text-muted)',
+    display: 'block', fontSize: 13, color: 'var(--text-secondary)',
     marginBottom: 'var(--space-sm)',
 }
 
