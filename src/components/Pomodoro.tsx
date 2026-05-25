@@ -6,7 +6,7 @@ import { logger } from '../utils/logger'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
 import FocusZenMode from './FocusZenMode'
-import { Play, Pause, RotateCcw, Maximize2 } from 'lucide-react'
+import { Play, Pause, RotateCcw, Maximize2, Square } from 'lucide-react'
 import type { ActiveAppInfo, FocusWhitelistItem } from '../types'
 
 const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
@@ -100,7 +100,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
 
   const {
     setMode, setSelectedSubject, setCustomMinutes,
-    toggleTimer, resetTimer, formatTime,
+    toggleTimer, resetTimer, finishStopwatchSession, formatTime,
   } = usePomodoroActions()
 
   const [focusViolation, setFocusViolation] = useState<ActiveAppInfo | null>(null)
@@ -126,6 +126,12 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     () => subjects.find(subject => subject.id === selectedSubject)?.name,
     [selectedSubject, subjects],
   )
+  const isStopwatchMode = mode.id === 'stopwatch'
+  const isFocusMode = mode.id === 'work' || mode.id === 'custom' || isStopwatchMode
+  const canSaveStopwatchSession = isStopwatchMode && hasActiveTimerSession && timeLeft >= 60
+  const timerStatusText = isRunning
+    ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
+    : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
 
   // ─── Drag state (widget only) ───
   const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))
@@ -271,10 +277,10 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
 
   // Auto-exit Zen overlay when the timer completes
   useEffect(() => {
-    if (zenVisible && timeLeft === 0) {
+    if (zenVisible && !isStopwatchMode && timeLeft === 0) {
       void exitZenMode()
     }
-  }, [zenVisible, timeLeft, exitZenMode])
+  }, [zenVisible, timeLeft, isStopwatchMode, exitZenMode])
 
   const focusNotice = focusViolation ? (
     <FocusGuardNotice
@@ -291,8 +297,8 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     short_break: '开始短休',
     long_break: '开始长休',
     custom: '开始计时',
+    stopwatch: hasActiveTimerSession ? '继续正计时' : '开始正计时',
   } as Record<string, string>)[mode.id] || '开始计时'
-
   if (isWidget) {
     return (
       <>
@@ -358,7 +364,6 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
       <div className="flex gap-sm p-1 rounded-full bg-secondary" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 24, marginBottom: 'var(--space-2xl)' }}>
         {Object.values(dynamicModes).map(m => {
           const isCurrentMode = mode.id === m.id
-          const isFocusMode = mode.id === 'work' || mode.id === 'custom'
           const shouldLockModeSwitch = hasActiveTimerSession && isFocusMode
           const isSwitchDisabled = !isCurrentMode && shouldLockModeSwitch
           return (
@@ -424,7 +429,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
             {formatTime(timeLeft)}
           </div>
           <div className="text-sm mt-2" style={{ color: mode.color, opacity: 0.8, fontWeight: 500 }}>
-            {isRunning ? '正在进行中...' : '准备就绪'}
+            {timerStatusText}
           </div>
         </div>
       </div>
@@ -455,6 +460,24 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
         >
           <RotateCcw size={18} />
         </button>
+        {isStopwatchMode && (
+          <button
+            className="button"
+            data-testid="pomodoro-finish-stopwatch-btn"
+            disabled={!canSaveStopwatchSession}
+            style={{
+              minWidth: 128, height: 44, borderRadius: 22, fontWeight: 600, border: 'none',
+              background: canSaveStopwatchSession ? mode.color : 'var(--bg-tertiary)',
+              color: canSaveStopwatchSession ? 'white' : 'var(--text-muted)',
+              cursor: canSaveStopwatchSession ? 'pointer' : 'not-allowed',
+              boxShadow: canSaveStopwatchSession ? `0 8px 16px ${mode.color}30` : 'none',
+            }}
+            title={canSaveStopwatchSession ? '结束并保存本次正计时' : '至少专注 1 分钟后可保存'}
+            onClick={() => { void finishStopwatchSession() }}
+          >
+            <Square size={16} /> 结束并保存
+          </button>
+        )}
         <button
           className="button button-secondary"
           data-testid="pomodoro-enter-zen-btn"
@@ -472,9 +495,9 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
           data-testid="pomodoro-subject-select"
           value={selectedSubject || ''}
           onChange={(e) => setSelectedSubject(e.target.value ? Number(e.target.value) : null)}
-          disabled={!['work', 'custom'].includes(mode.id)}
+          disabled={!isFocusMode}
         >
-          {['work', 'custom'].includes(mode.id) ? (
+          {isFocusMode ? (
             <option value="">选择专注科目（可选）</option>
           ) : (
             <option value="">休息中...</option>

@@ -43,6 +43,7 @@ interface PomodoroActionsValue {
   setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
   toggleTimer: () => void
   resetTimer: () => void
+  finishStopwatchSession: () => Promise<boolean>
   formatTime: (seconds: number) => string
   loadSubjects: () => Promise<void>
   loadTodayStats: (dateKey?: string) => Promise<void>
@@ -60,7 +61,7 @@ const ACTIVE_SESSION_STALE_MS = 12 * 60 * 60 * 1000
 const RESTORE_CLOCK_SKEW_MS = 5 * 60 * 1000
 const MAX_POMODORO_MODE_SECONDS = 24 * 60 * 60
 
-type PomodoroModeId = 'work' | 'custom' | 'short_break' | 'long_break'
+type PomodoroModeId = 'work' | 'custom' | 'short_break' | 'long_break' | 'stopwatch'
 
 type PersistedPomodoroSession = {
   version: 1
@@ -84,11 +85,19 @@ type PersistedSessionRestore =
   | { status: 'expired'; session: PersistedPomodoroSession }
 
 function isPomodoroModeId(value: unknown): value is PomodoroModeId {
-  return value === 'work' || value === 'custom' || value === 'short_break' || value === 'long_break'
+  return value === 'work' || value === 'custom' || value === 'short_break' || value === 'long_break' || value === 'stopwatch'
 }
 
 function isFocusModeId(value: string): boolean {
+  return value === 'work' || value === 'custom' || value === 'stopwatch'
+}
+
+function isCountdownFocusModeId(value: string): boolean {
   return value === 'work' || value === 'custom'
+}
+
+function isStopwatchModeId(value: string): boolean {
+  return value === 'stopwatch'
 }
 
 function isValidTimestamp(value: unknown): value is number {
@@ -102,9 +111,24 @@ function isValidPositiveSeconds(value: unknown): value is number {
     && value <= MAX_POMODORO_MODE_SECONDS
 }
 
+function isValidNonNegativeSeconds(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+    && value <= MAX_POMODORO_MODE_SECONDS
+}
+
 function clampSeconds(value: number, max: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(Math.ceil(value), max))
+}
+
+function getIdleDisplaySeconds(mode: PomodoroMode): number {
+  return isStopwatchModeId(mode.id) ? 0 : mode.time
+}
+
+function getRoundedElapsedMinutes(elapsedSeconds: number): number {
+  return Math.max(1, Math.round(elapsedSeconds / 60))
 }
 
 function clearPersistedActiveSession() {
@@ -146,13 +170,21 @@ function parsePersistedActiveSession(nowMs: number): PersistedSessionRestore {
 
   if (!parsed || typeof parsed !== 'object') return { status: 'invalid' }
   const candidate = parsed as Partial<PersistedPomodoroSession>
+  const candidateModeId = candidate.modeId
+  if (!isPomodoroModeId(candidateModeId)) return { status: 'invalid' }
+  const candidateTimeLeftIsValid = isStopwatchModeId(candidateModeId)
+    ? isValidNonNegativeSeconds(candidate.timeLeft)
+    : isValidPositiveSeconds(candidate.timeLeft)
 
   if (
     candidate.version !== 1
-    || !isPomodoroModeId(candidate.modeId)
     || !isValidPositiveSeconds(candidate.modeTime)
-    || !isValidPositiveSeconds(candidate.timeLeft)
-    || candidate.timeLeft > candidate.modeTime
+    || !candidateTimeLeftIsValid
+    || (
+      typeof candidate.timeLeft === 'number'
+      && typeof candidate.modeTime === 'number'
+      && candidate.timeLeft > candidate.modeTime
+    )
     || typeof candidate.isRunning !== 'boolean'
     || !isValidTimestamp(candidate.savedAtMs)
     || typeof candidate.customMinutes !== 'number'
@@ -181,25 +213,40 @@ function parsePersistedActiveSession(nowMs: number): PersistedSessionRestore {
   if (candidate.startedAtMs !== null) {
     if (!isValidTimestamp(candidate.startedAtMs)) return { status: 'invalid' }
     if (candidate.startedAtMs - nowMs > RESTORE_CLOCK_SKEW_MS) return { status: 'stale' }
-  } else if (isFocusModeId(candidate.modeId)) {
+  } else if (isFocusModeId(candidateModeId)) {
     return { status: 'invalid' }
   }
 
+  const modeTime = candidate.modeTime as number
+  const timeLeft = candidate.timeLeft as number
+  const customMinutesForSession = candidate.customMinutes as number
+  const isRunningForSession = candidate.isRunning as boolean
+  const savedAtMs = candidate.savedAtMs as number
+
   const session: PersistedPomodoroSession = {
     version: 1,
-    modeId: candidate.modeId,
-    modeTime: candidate.modeTime,
-    customMinutes: candidate.customMinutes,
+    modeId: candidateModeId,
+    modeTime,
+    customMinutes: customMinutesForSession,
     selectedSubject: candidate.selectedSubject ?? null,
-    timeLeft: candidate.timeLeft,
-    isRunning: candidate.isRunning,
+    timeLeft,
+    isRunning: isRunningForSession,
     startedAtMs: candidate.startedAtMs ?? null,
     endTimeMs: candidate.endTimeMs ?? null,
-    savedAtMs: candidate.savedAtMs,
+    savedAtMs,
   }
 
   if (!session.isRunning) {
     return { status: 'paused', session, timeLeft: clampSeconds(session.timeLeft, session.modeTime) }
+  }
+
+  if (isStopwatchModeId(session.modeId)) {
+    const elapsedSinceSaveSeconds = Math.max(0, (nowMs - session.savedAtMs) / 1000)
+    return {
+      status: 'running',
+      session,
+      timeLeft: clampSeconds(session.timeLeft + elapsedSinceSaveSeconds, session.modeTime),
+    }
   }
 
   if (!isValidTimestamp(session.endTimeMs)) return { status: 'invalid' }
@@ -222,7 +269,8 @@ function parsePersistedActiveSession(nowMs: number): PersistedSessionRestore {
 const MODES: Record<string, PomodoroMode> = {
   WORK: { id: 'work', label: '专注', time: 25 * 60, color: 'var(--accent)' },
   SHORT_BREAK: { id: 'short_break', label: '短休', time: 5 * 60, color: 'var(--success)' },
-  LONG_BREAK: { id: 'long_break', label: '长休', time: 15 * 60, color: 'var(--info)' }
+  LONG_BREAK: { id: 'long_break', label: '长休', time: 15 * 60, color: 'var(--info)' },
+  STOPWATCH: { id: 'stopwatch', label: '正计时', time: MAX_POMODORO_MODE_SECONDS, color: 'var(--info)' }
 }
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
@@ -278,6 +326,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const skipNextPersistWriteRef = useRef(false)
   const modeRef = useRef(mode)
   const lastTickRemainingRef = useRef(timeLeft)
+  const stopwatchElapsedBeforeRunRef = useRef(0)
+  const stopwatchRunStartedAtRef = useRef<number | null>(null)
 
   useEffect(() => {
     todayDateKeyRef.current = todayDateKey
@@ -286,6 +336,20 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     modeRef.current = mode
   }, [mode])
+
+  const getCurrentStopwatchElapsedSeconds = useCallback((nowMs = Date.now()) => {
+    const runStartedAtMs = stopwatchRunStartedAtRef.current
+    if (!runStartedAtMs) {
+      return clampSeconds(stopwatchElapsedBeforeRunRef.current, MAX_POMODORO_MODE_SECONDS)
+    }
+    if (runStartedAtMs - nowMs > RESTORE_CLOCK_SKEW_MS) {
+      return clampSeconds(stopwatchElapsedBeforeRunRef.current, MAX_POMODORO_MODE_SECONDS)
+    }
+    return clampSeconds(
+      stopwatchElapsedBeforeRunRef.current + ((nowMs - runStartedAtMs) / 1000),
+      MAX_POMODORO_MODE_SECONDS,
+    )
+  }, [])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -338,15 +402,20 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setHasActiveTimerSession(false)
     endTimeRef.current = null
     sessionStartedAtRef.current = null
+    stopwatchElapsedBeforeRunRef.current = 0
+    stopwatchRunStartedAtRef.current = null
     clearPersistedActiveSession()
   }, [])
 
   const setIdleMode = useCallback((nextMode: PomodoroMode) => {
+    const idleSeconds = getIdleDisplaySeconds(nextMode)
     modeRef.current = nextMode
-    lastTickRemainingRef.current = nextMode.time
+    lastTickRemainingRef.current = idleSeconds
     endTimeRef.current = null
+    stopwatchElapsedBeforeRunRef.current = idleSeconds
+    stopwatchRunStartedAtRef.current = null
     setModeState(nextMode)
-    setTimeLeft(nextMode.time)
+    setTimeLeft(idleSeconds)
     setIsRunning(false)
   }, [])
 
@@ -529,9 +598,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       ? new Date(restore.session.startedAtMs)
       : null
     lastTickRemainingRef.current = restore.timeLeft
-    endTimeRef.current = restore.status === 'running'
-      ? nowMs + restore.timeLeft * 1000
-      : null
+    if (isStopwatchModeId(restoredMode.id)) {
+      stopwatchElapsedBeforeRunRef.current = restore.timeLeft
+      stopwatchRunStartedAtRef.current = restore.status === 'running' ? nowMs : null
+      endTimeRef.current = null
+    } else {
+      stopwatchElapsedBeforeRunRef.current = 0
+      stopwatchRunStartedAtRef.current = null
+      endTimeRef.current = restore.status === 'running'
+        ? nowMs + restore.timeLeft * 1000
+        : null
+    }
     modeRef.current = restoredMode
 
     setCustomMinutes(restore.session.customMinutes)
@@ -550,37 +627,62 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null
     if (isRunning) {
-      if (!endTimeRef.current) {
-        endTimeRef.current = Date.now() + timeLeft * 1000
-      }
-      lastTickRemainingRef.current = timeLeft
-      interval = setInterval(() => {
-        if (endTimeRef.current && Date.now() - endTimeRef.current > ACTIVE_SESSION_STALE_MS) {
-          clearInterval(interval!)
-          clearActiveSessionState()
-          setIdleMode(dynamicModes.WORK!)
-          return
+      if (isStopwatchModeId(modeRef.current.id)) {
+        if (!stopwatchRunStartedAtRef.current) {
+          stopwatchElapsedBeforeRunRef.current = timeLeft
+          stopwatchRunStartedAtRef.current = Date.now()
         }
+        lastTickRemainingRef.current = timeLeft
+        interval = setInterval(() => {
+          const previousElapsed = lastTickRemainingRef.current
+          let elapsed = getCurrentStopwatchElapsedSeconds()
+          if (elapsed < previousElapsed) {
+            elapsed = previousElapsed
+            stopwatchElapsedBeforeRunRef.current = previousElapsed
+            stopwatchRunStartedAtRef.current = Date.now()
+          }
+          lastTickRemainingRef.current = elapsed
+          setTimeLeft(elapsed)
+          if (elapsed >= MAX_POMODORO_MODE_SECONDS) {
+            clearInterval(interval!)
+            stopwatchElapsedBeforeRunRef.current = elapsed
+            stopwatchRunStartedAtRef.current = null
+            setIsRunning(false)
+          }
+        }, 1000)
+      } else {
+        if (!endTimeRef.current) {
+          endTimeRef.current = Date.now() + timeLeft * 1000
+        }
+        lastTickRemainingRef.current = timeLeft
+        interval = setInterval(() => {
+          if (endTimeRef.current && Date.now() - endTimeRef.current > ACTIVE_SESSION_STALE_MS) {
+            clearInterval(interval!)
+            clearActiveSessionState()
+            setIdleMode(dynamicModes.WORK!)
+            return
+          }
 
-        const modeTime = Math.max(1, modeRef.current.time)
-        const previousRemaining = lastTickRemainingRef.current
-        let remaining = clampSeconds((endTimeRef.current! - Date.now()) / 1000, modeTime)
-        if (remaining > previousRemaining) {
-          remaining = previousRemaining
-          endTimeRef.current = Date.now() + previousRemaining * 1000
-        }
-        lastTickRemainingRef.current = remaining
-        setTimeLeft(remaining)
-        if (remaining <= 0) {
-          clearInterval(interval!)
-          handlePhaseComplete()
-        }
-      }, 1000)
+          const modeTime = Math.max(1, modeRef.current.time)
+          const previousRemaining = lastTickRemainingRef.current
+          let remaining = clampSeconds((endTimeRef.current! - Date.now()) / 1000, modeTime)
+          if (remaining > previousRemaining) {
+            remaining = previousRemaining
+            endTimeRef.current = Date.now() + previousRemaining * 1000
+          }
+          lastTickRemainingRef.current = remaining
+          setTimeLeft(remaining)
+          if (remaining <= 0) {
+            clearInterval(interval!)
+            handlePhaseComplete()
+          }
+        }, 1000)
+      }
     } else {
       endTimeRef.current = null
     }
     return () => { if (interval) clearInterval(interval) }
-  }, [clearActiveSessionState, dynamicModes, handlePhaseComplete, isRunning, setIdleMode])
+  }, [clearActiveSessionState, dynamicModes, getCurrentStopwatchElapsedSeconds, handlePhaseComplete, isRunning, setIdleMode])
 
   useEffect(() => {
     if (!activeSessionRef.current || !isPomodoroModeId(mode.id)) return
@@ -589,9 +691,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const persistedTimeLeft = Math.max(1, clampSeconds(timeLeft, mode.time))
+    const isStopwatch = isStopwatchModeId(mode.id)
+    const persistedTimeLeft = isStopwatch
+      ? clampSeconds(timeLeft, mode.time)
+      : Math.max(1, clampSeconds(timeLeft, mode.time))
     const startedAtMs = sessionStartedAtRef.current?.getTime() ?? null
-    const endTimeMs = isRunning
+    const endTimeMs = isRunning && !isStopwatch
       ? endTimeRef.current ?? Date.now() + persistedTimeLeft * 1000
       : null
 
@@ -616,16 +721,33 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     lastTickRemainingRef.current = timeLeft
 
     if (nextIsRunning) {
-      if ((mode.id === 'work' || mode.id === 'custom') && !sessionStartedAtRef.current && timeLeft === mode.time) {
+      if (isStopwatchModeId(mode.id)) {
+        if (!sessionStartedAtRef.current) {
+          sessionStartedAtRef.current = new Date()
+        }
+        stopwatchElapsedBeforeRunRef.current = timeLeft
+        stopwatchRunStartedAtRef.current = Date.now()
+        endTimeRef.current = null
+      } else if (isCountdownFocusModeId(mode.id) && !sessionStartedAtRef.current && timeLeft === mode.time) {
         sessionStartedAtRef.current = new Date()
+        endTimeRef.current = Date.now() + timeLeft * 1000
+      } else {
+        endTimeRef.current = Date.now() + timeLeft * 1000
       }
-      endTimeRef.current = Date.now() + timeLeft * 1000
     } else {
-      endTimeRef.current = null
+      if (isStopwatchModeId(mode.id)) {
+        const elapsed = getCurrentStopwatchElapsedSeconds()
+        stopwatchElapsedBeforeRunRef.current = elapsed
+        stopwatchRunStartedAtRef.current = null
+        lastTickRemainingRef.current = elapsed
+        setTimeLeft(elapsed)
+      } else {
+        endTimeRef.current = null
+      }
     }
 
     setIsRunning(nextIsRunning)
-  }, [isRunning, mode.id, mode.time, timeLeft])
+  }, [getCurrentStopwatchElapsedSeconds, isRunning, mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
     const resetMode = mode.id === 'custom'
@@ -638,14 +760,64 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setIdleMode(resetMode)
   }, [clearActiveSessionState, dynamicModes, mode, setIdleMode])
 
+  const finishStopwatchSession = useCallback(async () => {
+    if (!isStopwatchModeId(mode.id) || !activeSessionRef.current) return false
+
+    const elapsedSeconds = isRunning
+      ? getCurrentStopwatchElapsedSeconds()
+      : clampSeconds(timeLeft, MAX_POMODORO_MODE_SECONDS)
+
+    stopwatchElapsedBeforeRunRef.current = elapsedSeconds
+    stopwatchRunStartedAtRef.current = null
+    lastTickRemainingRef.current = elapsedSeconds
+    setTimeLeft(elapsedSeconds)
+    setIsRunning(false)
+
+    if (elapsedSeconds < 60) return false
+
+    const completedAt = new Date()
+    const startedAt = sessionStartedAtRef.current
+      ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
+
+    try {
+      await addPomodoroSessionRecord({
+        durationSeconds: getRoundedElapsedMinutes(elapsedSeconds) * 60,
+        subjectId: selectedSubject,
+        startedAt,
+        completedAt,
+      })
+      await notificationAPI.show('正计时已保存', '本次专注已记录到学习统计。').catch(() => { })
+      clearActiveSessionState()
+      setIdleMode(dynamicModes.STOPWATCH!)
+      return true
+    } catch (error) {
+      logger.error(error)
+      return false
+    }
+  }, [
+    addPomodoroSessionRecord,
+    clearActiveSessionState,
+    dynamicModes,
+    getCurrentStopwatchElapsedSeconds,
+    isRunning,
+    mode.id,
+    notificationAPI,
+    selectedSubject,
+    setIdleMode,
+    timeLeft,
+  ])
+
   const formatTime = useCallback((seconds: number): string => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
-    const s = (seconds % 60).toString().padStart(2, '0')
+    const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0))
+    const m = Math.floor(safeSeconds / 60).toString().padStart(2, '0')
+    const s = (safeSeconds % 60).toString().padStart(2, '0')
     return `${m}:${s}`
   }, [])
 
-  const progress = mode.time > 0
-    ? Math.max(0, Math.min(1, 1 - (timeLeft / mode.time)))
+  const progress = isStopwatchModeId(mode.id)
+    ? Math.max(0, Math.min(1, timeLeft / (60 * 60)))
+    : mode.time > 0
+      ? Math.max(0, Math.min(1, 1 - (timeLeft / mode.time)))
     : 0
   const circleCircumference = 2 * Math.PI * 90
   const miniCircumference = 2 * Math.PI * 18
@@ -660,10 +832,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
-    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, formatTime, 
+    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, finishStopwatchSession, formatTime,
     loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart,
-  }), [toggleTimer, resetTimer, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
+  }), [toggleTimer, resetTimer, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>
