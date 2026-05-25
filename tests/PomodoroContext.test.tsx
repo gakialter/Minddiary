@@ -849,4 +849,133 @@ describe('PomodoroContext', () => {
     expect(second.result.current.timer.isRunning).toBe(false)
     expect(second.result.current.timer.mode.id).toBe('work')
   })
+
+  it('starts stopwatch mode from zero and counts up', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+    })
+
+    expect(result.current.timer.mode.id).toBe('stopwatch')
+    expect(result.current.timer.timeLeft).toBe(0)
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(result.current.timer.timeLeft).toBe(3)
+  })
+
+  it('pauses and resumes stopwatch mode without counting while paused', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(2_000)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(2)
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000)
+    })
+
+    expect(result.current.timer.timeLeft).toBe(2)
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+
+    expect(result.current.timer.timeLeft).toBe(5)
+  })
+
+  it('saves a stopwatch session with the elapsed duration and selected subject', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+      result.current.actions.setSelectedSubject(1)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(125_000)
+    })
+    await act(async () => {
+      await result.current.actions.finishStopwatchSession()
+    })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1,
+      duration: 2,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 09:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 09:02:/),
+    }))
+    expect(result.current.timer.mode.id).toBe('stopwatch')
+    expect(result.current.timer.timeLeft).toBe(0)
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('does not save stopwatch sessions shorter than one minute', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+    await act(async () => {
+      await result.current.actions.finishStopwatchSession()
+    })
+
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+    expect(result.current.timer.mode.id).toBe('stopwatch')
+    expect(result.current.timer.timeLeft).toBe(30)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+  })
+
+  it('does not create multiple stopwatch intervals after repeated start clicks', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(result.current.timer.timeLeft).toBe(3)
+  })
 })

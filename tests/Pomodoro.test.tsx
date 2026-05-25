@@ -360,4 +360,44 @@ describe('Pomodoro Component', () => {
     expect(screen.getByTestId('pomodoro-mode-long_break')).not.toBeDisabled()
     expect(screen.getByTestId('pomodoro-mode-custom')).not.toBeDisabled()
   })
+
+  it('renders stopwatch mode controls and saves after at least one minute', async () => {
+    const addSession = vi.fn().mockResolvedValue(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-stopwatch'))
+    expect(screen.getByText('00:00')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-finish-stopwatch-btn')).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(61_000)
+    })
+
+    expect(screen.getByText('01:01')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-finish-stopwatch-btn')).not.toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-finish-stopwatch-btn'))
+    })
+
+    expect(addSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 1,
+    }))
+    expect(screen.getByText('00:00')).toBeInTheDocument()
+  })
 })
