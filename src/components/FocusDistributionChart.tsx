@@ -3,19 +3,22 @@ import { getLocalDateKey, isDateKey } from '../utils/dateKey'
 import {
   aggregatePomodoroStats,
   formatPomodoroMinutes,
-  getDateKeysBetween,
   summarizePomodoroStats,
   type AggregatedPomodoroStat,
 } from '../utils/pomodoroStats'
 import { PieChart } from 'lucide-react'
-import type { PomodoroStat } from '../types'
 import type { PomodoroContextAPI } from '../types/api'
 
 type RangeKey = 'today' | 'week' | 'month' | 'single' | 'custom'
 
 interface FocusDistributionChartProps {
-  pomodoro: Pick<PomodoroContextAPI, 'getStats'>
+  pomodoro: Pick<PomodoroContextAPI, 'getStatsRange'>
   dataRefreshVersion: number
+}
+
+interface SelectedDateRange {
+  startDate: string
+  endDate: string
 }
 
 interface ChartSegment extends AggregatedPomodoroStat {
@@ -43,12 +46,16 @@ function addDays(date: Date, days: number): Date {
   return next
 }
 
-function generatePresetDateRange(rangeKey: Exclude<RangeKey, 'single' | 'custom'>): string[] {
+function generatePresetDateRange(rangeKey: Exclude<RangeKey, 'single' | 'custom'>): SelectedDateRange {
   const today = new Date()
-  if (rangeKey === 'today') return [getLocalDateKey(today)]
+  const todayKey = getLocalDateKey(today)
+  if (rangeKey === 'today') return { startDate: todayKey, endDate: todayKey }
 
   const days = rangeKey === 'week' ? 7 : 30
-  return getDateKeysBetween(getLocalDateKey(addDays(today, -(days - 1))), getLocalDateKey(today))
+  return {
+    startDate: getLocalDateKey(addDays(today, -(days - 1))),
+    endDate: todayKey,
+  }
 }
 
 function getRangeValidationError(selection: RangeKey, singleDate: string, rangeStart: string, rangeEnd: string): string | null {
@@ -77,15 +84,15 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
     [rangeKey, rangeEnd, rangeStart, singleDate],
   )
 
-  const selectedDates = useMemo(() => {
-    if (validationError) return []
-    if (rangeKey === 'single') return [singleDate]
-    if (rangeKey === 'custom') return getDateKeysBetween(rangeStart, rangeEnd)
+  const selectedRange = useMemo<SelectedDateRange | null>(() => {
+    if (validationError) return null
+    if (rangeKey === 'single') return { startDate: singleDate, endDate: singleDate }
+    if (rangeKey === 'custom') return { startDate: rangeStart, endDate: rangeEnd }
     return generatePresetDateRange(rangeKey)
   }, [rangeKey, rangeStart, rangeEnd, singleDate, validationError])
 
-  const loadData = useCallback(async (dates: string[]) => {
-    if (dates.length === 0) {
+  const loadData = useCallback(async (dateRange: SelectedDateRange | null) => {
+    if (!dateRange) {
       setData([])
       setLoading(false)
       return
@@ -93,10 +100,8 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
 
     setLoading(true)
     try {
-      const allStats = await Promise.all(
-        dates.map(date => pomodoro.getStats(date).catch(() => [] as PomodoroStat[])),
-      )
-      setData(aggregatePomodoroStats(allStats))
+      const rangeStats = await pomodoro.getStatsRange(dateRange.startDate, dateRange.endDate)
+      setData(aggregatePomodoroStats([rangeStats || []]))
     } catch {
       setData([])
     } finally {
@@ -111,10 +116,10 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
       return
     }
     const timeout = window.setTimeout(() => {
-      void loadData(selectedDates)
+      void loadData(selectedRange)
     }, 0)
     return () => window.clearTimeout(timeout)
-  }, [dataRefreshVersion, loadData, selectedDates, validationError])
+  }, [dataRefreshVersion, loadData, selectedRange, validationError])
 
   const summary = useMemo(() => summarizePomodoroStats(data), [data])
 

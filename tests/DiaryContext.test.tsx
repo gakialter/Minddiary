@@ -101,6 +101,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
   },
   pomodoro: {
     getStats: vi.fn(),
+    getStatsRange: vi.fn(),
     getRange: vi.fn(),
     addSession: vi.fn(),
     getDailyTotal: vi.fn(),

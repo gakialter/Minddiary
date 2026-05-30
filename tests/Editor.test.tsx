@@ -131,3 +131,51 @@ describe('Editor format toolbar', () => {
   })
 })
 
+describe('Editor focus reflection insertion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tagsGetAll.mockResolvedValue([])
+    mocks.getDailyTotal.mockResolvedValue(0)
+    mocks.templatesGetAll.mockResolvedValue([])
+    mocks.aiChat.mockResolvedValue({ content: '' })
+  })
+
+  it('appends a pending focus reflection draft once', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const onApplied = vi.fn()
+    const pendingInsert = {
+      id: 1,
+      content: '## Focus Reflection\n- Subject: Math\n- Next step:',
+    }
+
+    const { rerender } = render(
+      <Editor
+        entry={entry}
+        onSave={onSave}
+        loading={false}
+        pendingInsert={pendingInsert}
+        onPendingInsertApplied={onApplied}
+      />,
+    )
+
+    const contentInput = await screen.findByTestId('diary-content-input')
+    await waitFor(() => {
+      expect((contentInput as HTMLTextAreaElement).value).toContain('## Focus Reflection')
+    })
+    expect((contentInput as HTMLTextAreaElement).value).toContain('Entry body')
+    expect(onApplied).toHaveBeenCalledWith(1)
+
+    rerender(
+      <Editor
+        entry={entry}
+        onSave={onSave}
+        loading={false}
+        pendingInsert={pendingInsert}
+        onPendingInsertApplied={onApplied}
+      />,
+    )
+
+    expect(String((contentInput as HTMLTextAreaElement).value).match(/## Focus Reflection/g)).toHaveLength(1)
+  })
+})
+

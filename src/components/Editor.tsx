@@ -33,13 +33,21 @@ interface PomodoroRecord {
   duration: number
 }
 
+export interface PendingDiaryInsert {
+  id: number
+  content: string
+  date?: string
+}
+
 interface EditorProps {
   entry: DiaryEntry | null
   onSave: (data: { title: string; content: string; tags: number[] }) => Promise<void>
   loading: boolean
+  pendingInsert?: PendingDiaryInsert | null
+  onPendingInsertApplied?: (id: number) => void
 }
 
-function Editor({ entry, onSave, loading }: EditorProps) {
+function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -56,6 +64,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
+  const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -103,6 +112,28 @@ function Editor({ entry, onSave, loading }: EditorProps) {
       isDirty.current = false
     }
   }, [entry])
+
+  useEffect(() => {
+    if (!entry || !pendingInsert || appliedInsertIdsRef.current.has(pendingInsert.id)) return
+    if (pendingInsert.date && pendingInsert.date !== entry.date) return
+
+    const insertContent = pendingInsert.content.trim()
+    appliedInsertIdsRef.current.add(pendingInsert.id)
+
+    if (insertContent) {
+      setContent(current => {
+        const next = current.trim()
+          ? `${current.trimEnd()}\n\n${insertContent}\n`
+          : `${insertContent}\n`
+        setWordCount(calculateWordCount(next))
+        return next
+      })
+      isDirty.current = true
+      textareaRef.current?.focus()
+    }
+
+    onPendingInsertApplied?.(pendingInsert.id)
+  }, [entry, onPendingInsertApplied, pendingInsert])
 
   const handleSave = useCallback(async (isManual = false) => {
     if (!entry) return
@@ -437,6 +468,7 @@ function Editor({ entry, onSave, loading }: EditorProps) {
         <textarea
           ref={textareaRef}
           className="w-full h-full font-mono resize-none"
+          data-testid="diary-content-input"
           style={{
             fontSize: 15,
             lineHeight: 1.8,

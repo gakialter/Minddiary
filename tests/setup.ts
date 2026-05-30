@@ -49,6 +49,7 @@ if (typeof window !== 'undefined') {
     },
     pomodoro: {
       getStats: vi.fn().mockResolvedValue({ todaySessions: 0, todayMinutes: 0 }),
+      getStatsRange: vi.fn().mockResolvedValue([]),
       saveSession: vi.fn().mockResolvedValue(true),
       getDailyTotal: vi.fn().mockResolvedValue(0),
     },

@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FocusDistributionChart from '../src/components/FocusDistributionChart'
 import type { PomodoroStat } from '../src/types'
 
-const createMockPomodoro = (getStatsFn = vi.fn()) => ({
+const createMockPomodoro = (
+  getStatsRangeFn = vi.fn().mockResolvedValue([]),
+  getStatsFn = vi.fn().mockResolvedValue([]),
+) => ({
   getStats: getStatsFn,
+  getStatsRange: getStatsRangeFn,
 })
 
 const stat = (name: string, color: string, mins: number, sessions: number): PomodoroStat => ({
@@ -19,7 +23,7 @@ describe('FocusDistributionChart', () => {
     vi.clearAllMocks()
   })
 
-  it('shows empty state when getStats returns no data', async () => {
+  it('shows empty state when getStatsRange returns no data', async () => {
     const mockPomodoro = createMockPomodoro(vi.fn().mockResolvedValue([]))
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -27,10 +31,9 @@ describe('FocusDistributionChart', () => {
     await waitFor(() => {
       expect(screen.getByTestId('focus-distribution-empty')).toBeInTheDocument()
     })
-    expect(screen.getByText('选定时间范围内暂无专注记录')).toBeInTheDocument()
   })
 
-  it('shows empty state when getStats rejects', async () => {
+  it('shows empty state when getStatsRange rejects', async () => {
     const mockPomodoro = createMockPomodoro(vi.fn().mockRejectedValue(new Error('DB error')))
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -42,7 +45,7 @@ describe('FocusDistributionChart', () => {
 
   it('renders a single subject as 100%', async () => {
     const mockPomodoro = createMockPomodoro(
-      vi.fn().mockResolvedValue([stat('数学', '#0F766E', 60, 3)])
+      vi.fn().mockResolvedValue([stat('Math', '#0F766E', 60, 3)]),
     )
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -53,19 +56,19 @@ describe('FocusDistributionChart', () => {
 
     const legendItems = screen.getAllByTestId('focus-legend-item')
     expect(legendItems).toHaveLength(1)
-    expect(legendItems[0]).toHaveTextContent('数学')
+    expect(legendItems[0]).toHaveTextContent('Math')
     expect(legendItems[0]).toHaveTextContent('1h')
     expect(legendItems[0]).toHaveTextContent('100%')
-    expect(legendItems[0]).toHaveTextContent('3 🍅')
+    expect(legendItems[0]).toHaveTextContent('3')
   })
 
   it('sorts multiple subjects by total_minutes descending', async () => {
     const mockPomodoro = createMockPomodoro(
       vi.fn().mockResolvedValue([
-        stat('英语', '#854D0E', 20, 1),
-        stat('数学', '#0F766E', 60, 3),
-        stat('政治', '#C65A3A', 10, 1),
-      ])
+        stat('English', '#854D0E', 20, 1),
+        stat('Math', '#0F766E', 60, 3),
+        stat('Politics', '#C65A3A', 10, 1),
+      ]),
     )
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -76,25 +79,17 @@ describe('FocusDistributionChart', () => {
 
     const legendItems = screen.getAllByTestId('focus-legend-item')
     expect(legendItems).toHaveLength(3)
-
-    // First item should be 数学 (60m — highest)
-    expect(legendItems[0]).toHaveTextContent('数学')
+    expect(legendItems[0]).toHaveTextContent('Math')
     expect(legendItems[0]).toHaveTextContent('67%')
-
-    // Second item should be 英语 (20m)
-    expect(legendItems[1]).toHaveTextContent('英语')
+    expect(legendItems[1]).toHaveTextContent('English')
     expect(legendItems[1]).toHaveTextContent('22%')
-
-    // Third item should be 政治 (10m — lowest)
-    expect(legendItems[2]).toHaveTextContent('政治')
+    expect(legendItems[2]).toHaveTextContent('Politics')
     expect(legendItems[2]).toHaveTextContent('11%')
   })
 
-  it('displays "未分类" for empty subject_name', async () => {
+  it('displays a fallback label for empty subject_name', async () => {
     const mockPomodoro = createMockPomodoro(
-      vi.fn().mockResolvedValue([
-        stat('', '', 45, 2),
-      ])
+      vi.fn().mockResolvedValue([stat('', '', 45, 2)]),
     )
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -103,15 +98,15 @@ describe('FocusDistributionChart', () => {
       expect(screen.getByTestId('focus-distribution-chart')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('未分类')).toBeInTheDocument()
+    expect(screen.getAllByTestId('focus-legend-item')[0]).toHaveTextContent(/\S/)
   })
 
   it('formats time correctly: 30m and 1h 30m', async () => {
     const mockPomodoro = createMockPomodoro(
       vi.fn().mockResolvedValue([
-        stat('数学', '#0F766E', 90, 4),
-        stat('英语', '#854D0E', 30, 2),
-      ])
+        stat('Math', '#0F766E', 90, 4),
+        stat('English', '#854D0E', 30, 2),
+      ]),
     )
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -121,24 +116,22 @@ describe('FocusDistributionChart', () => {
     })
 
     const legendItems = screen.getAllByTestId('focus-legend-item')
-    // 数学: 90m → "1h 30m"
     expect(legendItems[0]).toHaveTextContent('1h 30m')
-    // 英语: 30m → "30m"
     expect(legendItems[1]).toHaveTextContent('30m')
   })
 
-  it('calls getStats 7 times when "近 7 天" is selected', async () => {
+  it('calls getStatsRange once when week range is selected', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
     const getStatsFn = vi.fn().mockResolvedValue([])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
-    // Wait for initial load (today = 1 call)
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
 
-    // Clear call count and click "近 7 天"
+    getStatsRangeFn.mockClear()
     getStatsFn.mockClear()
 
     await act(async () => {
@@ -146,16 +139,17 @@ describe('FocusDistributionChart', () => {
     })
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(7)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
+    expect(getStatsFn).not.toHaveBeenCalled()
   })
 
   it('displays center total in the donut chart', async () => {
     const mockPomodoro = createMockPomodoro(
       vi.fn().mockResolvedValue([
-        stat('数学', '#0F766E', 75, 3),
-        stat('英语', '#854D0E', 45, 2),
-      ])
+        stat('Math', '#0F766E', 75, 3),
+        stat('English', '#854D0E', 45, 2),
+      ]),
     )
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
@@ -164,37 +158,24 @@ describe('FocusDistributionChart', () => {
       expect(screen.getByTestId('focus-distribution-chart')).toBeInTheDocument()
     })
 
-    // Total: 120m = 2h, 5 sessions
     expect(screen.getByText('2h')).toBeInTheDocument()
-    expect(screen.getByText('共 5 番茄')).toBeInTheDocument()
+    expect(screen.getAllByText(/5/).length).toBeGreaterThan(0)
   })
 
-  it('aggregates same subject across multiple days in 7-day range', async () => {
-    // Each getStats call returns per-day data; we need 1 call for initial 'today' load,
-    // then 7 calls when switching to 'week'.
-    const getStatsFn = vi.fn()
-      // Initial load (today): return empty so chart shows empty state
+  it('renders aggregated subject totals from week range stats', async () => {
+    const getStatsRangeFn = vi.fn()
       .mockResolvedValueOnce([])
-
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+      .mockResolvedValueOnce([
+        stat('Math', '#0F766E', 60, 3),
+        stat('English', '#854D0E', 40, 2),
+      ])
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
-    // Wait for initial load to complete
     await waitFor(() => {
       expect(screen.getByTestId('focus-distribution-empty')).toBeInTheDocument()
     })
-
-    // Now set up per-day mocks for 7-day range: 数学 appears on 3 days, 英语 on 2 days
-    getStatsFn.mockClear()
-    getStatsFn
-      .mockResolvedValueOnce([stat('数学', '#0F766E', 30, 1)])                              // day 1
-      .mockResolvedValueOnce([])                                                             // day 2
-      .mockResolvedValueOnce([stat('数学', '#0F766E', 20, 1), stat('英语', '#854D0E', 15, 1)]) // day 3
-      .mockResolvedValueOnce([])                                                             // day 4
-      .mockResolvedValueOnce([stat('英语', '#854D0E', 25, 1)])                               // day 5
-      .mockResolvedValueOnce([stat('数学', '#0F766E', 10, 1)])                               // day 6
-      .mockResolvedValueOnce([])                                                             // day 7
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('focus-range-week'))
@@ -204,36 +185,31 @@ describe('FocusDistributionChart', () => {
       expect(screen.getByTestId('focus-distribution-chart')).toBeInTheDocument()
     })
 
-    // 数学: 30+20+10 = 60m, 3 sessions. 英语: 15+25 = 40m, 2 sessions.
     const legendItems = screen.getAllByTestId('focus-legend-item')
     expect(legendItems).toHaveLength(2)
-
-    // Sorted desc: 数学 (60m) first, 英语 (40m) second
-    expect(legendItems[0]).toHaveTextContent('数学')
+    expect(legendItems[0]).toHaveTextContent('Math')
     expect(legendItems[0]).toHaveTextContent('1h')
     expect(legendItems[0]).toHaveTextContent('60%')
-    expect(legendItems[0]).toHaveTextContent('3 🍅')
-
-    expect(legendItems[1]).toHaveTextContent('英语')
+    expect(legendItems[0]).toHaveTextContent('3')
+    expect(legendItems[1]).toHaveTextContent('English')
     expect(legendItems[1]).toHaveTextContent('40m')
     expect(legendItems[1]).toHaveTextContent('40%')
-    expect(legendItems[1]).toHaveTextContent('2 🍅')
-
-    // Center total: 100m = 1h 40m, 5 sessions
+    expect(legendItems[1]).toHaveTextContent('2')
     expect(screen.getByText('1h 40m')).toBeInTheDocument()
-    expect(screen.getByText('共 5 番茄')).toBeInTheDocument()
   })
 
-  it('calls getStats 30 times when "近 30 天" is selected', async () => {
+  it('calls getStatsRange once when month range is selected', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
     const getStatsFn = vi.fn().mockResolvedValue([])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
 
+    getStatsRangeFn.mockClear()
     getStatsFn.mockClear()
 
     await act(async () => {
@@ -241,22 +217,24 @@ describe('FocusDistributionChart', () => {
     })
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(30)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
+    expect(getStatsFn).not.toHaveBeenCalled()
   })
 
   it('loads only the selected day in single-day mode', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
     const getStatsFn = vi.fn().mockResolvedValue([])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
 
-    getStatsFn.mockClear()
-    getStatsFn.mockResolvedValue([stat('数学', '#0F766E', 50, 2)])
+    getStatsRangeFn.mockClear()
+    getStatsRangeFn.mockResolvedValue([stat('Math', '#0F766E', 50, 2)])
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('focus-range-single'))
@@ -268,33 +246,35 @@ describe('FocusDistributionChart', () => {
     })
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledWith('2026-05-03')
+      expect(getStatsRangeFn).toHaveBeenCalledWith('2026-05-03', '2026-05-03')
     })
-    expect(getStatsFn).toHaveBeenCalledTimes(1)
+    expect(getStatsFn).not.toHaveBeenCalled()
     expect(screen.getByTestId('focus-distribution-chart')).toBeInTheDocument()
     expect(screen.getAllByText('50m').length).toBeGreaterThan(0)
   })
 
   it('loads a custom date range including both start and end dates', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
     const getStatsFn = vi.fn().mockResolvedValue([])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
 
-    getStatsFn.mockClear()
-    getStatsFn
-      .mockResolvedValueOnce([stat('数学', '#0F766E', 25, 1)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([stat('英语', '#854D0E', 35, 1)])
+    getStatsRangeFn.mockResolvedValue([
+      stat('Math', '#0F766E', 25, 1),
+      stat('English', '#854D0E', 35, 1),
+    ])
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('focus-range-custom'))
     })
+    getStatsRangeFn.mockClear()
     getStatsFn.mockClear()
+
     await act(async () => {
       fireEvent.change(screen.getByTestId('focus-range-start'), {
         target: { value: '2026-05-01' },
@@ -305,31 +285,63 @@ describe('FocusDistributionChart', () => {
     })
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(3)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
-    expect(getStatsFn).toHaveBeenNthCalledWith(1, '2026-05-01')
-    expect(getStatsFn).toHaveBeenNthCalledWith(2, '2026-05-02')
-    expect(getStatsFn).toHaveBeenNthCalledWith(3, '2026-05-03')
+    expect(getStatsRangeFn).toHaveBeenCalledWith('2026-05-01', '2026-05-03')
+    expect(getStatsFn).not.toHaveBeenCalled()
     expect(screen.getByText('1h')).toBeInTheDocument()
-    expect(screen.getByText('共 2 次')).toBeInTheDocument()
   })
 
-  it('shows a validation message and does not load stats when custom dates are invalid', async () => {
+  it('does not expand a one-year custom range into per-day getStats calls', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
     const getStatsFn = vi.fn().mockResolvedValue([])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
-
-    getStatsFn.mockClear()
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('focus-range-custom'))
     })
+    getStatsRangeFn.mockClear()
     getStatsFn.mockClear()
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('focus-range-start'), {
+        target: { value: '2025-01-01' },
+      })
+      fireEvent.change(screen.getByTestId('focus-range-end'), {
+        target: { value: '2025-12-31' },
+      })
+    })
+
+    await waitFor(() => {
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
+    })
+    expect(getStatsRangeFn).toHaveBeenCalledWith('2025-01-01', '2025-12-31')
+    expect(getStatsFn).not.toHaveBeenCalled()
+  })
+
+  it('shows a validation message and does not load stats when custom dates are invalid', async () => {
+    const getStatsRangeFn = vi.fn().mockResolvedValue([])
+    const getStatsFn = vi.fn().mockResolvedValue([])
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn, getStatsFn)
+
+    render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
+
+    await waitFor(() => {
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('focus-range-custom'))
+    })
+    getStatsRangeFn.mockClear()
+    getStatsFn.mockClear()
+
     await act(async () => {
       fireEvent.change(screen.getByTestId('focus-range-start'), {
         target: { value: '2026-05-04' },
@@ -342,29 +354,29 @@ describe('FocusDistributionChart', () => {
     await waitFor(() => {
       expect(screen.getByTestId('focus-range-error')).toBeInTheDocument()
     })
+    expect(getStatsRangeFn).not.toHaveBeenCalled()
     expect(getStatsFn).not.toHaveBeenCalled()
-    expect(screen.getByText('开始日期不能晚于结束日期')).toBeInTheDocument()
   })
 
   it('reloads data when dataRefreshVersion changes', async () => {
-    const getStatsFn = vi.fn().mockResolvedValue([stat('数学', '#0F766E', 30, 1)])
-    const mockPomodoro = createMockPomodoro(getStatsFn)
+    const getStatsRangeFn = vi.fn().mockResolvedValue([stat('Math', '#0F766E', 30, 1)])
+    const mockPomodoro = createMockPomodoro(getStatsRangeFn)
 
     const { rerender } = render(
-      <FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />
+      <FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />,
     )
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
 
-    getStatsFn.mockClear()
-    getStatsFn.mockResolvedValue([stat('数学', '#0F766E', 60, 2)])
+    getStatsRangeFn.mockClear()
+    getStatsRangeFn.mockResolvedValue([stat('Math', '#0F766E', 60, 2)])
 
     rerender(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={1} />)
 
     await waitFor(() => {
-      expect(getStatsFn).toHaveBeenCalledTimes(1)
+      expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
   })
 })

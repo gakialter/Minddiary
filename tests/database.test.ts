@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { safeStorage } from 'electron'
 import { logger } from '../electron/logger'
-import type { Attachment, Tag } from '../src/types'
+import type { Attachment, Mistake, PomodoroStat, Tag } from '../src/types'
 
 type PreparedCall = {
   sql: string
@@ -20,6 +20,8 @@ type DatabaseModule = {
   updateTag: (id: number, tag: Partial<Tag>) => Tag
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAttachmentsByEntries: (entryIds: number[]) => Record<number, Attachment[]>
+  getAllMistakes: (filters?: { due?: boolean; dueDate?: string }) => { data: Mistake[], total: number, masteredTotal: number }
+  getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
   updateMistake: (id: number, mistake: { image_path?: string | null; question?: string }) => Promise<{ success: boolean }>
   deleteMistake: (id: number) => Promise<{ success: boolean }>
   getAiApiKey: () => string | null
@@ -37,6 +39,7 @@ const state = vi.hoisted(() => ({
   runChanges: 1,
   settings: {} as Record<string, unknown>,
   mistakeRows: [] as MistakeImageRow[],
+  pomodoroStatsRows: [] as PomodoroStat[],
 }))
 
 const mistakeImageStorageState = vi.hoisted(() => ({
@@ -140,6 +143,9 @@ vi.mock('better-sqlite3', () => {
           if (sql.includes('FROM attachments')) {
             return state.attachmentRows
           }
+          if (sql.includes('FROM pomodoro_sessions p') && sql.includes('GROUP BY p.subject_id')) {
+            return state.pomodoroStatsRows
+          }
           if (sql.includes('FROM mistakes') && sql.includes('id <> ?')) {
             const excludedId = Number(params[0])
             return state.mistakeRows.filter(row => row.id !== excludedId && row.image_path)
@@ -164,6 +170,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.runChanges = 1
   state.settings = {}
   state.mistakeRows = []
+  state.pomodoroStatsRows = []
   mistakeImageStorageState.deleteManagedMistakeImage.mockReset()
   mistakeImageStorageState.deleteManagedMistakeImage.mockResolvedValue(undefined)
   mistakeImageStorageState.getMistakeImageReferenceKey.mockClear()
@@ -355,6 +362,53 @@ describe('database batch entry metadata APIs', () => {
     const call = lastPreparedCall()
     expect(call.sql).toContain('entry_id IN (?, ?)')
     expect(call.params).toEqual([2, 4])
+  })
+})
+
+describe('database pomodoro range subject stats', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('aggregates pomodoro sessions by subject over an inclusive date range', async () => {
+    state.pomodoroStatsRows = [
+      { subject_name: 'Math', color: '#0F766E', total_minutes: 75, session_count: 3 },
+      { subject_name: 'English', color: '#854D0E', total_minutes: 30, session_count: 1 },
+    ]
+    const database = await loadDatabase()
+
+    const result = database.getPomodoroStatsRange('2026-05-01', '2026-05-31')
+
+    expect(result).toEqual(state.pomodoroStatsRows)
+    const call = lastPreparedCall()
+    expect(call.sql).toContain('FROM pomodoro_sessions p')
+    expect(call.sql).toContain('LEFT JOIN subjects s ON p.subject_id = s.id')
+    expect(call.sql).toContain('WHERE p.date_key BETWEEN ? AND ?')
+    expect(call.sql).toContain('GROUP BY p.subject_id')
+    expect(call.sql).toContain('ORDER BY total_minutes DESC')
+    expect(call.params).toEqual(['2026-05-01', '2026-05-31'])
+  })
+})
+
+describe('database mistake due filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('filters due-review mistakes with the same risk-pool condition', async () => {
+    const database = await loadDatabase()
+
+    database.getAllMistakes({ due: true, dueDate: '2026-05-30' })
+
+    const countCall = state.preparedCalls.find(call => call.sql.includes('SUM(CASE WHEN m.mastered = 1'))
+    expect(countCall?.sql).toContain('m.mastered = 0')
+    expect(countCall?.sql).toContain('(m.next_review_date IS NULL OR m.next_review_date <= ?)')
+    expect(countCall?.params).toEqual(['2026-05-30'])
+
+    const listCall = state.preparedCalls.find(call => call.sql.includes('SELECT m.*, s.name as subject_name'))
+    expect(listCall?.sql).toContain('m.mastered = 0')
+    expect(listCall?.sql).toContain('(m.next_review_date IS NULL OR m.next_review_date <= ?)')
+    expect(listCall?.params).toEqual(['2026-05-30'])
   })
 })
 

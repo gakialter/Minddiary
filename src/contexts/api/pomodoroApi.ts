@@ -7,6 +7,10 @@ export const createPomodoroApi = (): PomodoroContextAPI => ({
         if (IS_ELECTRON) return window.api.pomodoro.getStats(date)
         return []
     },
+    getStatsRange: async (start: string, end: string) => {
+        if (IS_ELECTRON) return window.api.pomodoro.getStatsRange(start, end)
+        return []
+    },
     getRange: async (start: string, end: string) => {
         if (IS_ELECTRON) return window.api.pomodoro.getRange(start, end)
         return []

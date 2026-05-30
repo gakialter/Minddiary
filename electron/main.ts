@@ -578,6 +578,7 @@ ipcMain.handle('subjects:delete', (_: unknown, id: number) => db.deleteSubject(i
 // ==================== Pomodoro ====================
 ipcMain.handle('pomodoro:addSession', (_: unknown, session: PomodoroSession) => db.addPomodoroSession(session));
 ipcMain.handle('pomodoro:getStats', (_: unknown, date: string) => db.getPomodoroStats(date));
+ipcMain.handle('pomodoro:getStatsRange', (_: unknown, start: string, end: string) => db.getPomodoroStatsRange(start, end));
 ipcMain.handle('pomodoro:getDailyTotal', (_: unknown, date: string) => db.getDailyStudyMinutes(date));
 ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => db.getPomodoroRange(start, end));
 

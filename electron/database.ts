@@ -550,6 +550,17 @@ function getPomodoroStats(date: string): PomodoroStat[] {
   `).all(date) as PomodoroStat[];
 }
 
+function getPomodoroStatsRange(startDate: string, endDate: string): PomodoroStat[] {
+    return db.prepare(`
+    SELECT s.name as subject_name, s.color, SUM(p.duration) as total_minutes, COUNT(p.id) as session_count
+    FROM pomodoro_sessions p
+    LEFT JOIN subjects s ON p.subject_id = s.id
+    WHERE p.date_key BETWEEN ? AND ?
+    GROUP BY p.subject_id
+    ORDER BY total_minutes DESC
+  `).all(startDate, endDate) as PomodoroStat[];
+}
+
 function getDailyStudyMinutes(date: string) {
     const row = db.prepare(
         'SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE date_key = ?'
@@ -700,14 +711,18 @@ function getTodayDashboard(date: string): TodayDashboardData {
 // ==================== Mistakes ====================
 function getAllMistakes(filters: MistakeFilters = {}): { data: Mistake[], total: number, masteredTotal: number } {
     const baseQuery = ' FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
-    const conditions = [];
-    const params = [];
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
 
     if (filters.subject_id) {
         conditions.push('m.subject_id = ?');
         params.push(filters.subject_id);
     }
-    if (filters.mastered !== undefined) {
+    if (filters.due) {
+        conditions.push('m.mastered = 0');
+        conditions.push('(m.next_review_date IS NULL OR m.next_review_date <= ?)');
+        params.push(filters.dueDate || getLocalDateKey());
+    } else if (filters.mastered !== undefined) {
         conditions.push('m.mastered = ?');
         params.push(filters.mastered ? 1 : 0);
     }
@@ -1056,7 +1071,7 @@ module.exports = {
     getSetting, setSetting, getAllSettings,
     addAttachment, getAttachmentsByEntry, getAttachmentsByEntries, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
-    addPomodoroSession, getPomodoroStats, getDailyStudyMinutes,
+    addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,

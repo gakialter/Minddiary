@@ -47,6 +47,7 @@ describe('useDashboardMasterState', () => {
 
     expect(state.type).toBe('D')
     expect(state.title).toBe('正在加载系统判断...')
+    expect(state.explanation).toContain('正在加载')
   })
 
   it('returns cold-start state D when there is no streak, risk, or pomodoro data', () => {
@@ -59,7 +60,8 @@ describe('useDashboardMasterState', () => {
     )
 
     expect(state.type).toBe('D')
-    expect(state.title).toContain('先用一次完整闭环')
+    expect(state.title).toContain('完整闭环')
+    expect(state.explanation).toBe('今天暂无有效专注和风险数据，所以建议先完成一轮最小学习闭环。')
   })
 
   it('returns high-risk state A with estimated rescue minutes', () => {
@@ -73,6 +75,7 @@ describe('useDashboardMasterState', () => {
     expect(state.title).toContain('5 个高风险知识点')
     expect(state.subtitle).toContain('预计 15 分钟')
     expect(state.ctaText).toContain('15 分钟')
+    expect(state.explanation).toBe('当前建议来自：待复习错题 5 ≥ 5，所以优先进入抢救模式。')
   })
 
   it('prioritizes high-risk state A over low-conversion state C', () => {
@@ -88,6 +91,7 @@ describe('useDashboardMasterState', () => {
 
     expect(state.type).toBe('A')
     expect(state.title).toContain('6 个高风险知识点')
+    expect(state.explanation).toContain('待复习错题 6 ≥ 5')
   })
 
   it('returns low-conversion state C when effort is high but conversion is low', () => {
@@ -102,8 +106,9 @@ describe('useDashboardMasterState', () => {
     )
 
     expect(state.type).toBe('C')
-    expect(state.title).toContain('把学习沉淀下来')
+    expect(state.title).toContain('学习沉淀下来')
     expect(state.subtitle).toContain('40%')
+    expect(state.explanation).toBe('你今天已完成 3 个番茄，但有效专注转化率 40% < 50%，所以建议先整理错题，而不是继续堆时长。')
   })
 
   it('returns healthy progress state B as the fallback state', () => {
@@ -120,6 +125,7 @@ describe('useDashboardMasterState', () => {
 
     expect(state.type).toBe('B')
     expect(state.title).toContain('没有明显遗忘风险')
+    expect(state.explanation).toBe('当前没有明显遗忘风险，可以继续推进新内容。')
   })
 
   it('State B ctaText shows "第 1 个" when today has 0 sessions', () => {

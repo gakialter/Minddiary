@@ -543,6 +543,25 @@ describe('PomodoroContext', () => {
     expect(mocks.audioContextConstructor).toHaveBeenCalled()
   })
 
+  it('opens a settlement prompt after a completed countdown focus session is saved', async () => {
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000)
+    })
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(result.current.data.alertState.visible).toBe(true)
+      expect(result.current.data.alertState.showSettlementActions).toBe(true)
+      expect(result.current.data.alertState.duration).toBe(25)
+    })
+  })
+
   it('stores custom minutes and uses them when switching to custom mode', async () => {
     localStorage.setItem('pomodoro-custom-minutes', '20')
     const { result } = renderPomodoroHook()
@@ -937,6 +956,32 @@ describe('PomodoroContext', () => {
     expect(result.current.timer.timeLeft).toBe(0)
     expect(result.current.timer.isRunning).toBe(false)
     expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('opens a settlement prompt after a saved stopwatch session', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 10, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.STOPWATCH!)
+      result.current.actions.setSelectedSubject(1)
+    })
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(125_000)
+    })
+    await act(async () => {
+      await result.current.actions.finishStopwatchSession()
+    })
+    await flushAsyncWork()
+
+    expect(result.current.data.alertState.visible).toBe(true)
+    expect(result.current.data.alertState.showSettlementActions).toBe(true)
+    expect(result.current.data.alertState.duration).toBe(2)
+    expect(result.current.data.alertState.subjectName).toBe('Math')
   })
 
   it('does not save stopwatch sessions shorter than one minute', async () => {
