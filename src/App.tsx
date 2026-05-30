@@ -18,7 +18,10 @@ import PomodoroAlert from './components/PomodoroAlert'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/Toast'
 import { logger } from './utils/logger'
+import { getLocalDateKey } from './utils/dateKey'
 import type { DiaryEntry, MoodId } from './types'
+import type { PendingDiaryInsert } from './components/Editor'
+import type { MistakeFilterIntent } from './components/MistakeBook'
 
 interface ViewErrorFallbackProps {
   error?: Error | null
@@ -37,6 +40,11 @@ const ViewErrorFallback = ({ error, resetErrorBoundary }: ViewErrorFallbackProps
     </button>
   </div>
 )
+
+const buildFocusReflectionTemplate = (subjectName: string | null) => {
+  const subjectLine = subjectName ? `- 科目：${subjectName}\n` : ''
+  return `## 本轮专注沉淀\n${subjectLine}- 学习内容：\n- 卡点：\n- 下一步：`
+}
 
 function AppContent() {
   const diary = useDiary()
@@ -58,6 +66,8 @@ function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showBreakReview, setShowBreakReview] = useState(false)
+  const [pendingDiaryInsert, setPendingDiaryInsert] = useState<PendingDiaryInsert | null>(null)
+  const [pendingMistakeFilter, setPendingMistakeFilter] = useState<MistakeFilterIntent | null>(null)
 
   // Register break-start handler with Pomodoro context
   const { alertState } = usePomodoroData()
@@ -67,6 +77,35 @@ function AppContent() {
     setOnBreakStart(() => setShowBreakReview(true))
     return () => setOnBreakStart(null)
   }, [setOnBreakStart])
+
+  const handleWriteFocusDiary = useCallback(() => {
+    const today = getLocalDateKey()
+    setPendingDiaryInsert({
+      id: Date.now(),
+      date: today,
+      content: buildFocusReflectionTemplate(alertState.subjectName),
+    })
+    setSelectedDate(today)
+    setActiveView('editor')
+    dismissAlert()
+  }, [alertState.subjectName, dismissAlert, setActiveView, setSelectedDate])
+
+  const handleAddFocusMistake = useCallback(() => {
+    setActiveView('mistakes')
+    dismissAlert()
+  }, [dismissAlert, setActiveView])
+
+  const handlePendingDiaryInsertApplied = useCallback((id: number) => {
+    setPendingDiaryInsert(current => current?.id === id ? null : current)
+  }, [])
+
+  const handleMistakeFilterIntent = useCallback((intent: MistakeFilterIntent) => {
+    setPendingMistakeFilter(intent)
+  }, [])
+
+  const handleMistakeFilterIntentApplied = useCallback(() => {
+    setPendingMistakeFilter(null)
+  }, [])
 
   // ─── Global keyboard shortcuts (extracted hook) ───
   const keyBindings = useMemo(() => ({
@@ -194,6 +233,11 @@ function AppContent() {
       isSidebarCollapsed,
       ImageGallery,
       ensureEntryId,
+      pendingDiaryInsert,
+      onPendingDiaryInsertApplied: handlePendingDiaryInsertApplied,
+      mistakeFilterIntent: pendingMistakeFilter,
+      onMistakeFilterIntent: handleMistakeFilterIntent,
+      onMistakeFilterIntentApplied: handleMistakeFilterIntentApplied,
     })
   }
 
@@ -270,6 +314,9 @@ function AppContent() {
         duration={alertState.duration}
         todayTotal={alertState.todayTotal}
         onClose={dismissAlert}
+        showSettlementActions={alertState.showSettlementActions}
+        onWriteDiary={handleWriteFocusDiary}
+        onAddMistake={handleAddFocusMistake}
       />
     </Layout>
   )

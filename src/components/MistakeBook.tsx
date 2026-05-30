@@ -5,6 +5,7 @@ import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpe
 import { logger } from '../utils/logger'
 import type { Mistake, Subject, MistakeFilters } from '../types'
 import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
+import { getLocalDateKey } from '../utils/dateKey'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
@@ -27,6 +28,13 @@ interface MistakeForm {
     image_paths: string[]
 }
 
+export type MistakeFilterIntent = 'due'
+
+interface MistakeBookProps {
+    initialFilter?: MistakeFilterIntent | null
+    onInitialFilterApplied?: () => void
+}
+
 const parseImagePaths = (raw?: string | null): string[] => {
     if (!raw) return []
     if (raw.startsWith('[')) { try { return JSON.parse(raw) } catch { return [] } }
@@ -41,7 +49,7 @@ const serializeImagePaths = (paths: string[]): string | null => {
 
 const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
 
-export default function MistakeBook() {
+export default function MistakeBook({ initialFilter = null, onInitialFilterApplied }: MistakeBookProps) {
     const diary = useDiary()
     const [mistakes, setMistakes] = useState<Mistake[]>([])
     const [totalCount, setTotalCount] = useState(0)
@@ -50,6 +58,7 @@ export default function MistakeBook() {
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
     const [filter, setFilter] = useState<MistakeFilter>({ subject_id: '', mastered: '', search: '' })
+    const [dueOnly, setDueOnly] = useState(initialFilter === 'due')
     const [searchInput, setSearchInput] = useState('')
     const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
     const [page, setPage] = useState(1)
@@ -73,7 +82,14 @@ export default function MistakeBook() {
         loadMistakes()
     }, [])
 
-    useEffect(() => { loadMistakes() }, [filter, page])
+    useEffect(() => { loadMistakes() }, [filter, page, dueOnly])
+
+    useEffect(() => {
+        if (initialFilter !== 'due') return
+        setDueOnly(true)
+        setPage(1)
+        onInitialFilterApplied?.()
+    }, [initialFilter, onInitialFilterApplied])
 
     useEffect(() => {
         if (!showForm || !editingId || editScrollRequest === 0) return
@@ -106,9 +122,14 @@ export default function MistakeBook() {
         try {
             const filters: MistakeFilters = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
             if (filter.subject_id) filters.subject_id = Number(filter.subject_id)
-            if (filter.mastered !== '') filters.mastered = filter.mastered === 'true'
+            if (dueOnly) {
+                filters.due = true
+                filters.dueDate = getLocalDateKey()
+            } else if (filter.mastered !== '') {
+                filters.mastered = filter.mastered === 'true'
+            }
             if (filter.search) filters.search = filter.search
-            const response = await diary.mistakes.getAll(filters) as any
+            const response: { data: Mistake[]; total: number; masteredTotal: number } | Mistake[] = await diary.mistakes.getAll(filters)
             if (Array.isArray(response)) {
                 setMistakes(response)
                 setTotalCount(response.length)
@@ -319,6 +340,36 @@ export default function MistakeBook() {
                     <option value="true">已掌握</option>
                 </select>
             </div>
+
+            {dueOnly && (
+                <div
+                    className="flex items-center gap-sm"
+                    data-testid="mistake-due-filter-chip"
+                    style={{ marginBottom: 'var(--space-md)' }}
+                >
+                    <span
+                        className="text-xs font-medium"
+                        style={{
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            color: 'var(--accent)',
+                            background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))',
+                            border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+                        }}
+                    >
+                        今日待复习
+                    </span>
+                    <button
+                        type="button"
+                        className="button button-secondary text-xs"
+                        data-testid="mistake-clear-due-filter"
+                        onClick={() => { setDueOnly(false); setPage(1) }}
+                        style={{ padding: '3px 8px', background: 'transparent' }}
+                    >
+                        清除筛选
+                    </button>
+                </div>
+            )}
 
             {/* Add/Edit Form */}
             {showForm && (

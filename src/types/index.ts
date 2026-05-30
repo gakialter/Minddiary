@@ -87,6 +87,8 @@ export interface MistakeFilters {
   subject_id?: number
   mastered?: boolean | number
   search?: string
+  due?: boolean
+  dueDate?: string
   limit?: number
   offset?: number
 }

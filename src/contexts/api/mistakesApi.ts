@@ -1,5 +1,6 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
+import { getLocalDateKey } from '../../utils/dateKey'
 import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData } from '../../types'
 import type { MistakesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
@@ -16,7 +17,12 @@ export const createMistakesApi = (
             return { ...m, subject_name: subject?.name, subject_color: subject?.color }
         })
         if (filters.subject_id) result = result.filter(m => m.subject_id === filters.subject_id)
-        if (filters.mastered !== undefined) result = result.filter(m => m.mastered === filters.mastered)
+        if (filters.due) {
+            const dueDate = filters.dueDate || getLocalDateKey()
+            result = result.filter(m => !m.mastered && (!m.next_review_date || m.next_review_date <= dueDate))
+        } else if (filters.mastered !== undefined) {
+            result = result.filter(m => m.mastered === filters.mastered)
+        }
         if (filters.search) {
             const query = filters.search.toLowerCase()
             result = result.filter(m =>

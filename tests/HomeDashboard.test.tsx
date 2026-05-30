@@ -4,12 +4,10 @@ import HomeDashboard from '../src/components/HomeDashboard'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 import type { TodayDashboardData } from '../src/types'
 
-// Mock useDiary
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(),
 }))
 
-// Mock useTodayStats
 const mockRefresh = vi.fn()
 let mockHookState: {
   data: TodayDashboardData
@@ -87,40 +85,44 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
-    // State A (riskPoolCount=6) -> Urgent
-    expect(screen.getByText(/今天有.*个高风险知识点待抢救/)).toBeInTheDocument()
-    // It should render metrics
+    expect(screen.getByText(/今天有 6 个高风险知识点待抢救/)).toBeInTheDocument()
     expect(screen.getByText('72 小时风险池')).toBeInTheDocument()
     expect(screen.getByText('稳定记忆净增')).toBeInTheDocument()
     expect(screen.getByText('有效专注转化率')).toBeInTheDocument()
   })
 
-  it('toggles expansion layer details', async () => {
+  it('toggles expansion layer details and shows the decision explanation', async () => {
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
     const toggleBtn = screen.getByTestId('dashboard-details-toggle')
-    expect(screen.queryByText('系统依据')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-state-explanation')).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(toggleBtn)
     })
-    expect(screen.getAllByText('系统依据').length).toBeGreaterThan(0)
-    expect(screen.getByText('收起系统依据')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-state-explanation')).toHaveTextContent('待复习错题 6 ≥ 5')
   })
 
   it('cta handles navigation properly', async () => {
+    const mockMistakeFilterIntent = vi.fn()
+
     await act(async () => {
-      render(<HomeDashboard setActiveView={mockSetActiveView} />)
+      render(
+        <HomeDashboard
+          setActiveView={mockSetActiveView}
+          onMistakeFilterIntent={mockMistakeFilterIntent}
+        />,
+      )
     })
 
     const ctaBtn = screen.getByTestId('dashboard-cta')
     await act(async () => {
       fireEvent.click(ctaBtn)
     })
-    
-    // State A maps to mistakes
+
+    expect(mockMistakeFilterIntent).toHaveBeenCalledWith('due')
     expect(mockSetActiveView).toHaveBeenCalledWith('mistakes')
   })
 })

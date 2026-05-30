@@ -34,6 +34,8 @@ interface PomodoroDataValue {
     isWorkComplete: boolean
     duration: number
     todayTotal: number
+    showSettlementActions: boolean
+    subjectName: string | null
   }
 }
 
@@ -315,9 +317,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   // Alert modal state
   const [alertState, setAlertState] = useState({
     visible: false, isWorkComplete: true, duration: 0, todayTotal: 0,
+    showSettlementActions: false, subjectName: null as string | null,
   })
 
   const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
+
+  const getSubjectName = useCallback((subjectId: number | null) => {
+    if (subjectId === null) return null
+    return subjects.find(subject => subject.id === subjectId)?.name ?? null
+  }, [subjects])
 
   const endTimeRef = useRef<number | null>(null)
   const activeSessionRef = useRef(false)
@@ -474,8 +482,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     // ── Notification sound (Web Audio API beep, no external file needed) ──
     try {
       const soundEnabled = coerceBoolean(settingsData?.pomodoroSound, true)
-      const alertEnabled = coerceBoolean(settingsData?.pomodoroAlert, true)
-
       if (soundEnabled) {
         const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
         const ctx = AudioCtx ? new AudioCtx() : null
@@ -499,16 +505,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
 
       // ── Alert modal ──
-      if (alertEnabled) {
-        const alertDateKey = getLocalDateKey()
-        const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
-        setAlertState({
-          visible: true,
-          isWorkComplete: completedMode.id === 'work',
-          duration: Math.round(completedMode.time / 60),
-          todayTotal: newTotal,
-        })
-      }
     } catch (e) {
       logger.warn('Pomodoro notification error:', e)
     }
@@ -530,6 +526,18 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           startedAt,
           completedAt,
         })
+        if (coerceBoolean(settingsData?.pomodoroAlert, true)) {
+          const alertDateKey = getLocalDateKey()
+          const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
+          setAlertState({
+            visible: true,
+            isWorkComplete: true,
+            duration: Math.round(completedMode.time / 60),
+            todayTotal: newTotal,
+            showSettlementActions: true,
+            subjectName: getSubjectName(completedSubject),
+          })
+        }
         await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
       } catch (e) { logger.error(e) }
       // Fire break-start callback so App can show BreakReviewModal
@@ -538,6 +546,18 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
       setIdleMode(dynamicModes.SHORT_BREAK!)
     } else {
+      if (coerceBoolean(settingsData?.pomodoroAlert, true)) {
+        const alertDateKey = getLocalDateKey()
+        const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
+        setAlertState({
+          visible: true,
+          isWorkComplete: false,
+          duration: Math.round(completedMode.time / 60),
+          todayTotal: newTotal,
+          showSettlementActions: false,
+          subjectName: null,
+        })
+      }
       await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
       setIdleMode(dynamicModes.WORK!)
     }
@@ -550,6 +570,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     dynamicModes,
     addPomodoroSessionRecord,
     clearActiveSessionState,
+    getSubjectName,
+    pomodoroAPI,
     setIdleMode,
   ])
 
@@ -775,17 +797,31 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     if (elapsedSeconds < 60) return false
 
+    const roundedMinutes = getRoundedElapsedMinutes(elapsedSeconds)
+
     const completedAt = new Date()
     const startedAt = sessionStartedAtRef.current
       ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
 
     try {
       await addPomodoroSessionRecord({
-        durationSeconds: getRoundedElapsedMinutes(elapsedSeconds) * 60,
+        durationSeconds: roundedMinutes * 60,
         subjectId: selectedSubject,
         startedAt,
         completedAt,
       })
+      if (coerceBoolean(settingsData?.pomodoroAlert, true)) {
+        const alertDateKey = getLocalDateKey()
+        const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
+        setAlertState({
+          visible: true,
+          isWorkComplete: true,
+          duration: roundedMinutes,
+          todayTotal: newTotal,
+          showSettlementActions: true,
+          subjectName: getSubjectName(selectedSubject),
+        })
+      }
       await notificationAPI.show('正计时已保存', '本次专注已记录到学习统计。').catch(() => { })
       clearActiveSessionState()
       setIdleMode(dynamicModes.STOPWATCH!)
@@ -799,11 +835,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     clearActiveSessionState,
     dynamicModes,
     getCurrentStopwatchElapsedSeconds,
+    getSubjectName,
     isRunning,
     mode.id,
     notificationAPI,
+    pomodoroAPI,
     selectedSubject,
     setIdleMode,
+    settingsData,
+    todayTotal,
     timeLeft,
   ])
 

@@ -86,6 +86,7 @@ const createWindowApiMock = (): ElectronAPI => ({
   pomodoro: {
     addSession: vi.fn().mockResolvedValue({ id: 1 }),
     getStats: vi.fn().mockResolvedValue([]),
+    getStatsRange: vi.fn().mockResolvedValue([]),
     getDailyTotal: vi.fn().mockResolvedValue(0),
     getRange: vi.fn().mockResolvedValue([]),
   },
@@ -245,6 +246,7 @@ describe('DataContext', () => {
       await result.current.mistakes.getAll({ mastered: false })
       await result.current.subjects.getAll()
       await result.current.pomodoro.getStats('2026-05-05')
+      await result.current.pomodoro.getStatsRange('2026-05-01', '2026-05-05')
       await result.current.dashboard.streak()
       await result.current.todayDashboard.getData('2026-05-05')
       await result.current.exportUtil.showSaveDialog({ defaultPath: 'export.md' })
@@ -270,6 +272,7 @@ describe('DataContext', () => {
     expect(window.api.mistakes.getAll).toHaveBeenCalledWith({ mastered: false })
     expect(window.api.subjects.getAll).toHaveBeenCalledTimes(1)
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
+    expect(window.api.pomodoro.getStatsRange).toHaveBeenCalledWith('2026-05-01', '2026-05-05')
     expect(window.api.dashboard.streak).toHaveBeenCalledTimes(1)
     expect(window.api.todayDashboard.getData).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.export.showSaveDialog).toHaveBeenCalledWith({ defaultPath: 'export.md' })

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiaryEntry } from '../src/types'
 import App from '../src/App'
+import { getLocalDateKey } from '../src/utils/dateKey'
 
 const mocks = vi.hoisted(() => ({
   entries: {
@@ -19,6 +20,14 @@ const mocks = vi.hoisted(() => ({
   setActiveView: vi.fn(),
   setSelectedDate: vi.fn(),
   changeDate: vi.fn(),
+  alertState: {
+    visible: false,
+    isWorkComplete: false,
+    duration: 0,
+    todayTotal: 0,
+    showSettlementActions: false,
+    subjectName: null as string | null,
+  },
 }))
 
 vi.mock('../src/contexts/DiaryContext', () => ({
@@ -33,12 +42,7 @@ vi.mock('../src/contexts/DiaryContext', () => ({
 vi.mock('../src/contexts/PomodoroContext', () => ({
   PomodoroProvider: ({ children }: { children: ReactNode }) => children,
   usePomodoroData: () => ({
-    alertState: {
-      visible: false,
-      isWorkComplete: false,
-      duration: 0,
-      todayTotal: 0,
-    },
+    alertState: mocks.alertState,
   }),
   usePomodoroActions: () => ({
     setOnBreakStart: mocks.setOnBreakStart,
@@ -63,12 +67,19 @@ vi.mock('../src/hooks/useNavigation', () => ({
     editor: {
       title: '写日记',
       render: (props: { saveEntry: (data: Partial<DiaryEntry>) => Promise<void> }) => (
-        <button
-          data-testid="save-new-entry"
-          onClick={() => props.saveEntry({ title: 'Draft', content: 'Body', tags: [2, 5] })}
-        >
-          Save
-        </button>
+        <div>
+          <div data-testid="pending-diary-insert">
+            {'pendingDiaryInsert' in props && props.pendingDiaryInsert
+              ? (props.pendingDiaryInsert as { content: string }).content
+              : ''}
+          </div>
+          <button
+            data-testid="save-new-entry"
+            onClick={() => props.saveEntry({ title: 'Draft', content: 'Body', tags: [2, 5] })}
+          >
+            Save
+          </button>
+        </div>
       ),
     },
   },
@@ -84,7 +95,25 @@ vi.mock('../src/components/Pomodoro', () => ({ default: () => null }))
 vi.mock('../src/components/CommandPalette', () => ({ default: () => null }))
 vi.mock('../src/components/ExportModal', () => ({ default: () => null }))
 vi.mock('../src/components/BreakReviewModal', () => ({ default: () => null }))
-vi.mock('../src/components/PomodoroAlert', () => ({ default: () => null }))
+vi.mock('../src/components/PomodoroAlert', () => ({
+  default: ({
+    visible,
+    onWriteDiary,
+    onAddMistake,
+    onClose,
+  }: {
+    visible: boolean
+    onWriteDiary?: () => void
+    onAddMistake?: () => void
+    onClose: () => void
+  }) => visible ? (
+    <div>
+      <button data-testid="mock-alert-write-diary" onClick={onWriteDiary}>Write diary</button>
+      <button data-testid="mock-alert-add-mistake" onClick={onAddMistake}>Add mistake</button>
+      <button data-testid="mock-alert-close" onClick={onClose}>Close</button>
+    </div>
+  ) : null,
+}))
 vi.mock('../src/components/Welcome', () => ({ default: () => null }))
 vi.mock('../src/components/ImageGallery', () => ({ default: () => null }))
 vi.mock('../src/components/ErrorBoundary', () => ({
@@ -113,6 +142,14 @@ describe('App diary save flow', () => {
     mocks.entries.update.mockResolvedValue(null)
     mocks.tags.getEntryTags.mockResolvedValue([])
     mocks.tags.setEntryTags.mockResolvedValue(undefined)
+    mocks.alertState = {
+      visible: false,
+      isWorkComplete: false,
+      duration: 0,
+      todayTotal: 0,
+      showSettlementActions: false,
+      subjectName: null,
+    }
   })
 
   it('sets tags after a new diary receives its saved entry id', async () => {
@@ -132,5 +169,45 @@ describe('App diary save flow', () => {
       date: '2026-05-12',
     })
     expect(mocks.entries.create.mock.calls[0]?.[0]).not.toHaveProperty('tags')
+  })
+
+  it('routes focus settlement write-diary action to today editor with a draft insert', async () => {
+    mocks.alertState = {
+      visible: true,
+      isWorkComplete: true,
+      duration: 25,
+      todayTotal: 50,
+      showSettlementActions: true,
+      subjectName: 'Math',
+    }
+
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('mock-alert-write-diary'))
+
+    await waitFor(() => {
+      expect(mocks.setSelectedDate).toHaveBeenCalledWith(getLocalDateKey())
+      expect(mocks.setActiveView).toHaveBeenCalledWith('editor')
+      expect(mocks.dismissAlert).toHaveBeenCalled()
+      expect(screen.getByTestId('pending-diary-insert')).toHaveTextContent('本轮专注沉淀')
+    })
+  })
+
+  it('routes focus settlement add-mistake action to the mistake book', async () => {
+    mocks.alertState = {
+      visible: true,
+      isWorkComplete: true,
+      duration: 25,
+      todayTotal: 50,
+      showSettlementActions: true,
+      subjectName: 'Math',
+    }
+
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('mock-alert-add-mistake'))
+
+    expect(mocks.setActiveView).toHaveBeenCalledWith('mistakes')
+    expect(mocks.dismissAlert).toHaveBeenCalled()
   })
 })

@@ -8,9 +8,10 @@ import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface HomeDashboardProps {
   setActiveView: (view: string) => void
+  onMistakeFilterIntent?: (intent: 'due') => void
 }
 
-export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
+export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: HomeDashboardProps) {
   const { data, loading, error } = useTodayStats()
   const { settingsData } = useDiary()
   const [showDetails, setShowDetails] = useState(false)
@@ -38,7 +39,10 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
 
   const handleCTA = () => {
     // Navigate based on the exact state logic Action intent
-    if (config.type === 'A') setActiveView('mistakes') // Urgent -> review
+    if (config.type === 'A') {
+      onMistakeFilterIntent?.('due')
+      setActiveView('mistakes') // Urgent -> review
+    }
     else if (config.type === 'B') setActiveView('pomodoro') // Steady -> focus
     else if (config.type === 'C') setActiveView('mistakes') // Digest needed -> review / edit
     else setActiveView('pomodoro') // Cold start -> focus to build up
@@ -111,6 +115,13 @@ export default function HomeDashboard({ setActiveView }: HomeDashboardProps) {
                 }}
               >
                 <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统依据</h3>
+                <p
+                  className="mt-3 text-sm leading-6 max-w-2xl"
+                  data-testid="dashboard-state-explanation"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {config.explanation}
+                </p>
                 <p className="mt-3 text-sm leading-6 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
                   系统当前连续诊断天数：<strong style={{ color: 'var(--text-primary)' }}>{data.streakDays} 天</strong>。<br/>
                   如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。

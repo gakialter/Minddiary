@@ -100,6 +100,33 @@ describe('MistakeBook Component', () => {
     expect(screen.getByText('basic')).toBeInTheDocument()
   })
 
+  it('applies and clears the due-review filter intent', async () => {
+    mistakesApi.getAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
+
+    await act(async () => {
+      render(<MistakeBook initialFilter="due" />)
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.getAll).toHaveBeenCalledWith(expect.objectContaining({
+        due: true,
+        dueDate: expect.any(String),
+      }))
+    })
+    expect(screen.getByTestId('mistake-due-filter-chip')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-clear-due-filter'))
+    })
+
+    await waitFor(() => {
+      const calls = mistakesApi.getAll.mock.calls
+      const lastFilters = calls[calls.length - 1]?.[0]
+      expect(lastFilters).not.toHaveProperty('due')
+      expect(lastFilters).not.toHaveProperty('dueDate')
+    })
+  })
+
   it('allows opening the add form', async () => {
     await act(async () => {
       render(<MistakeBook />)

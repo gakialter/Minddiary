@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('api', {
     pomodoro: {
         addSession: (session: PomodoroSession) => ipcRenderer.invoke('pomodoro:addSession', session),
         getStats: (date: string) => ipcRenderer.invoke('pomodoro:getStats', date),
+        getStatsRange: (start: string, end: string) => ipcRenderer.invoke('pomodoro:getStatsRange', start, end),
         getDailyTotal: (date: string) => ipcRenderer.invoke('pomodoro:getDailyTotal', date),
         getRange: (start: string, end: string) => ipcRenderer.invoke('pomodoro:getRange', start, end),
     },

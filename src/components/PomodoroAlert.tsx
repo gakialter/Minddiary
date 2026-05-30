@@ -7,9 +7,21 @@ interface PomodoroAlertProps {
   duration: number          // in minutes
   todayTotal: number        // in minutes
   onClose: () => void
+  showSettlementActions?: boolean
+  onWriteDiary?: () => void
+  onAddMistake?: () => void
 }
 
-export default function PomodoroAlert({ visible, isWorkComplete, duration, todayTotal, onClose }: PomodoroAlertProps) {
+export default function PomodoroAlert({
+  visible,
+  isWorkComplete,
+  duration,
+  todayTotal,
+  onClose,
+  showSettlementActions = false,
+  onWriteDiary,
+  onAddMistake,
+}: PomodoroAlertProps) {
   const [autoCloseTimer, setAutoCloseTimer] = useState(15)
 
   // Auto-close after 15 seconds
@@ -119,10 +131,40 @@ export default function PomodoroAlert({ visible, isWorkComplete, duration, today
         </div>
 
         {/* Action button */}
+        {showSettlementActions && isWorkComplete && (
+          <div className="flex flex-col gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
+            <button
+              className="button button-primary w-full"
+              onClick={onWriteDiary}
+              data-testid="pomodoro-alert-write-diary"
+              style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
+            >
+              写入今日日记
+            </button>
+            <button
+              className="button button-secondary w-full"
+              onClick={onAddMistake}
+              data-testid="pomodoro-alert-add-mistake"
+              style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
+            >
+              添加错题
+            </button>
+            <button
+              className="button w-full"
+              onClick={onClose}
+              data-testid="pomodoro-alert-save-only"
+              style={{ height: 38, borderRadius: 19, fontSize: 13 }}
+            >
+              仅保存专注 ({autoCloseTimer}s)
+            </button>
+          </div>
+        )}
         <button
           className="button button-primary w-full"
           onClick={onClose}
+          data-testid="pomodoro-alert-primary-action"
           style={{
+            display: showSettlementActions && isWorkComplete ? 'none' : undefined,
             height: 44, borderRadius: 22, fontSize: 15, fontWeight: 600,
           }}
         >

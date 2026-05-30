@@ -73,6 +73,7 @@ const mockApi: ElectronAPI = {
     pomodoro: {
         addSession: async () => ({ id: Date.now() }),
         getStats: async () => [],
+        getStatsRange: async () => [],
         getDailyTotal: async () => 0,
         getRange: async () => [],
     },

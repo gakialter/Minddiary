@@ -6,12 +6,14 @@ import type { DiaryEntry } from '../types'
 import HomeDashboard from '../components/HomeDashboard'
 import Calendar from '../components/Calendar'
 import Editor from '../components/Editor'
+import type { PendingDiaryInsert } from '../components/Editor'
 import Dashboard from '../components/Dashboard'
 import TagManager from '../components/TagManager'
 import SearchPanel from '../components/SearchPanel'
 import Pomodoro from '../components/Pomodoro'
 import StudyProgress from '../components/StudyProgress'
 import MistakeBook from '../components/MistakeBook'
+import type { MistakeFilterIntent } from '../components/MistakeBook'
 import AIPanel from '../components/AIPanel'
 import Settings from '../components/Settings'
 
@@ -26,6 +28,11 @@ interface ViewRenderProps {
   isSidebarCollapsed: boolean
   ImageGallery: React.ComponentType<{ entryId?: number; ensureEntryId?: () => Promise<number | null> }> | null
   ensureEntryId: () => Promise<number | null>
+  pendingDiaryInsert?: PendingDiaryInsert | null
+  onPendingDiaryInsertApplied?: (id: number) => void
+  mistakeFilterIntent?: MistakeFilterIntent | null
+  onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
+  onMistakeFilterIntentApplied?: () => void
 }
 
 interface ViewConfig {
@@ -43,14 +50,25 @@ interface ViewConfig {
 export const VIEW_CONFIG: Record<string, ViewConfig> = {
   home: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Home size={22} style={{ color: 'var(--accent)' }} /> 今日决策</span>,
-    render: (props) => <HomeDashboard setActiveView={props.setActiveView} />,
+    render: (props) => (
+      <HomeDashboard
+        setActiveView={props.setActiveView}
+        onMistakeFilterIntent={props.onMistakeFilterIntent}
+      />
+    ),
   },
   editor: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><PenLine size={22} style={{ color: 'var(--accent)' }} /> 写日记</span>,
     render: (props) => (
       <div style={{ display: 'flex', gap: 0, height: '100%' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 'var(--space)' }}>
-          <Editor entry={props.entry} onSave={props.saveEntry} loading={props.loading} />
+          <Editor
+            entry={props.entry}
+            onSave={props.saveEntry}
+            loading={props.loading}
+            pendingInsert={props.pendingDiaryInsert}
+            onPendingInsertApplied={props.onPendingDiaryInsertApplied}
+          />
         </div>
         <div style={{
           width: 280, borderLeft: '1px solid var(--border)',
@@ -92,7 +110,12 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   },
   mistakes: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BookX size={22} style={{ color: 'var(--accent)' }} /> 错题本</span>,
-    render: () => <MistakeBook />,
+    render: (props) => (
+      <MistakeBook
+        initialFilter={props.mistakeFilterIntent}
+        onInitialFilterApplied={props.onMistakeFilterIntentApplied}
+      />
+    ),
   },
   ai: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={22} style={{ color: 'var(--accent)' }} /> AI 助手</span>,
