@@ -178,12 +178,15 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
-<summary>v1.9.7 — 今日行动队列草案 (2026-05-31)</summary>
+<summary>v1.9.7 — 今日行动队列 (2026-06-01)</summary>
 
-- **今日行动队列**：今日决策页新增轻量任务区域，支持新增、完成、跳过、删除 `todo / doing / done / skipped` 任务。
-- **学习任务闭环基础**：可从今日待复习错题和缺少今日日记两个信号生成建议任务，先把 Dashboard 决策转成可执行动作。
-- **本地数据模型**：新增 `study_tasks` SQLite 表、Electron IPC、browser fallback/localStorage API，并纳入自动备份恢复白名单。
-- **本轮限制**：Pomodoro 选择任务、专注完成标记任务、AI 行动建议与一键转任务留作后续小步迭代。
+- **今日行动队列**：今日决策页新增轻量任务区域，用于把今日决策转化为可执行任务。
+- **任务创建与状态**：支持手动新增 `review / focus / diary / mistake / custom` 任务，并跟踪 `todo / doing / done / skipped` 状态。
+- **任务操作**：支持完成、跳过和删除任务，操作后自动刷新今日任务队列。
+- **Dashboard 建议任务**：HomeDashboard 可根据风险池和今日日记状态生成错题复习 / 学习沉淀建议任务。
+- **本地数据模型**：新增 `study_tasks` SQLite 表，并纳入自动 ZIP 备份恢复。
+- **browser fallback**：localStorage 任务队列使用 `mindiary_study_tasks`，并对坏 TASKS localStorage 做容错恢复。
+- **本轮限制**：本版本不包含 Pomodoro 任务选择联动，也不包含 AI 一键转任务。
 
 </details>
 
