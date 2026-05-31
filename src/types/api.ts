@@ -3,6 +3,7 @@ import type {
   Tag, Subject, Mistake, MistakeFilters,
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
+  StudyTask, NewStudyTask,
   AppSettings, AIMessage, AISettings, AIResponse,
   TodayDashboardData, DiaryTemplate, ReviewData, CountdownEvent,
   FocusWhitelistItem, ActiveAppInfo,
@@ -122,6 +123,15 @@ export interface ElectronPomodoroAPI {
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
 }
 
+export interface ElectronTasksAPI {
+  getByDate: (date: string) => Promise<StudyTask[]>
+  create: (data: NewStudyTask) => Promise<StudyTask>
+  update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
+  delete: (id: number) => Promise<boolean>
+  complete: (id: number) => Promise<StudyTask>
+  skip: (id: number) => Promise<StudyTask>
+}
+
 export interface ElectronDashboardAPI {
   entryDatesRange: (start: string, end: string) => Promise<DateMood[]>
   streak: () => Promise<number>
@@ -216,6 +226,7 @@ export interface ElectronAPI {
   attachments: ElectronAttachmentsAPI
   subjects: ElectronSubjectsAPI
   pomodoro: ElectronPomodoroAPI
+  tasks: ElectronTasksAPI
   dashboard: ElectronDashboardAPI
   todayDashboard: ElectronTodayDashboardAPI
   mistakes: ElectronMistakesAPI
@@ -275,6 +286,15 @@ export interface PomodoroContextAPI {
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
   addSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => Promise<unknown>
   getDailyTotal: (date: string) => Promise<number>
+}
+
+export interface TasksContextAPI {
+  getByDate: (date: string) => Promise<StudyTask[]>
+  create: (data: NewStudyTask) => Promise<StudyTask>
+  update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
+  delete: (id: number) => Promise<boolean>
+  complete: (id: number) => Promise<StudyTask>
+  skip: (id: number) => Promise<StudyTask>
 }
 
 export interface DashboardContextAPI {
@@ -343,6 +363,7 @@ export interface DiaryContextValue {
   mistakes: MistakesContextAPI
   subjects: SubjectsContextAPI
   pomodoro: PomodoroContextAPI
+  tasks: TasksContextAPI
   dashboard: DashboardContextAPI
   todayDashboard: TodayDashboardContextAPI
   exportUtil: ExportContextAPI

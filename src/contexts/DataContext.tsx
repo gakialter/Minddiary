@@ -1,10 +1,10 @@
-import { createContext, useContext, useState, useMemo, useCallback, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useState, useMemo, useCallback, useRef, type MutableRefObject, type ReactNode } from 'react'
 import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
-import type { DiaryEntry, Tag, Mistake, Subject, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
+import type { DiaryEntry, Tag, Mistake, Subject, StudyTask, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
 import type {
     EntriesContextAPI, TagsContextAPI, MistakesContextAPI,
-    SubjectsContextAPI, PomodoroContextAPI, DashboardContextAPI,
+    SubjectsContextAPI, PomodoroContextAPI, TasksContextAPI, DashboardContextAPI,
     TodayDashboardContextAPI,
     ExportContextAPI, NotificationContextAPI, AIContextAPI, AttachmentsContextAPI,
     TemplatesContextAPI,
@@ -15,6 +15,7 @@ import { createTagsApi } from './api/tagsApi'
 import { createMistakesApi } from './api/mistakesApi'
 import { createSubjectsApi } from './api/subjectsApi'
 import { createPomodoroApi } from './api/pomodoroApi'
+import { createTasksApi } from './api/tasksApi'
 import { createDashboardApi } from './api/dashboardApi'
 import { createTodayDashboardApi } from './api/todayDashboardApi'
 import { createExportApi } from './api/exportApi'
@@ -33,6 +34,7 @@ interface DataContextValue {
     mistakes: MistakesContextAPI
     subjects: SubjectsContextAPI
     pomodoro: PomodoroContextAPI
+    tasks: TasksContextAPI
     dashboard: DashboardContextAPI
     todayDashboard: TodayDashboardContextAPI
     exportUtil: ExportContextAPI
@@ -55,24 +57,37 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const tagsRef = useRef<Tag[]>([])
     const mistakesRef = useRef<Mistake[]>([])
     const subjectsRef = useRef<Subject[]>([])
-    const [initErrors, setInitErrors] = useState<string[]>([])
+    const tasksRef = useRef<StudyTask[]>([])
     const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
     const requestDataRefresh = useCallback(() => {
         setDataRefreshVersion(version => version + 1)
     }, [])
 
     // ─── Initialization ───────────────────────────────────────────────────────
-    const [initialized] = useState(() => {
+    const [initState] = useState(() => {
+        const initErrors: string[] = []
         if (IS_ELECTRON) {
             // Fast boot in Electron mode. Data is fetched directly via IPC on demand.
-            return true
+            return { initialized: true, initErrors }
         }
 
-        const load = <T,>(key: string, fallback: T[], ref: React.MutableRefObject<T[]>) => {
+        const load = <T,>(key: string, fallback: T[], ref: MutableRefObject<T[]>) => {
             const raw = localStorage.getItem(key)
-            const val: T[] = raw ? JSON.parse(raw) : fallback
-            ref.current = val
-            if (!raw && typeof window !== 'undefined') {
+            if (!raw) {
+                ref.current = fallback
+                localStorage.setItem(key, JSON.stringify(fallback))
+                return
+            }
+
+            try {
+                const parsed = JSON.parse(raw)
+                if (!Array.isArray(parsed)) {
+                    throw new Error('expected array')
+                }
+                ref.current = parsed as T[]
+            } catch {
+                initErrors.push(`Invalid localStorage data for ${key}; using fallback data.`)
+                ref.current = fallback
                 localStorage.setItem(key, JSON.stringify(fallback))
             }
         }
@@ -80,8 +95,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         load(STORAGE_KEYS.TAGS, mockTags, tagsRef)
         load(STORAGE_KEYS.MISTAKES, mockMistakes, mistakesRef)
         load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
-        return true
+        load(STORAGE_KEYS.TASKS, [], tasksRef)
+        return { initialized: true, initErrors }
     })
+    const { initialized, initErrors } = initState
 
     const saveToLocal = useCallback(<T,>(key: string, data: T) => {
         if (!IS_ELECTRON) localStorage.setItem(key, JSON.stringify(data))
@@ -93,6 +110,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         mistakes: createMistakesApi(mistakesRef, subjectsRef, saveToLocal),
         subjects: createSubjectsApi(subjectsRef, saveToLocal),
         pomodoro: createPomodoroApi(),
+        tasks: createTasksApi(tasksRef, saveToLocal),
         dashboard: createDashboardApi(),
         todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef),
         exportUtil: createExportApi(),

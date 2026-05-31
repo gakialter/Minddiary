@@ -18,7 +18,7 @@ import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './upda
 
 import type {
     NewEntry, EntryFilters, Tag, Subject,
-    PomodoroSession, Mistake, MistakeFilters,
+    PomodoroSession, StudyTask, NewStudyTask, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, CountdownEventType,
     FocusWhitelistItem
 } from '../src/types/index';
@@ -581,6 +581,14 @@ ipcMain.handle('pomodoro:getStats', (_: unknown, date: string) => db.getPomodoro
 ipcMain.handle('pomodoro:getStatsRange', (_: unknown, start: string, end: string) => db.getPomodoroStatsRange(start, end));
 ipcMain.handle('pomodoro:getDailyTotal', (_: unknown, date: string) => db.getDailyStudyMinutes(date));
 ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => db.getPomodoroRange(start, end));
+
+// ==================== Study Tasks ====================
+ipcMain.handle('tasks:getByDate', (_: unknown, date: string) => db.getStudyTasksByDate(date));
+ipcMain.handle('tasks:create', (_: unknown, task: NewStudyTask) => db.createStudyTask(task));
+ipcMain.handle('tasks:update', (_: unknown, id: number, patch: Partial<StudyTask>) => db.updateStudyTask(id, patch));
+ipcMain.handle('tasks:delete', (_: unknown, id: number) => db.deleteStudyTask(id));
+ipcMain.handle('tasks:complete', (_: unknown, id: number) => db.completeStudyTask(id));
+ipcMain.handle('tasks:skip', (_: unknown, id: number) => db.skipStudyTask(id));
 
 // ==================== Focus Guard ====================
 ipcMain.handle('focusGuard:getActiveApp', async () => {

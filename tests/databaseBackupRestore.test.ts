@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vitest'
-import { normalizeBackupDatabaseData } from '../electron/databaseBackupData'
+import { DATABASE_BACKUP_TABLES, normalizeBackupDatabaseData } from '../electron/databaseBackupData'
 
 describe('database backup data normalization', () => {
   it('normalizes settings objects, legacy mistakes wrappers, and raw pomodoro session rows', () => {
@@ -44,6 +44,31 @@ describe('database backup data normalization', () => {
     })
 
     expect(normalized.pomodoro_sessions).toEqual([])
+  })
+
+  it('keeps study task rows in the normalized backup payload', () => {
+    const task = {
+      id: 3,
+      title: 'Review risk pool',
+      description: '',
+      type: 'review',
+      subject_id: 2,
+      related_mistake_id: null,
+      related_entry_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'dashboard',
+      created_at: '2026-05-31 08:00:00',
+      updated_at: '2026-05-31 08:00:00',
+    }
+
+    const normalized = normalizeBackupDatabaseData({
+      study_tasks: [task],
+    })
+
+    expect(normalized.study_tasks).toEqual([task])
+    expect(DATABASE_BACKUP_TABLES.some(item => item.table === 'study_tasks')).toBe(true)
   })
 
   it('filters sensitive settings from object-shaped restore payloads', () => {

@@ -63,6 +63,41 @@ export interface Subject {
   order?: number
 }
 
+// --- Study Tasks ------------------------------------------------------------
+export type StudyTaskType = 'review' | 'focus' | 'diary' | 'mistake' | 'custom'
+export type StudyTaskStatus = 'todo' | 'doing' | 'done' | 'skipped'
+export type StudyTaskSource = 'manual' | 'dashboard' | 'ai' | 'pomodoro'
+
+export interface StudyTask {
+  id: number
+  title: string
+  description: string
+  type: StudyTaskType
+  subject_id: number | null
+  related_mistake_id: number | null
+  related_entry_id: number | null
+  planned_date: string
+  estimate_minutes: number
+  status: StudyTaskStatus
+  source: StudyTaskSource
+  created_at: string
+  updated_at: string
+}
+
+export type NewStudyTask = Pick<StudyTask, 'title' | 'planned_date'> & Partial<
+  Pick<
+    StudyTask,
+    | 'description'
+    | 'type'
+    | 'subject_id'
+    | 'related_mistake_id'
+    | 'related_entry_id'
+    | 'estimate_minutes'
+    | 'status'
+    | 'source'
+  >
+>
+
 // ─── Mistakes ───────────────────────────────────────────────────────────────
 export interface Mistake {
   id: number
@@ -226,6 +261,7 @@ export interface StorageKeys {
   SETTINGS: string
   MISTAKES: string
   SUBJECTS: string
+  TASKS: string
 }
 
 // ─── Shared Callback Types ──────────────────────────────────────────────────
