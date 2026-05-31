@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gakialter/Minddiary/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-2F8F6B?style=flat&logo=githubactions&logoColor=white" alt="CI" /></a>
-  <a href="https://github.com/gakialter/Minddiary/actions/workflows/release.yml"><img src="https://img.shields.io/badge/build-ready-0F766E?style=flat&logo=githubactions&logoColor=white" alt="Release" /></a>
+  <a href="https://github.com/gakialter/Minddiary/actions/workflows/ci.yml"><img src="https://github.com/gakialter/Minddiary/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/gakialter/Minddiary/actions/workflows/release.yml"><img src="https://github.com/gakialter/Minddiary/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <a href="https://github.com/gakialter/Minddiary/releases/latest"><img src="https://img.shields.io/github/v/release/gakialter/Minddiary?color=0F766E&label=release" alt="Version" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-C65A3A" alt="License" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" /></a>
@@ -45,47 +45,60 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
   <img src="./docs/assets/statistics.png" width="45%" alt="学习统计" />
 </p>
 
+## 用户指南
+
+普通备考用户可以从 [MindDiary 用户指南](./docs/USER_GUIDE.md) 开始，里面按实际界面入口说明了写日记、贴标签、使用番茄钟和正计时、记录错题、查看 Dashboard、配置 AI 助手、备份与恢复的流程。
+
 ## 功能概览
 
 ### 日记系统
 
-- Markdown 编辑，Ctrl+S 即时保存
-- 自定义日记模板，AI 智能汇总
-- 标签分类：在「标签管理」创建带颜色、emoji / 短符号图标、展示样式和预设纹理的标签，编辑日记时选择标签，在「搜索」中按标签筛选和回顾；当前“自定义图案”指轻量图标 + 预设纹理，不包含图片上传
-- 分享卡片导出 (PNG)
+- 按日期写日记，标题可选，支持心情标记、字数统计、自动保存和 Ctrl/Cmd+S 手动保存。
+- Markdown 编辑工具栏支持加粗、高亮、下划线和预设颜色语法；渲染使用白名单颜色语法，不启用原始 HTML/style 注入。
+- 内置默认日记模板，并可在「管理模板」中新建、编辑和删除自定义模板。
+- 标签分类：在「标签管理」创建带颜色、emoji / 短符号图标、展示样式和预设纹理的标签，编辑日记时选择标签，在「搜索」中按标签筛选和回顾；当前“自定义图案”指轻量图标 + 预设纹理，不包含图片上传、远程图片、自定义 SVG 或本地路径保存。
+- 日记图片附件支持上传、拖拽、压缩存储、缩略图查看和点击放大；可将日记生成分享卡片 PNG。
+- 配置 AI 后，可对当前日记发起「AI 汇总」。
 
 ### 番茄钟
 
-- 按科目追踪累计专注时间
-- 自定义时长，Web Audio 完工音效
-- 正计时模式：适合不确定时长的学习，支持开始、暂停、继续、结束并保存
-- 悬浮 Widget，拖拽自由定位
+- 支持专注、短休、长休、自定义倒计时和正计时模式。
+- 专注和正计时都可关联科目并写入同一套专注统计；正计时至少 1 分钟后才能「结束并保存」。
+- 设置页可配置默认番茄时长、结束音效、结束弹窗；自定义模式可在番茄钟页单独设置 1-120 分钟。
+- 专注完成或有效正计时保存后，可选择写入今日日记、跳转添加错题，或仅保存专注记录。
+- 提供可拖拽的悬浮 Widget、全屏 Zen 专注模式，以及 Windows 上的专注白名单提醒。
 
 ### 错题本
 
-- 按科目分类，全文检索
-- SM-2 间隔重复排期复习
-- AI 错题抽查与规律分析
+- 记录问题、答案/解析、备注和所属科目；备注支持与日记一致的 Markdown 工具栏。
+- 支持上传、粘贴或拖拽错题图片，多图可点击放大预览。
+- 支持关键词搜索、科目筛选、掌握状态筛选、今日待复习筛选和分页浏览。
+- 通过 SM-2 间隔重复记录复习质量，自动安排下次复习日期；也可手动标记「已掌握」或重新加入计划。
+- AI 助手可基于错题本进行「错题规律分析」和「考考我」。
 
-### 学习仪表盘
+### Dashboard 与学习进度
 
-- 90 天热力图，多科耗时雷达图
-- Dashboard 专注分布支持今日、近 7 天、近 30 天、单日和自定义起止日期范围；正计时记录会进入同一统计
+- 「今日决策」根据 72 小时风险池、稳定记忆净增、有效专注转化率给出下一步入口，并可展开查看系统依据。
+- 「数据统计」展示连续专注天数、历史总专注时间、错题消灭率、今日待复习错题、关键日期倒计时、近 7 日专注趋势和近 90 天日记轨迹。
+- 专注分布支持今日、近 7 天、近 30 天、单日和自定义起止日期范围；倒计时和正计时记录会进入同一统计。
 - 日历月视图专注标记：30m+ / 60m+ / 120m+ 三级色彩指示，与日记心情共存，悬浮 tooltip 展示专注时长
-- 多关键日期倒计时，支持考研、报名、假期等长期节点提醒
-- 72h 风险池 / 知识净增量 / 专注转化率
+- 多关键日期倒计时支持考研、报名、假期、截止日期和自定义节点。
+- 「科目进度」支持创建科目、设置章节总量、更新完成章节，并汇总今日投入、未清错题和已掌握错题。
 
 ### AI 助教
 
-- 兼容 OpenAI 标准接口，7 大国产供应商一键切换
-- Prompt 注入防护，请求超时熔断
-- 支持本地 LLM 及云端模型
+- 小研 AI 支持自由对话、总结今日日记、错题规律分析、考考我、心理按摩和制定复习冲刺计划。
+- 设置页提供 6 个预设供应商入口（DeepSeek、通义千问、智谱 GLM、Kimi、豆包、SiliconFlow）和自定义模型配置。
+- AI 请求使用 OpenAI 兼容的 chat completions 格式；本地 LLM 或云端模型都需要提供兼容的 Endpoint、API Key 和模型名。
+- 用户输入会经过常见 prompt 注入片段过滤；AI 请求有 30 秒超时处理。
 
 ### 数据主权
 
 - SQLite 全量本地化，零云端依赖（AI 与更新检查仅在配置或触发时联网）
-- JSON 全量备份，敏感字段自动剔除
-- PDF / Markdown / JSON 三格式导出，导出路径由主进程授权校验
+- 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
+- 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
+- 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
+- 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
 
@@ -96,7 +109,7 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 | 数据库   | better-sqlite3 (WAL 模式，外键约束)                          |
 | 样式     | CSS Variables + Tailwind utilities · Zen Forest 设计语言      |
 | 图标     | Lucide React · `currentColor` 绑定                           |
-| Markdown | react-markdown + remark-gfm · DOMPurify 消毒                |
+| Markdown | react-markdown + remark-gfm · 白名单颜色 / 文本格式扩展     |
 | 测试     | Vitest + React Testing Library · Playwright E2E               |
 | CI/CD    | GitHub Actions — Type Check → Unit Test → Build → Release    |
 
@@ -158,7 +171,7 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 
 - 色彩以低饱和度大地色为基调，深松绿 (`#0F766E`) 为唯一强调色
 - 暖灰白画布 (`#F6F7F4`) 代替纯白，降低视觉压力
-- Lucide React 为唯一图标库，禁止 emoji 出现在 UI 中
+- Lucide React 为唯一图标库；UI 文案不用 emoji，用户自定义标签图标可使用 emoji / 短符号
 - 动画以 `transform` + `opacity` 为主，尊重 `prefers-reduced-motion`
 
 ## 更新日志
@@ -300,7 +313,7 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 <details>
 <summary>v1.8.4 — AI 助手设置改版 (2026-05-03)</summary>
 
-- 新增 2026 年国产大模型供应商注册表（DeepSeek V4、Qwen3、GLM-5.1 等 7 大供应商 20+ 模型）
+- 新增国产大模型供应商注册表与自定义模型入口（DeepSeek、通义千问、智谱 GLM 等预设供应商）
 - 供应商选择器重设计：纯文字芯片快速切换，模型卡片式下拉列表
 - 默认模型更新为 `deepseek-v4-flash`
 - 全面移除 UI 中的 Emoji，统一使用语义化 CSS Token
