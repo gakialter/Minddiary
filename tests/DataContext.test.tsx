@@ -569,6 +569,25 @@ describe('DataContext', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([])
   })
 
+  it('recovers from malformed browser fallback task storage', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+    localStorage.setItem(STORAGE_KEYS.TASKS, '{bad json')
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    expect(result.current.initErrors.some(message => message.includes(STORAGE_KEYS.TASKS))).toBe(true)
+    await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([])
+    expect(localStorage.getItem(STORAGE_KEYS.TASKS)).toBe(JSON.stringify([]))
+  })
+
   it('resolves entry tags by entry id in browser fallback batch', async () => {
     mocks.isElectron = false
     const tags = mockTags.slice(0, 2)

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import HomeDashboard from '../src/components/HomeDashboard'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
-import type { TodayDashboardData } from '../src/types'
+import type { StudyTask, TodayDashboardData } from '../src/types'
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(),
@@ -27,6 +27,31 @@ vi.mock('../src/hooks/useTodayStats', () => ({
 }))
 
 const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
+
+const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
+  id: 10,
+  title: 'Generated task',
+  description: '',
+  type: 'review',
+  subject_id: null,
+  related_mistake_id: null,
+  related_entry_id: null,
+  planned_date: '2026-05-31',
+  estimate_minutes: 25,
+  status: 'todo',
+  source: 'dashboard',
+  created_at: '2026-05-31T00:00:00.000Z',
+  updated_at: '2026-05-31T00:00:00.000Z',
+  ...overrides,
+})
+
+const createDeferredTask = () => {
+  let resolve!: (value: StudyTask) => void
+  const promise = new Promise<StudyTask>(innerResolve => {
+    resolve = innerResolve
+  })
+  return { promise, resolve }
+}
 
 const FULL_DATA: TodayDashboardData = {
   todayEntry: { id: 1, title: '测试', wordCount: 320, mood: 'happy' },
@@ -55,21 +80,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
   beforeEach(() => {
     mockTasksGetByDate.mockResolvedValue([])
-    mockTasksCreate.mockResolvedValue({
-      id: 10,
-      title: 'Generated task',
-      description: '',
-      type: 'review',
-      subject_id: null,
-      related_mistake_id: null,
-      related_entry_id: null,
-      planned_date: '2026-05-31',
-      estimate_minutes: 25,
-      status: 'todo',
-      source: 'dashboard',
-      created_at: '2026-05-31T00:00:00.000Z',
-      updated_at: '2026-05-31T00:00:00.000Z',
-    })
+    mockTasksCreate.mockResolvedValue(makeTask())
     mockTasksComplete.mockResolvedValue({ id: 1, status: 'done' })
     mockTasksSkip.mockResolvedValue({ id: 2, status: 'skipped' })
     mockTasksDelete.mockResolvedValue(true)
@@ -240,6 +251,77 @@ describe('HomeDashboard Component - Commander Engine', () => {
       }))
     })
     expect(mockRequestDataRefresh).toHaveBeenCalled()
+  })
+
+  it('does not create duplicate review suggestions while a mutation is pending', async () => {
+    const createResult = createDeferredTask()
+    mockTasksCreate.mockReturnValue(createResult.promise)
+    mockHookState = {
+      data: {
+        ...EMPTY_DATA,
+        todayEntry: { id: 1, title: '测试', wordCount: 120, mood: 'calm' },
+        commanderMetrics: {
+          riskPoolCount: 4,
+          lockedKnowledgeGrowth: 0,
+          focusConversionRate: 0,
+        },
+      },
+      loading: false,
+      error: null,
+      refresh: mockRefresh,
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    const reviewButton = await screen.findByTestId('create-review-task-suggestion')
+
+    await act(async () => {
+      fireEvent.click(reviewButton)
+      fireEvent.click(reviewButton)
+    })
+
+    expect(mockTasksCreate).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(reviewButton).toBeDisabled()
+    })
+
+    await act(async () => {
+      createResult.resolve(makeTask({ type: 'review' }))
+    })
+  })
+
+  it('does not create duplicate diary suggestions while a mutation is pending', async () => {
+    const createResult = createDeferredTask()
+    mockTasksCreate.mockReturnValue(createResult.promise)
+    mockHookState = {
+      data: {
+        ...EMPTY_DATA,
+        commanderMetrics: {
+          riskPoolCount: 0,
+          lockedKnowledgeGrowth: 0,
+          focusConversionRate: 0,
+        },
+      },
+      loading: false,
+      error: null,
+      refresh: mockRefresh,
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    const diaryButton = await screen.findByTestId('create-diary-task-suggestion')
+
+    await act(async () => {
+      fireEvent.click(diaryButton)
+      fireEvent.click(diaryButton)
+    })
+
+    expect(mockTasksCreate).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(diaryButton).toBeDisabled()
+    })
+
+    await act(async () => {
+      createResult.resolve(makeTask({ type: 'diary' }))
+    })
   })
 
   it('creates a manual task from the lightweight queue form', async () => {

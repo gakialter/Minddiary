@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTodayStats } from '../hooks/useTodayStats'
 import { useDiary } from '../contexts/DiaryContext'
 import { useDashboardMasterState } from '../hooks/useDashboardMasterState'
@@ -25,6 +25,8 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const [tasks, setTasks] = useState<StudyTask[]>([])
   const [taskError, setTaskError] = useState<string | null>(null)
   const [taskLoading, setTaskLoading] = useState(false)
+  const [taskMutating, setTaskMutating] = useState(false)
+  const taskMutationLockedRef = useRef(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
@@ -49,31 +51,52 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   }, [loadTasks, dataRefreshVersion])
 
   const persistTaskChange = async (operation: () => Promise<unknown>) => {
+    if (taskMutationLockedRef.current) return false
+    taskMutationLockedRef.current = true
+    setTaskMutating(true)
     setTaskError(null)
     try {
       await operation()
       await loadTasks()
       requestDataRefresh()
+      return true
     } catch (taskMutationError) {
       setTaskError(taskMutationError instanceof Error ? taskMutationError.message : String(taskMutationError))
+      return false
+    } finally {
+      taskMutationLockedRef.current = false
+      setTaskMutating(false)
     }
   }
 
   const createTask = async (task: NewStudyTask) => {
-    await persistTaskChange(() => tasksAPI.create(task))
+    return persistTaskChange(() => tasksAPI.create(task))
+  }
+
+  const hasActiveSuggestionTask = (items: StudyTask[], type: 'review' | 'diary') => (
+    items.some(task => task.type === type && task.status !== 'skipped' && task.status !== 'done')
+  )
+
+  const createSuggestedTask = async (type: 'review' | 'diary', task: NewStudyTask) => {
+    return persistTaskChange(async () => {
+      const latestTasks = await tasksAPI.getByDate(todayDate)
+      if (hasActiveSuggestionTask(latestTasks, type)) return
+      await tasksAPI.create(task)
+    })
   }
 
   const handleManualTaskSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const title = newTaskTitle.trim()
     if (!title) return
-    await createTask({
+    const created = await createTask({
       title,
       type: newTaskType,
       planned_date: todayDate,
       estimate_minutes: Math.max(1, Math.round(newTaskEstimate || 25)),
       source: 'manual',
     })
+    if (!created) return
     setNewTaskTitle('')
     setNewTaskType('custom')
     setNewTaskEstimate(25)
@@ -215,7 +238,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                 data-testid="task-create-submit"
                 className="button button-primary"
                 type="submit"
-                disabled={!newTaskTitle.trim()}
+                disabled={taskMutating || !newTaskTitle.trim()}
                 style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
               >
                 新增
@@ -229,8 +252,9 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                     data-testid="create-review-task-suggestion"
                     type="button"
                     className="button"
+                    disabled={taskMutating}
                     style={{ height: 36, padding: '0 12px', borderRadius: 'var(--radius-sm)' }}
-                    onClick={() => createTask({
+                    onClick={() => createSuggestedTask('review', {
                       title: '复习今日待复习错题',
                       description: `今日风险池 ${commanderMetrics.riskPoolCount} 题，先完成一轮复盘。`,
                       type: 'review',
@@ -247,8 +271,9 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                     data-testid="create-diary-task-suggestion"
                     type="button"
                     className="button"
+                    disabled={taskMutating}
                     style={{ height: 36, padding: '0 12px', borderRadius: 'var(--radius-sm)' }}
-                    onClick={() => createTask({
+                    onClick={() => createSuggestedTask('diary', {
                       title: '写今日学习沉淀',
                       description: '记录今天的有效专注、错题收获和明日第一步。',
                       type: 'diary',
@@ -304,7 +329,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                       data-testid={`task-complete-${task.id}`}
                       type="button"
                       className="button"
-                      disabled={task.status === 'done'}
+                      disabled={taskMutating || task.status === 'done'}
                       style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                       onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
                     >
@@ -314,7 +339,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                       data-testid={`task-skip-${task.id}`}
                       type="button"
                       className="button"
-                      disabled={task.status === 'skipped'}
+                      disabled={taskMutating || task.status === 'skipped'}
                       style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                       onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
                     >
@@ -324,6 +349,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                       data-testid={`task-delete-${task.id}`}
                       type="button"
                       className="button"
+                      disabled={taskMutating}
                       style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                       onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
                     >
