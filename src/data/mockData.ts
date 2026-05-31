@@ -177,4 +177,5 @@ export const STORAGE_KEYS: StorageKeys = {
   SETTINGS: 'mindiary_settings',
   MISTAKES: 'mindiary_mistakes',
   SUBJECTS: 'mindiary_subjects',
+  TASKS: 'mindiary_study_tasks',
 }

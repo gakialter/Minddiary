@@ -106,6 +106,14 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
     addSession: vi.fn(),
     getDailyTotal: vi.fn(),
   },
+  tasks: {
+    getByDate: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    complete: vi.fn(),
+    skip: vi.fn(),
+  },
   dashboard: {
     streak: vi.fn(),
     entryDatesRange: vi.fn(),
@@ -219,6 +227,7 @@ describe('DiaryContext', () => {
     expect(result.current.tags).toBe(dataValue.tags)
     expect(result.current.mistakes).toBe(dataValue.mistakes)
     expect(result.current.subjects).toBe(dataValue.subjects)
+    expect(result.current.tasks).toBe(dataValue.tasks)
     expect(result.current.initErrors).toBe(dataValue.initErrors)
   })
 

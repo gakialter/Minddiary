@@ -12,6 +12,7 @@ export interface NormalizedBackupDatabaseData {
     attachments: DatabaseBackupRow[];
     pomodoro_sessions: DatabaseBackupRow[];
     mistakes: DatabaseBackupRow[];
+    study_tasks: DatabaseBackupRow[];
     ai_chats: DatabaseBackupRow[];
     diary_templates: DatabaseBackupRow[];
 }
@@ -69,6 +70,25 @@ export const DATABASE_BACKUP_TABLES = [
             'next_review_date',
             'review_count',
             'image_path',
+        ],
+    },
+    {
+        key: 'study_tasks',
+        table: 'study_tasks',
+        columns: [
+            'id',
+            'title',
+            'description',
+            'type',
+            'subject_id',
+            'related_mistake_id',
+            'related_entry_id',
+            'planned_date',
+            'estimate_minutes',
+            'status',
+            'source',
+            'created_at',
+            'updated_at',
         ],
     },
     {
@@ -187,6 +207,7 @@ export function normalizeBackupDatabaseData(raw: Record<string, unknown>): Norma
         attachments: normalizeTableRows(raw.attachments, 'attachments'),
         pomodoro_sessions: normalizePomodoroSessions(raw),
         mistakes: normalizeMistakes(raw.mistakes),
+        study_tasks: normalizeTableRows(raw.study_tasks, 'study_tasks'),
         ai_chats: normalizeTableRows(raw.ai_chats, 'ai_chats'),
         diary_templates: normalizeTableRows(raw.diary_templates, 'diary_templates'),
     };

@@ -1,10 +1,10 @@
 import { createContext, useContext, useState, useMemo, useCallback, useRef, type ReactNode } from 'react'
 import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
-import type { DiaryEntry, Tag, Mistake, Subject, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
+import type { DiaryEntry, Tag, Mistake, Subject, StudyTask, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
 import type {
     EntriesContextAPI, TagsContextAPI, MistakesContextAPI,
-    SubjectsContextAPI, PomodoroContextAPI, DashboardContextAPI,
+    SubjectsContextAPI, PomodoroContextAPI, TasksContextAPI, DashboardContextAPI,
     TodayDashboardContextAPI,
     ExportContextAPI, NotificationContextAPI, AIContextAPI, AttachmentsContextAPI,
     TemplatesContextAPI,
@@ -15,6 +15,7 @@ import { createTagsApi } from './api/tagsApi'
 import { createMistakesApi } from './api/mistakesApi'
 import { createSubjectsApi } from './api/subjectsApi'
 import { createPomodoroApi } from './api/pomodoroApi'
+import { createTasksApi } from './api/tasksApi'
 import { createDashboardApi } from './api/dashboardApi'
 import { createTodayDashboardApi } from './api/todayDashboardApi'
 import { createExportApi } from './api/exportApi'
@@ -33,6 +34,7 @@ interface DataContextValue {
     mistakes: MistakesContextAPI
     subjects: SubjectsContextAPI
     pomodoro: PomodoroContextAPI
+    tasks: TasksContextAPI
     dashboard: DashboardContextAPI
     todayDashboard: TodayDashboardContextAPI
     exportUtil: ExportContextAPI
@@ -55,6 +57,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const tagsRef = useRef<Tag[]>([])
     const mistakesRef = useRef<Mistake[]>([])
     const subjectsRef = useRef<Subject[]>([])
+    const tasksRef = useRef<StudyTask[]>([])
     const [initErrors, setInitErrors] = useState<string[]>([])
     const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
     const requestDataRefresh = useCallback(() => {
@@ -80,6 +83,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         load(STORAGE_KEYS.TAGS, mockTags, tagsRef)
         load(STORAGE_KEYS.MISTAKES, mockMistakes, mistakesRef)
         load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
+        load(STORAGE_KEYS.TASKS, [], tasksRef)
         return true
     })
 
@@ -93,6 +97,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         mistakes: createMistakesApi(mistakesRef, subjectsRef, saveToLocal),
         subjects: createSubjectsApi(subjectsRef, saveToLocal),
         pomodoro: createPomodoroApi(),
+        tasks: createTasksApi(tasksRef, saveToLocal),
         dashboard: createDashboardApi(),
         todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef),
         exportUtil: createExportApi(),

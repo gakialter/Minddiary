@@ -90,6 +90,42 @@ const createWindowApiMock = (): ElectronAPI => ({
     getDailyTotal: vi.fn().mockResolvedValue(0),
     getRange: vi.fn().mockResolvedValue([]),
   },
+  tasks: {
+    getByDate: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({
+      id: 1,
+      title: 'task',
+      description: '',
+      type: 'custom',
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
+    update: vi.fn().mockResolvedValue({
+      id: 1,
+      title: 'task',
+      description: '',
+      type: 'custom',
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+      status: 'doing',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
+    delete: vi.fn().mockResolvedValue(true),
+    complete: vi.fn().mockResolvedValue({ id: 1, status: 'done' }),
+    skip: vi.fn().mockResolvedValue({ id: 1, status: 'skipped' }),
+  },
   dashboard: {
     streak: vi.fn().mockResolvedValue(0),
     entryDatesRange: vi.fn().mockResolvedValue([]),
@@ -152,6 +188,7 @@ const seedEmptyBrowserStorage = () => {
   localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
   localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
   localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+  localStorage.setItem(STORAGE_KEYS.TASKS, '[]')
 }
 
 beforeEach(() => {
@@ -212,10 +249,12 @@ describe('DataContext', () => {
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TAGS)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS)
+    expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS)
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.ENTRIES, JSON.stringify(mockEntries))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TAGS, JSON.stringify(mockTags))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES, JSON.stringify(mockMistakes))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS, JSON.stringify(mockSubjects))
+    expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS, JSON.stringify([]))
   })
 
   it('passes core API calls through to Electron window.api namespaces', async () => {
@@ -247,6 +286,12 @@ describe('DataContext', () => {
       await result.current.subjects.getAll()
       await result.current.pomodoro.getStats('2026-05-05')
       await result.current.pomodoro.getStatsRange('2026-05-01', '2026-05-05')
+      await result.current.tasks.getByDate('2026-05-05')
+      await result.current.tasks.create({ title: 'task', planned_date: '2026-05-05' })
+      await result.current.tasks.update(1, { status: 'doing' })
+      await result.current.tasks.complete(1)
+      await result.current.tasks.skip(1)
+      await result.current.tasks.delete(1)
       await result.current.dashboard.streak()
       await result.current.todayDashboard.getData('2026-05-05')
       await result.current.exportUtil.showSaveDialog({ defaultPath: 'export.md' })
@@ -273,6 +318,12 @@ describe('DataContext', () => {
     expect(window.api.subjects.getAll).toHaveBeenCalledTimes(1)
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.pomodoro.getStatsRange).toHaveBeenCalledWith('2026-05-01', '2026-05-05')
+    expect(window.api.tasks.getByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(window.api.tasks.create).toHaveBeenCalledWith({ title: 'task', planned_date: '2026-05-05' })
+    expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
+    expect(window.api.tasks.complete).toHaveBeenCalledWith(1)
+    expect(window.api.tasks.skip).toHaveBeenCalledWith(1)
+    expect(window.api.tasks.delete).toHaveBeenCalledWith(1)
     expect(window.api.dashboard.streak).toHaveBeenCalledTimes(1)
     expect(window.api.todayDashboard.getData).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.export.showSaveDialog).toHaveBeenCalledWith({ defaultPath: 'export.md' })
@@ -435,6 +486,87 @@ describe('DataContext', () => {
     await expect(result.current.tags.update(404, { name: 'missing' })).rejects.toThrow('Tag not found')
     await expect(result.current.tags.create({ name: '   ' })).rejects.toThrow('Tag name is required')
     await expect(result.current.tags.update(1, { name: '   ' })).rejects.toThrow('Tag name is required')
+  })
+
+  it('creates, updates, completes, skips, and deletes tasks in browser fallback storage', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    let createdTask: Awaited<ReturnType<typeof result.current.tasks.create>> | undefined
+    await act(async () => {
+      createdTask = await result.current.tasks.create({
+        title: 'Review today mistakes',
+        description: 'Risk pool first',
+        type: 'review',
+        planned_date: '2026-05-31',
+        estimate_minutes: 30,
+        source: 'dashboard',
+      })
+    })
+
+    expect(createdTask).toEqual(expect.objectContaining({
+      id: 1,
+      title: 'Review today mistakes',
+      description: 'Risk pool first',
+      type: 'review',
+      planned_date: '2026-05-31',
+      estimate_minutes: 30,
+      status: 'todo',
+      source: 'dashboard',
+      created_at: expect.any(String),
+      updated_at: expect.any(String),
+    }))
+
+    await act(async () => {
+      await result.current.tasks.update(1, { status: 'doing', estimate_minutes: 20 })
+    })
+    await expect(result.current.tasks.complete(1)).resolves.toEqual(expect.objectContaining({ status: 'done' }))
+    await expect(result.current.tasks.skip(1)).resolves.toEqual(expect.objectContaining({ status: 'skipped' }))
+    await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([
+      expect.objectContaining({ id: 1, status: 'skipped', estimate_minutes: 20 }),
+    ])
+
+    await act(async () => {
+      await result.current.tasks.delete(1)
+    })
+
+    await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([])
+  })
+
+  it('rejects invalid browser fallback task writes before persisting', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.tasks.create({
+      title: '   ',
+      planned_date: '2026-05-31',
+    })).rejects.toThrow('Task title is required')
+    await expect(result.current.tasks.create({
+      title: 'Bad date',
+      planned_date: '2026/05/31',
+    })).rejects.toThrow('planned_date must be YYYY-MM-DD')
+    await expect(result.current.tasks.create({
+      title: 'Bad type',
+      planned_date: '2026-05-31',
+      type: 'quiz' as never,
+    })).rejects.toThrow('Invalid task type')
+    await expect(result.current.tasks.create({
+      title: 'Bad status',
+      planned_date: '2026-05-31',
+      status: 'archived' as never,
+    })).rejects.toThrow('Invalid task status')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([])
   })
 
   it('resolves entry tags by entry id in browser fallback batch', async () => {

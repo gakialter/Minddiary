@@ -46,6 +46,7 @@ function DiaryBridge({ children }: { children: ReactNode }) {
         mistakes: dataCtx.mistakes,
         subjects: dataCtx.subjects,
         pomodoro: dataCtx.pomodoro,
+        tasks: dataCtx.tasks,
         dashboard: dataCtx.dashboard,
         todayDashboard: dataCtx.todayDashboard,
         exportUtil: dataCtx.exportUtil,
