@@ -16,12 +16,14 @@ import ExportModal from './components/ExportModal'
 import BreakReviewModal from './components/BreakReviewModal'
 import PomodoroAlert from './components/PomodoroAlert'
 import ErrorBoundary from './components/ErrorBoundary'
-import { ToastContainer } from './components/Toast'
+import { ToastContainer, showToast } from './components/Toast'
 import { logger } from './utils/logger'
 import { getLocalDateKey } from './utils/dateKey'
 import type { DiaryEntry, MoodId } from './types'
 import type { PendingDiaryInsert } from './components/Editor'
 import type { MistakeFilterIntent } from './components/MistakeBook'
+
+const POMODORO_FULLSCREEN_NAVIGATION_MESSAGE = '请先退出番茄钟全屏模式再切换页面'
 
 interface ViewErrorFallbackProps {
   error?: Error | null
@@ -68,6 +70,7 @@ function AppContent() {
   const [showBreakReview, setShowBreakReview] = useState(false)
   const [pendingDiaryInsert, setPendingDiaryInsert] = useState<PendingDiaryInsert | null>(null)
   const [pendingMistakeFilter, setPendingMistakeFilter] = useState<MistakeFilterIntent | null>(null)
+  const [isPomodoroFullscreenActive, setIsPomodoroFullscreenActive] = useState(false)
 
   // Register break-start handler with Pomodoro context
   const { alertState } = usePomodoroData()
@@ -78,7 +81,17 @@ function AppContent() {
     return () => setOnBreakStart(null)
   }, [setOnBreakStart])
 
+  const navigateToView = useCallback((view: string) => {
+    if (isPomodoroFullscreenActive && view !== activeView) {
+      showToast(POMODORO_FULLSCREEN_NAVIGATION_MESSAGE, 'info')
+      return false
+    }
+    setActiveView(view)
+    return true
+  }, [activeView, isPomodoroFullscreenActive, setActiveView])
+
   const handleWriteFocusDiary = useCallback(() => {
+    if (!navigateToView('editor')) return
     const today = getLocalDateKey()
     setPendingDiaryInsert({
       id: Date.now(),
@@ -86,14 +99,13 @@ function AppContent() {
       content: buildFocusReflectionTemplate(alertState.subjectName),
     })
     setSelectedDate(today)
-    setActiveView('editor')
     dismissAlert()
-  }, [alertState.subjectName, dismissAlert, setActiveView, setSelectedDate])
+  }, [alertState.subjectName, dismissAlert, navigateToView, setSelectedDate])
 
   const handleAddFocusMistake = useCallback(() => {
-    setActiveView('mistakes')
+    if (!navigateToView('mistakes')) return
     dismissAlert()
-  }, [dismissAlert, setActiveView])
+  }, [dismissAlert, navigateToView])
 
   const handlePendingDiaryInsertApplied = useCallback((id: number) => {
     setPendingDiaryInsert(current => current?.id === id ? null : current)
@@ -229,7 +241,7 @@ function AppContent() {
     return config.render({
       entry, saveEntry, loading,
       selectedDate, setSelectedDate,
-      changeDate, setActiveView,
+      changeDate, setActiveView: navigateToView,
       isSidebarCollapsed,
       ImageGallery,
       ensureEntryId,
@@ -238,6 +250,7 @@ function AppContent() {
       mistakeFilterIntent: pendingMistakeFilter,
       onMistakeFilterIntent: handleMistakeFilterIntent,
       onMistakeFilterIntentApplied: handleMistakeFilterIntentApplied,
+      onPomodoroFullscreenChange: setIsPomodoroFullscreenActive,
     })
   }
 
@@ -253,7 +266,7 @@ function AppContent() {
     <Layout isSidebarCollapsed={isSidebarCollapsed} selectedDate={selectedDate}>
       <Sidebar
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={navigateToView}
         selectedDate={selectedDate}
         isCollapsed={isSidebarCollapsed}
         onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -287,7 +300,7 @@ function AppContent() {
         )}
         <div style={{ flex: 1, overflow: 'auto', padding: activeView === 'editor' ? 0 : 'var(--space)' }}>
           <div key={activeView} className="view-transition">
-            <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => setActiveView('welcome')}>
+            <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => navigateToView('welcome')}>
               {renderView()}
             </ErrorBoundary>
           </div>
@@ -296,12 +309,12 @@ function AppContent() {
       <CommandPalette
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
-        onNavigate={setActiveView}
+        onNavigate={navigateToView}
       />
       {activeView !== 'pomodoro' && (
         <Pomodoro
           isWidget={true}
-          onExpand={() => setActiveView('pomodoro')}
+          onExpand={() => navigateToView('pomodoro')}
           isCollapsed={isSidebarCollapsed}
         />
       )}

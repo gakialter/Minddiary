@@ -82,9 +82,10 @@ interface PomodoroProps {
   isWidget: boolean
   onExpand: () => void
   isCollapsed: boolean
+  onFullscreenChange?: (isActive: boolean) => void
 }
 
-export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroProps) {
+export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreenChange }: PomodoroProps) {
   const { settingsData, settings, notification } = useDiary()
   const {
     mode, timeLeft, isRunning,
@@ -122,6 +123,12 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed }: PomodoroPr
     onViolation: handleFocusViolation,
   })
   const [zenVisible, setZenVisible] = useState(false)
+  useEffect(() => {
+    onFullscreenChange?.(zenVisible)
+  }, [onFullscreenChange, zenVisible])
+  useEffect(() => {
+    return () => onFullscreenChange?.(false)
+  }, [onFullscreenChange])
   const selectedSubjectName = useMemo(
     () => subjects.find(subject => subject.id === selectedSubject)?.name,
     [selectedSubject, subjects],

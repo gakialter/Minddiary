@@ -33,6 +33,7 @@ interface ViewRenderProps {
   mistakeFilterIntent?: MistakeFilterIntent | null
   onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
   onMistakeFilterIntentApplied?: () => void
+  onPomodoroFullscreenChange?: (isActive: boolean) => void
 }
 
 interface ViewConfig {
@@ -102,7 +103,14 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   },
   pomodoro: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} style={{ color: 'var(--accent)' }} /> 番茄钟</span>,
-    render: (props) => <Pomodoro isWidget={false} onExpand={() => {}} isCollapsed={props.isSidebarCollapsed} />,
+    render: (props) => (
+      <Pomodoro
+        isWidget={false}
+        onExpand={() => {}}
+        isCollapsed={props.isSidebarCollapsed}
+        onFullscreenChange={props.onPomodoroFullscreenChange}
+      />
+    ),
   },
   progress: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BookOpen size={22} style={{ color: 'var(--accent)' }} /> 科目进度</span>,
