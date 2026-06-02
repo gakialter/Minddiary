@@ -178,6 +178,15 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.9.8 — 稳定性小版本 (2026-06-03)</summary>
+
+- **Pomodoro 全屏导航锁**：Zen / fullscreen 模式激活时阻止切换页面，避免暂停后切到其它视图导致全屏状态被锁住。（#75）
+- **IPC 运行时校验**：为 AI chat、Pomodoro session 写入、学习任务写入、错题复习和日记 create/update 等主进程 IPC 边界增加轻量 payload validation。（#76）
+- **本轮范围**：无数据库 schema migration；不包含 V2-02、V2-04/V2-05、Pomodoro task binding 或其它 v2.0 功能。
+
+</details>
+
+<details>
 <summary>v1.9.7 — 今日行动队列 (2026-06-01)</summary>
 
 - **今日行动队列**：今日决策页新增轻量任务区域，用于把今日决策转化为可执行任务。
