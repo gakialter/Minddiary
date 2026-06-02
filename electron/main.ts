@@ -15,11 +15,21 @@ import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
+import {
+    validateAiMessagesPayload,
+    validateEntryCreatePayload,
+    validateEntryUpdatePayload,
+    validateMistakeReviewPayload,
+    validatePomodoroSessionPayload,
+    validatePositiveIdPayload,
+    validateStudyTaskCreatePayload,
+    validateStudyTaskUpdatePayload,
+} from './ipcValidation';
 
 import type {
-    NewEntry, EntryFilters, Tag, Subject,
-    PomodoroSession, StudyTask, NewStudyTask, Mistake, MistakeFilters,
-    DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, CountdownEventType,
+    EntryFilters, Tag, Subject,
+    Mistake, MistakeFilters,
+    DiaryTemplate, AttachmentData, CountdownEvent, CountdownEventType,
     FocusWhitelistItem
 } from '../src/types/index';
 
@@ -264,8 +274,13 @@ ipcMain.handle('window:isFullScreen', () => {
 });
 
 // ==================== Entries ====================
-ipcMain.handle('entries:create', (_: unknown, entry: NewEntry) => db.createEntry(entry));
-ipcMain.handle('entries:update', (_: unknown, id: number, entry: Partial<NewEntry>) => db.updateEntry(id, entry));
+ipcMain.handle('entries:create', (_: unknown, entry: unknown) => db.createEntry(validateEntryCreatePayload(entry)));
+ipcMain.handle('entries:update', (_: unknown, id: unknown, entry: unknown) => {
+    return db.updateEntry(
+        validatePositiveIdPayload(id, 'entry id'),
+        validateEntryUpdatePayload(entry),
+    );
+});
 ipcMain.handle('entries:delete', async (_: unknown, id: number) => {
     // Phase 11.1 fix: physically remove attachment files BEFORE the SQL DELETE,
     // because ON DELETE CASCADE will kill the attachment *records* but NOT the disk files.
@@ -576,7 +591,9 @@ ipcMain.handle('subjects:update', (_: unknown, id: number, subject: Partial<Subj
 ipcMain.handle('subjects:delete', (_: unknown, id: number) => db.deleteSubject(id));
 
 // ==================== Pomodoro ====================
-ipcMain.handle('pomodoro:addSession', (_: unknown, session: PomodoroSession) => db.addPomodoroSession(session));
+ipcMain.handle('pomodoro:addSession', (_: unknown, session: unknown) => {
+    return db.addPomodoroSession(validatePomodoroSessionPayload(session));
+});
 ipcMain.handle('pomodoro:getStats', (_: unknown, date: string) => db.getPomodoroStats(date));
 ipcMain.handle('pomodoro:getStatsRange', (_: unknown, start: string, end: string) => db.getPomodoroStatsRange(start, end));
 ipcMain.handle('pomodoro:getDailyTotal', (_: unknown, date: string) => db.getDailyStudyMinutes(date));
@@ -584,11 +601,16 @@ ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => 
 
 // ==================== Study Tasks ====================
 ipcMain.handle('tasks:getByDate', (_: unknown, date: string) => db.getStudyTasksByDate(date));
-ipcMain.handle('tasks:create', (_: unknown, task: NewStudyTask) => db.createStudyTask(task));
-ipcMain.handle('tasks:update', (_: unknown, id: number, patch: Partial<StudyTask>) => db.updateStudyTask(id, patch));
-ipcMain.handle('tasks:delete', (_: unknown, id: number) => db.deleteStudyTask(id));
-ipcMain.handle('tasks:complete', (_: unknown, id: number) => db.completeStudyTask(id));
-ipcMain.handle('tasks:skip', (_: unknown, id: number) => db.skipStudyTask(id));
+ipcMain.handle('tasks:create', (_: unknown, task: unknown) => db.createStudyTask(validateStudyTaskCreatePayload(task)));
+ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
+    return db.updateStudyTask(
+        validatePositiveIdPayload(id, 'task id'),
+        validateStudyTaskUpdatePayload(patch),
+    );
+});
+ipcMain.handle('tasks:delete', (_: unknown, id: unknown) => db.deleteStudyTask(validatePositiveIdPayload(id, 'task id')));
+ipcMain.handle('tasks:complete', (_: unknown, id: unknown) => db.completeStudyTask(validatePositiveIdPayload(id, 'task id')));
+ipcMain.handle('tasks:skip', (_: unknown, id: unknown) => db.skipStudyTask(validatePositiveIdPayload(id, 'task id')));
 
 // ==================== Focus Guard ====================
 ipcMain.handle('focusGuard:getActiveApp', async () => {
@@ -622,7 +644,10 @@ ipcMain.handle('mistakes:create', (_: unknown, mistake: Partial<Mistake>) => db.
 ipcMain.handle('mistakes:update', (_: unknown, id: number, mistake: Partial<Mistake>) => db.updateMistake(id, mistake));
 ipcMain.handle('mistakes:delete', (_: unknown, id: number) => db.deleteMistake(id));
 ipcMain.handle('mistakes:toggleMastered', (_: unknown, id: number) => db.toggleMistakeMastered(id));
-ipcMain.handle('mistakes:review', (_: unknown, id: number, data: Partial<Mistake>) => db.reviewMistake(id, data));
+ipcMain.handle('mistakes:review', (_: unknown, id: unknown, data: unknown) => {
+    const validated = validateMistakeReviewPayload(id, data);
+    return db.reviewMistake(validated.id, validated.data);
+});
 ipcMain.handle('mistakes:getDueCount', (_: unknown, date: string) => db.getDueForReviewCount(date));
 ipcMain.handle('mistakes:getRandomDue', (_: unknown, date: string, subjectId?: number) => db.getRandomDueMistake(date, subjectId));
 ipcMain.handle('mistakes:saveImage', (_: unknown, data: AttachmentData & { ext?: string }) => {
@@ -631,7 +656,7 @@ ipcMain.handle('mistakes:saveImage', (_: unknown, data: AttachmentData & { ext?:
 ipcMain.handle('mistakes:getImagePath', (_: unknown, filename: string) => fileManager.getMistakeImagePath(filename));
 
 // ==================== AI ====================
-ipcMain.handle('ai:chat', (_: unknown, messages: AIMessage[]) => aiService.chat(messages));
+ipcMain.handle('ai:chat', (_: unknown, messages: unknown) => aiService.chat(validateAiMessagesPayload(messages)));
 ipcMain.handle('ai:summarize', (_: unknown, content: string) => aiService.summarize(content));
 
 // ==================== Notifications ====================
