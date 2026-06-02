@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   setActiveView: vi.fn(),
   setSelectedDate: vi.fn(),
   changeDate: vi.fn(),
+  showToast: vi.fn(),
   alertState: {
     visible: false,
     isWorkComplete: false,
@@ -120,6 +121,7 @@ vi.mock('../src/components/ErrorBoundary', () => ({
   default: ({ children }: { children: ReactNode }) => children,
 }))
 vi.mock('../src/components/Toast', () => ({
+  showToast: mocks.showToast,
   ToastContainer: () => null,
 }))
 
