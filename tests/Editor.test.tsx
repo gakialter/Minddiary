@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Editor from '../src/components/Editor'
-import type { DiaryEntry, Tag } from '../src/types'
+import type { AIMessage, DiaryEntry, Tag } from '../src/types'
 
 const tags: Tag[] = [
   { id: 1, name: 'Tag A', color: '#0F766E', icon: '🌿', variant: 'solid', pattern: 'dots' },
@@ -128,6 +128,33 @@ describe('Editor format toolbar', () => {
     })
     expect(screen.getByText(/\+\+下划线\+\+/)).toBeInTheDocument()
     expect(screen.getByText(/\{color:red\}颜色\{\/color\}/)).toBeInTheDocument()
+  })
+})
+
+describe('Editor AI summary request', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tagsGetAll.mockResolvedValue([])
+    mocks.getDailyTotal.mockResolvedValue(0)
+    mocks.templatesGetAll.mockResolvedValue([])
+    mocks.aiChat.mockResolvedValue({ content: 'summary result' })
+  })
+
+  it('sends the existing system plus user summary request shape', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /AI/ }))
+
+    await waitFor(() => {
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+    })
+
+    const payload = mocks.aiChat.mock.calls[0]?.[0] as AIMessage[]
+    expect(payload).toHaveLength(2)
+    expect(payload[0]?.role).toBe('system')
+    expect(payload[1]?.role).toBe('user')
+    expect(payload[1]?.content).toContain('Entry body')
   })
 })
 

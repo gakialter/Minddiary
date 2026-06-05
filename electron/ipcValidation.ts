@@ -10,10 +10,17 @@ import type {
     StudyTaskStatus,
     StudyTaskType,
 } from '../src/types';
+import {
+    AI_REQUEST_LIMITS,
+    validateAiRequestMessages,
+    validateAiSummaryInput,
+} from '../src/utils/aiRequestPolicy';
 
 export const IPC_VALIDATION_LIMITS = {
-    aiMessages: 50,
-    aiMessageContent: 100_000,
+    aiMessages: AI_REQUEST_LIMITS.maxMessages,
+    aiMessageContent: AI_REQUEST_LIMITS.maxMessageContent,
+    aiTotalContent: AI_REQUEST_LIMITS.maxTotalContent,
+    aiSummaryInput: AI_REQUEST_LIMITS.maxSummaryInput,
     entryTitle: 500,
     entryContent: 200_000,
     entryImagePath: 2_000,
@@ -24,7 +31,6 @@ export const IPC_VALIDATION_LIMITS = {
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-const AI_MESSAGE_ROLES = ['system', 'user', 'assistant'] as const;
 const MOOD_IDS = ['motivated', 'happy', 'calm', 'tired', 'anxious', 'sad'] as const;
 const STUDY_TASK_TYPES = ['review', 'focus', 'diary', 'mistake', 'custom'] as const;
 const STUDY_TASK_STATUSES = ['todo', 'doing', 'done', 'skipped'] as const;
@@ -209,18 +215,11 @@ export function validatePositiveIdPayload(value: unknown, label: string): number
 }
 
 export function validateAiMessagesPayload(payload: unknown): AIMessage[] {
-    if (!Array.isArray(payload)) {
-        throw new Error('ai:chat messages must be an array');
-    }
-    if (payload.length > IPC_VALIDATION_LIMITS.aiMessages) {
-        throw new Error('ai:chat messages is too long');
-    }
-    payload.forEach((item, index) => {
-        const message = requireRecord(item, `AI message ${index}`);
-        requireEnum(message.role, AI_MESSAGE_ROLES, 'AI message role');
-        requireString(message.content, 'AI message content', IPC_VALIDATION_LIMITS.aiMessageContent);
-    });
-    return payload as AIMessage[];
+    return validateAiRequestMessages(payload);
+}
+
+export function validateAiSummaryPayload(payload: unknown): string {
+    return validateAiSummaryInput(payload);
 }
 
 export function validateStudyTaskCreatePayload(payload: unknown): NewStudyTask {

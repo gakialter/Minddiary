@@ -265,7 +265,10 @@ describe('DataContext', () => {
       expect(result.current.dataReady).toBe(true)
     })
 
-    const message: AIMessage = { role: 'user', content: 'hello' }
+    const messages: AIMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'hello' },
+    ]
     const attachmentData = { name: 'a.png', data: 'base64', mimetype: 'image/png' }
     let chatResult: Awaited<ReturnType<typeof result.current.ai.chat>> | undefined
     let savedAttachment: Attachment | undefined
@@ -296,7 +299,7 @@ describe('DataContext', () => {
       await result.current.todayDashboard.getData('2026-05-05')
       await result.current.exportUtil.showSaveDialog({ defaultPath: 'export.md' })
       await result.current.notification.show('title', 'body')
-      chatResult = await result.current.ai.chat([message])
+      chatResult = await result.current.ai.chat(messages)
       await result.current.attachments.getByEntry(7)
       await result.current.attachments.getByEntries([7, 8])
       savedAttachment = await result.current.attachments.save(7, attachmentData)
@@ -328,7 +331,7 @@ describe('DataContext', () => {
     expect(window.api.todayDashboard.getData).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.export.showSaveDialog).toHaveBeenCalledWith({ defaultPath: 'export.md' })
     expect(window.api.notification.show).toHaveBeenCalledWith('title', 'body')
-    expect(window.api.ai.chat).toHaveBeenCalledWith([message])
+    expect(window.api.ai.chat).toHaveBeenCalledWith(messages)
     expect(chatResult).toEqual({ content: 'mock response' })
     expect(window.api.attachments.getByEntry).toHaveBeenCalledWith(7)
     expect(window.api.attachments.getByEntries).toHaveBeenCalledWith([7, 8])
@@ -678,6 +681,23 @@ describe('DataContext', () => {
       error: '浏览器端目前不支持直接调用 AI 接口，请使用 Electron 客户端体验完整功能。',
       unsupported: true,
     })
+    expect(window.api.ai.chat).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid Electron AI chat requests before calling preload', async () => {
+    mocks.isElectron = true
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const response = await result.current.ai.chat([
+      { role: 'system', content: 'system only' },
+    ])
+
+    expect(response.error).toContain('AI 请求消息格式异常')
+    expect(window.api.ai.chat).not.toHaveBeenCalled()
   })
 
   it('creates mistakes in browser fallback storage and toggles mastered state', async () => {
