@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   IPC_VALIDATION_LIMITS,
   validateAiMessagesPayload,
+  validateAiSummaryPayload,
   validateEntryCreatePayload,
   validateEntryUpdatePayload,
   validateMistakeReviewPayload,
@@ -13,25 +14,39 @@ import {
 
 describe('IPC runtime payload validation', () => {
   it('rejects ai:chat messages that are not an array', () => {
-    expect(() => validateAiMessagesPayload({ role: 'user', content: 'hello' })).toThrow('ai:chat messages must be an array')
+    expect(() => validateAiMessagesPayload({ role: 'user', content: 'hello' })).toThrow('AI chat messages must be an array')
   })
 
   it('rejects unsupported AI message roles', () => {
-    expect(() => validateAiMessagesPayload([{ role: 'tool', content: 'hello' }])).toThrow('AI message role must be one of')
+    expect(() => validateAiMessagesPayload([
+      { role: 'system', content: 'system' },
+      { role: 'tool', content: 'hello' },
+    ])).toThrow('AI message 1 role must be one of')
   })
 
   it('rejects AI message content that is not a string', () => {
-    expect(() => validateAiMessagesPayload([{ role: 'user', content: { text: 'hello' } }])).toThrow('AI message content must be a string')
+    expect(() => validateAiMessagesPayload([
+      { role: 'system', content: 'system' },
+      { role: 'user', content: { text: 'hello' } },
+    ])).toThrow('AI message 1 content must be a string')
   })
 
-  it('accepts valid AI messages unchanged', () => {
+  it('accepts valid AI messages as normalized safe objects', () => {
     const messages = [
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: 'Summarize today.' },
-      { role: 'assistant', content: 'Sure.' },
     ]
 
-    expect(validateAiMessagesPayload(messages)).toBe(messages)
+    const result = validateAiMessagesPayload(messages)
+
+    expect(result).toEqual(messages)
+    expect(result).not.toBe(messages)
+  })
+
+  it('rejects ai:summarize input that exceeds the shared summary limit', () => {
+    expect(() => validateAiSummaryPayload('x'.repeat(IPC_VALIDATION_LIMITS.aiSummaryInput + 1))).toThrow(
+      'AI summary input must be at most',
+    )
   })
 
   it('rejects invalid task type/status/source values', () => {

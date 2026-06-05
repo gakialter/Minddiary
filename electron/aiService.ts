@@ -1,10 +1,15 @@
 const db = require('./database');
 
 import type { AIMessage, AIResponse } from '../src/types/index';
+import {
+    buildAiSummaryMessages,
+    validateAiRequestMessages,
+} from '../src/utils/aiRequestPolicy';
 
 const AI_TIMEOUT_MS = 30_000;
 
 async function chat(messages: AIMessage[]): Promise<AIResponse> {
+    const safeMessages = validateAiRequestMessages(messages);
     const endpoint = db.getSetting('aiEndpoint');
     const apiKey = db.getAiApiKey();
     const model = db.getSetting('aiModel') || 'gpt-3.5-turbo';
@@ -25,7 +30,7 @@ async function chat(messages: AIMessage[]): Promise<AIResponse> {
             },
             body: JSON.stringify({
                 model,
-                messages,
+                messages: safeMessages,
                 temperature: 0.7,
                 max_tokens: 2000
             }),
@@ -35,7 +40,7 @@ async function chat(messages: AIMessage[]): Promise<AIResponse> {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            const err = await response.text();
+            await response.text();
             const statusHints: Record<number, string> = {
                 401: '密钥无效或已过期，请在设置中更新 API Key。',
                 403: 'API 访问被拒绝，请检查权限。',
@@ -59,17 +64,7 @@ async function chat(messages: AIMessage[]): Promise<AIResponse> {
 }
 
 async function summarize(content: string): Promise<AIResponse> {
-    const messages: AIMessage[] = [
-        {
-            role: 'system',
-            content: '你是一位考研学习助手。请用简洁的中文回答，帮助学生总结学习内容、分析学习状态。'
-        },
-        {
-            role: 'user',
-            content: `请帮我总结以下学习日记的要点，并给出改进建议：\n\n${content}`
-        }
-    ];
-    return chat(messages);
+    return chat(buildAiSummaryMessages(content));
 }
 
 module.exports = { chat, summarize };

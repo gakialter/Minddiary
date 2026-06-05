@@ -17,6 +17,7 @@ import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
 import {
     validateAiMessagesPayload,
+    validateAiSummaryPayload,
     validateEntryCreatePayload,
     validateEntryUpdatePayload,
     validateMistakeReviewPayload,
@@ -657,7 +658,7 @@ ipcMain.handle('mistakes:getImagePath', (_: unknown, filename: string) => fileMa
 
 // ==================== AI ====================
 ipcMain.handle('ai:chat', (_: unknown, messages: unknown) => aiService.chat(validateAiMessagesPayload(messages)));
-ipcMain.handle('ai:summarize', (_: unknown, content: string) => aiService.summarize(content));
+ipcMain.handle('ai:summarize', (_: unknown, content: unknown) => aiService.summarize(validateAiSummaryPayload(content)));
 
 // ==================== Notifications ====================
 ipcMain.handle('notification:show', (_: unknown, title: string, body: string) => {
