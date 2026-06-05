@@ -61,6 +61,11 @@ const saveCachedMessages = (messages: ChatMessage[]) => {
     }
 }
 
+const toSafeHistoryMessage = (message: ChatMessage): AIMessage => ({
+    role: message.role,
+    content: sanitizeUserInput(message.content),
+})
+
 interface QuickPrompt {
     icon: React.ReactElement
     label: string
@@ -115,7 +120,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
         try {
             const chatMessages: AIMessage[] = [
                 { role: 'system', content: SYSTEM_PROMPT },
-                ...messages.slice(-6).map(m => ({ role: m.role as AIMessage['role'], content: m.content })),
+                ...messages.slice(-6).map(toSafeHistoryMessage),
                 { role: 'user' as const, content: textToUse }
             ]
             const result = await aiAPI.chat(chatMessages)

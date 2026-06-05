@@ -82,6 +82,7 @@ interface MistakeInput {
     subject_name?: string
     question?: string
     answer?: string
+    notes?: string
     note?: string
 }
 
@@ -116,7 +117,7 @@ export function buildMistakeAnalysisPrompt(mistakes: MistakeInput[]): string {
         .map((m, i) => {
             const q = sanitizeUserInput(m.question || '（无题目）')
             const a = sanitizeUserInput(m.answer || '（无答案）')
-            const note = sanitizeUserInput(m.note || '')
+            const note = sanitizeUserInput(m.notes || m.note || '')
             const subject = sanitizeUserInput(m.subject_name || '未分类')
             return (
                 `【${i + 1}】科目：${subject}\n` +
