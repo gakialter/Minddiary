@@ -62,6 +62,8 @@ const state = vi.hoisted(() => ({
   mistakeRows: [] as MistakeImageRow[],
   pomodoroStatsRows: [] as PomodoroStat[],
   taskRows: [] as StudyTaskRow[],
+  userVersion: 0,
+  closeCalls: 0,
 }))
 
 const mistakeImageStorageState = vi.hoisted(() => ({
@@ -100,7 +102,17 @@ vi.mock('../electron/mistakeImageStorage', () => mistakeImageStorageState)
 vi.mock('better-sqlite3', () => {
   const MockBetterSqlite3 = vi.fn(function MockBetterSqlite3() {
     return {
-      pragma: vi.fn(),
+      pragma: vi.fn((statement: string) => {
+        if (statement === 'user_version') return state.userVersion
+        const userVersionMatch = statement.match(/^user_version\s*=\s*(\d+)$/)
+        if (userVersionMatch?.[1]) {
+          state.userVersion = Number(userVersionMatch[1])
+        }
+        return undefined
+      }),
+      close: vi.fn(() => {
+        state.closeCalls += 1
+      }),
       exec: vi.fn((sql: string) => {
         state.execCalls.push(sql)
       }),
@@ -186,6 +198,7 @@ vi.mock('better-sqlite3', () => {
         }),
         get: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
+          if (sql === 'PRAGMA user_version') return { user_version: state.userVersion }
           if (sql.includes('COUNT(*)')) return { count: 1 }
           if (sql.includes('SELECT value FROM settings WHERE key=?')) {
             const key = String(params[0])
@@ -207,7 +220,7 @@ vi.mock('better-sqlite3', () => {
         all: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
           if (sql.startsWith('PRAGMA table_info')) {
-            const tableName = sql.match(/PRAGMA table_info\(([^)]+)\)/)?.[1]
+            const tableName = sql.match(/PRAGMA table_info\(([^)]+)\)/)?.[1]?.replace(/^"|"$/g, '')
             if (tableName === 'tags') {
               return [{ name: 'id' }, { name: 'name' }, { name: 'color' }]
             }
@@ -261,6 +274,8 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.mistakeRows = []
   state.pomodoroStatsRows = []
   state.taskRows = []
+  state.userVersion = 0
+  state.closeCalls = 0
   mistakeImageStorageState.deleteManagedMistakeImage.mockReset()
   mistakeImageStorageState.deleteManagedMistakeImage.mockResolvedValue(undefined)
   mistakeImageStorageState.getMistakeImageReferenceKey.mockClear()
@@ -302,9 +317,9 @@ describe('database batch entry metadata APIs', () => {
     await loadDatabase({ preserveInitializeCalls: true })
 
     expect(state.execCalls).toEqual(expect.arrayContaining([
-      expect.stringContaining('ALTER TABLE tags ADD COLUMN icon'),
-      expect.stringContaining('ALTER TABLE tags ADD COLUMN variant'),
-      expect.stringContaining('ALTER TABLE tags ADD COLUMN pattern'),
+      expect.stringContaining('ADD COLUMN "icon"'),
+      expect.stringContaining('ADD COLUMN "variant"'),
+      expect.stringContaining('ADD COLUMN "pattern"'),
     ]))
   })
 
