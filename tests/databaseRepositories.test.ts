@@ -11,6 +11,7 @@ describe('database repositories', () => {
 
   beforeEach(() => {
     database = new BetterSqlite3(':memory:')
+    database.pragma('foreign_keys = ON')
     database.exec(`
       CREATE TABLE entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,9 +24,18 @@ describe('database repositories', () => {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        color TEXT DEFAULT '#0F766E',
+        icon TEXT DEFAULT '',
+        variant TEXT DEFAULT 'soft',
+        pattern TEXT DEFAULT 'none'
+      );
+
       CREATE TABLE entry_tags (
-        entry_id INTEGER,
-        tag_id INTEGER,
+        entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
+        tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
         PRIMARY KEY (entry_id, tag_id)
       );
 
@@ -68,6 +78,153 @@ describe('database repositories', () => {
     database.close()
   })
 
+  it('normalizes, validates, updates, orders, and deletes tags', () => {
+    database.prepare(
+      'INSERT INTO tags (name, color, icon, variant, pattern) VALUES (?, ?, ?, ?, ?)'
+    ).run('zeta', 'not-a-color', null, 'invalid', 'invalid')
+    database.prepare(
+      'INSERT INTO tags (name, color, icon, variant, pattern) VALUES (?, ?, ?, ?, ?)'
+    ).run('alpha', '#0E7490', 'abcde', 'solid', 'dots')
+
+    expect(repositories.tags.getAllTags()).toEqual([
+      {
+        id: 2,
+        name: 'alpha',
+        color: '#0E7490',
+        icon: 'abcd',
+        variant: 'solid',
+        pattern: 'dots',
+      },
+      {
+        id: 1,
+        name: 'zeta',
+        color: '#0F766E',
+        icon: '',
+        variant: 'soft',
+        pattern: 'none',
+      },
+    ])
+
+    const created = repositories.tags.createTag({
+      name: '  beta  ',
+      color: ' bad ',
+      icon: ' 12345 ',
+      variant: 'ghost',
+      pattern: 'leaf',
+    })
+    expect(created).toEqual({
+      id: 3,
+      name: 'beta',
+      color: '#0F766E',
+      icon: '1234',
+      variant: 'ghost',
+      pattern: 'leaf',
+    })
+    expect(database.prepare('SELECT name, color, icon, variant, pattern FROM tags WHERE id=?').get(created.id)).toEqual({
+      name: 'beta',
+      color: '#0F766E',
+      icon: '1234',
+      variant: 'ghost',
+      pattern: 'leaf',
+    })
+
+    expect(repositories.tags.updateTag(3, { color: '#475569', pattern: 'grid' })).toEqual({
+      id: 3,
+      name: 'beta',
+      color: '#475569',
+      icon: '1234',
+      variant: 'ghost',
+      pattern: 'grid',
+    })
+    expect(() => repositories.tags.createTag({ name: '   ' })).toThrow('Tag name is required')
+    expect(() => repositories.tags.updateTag(404, { name: 'missing' })).toThrow('Tag not found')
+    expect(() => repositories.tags.updateTag(3, { name: '   ' })).toThrow('Tag name is required')
+
+    expect(repositories.tags.deleteTag(404)).toEqual({ success: true })
+    expect(repositories.tags.deleteTag(1)).toEqual({ success: true })
+    expect(repositories.tags.getAllTags().map(tag => tag.name)).toEqual(['alpha', 'beta'])
+  })
+
+  it('replaces, clears, reads, and batches entry tags', () => {
+    const entry = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'Tagged',
+      content: 'entry',
+      mood: 'happy',
+    })
+    const secondEntry = repositories.entries.createEntry({
+      date: '2026-06-07',
+      title: 'Second',
+      content: 'entry',
+      mood: 'calm',
+    })
+    const alpha = repositories.tags.createTag({ name: 'alpha', color: '#0E7490', icon: 'a', variant: 'solid', pattern: 'dots' })
+    const beta = repositories.tags.createTag({ name: 'beta', color: '#475569', icon: 'b', variant: 'outline', pattern: 'grid' })
+
+    expect(repositories.tags.setEntryTags(Number(entry.id), [alpha.id, beta.id])).toEqual({ success: true })
+    expect(repositories.tags.getEntryTags(Number(entry.id))).toEqual(expect.arrayContaining([
+      alpha,
+      beta,
+    ]))
+
+    expect(repositories.tags.setEntryTags(Number(entry.id), [beta.id])).toEqual({ success: true })
+    expect(repositories.tags.getEntryTags(Number(entry.id))).toEqual([beta])
+    expect(repositories.tags.setEntryTags(Number(secondEntry.id), [alpha.id])).toEqual({ success: true })
+
+    expect(repositories.tags.getEntryTagsBatch([
+      Number(entry.id),
+      Number(entry.id),
+      0,
+      Number(secondEntry.id),
+      Number.NaN,
+      999,
+    ])).toEqual({
+      [Number(entry.id)]: [beta],
+      [Number(secondEntry.id)]: [alpha],
+      999: [],
+    })
+
+    expect(repositories.tags.setEntryTags(Number(entry.id), [])).toEqual({ success: true })
+    expect(repositories.tags.getEntryTags(Number(entry.id))).toEqual([])
+  })
+
+  it('rolls back entry tag replacement when duplicate tag ids violate the primary key', () => {
+    const entry = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'Tagged',
+      content: 'entry',
+      mood: 'happy',
+    })
+    const alpha = repositories.tags.createTag({ name: 'alpha' })
+    const beta = repositories.tags.createTag({ name: 'beta' })
+    repositories.tags.setEntryTags(Number(entry.id), [alpha.id])
+
+    expect(() => repositories.tags.setEntryTags(Number(entry.id), [beta.id, beta.id])).toThrow()
+
+    expect(repositories.tags.getEntryTags(Number(entry.id))).toEqual([alpha])
+    expect(database.prepare(
+      'SELECT tag_id FROM entry_tags WHERE entry_id=? ORDER BY tag_id'
+    ).all(entry.id)).toEqual([{ tag_id: alpha.id }])
+  })
+
+  it('rolls back entry tag replacement when foreign keys reject a tag id', () => {
+    const entry = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'Tagged',
+      content: 'entry',
+      mood: 'happy',
+    })
+    const alpha = repositories.tags.createTag({ name: 'alpha' })
+    repositories.tags.setEntryTags(Number(entry.id), [alpha.id])
+
+    expect(() => repositories.tags.setEntryTags(Number(entry.id), [999])).toThrow()
+
+    expect(repositories.tags.getEntryTags(Number(entry.id))).toEqual([alpha])
+    expect(database.prepare(
+      'SELECT tag_id FROM entry_tags WHERE entry_id=? ORDER BY tag_id'
+    ).all(entry.id)).toEqual([{ tag_id: alpha.id }])
+  })
+
   it('creates, updates, reads, lists, searches, and deletes entries', () => {
     const first = repositories.entries.createEntry({
       date: '2026-06-06',
@@ -81,7 +238,8 @@ describe('database repositories', () => {
       content: 'quiet focus',
       mood: 'calm',
     })
-    database.prepare('INSERT INTO entry_tags (entry_id, tag_id) VALUES (?, ?)').run(first.id, 7)
+    const tag = repositories.tags.createTag({ name: 'focus' })
+    database.prepare('INSERT INTO entry_tags (entry_id, tag_id) VALUES (?, ?)').run(first.id, tag.id)
 
     expect(first).toEqual({
       id: 1,
@@ -112,7 +270,7 @@ describe('database repositories', () => {
       mood: 'happy',
       startDate: '2026-06-01',
       endDate: '2026-06-30',
-      tagId: 7,
+      tagId: tag.id,
       limit: 1,
     })).toEqual([expect.objectContaining({ id: first.id, title: 'First' })])
     expect(repositories.entries.getAllEntries({ includeContent: true, limit: 1 })[0]).toHaveProperty('content')
