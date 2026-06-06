@@ -72,6 +72,24 @@ interface QuickPrompt {
     action: () => void
 }
 
+interface EntryRequestContext {
+    entryId: number | null
+    entryDate: string
+    entryContent: string
+}
+
+const getEntryRequestContext = (entry: DiaryEntry | null): EntryRequestContext => ({
+    entryId: entry?.id ?? null,
+    entryDate: entry?.date ?? '',
+    entryContent: entry?.content ?? '',
+})
+
+const isSameEntryRequestContext = (a: EntryRequestContext, b: EntryRequestContext) => (
+    a.entryId === b.entryId &&
+    a.entryDate === b.entryDate &&
+    a.entryContent === b.entryContent
+)
+
 export default function AIPanel({ entry }: AIPanelProps) {
     const { settingsData, ai: aiAPI, mistakes: mistakesAPI } = useDiary()
     const [messages, setMessages] = useState<ChatMessage[]>(() => loadCachedMessages())
@@ -82,6 +100,8 @@ export default function AIPanel({ entry }: AIPanelProps) {
     // sendMessage captures its value at call time; if it changes before the
     // response arrives, the response is discarded (soft cancellation).
     const generationRef = useRef(0)
+    const activeGenerationRef = useRef<number | null>(null)
+    const entryRequestContextRef = useRef(getEntryRequestContext(entry))
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -91,31 +111,70 @@ export default function AIPanel({ entry }: AIPanelProps) {
         saveCachedMessages(messages)
     }, [messages])
 
+    const beginRequest = () => {
+        const generation = ++generationRef.current
+        activeGenerationRef.current = generation
+        setLoading(true)
+        return generation
+    }
+
+    const isCurrentRequest = (generation: number) => (
+        generationRef.current === generation && activeGenerationRef.current === generation
+    )
+
+    const hasActiveRequest = () => (
+        activeGenerationRef.current !== null && generationRef.current === activeGenerationRef.current
+    )
+
+    const invalidateRequest = (updateLoading = true) => {
+        generationRef.current++
+        activeGenerationRef.current = null
+        if (updateLoading) setLoading(false)
+    }
+
+    useEffect(() => {
+        const nextContext = getEntryRequestContext(entry)
+        if (!isSameEntryRequestContext(entryRequestContextRef.current, nextContext)) {
+            entryRequestContextRef.current = nextContext
+            invalidateRequest()
+        }
+    }, [entry?.id, entry?.date, entry?.content])
+
+    useEffect(() => () => {
+        invalidateRequest(false)
+    }, [])
+
     const appendMessage = (role: 'user' | 'assistant', content: string) => {
         setMessages(prev => [...prev, { role, content, id: Date.now() + Math.random() }])
     }
 
     const clearMessages = () => {
-        generationRef.current++
-        setLoading(false)
+        invalidateRequest()
         setMessages([])
     }
 
     const cancelRequest = () => {
-        generationRef.current++  // invalidate any in-flight request
-        setLoading(false)
+        invalidateRequest()
     }
 
-    const sendMessage = async (textOverride: string | null = null) => {
-        const raw = textOverride || input
-        if (!raw.trim() || loading) return
+    const sendMessage = async (textOverride: string | null = null, activeGeneration?: number) => {
+        const raw = textOverride ?? input
+        if (!raw.trim()) {
+            if (activeGeneration !== undefined && isCurrentRequest(activeGeneration)) {
+                activeGenerationRef.current = null
+                setLoading(false)
+            }
+            return
+        }
+        if (activeGeneration === undefined && (loading || hasActiveRequest())) return
+
+        const generation = activeGeneration ?? beginRequest()
+        if (!isCurrentRequest(generation)) return
 
         const textToUse = sanitizeUserInput(raw)
 
         appendMessage('user', raw)
         if (!textOverride) setInput('')
-        setLoading(true)
-        const gen = ++generationRef.current
 
         try {
             const chatMessages: AIMessage[] = [
@@ -124,7 +183,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 { role: 'user' as const, content: textToUse }
             ]
             const result = await aiAPI.chat(chatMessages)
-            if (generationRef.current !== gen) return  // cancelled
+            if (!isCurrentRequest(generation)) return
             if (result.error) {
                 appendMessage('assistant', `${result.error}`)
                 showToast(result.error.split('\n')[0]!, 'error')
@@ -132,12 +191,15 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 appendMessage('assistant', result.content || '')
             }
         } catch (e: unknown) {
-            if (generationRef.current !== gen) return
+            if (!isCurrentRequest(generation)) return
             const msg = `网络异常: ${e instanceof Error ? e.message : String(e)}`
             appendMessage('assistant', msg)
             showToast('AI 请求失败，请检查网络', 'error')
         } finally {
-            if (generationRef.current === gen) setLoading(false)
+            if (isCurrentRequest(generation)) {
+                activeGenerationRef.current = null
+                setLoading(false)
+            }
         }
     }
 
@@ -150,20 +212,28 @@ export default function AIPanel({ entry }: AIPanelProps) {
     }
 
     const analyzeMistakes = async () => {
+        if (loading || hasActiveRequest()) return
+        const generation = beginRequest()
         try {
             const mistakesResponse = await mistakesAPI.getAll({})
-            sendMessage(buildMistakeAnalysisPrompt(mistakesResponse?.data || []))
+            if (!isCurrentRequest(generation)) return
+            await sendMessage(buildMistakeAnalysisPrompt(mistakesResponse?.data || []), generation)
         } catch {
-            sendMessage(buildMistakeAnalysisPrompt([]))
+            if (!isCurrentRequest(generation)) return
+            await sendMessage(buildMistakeAnalysisPrompt([]), generation)
         }
     }
 
     const quizMe = async () => {
+        if (loading || hasActiveRequest()) return
+        const generation = beginRequest()
         try {
             const mistakesResponse = await mistakesAPI.getAll({ mastered: false })
-            sendMessage(buildQuizMePrompt(mistakesResponse?.data || [], 2))
+            if (!isCurrentRequest(generation)) return
+            await sendMessage(buildQuizMePrompt(mistakesResponse?.data || [], 2), generation)
         } catch {
-            sendMessage(buildQuizMePrompt([], 2))
+            if (!isCurrentRequest(generation)) return
+            await sendMessage(buildQuizMePrompt([], 2), generation)
         }
     }
 

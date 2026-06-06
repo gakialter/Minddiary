@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Editor from '../src/components/Editor'
-import type { AIMessage, DiaryEntry, Tag } from '../src/types'
+import type { AIMessage, AIResponse, DiaryEntry, Tag } from '../src/types'
 
 const tags: Tag[] = [
   { id: 1, name: 'Tag A', color: '#0F766E', icon: '🌿', variant: 'solid', pattern: 'dots' },
@@ -14,6 +14,16 @@ const mocks = vi.hoisted(() => ({
   templatesGetAll: vi.fn(),
   aiChat: vi.fn(),
 }))
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: () => ({
@@ -155,6 +165,87 @@ describe('Editor AI summary request', () => {
     expect(payload[0]?.role).toBe('system')
     expect(payload[1]?.role).toBe('user')
     expect(payload[1]?.content).toContain('Entry body')
+  })
+
+  it('keeps a late older summary from overwriting a newer content summary', async () => {
+    const firstRequest = createDeferred<AIResponse>()
+    const secondRequest = createDeferred<AIResponse>()
+    mocks.aiChat
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise)
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /AI/ }))
+    await waitFor(() => {
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+    })
+
+    const contentInput = screen.getByTestId('diary-content-input')
+    fireEvent.change(contentInput, { target: { value: 'Updated body' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /AI/ })).not.toBeDisabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /AI/ }))
+    await waitFor(() => {
+      expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+    })
+
+    await act(async () => {
+      secondRequest.resolve({ content: 'new summary wins' })
+      await secondRequest.promise
+    })
+    expect(screen.getByText('new summary wins')).toBeInTheDocument()
+
+    await act(async () => {
+      firstRequest.resolve({ content: 'old stale summary' })
+      await firstRequest.promise
+    })
+    expect(screen.queryByText('old stale summary')).not.toBeInTheDocument()
+  })
+
+  it('does not reopen the summary card after it is closed while loading', async () => {
+    const request = createDeferred<AIResponse>()
+    mocks.aiChat.mockReturnValueOnce(request.promise)
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /AI/ }))
+    await waitFor(() => {
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close AI summary' }))
+
+    await act(async () => {
+      request.resolve({ content: 'closed stale summary' })
+      await request.promise
+    })
+
+    expect(screen.queryByText('closed stale summary')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /AI/ })).not.toBeDisabled()
+  })
+
+  it('ignores summary responses that arrive after unmount', async () => {
+    const request = createDeferred<AIResponse>()
+    mocks.aiChat.mockReturnValueOnce(request.promise)
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { unmount } = render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /AI/ }))
+    await waitFor(() => {
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+    })
+
+    unmount()
+
+    await act(async () => {
+      request.resolve({ content: 'late unmounted summary' })
+      await request.promise
+    })
+
+    expect(screen.queryByText('late unmounted summary')).not.toBeInTheDocument()
   })
 })
 
