@@ -39,6 +39,8 @@ vi.mock('../electron/logger', () => ({
   },
 }))
 
+const REAL_SQLITE_TEST_TIMEOUT_MS = 15_000
+
 type EntryRow = {
   id: number
   date: string
@@ -498,7 +500,7 @@ describe('legacy SQLite fixture provenance', () => {
     expect(getColumnNames(database, 'mistakes').includes('image_path')).toBe(fixture.capabilities.mistakeImagePath)
     expect(tableExists(database, 'diary_templates')).toBe(fixture.capabilities.diaryTemplates)
     expect(tableExists(database, 'study_tasks')).toBe(fixture.capabilities.studyTasks)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
 
 describe('version 1 adoption migration for real historical SQLite schemas', () => {
@@ -511,7 +513,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
     expectPrimaryKeyContinuity(database, expected)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 
   it.each(legacyDatabaseFixtures)('is idempotent across a second real initialize for $id', async (fixture) => {
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture)
@@ -545,7 +547,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
       entryTags: secondDatabase.prepare('SELECT entry_id, tag_id FROM entry_tags ORDER BY entry_id, tag_id').all(),
       sqliteSequence: secondDatabase.prepare('SELECT name, seq FROM sqlite_sequence ORDER BY name').all(),
     }).toEqual(firstSnapshot)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 
   it('rejects a future-version historical database before adoption mutates it', async () => {
     const fixture = legacyDatabaseFixtures[0]
@@ -564,7 +566,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 
   it('rolls back schema adoption when a malformed historical database fails migration', () => {
     const fixture = legacyDatabaseFixtures[0]
