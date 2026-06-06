@@ -90,89 +90,35 @@ function getRepositories(): DatabaseRepositories {
 
 // ==================== Entries ====================
 function createEntry({ date, title, content, mood }: NewEntry) {
-    const wordCount = (content || '').replace(/\s/g, '').length;
-    const stmt = db.prepare(
-        'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)'
-    );
-    const result = stmt.run(date, title || '', content || '', mood || null, wordCount);
-    return { id: result.lastInsertRowid, date, title, content, mood, word_count: wordCount };
+    return getRepositories().entries.createEntry({ date, title, content, mood });
 }
 
 function updateEntry(id: number, { title, content, mood }: Partial<NewEntry>) {
-    const wordCount = (content || '').replace(/\s/g, '').length;
-    const stmt = db.prepare(
-        'UPDATE entries SET title=?, content=?, mood=?, word_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
-    );
-    stmt.run(title || '', content || '', mood || null, wordCount, id);
-    return getEntryById(id);
+    return getRepositories().entries.updateEntry(id, { title, content, mood });
 }
 
 function deleteEntry(id: number) {
-    db.prepare('DELETE FROM entries WHERE id=?').run(id);
-    return { success: true };
+    return getRepositories().entries.deleteEntry(id);
 }
 
 function getEntryById(id: number): DiaryEntry | undefined {
-    return db.prepare('SELECT * FROM entries WHERE id=?').get(id) as DiaryEntry | undefined;
+    return getRepositories().entries.getEntryById(id);
 }
 
 function getEntryByDate(date: string): DiaryEntry | undefined {
-    return db.prepare('SELECT * FROM entries WHERE date=?').get(date) as DiaryEntry | undefined;
+    return getRepositories().entries.getEntryByDate(date);
 }
 
 function getAllEntries(filters: EntryFilters = {}): DiaryEntry[] {
-    // Phase 11.2: By default, strip heavy `content` field from list queries.
-    // Pass { includeContent: true } when full text is needed (e.g. export/backup).
-    const columns = filters.includeContent
-        ? '*'
-        : 'id, date, title, mood, word_count, created_at, updated_at';
-    let query = `SELECT ${columns} FROM entries`;
-    const conditions = [];
-    const params = [];
-
-    if (filters.mood) {
-        conditions.push('mood = ?');
-        params.push(filters.mood);
-    }
-    if (filters.startDate) {
-        conditions.push('date >= ?');
-        params.push(filters.startDate);
-    }
-    if (filters.endDate) {
-        conditions.push('date <= ?');
-        params.push(filters.endDate);
-    }
-    if (filters.tagId) {
-        conditions.push('id IN (SELECT entry_id FROM entry_tags WHERE tag_id = ?)');
-        params.push(filters.tagId);
-    }
-
-    if (conditions.length > 0) {
-        query += ' WHERE ' + conditions.join(' AND ');
-    }
-    query += ' ORDER BY date DESC';
-
-    if (filters.limit) {
-        query += ' LIMIT ?';
-        params.push(filters.limit);
-    }
-
-    return db.prepare(query).all(...params) as DiaryEntry[];
+    return getRepositories().entries.getAllEntries(filters);
 }
 
 function searchEntries(query: string) {
-    const searchTerm = `%${query}%`;
-    // Return metadata + a content snippet indicator; full content loaded via getEntryById
-    return db.prepare(
-        'SELECT id, date, title, mood, word_count, created_at, updated_at, SUBSTR(content, 1, 200) AS content_snippet FROM entries WHERE content LIKE ? OR title LIKE ? ORDER BY date DESC'
-    ).all(searchTerm, searchTerm) as DiaryEntry[];
+    return getRepositories().entries.searchEntries(query);
 }
 
 function getDatesWithEntries(yearMonth: string): DateMood[] {
-    const pattern = `${yearMonth}%`;
-    return db.prepare(
-        'SELECT date, mood FROM entries WHERE date LIKE ?'
-    ).all(pattern) as DateMood[];
+    return getRepositories().entries.getDatesWithEntries(yearMonth);
 }
 
 // ==================== Tags ====================
@@ -286,47 +232,23 @@ function getAllSettings() {
 
 // ==================== Attachments ====================
 function addAttachment(entryId: number, { filename, filepath, mimetype }: { filename: string; filepath: string; mimetype: string }) {
-    const stmt = db.prepare(
-        'INSERT INTO attachments (entry_id, filename, filepath, mimetype) VALUES (?, ?, ?, ?)'
-    );
-    const result = stmt.run(entryId, filename, filepath, mimetype);
-    return { id: result.lastInsertRowid, entry_id: entryId, filename, filepath, mimetype };
+    return getRepositories().attachments.addAttachment(entryId, { filename, filepath, mimetype });
 }
 
 function getAttachmentsByEntry(entryId: number) {
-    return db.prepare('SELECT * FROM attachments WHERE entry_id=?').all(entryId);
+    return getRepositories().attachments.getAttachmentsByEntry(entryId);
 }
 
 function getAttachmentsByEntries(entryIds: number[]): Record<number, Attachment[]> {
-    const validEntryIds = normalizeEntryIds(entryIds);
-    if (validEntryIds.length === 0) return {};
-
-    const result: Record<number, Attachment[]> = {};
-    for (const entryId of validEntryIds) {
-        result[entryId] = [];
-    }
-
-    const placeholders = validEntryIds.map(() => '?').join(', ');
-    const rows = db.prepare(
-        `SELECT * FROM attachments WHERE entry_id IN (${placeholders})`
-    ).all(...validEntryIds) as Attachment[];
-
-    for (const attachment of rows) {
-        const attachmentsForEntry = result[attachment.entry_id];
-        if (attachmentsForEntry) {
-            attachmentsForEntry.push(attachment);
-        }
-    }
-    return result;
+    return getRepositories().attachments.getAttachmentsByEntries(entryIds);
 }
 
 function getAttachmentById(id: number) {
-    return db.prepare('SELECT * FROM attachments WHERE id=?').get(id);
+    return getRepositories().attachments.getAttachmentById(id);
 }
 
 function removeAttachment(id: number) {
-    db.prepare('DELETE FROM attachments WHERE id=?').run(id);
-    return { success: true };
+    return getRepositories().attachments.removeAttachment(id);
 }
 
 // ==================== Subjects ====================

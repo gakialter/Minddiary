@@ -12,6 +12,32 @@ describe('database repositories', () => {
   beforeEach(() => {
     database = new BetterSqlite3(':memory:')
     database.exec(`
+      CREATE TABLE entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL UNIQUE,
+        title TEXT,
+        content TEXT,
+        mood TEXT,
+        word_count INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE entry_tags (
+        entry_id INTEGER,
+        tag_id INTEGER,
+        PRIMARY KEY (entry_id, tag_id)
+      );
+
+      CREATE TABLE attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        filepath TEXT NOT NULL,
+        mimetype TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT
@@ -40,6 +66,129 @@ describe('database repositories', () => {
 
   afterEach(() => {
     database.close()
+  })
+
+  it('creates, updates, reads, lists, searches, and deletes entries', () => {
+    const first = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello world',
+      mood: 'happy',
+    })
+    const second = repositories.entries.createEntry({
+      date: '2026-06-07',
+      title: 'Second',
+      content: 'quiet focus',
+      mood: 'calm',
+    })
+    database.prepare('INSERT INTO entry_tags (entry_id, tag_id) VALUES (?, ?)').run(first.id, 7)
+
+    expect(first).toEqual({
+      id: 1,
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello world',
+      mood: 'happy',
+      word_count: 10,
+    })
+    expect(repositories.entries.getEntryById(Number(first.id))).toEqual(expect.objectContaining({
+      id: 1,
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello world',
+      mood: 'happy',
+      word_count: 10,
+    }))
+    expect(repositories.entries.getEntryByDate('2026-06-07')).toEqual(expect.objectContaining({
+      id: second.id,
+      title: 'Second',
+    }))
+
+    const defaultList = repositories.entries.getAllEntries()
+    expect(defaultList.map(entry => entry.date)).toEqual(['2026-06-07', '2026-06-06'])
+    expect(defaultList[0]).not.toHaveProperty('content')
+
+    expect(repositories.entries.getAllEntries({
+      mood: 'happy',
+      startDate: '2026-06-01',
+      endDate: '2026-06-30',
+      tagId: 7,
+      limit: 1,
+    })).toEqual([expect.objectContaining({ id: first.id, title: 'First' })])
+    expect(repositories.entries.getAllEntries({ includeContent: true, limit: 1 })[0]).toHaveProperty('content')
+    expect(repositories.entries.searchEntries('focus')).toEqual([expect.objectContaining({
+      id: second.id,
+      content_snippet: 'quiet focus',
+    })])
+    expect(repositories.entries.getDatesWithEntries('2026-06')).toEqual([
+      { date: '2026-06-06', mood: 'happy' },
+      { date: '2026-06-07', mood: 'calm' },
+    ])
+
+    expect(repositories.entries.updateEntry(Number(first.id), {
+      title: 'Updated',
+      content: 'two words',
+      mood: null,
+    })).toEqual(expect.objectContaining({
+      id: first.id,
+      title: 'Updated',
+      content: 'two words',
+      mood: null,
+      word_count: 8,
+    }))
+    expect(repositories.entries.deleteEntry(Number(second.id))).toEqual({ success: true })
+    expect(repositories.entries.getEntryById(Number(second.id))).toBeUndefined()
+  })
+
+  it('creates, reads, batches, and removes attachments', () => {
+    const firstEntry = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello',
+      mood: 'happy',
+    })
+    const secondEntry = repositories.entries.createEntry({
+      date: '2026-06-07',
+      title: 'Second',
+      content: 'world',
+      mood: 'calm',
+    })
+
+    const firstAttachment = repositories.attachments.addAttachment(Number(firstEntry.id), {
+      filename: 'first.png',
+      filepath: 'attachments/first.png',
+      mimetype: 'image/png',
+    })
+    const secondAttachment = repositories.attachments.addAttachment(Number(secondEntry.id), {
+      filename: 'second.jpg',
+      filepath: 'attachments/second.jpg',
+      mimetype: 'image/jpeg',
+    })
+
+    expect(firstAttachment).toEqual({
+      id: 1,
+      entry_id: firstEntry.id,
+      filename: 'first.png',
+      filepath: 'attachments/first.png',
+      mimetype: 'image/png',
+    })
+    expect(repositories.attachments.getAttachmentsByEntry(Number(firstEntry.id))).toEqual([
+      expect.objectContaining(firstAttachment),
+    ])
+    expect(repositories.attachments.getAttachmentById(Number(secondAttachment.id))).toEqual(expect.objectContaining(secondAttachment))
+    expect(repositories.attachments.getAttachmentsByEntries([
+      Number(firstEntry.id),
+      Number(firstEntry.id),
+      0,
+      Number(secondEntry.id),
+      Number.NaN,
+    ])).toEqual({
+      [Number(firstEntry.id)]: [expect.objectContaining(firstAttachment)],
+      [Number(secondEntry.id)]: [expect.objectContaining(secondAttachment)],
+    })
+
+    expect(repositories.attachments.removeAttachment(Number(firstAttachment.id))).toEqual({ success: true })
+    expect(repositories.attachments.getAttachmentById(Number(firstAttachment.id))).toBeUndefined()
   })
 
   it('reads, upserts, and lists raw settings values', () => {
