@@ -73,6 +73,36 @@ describe('database repositories', () => {
       CREATE INDEX idx_pomodoro_completed ON pomodoro_sessions(completed_at);
       CREATE INDEX idx_pomodoro_date_key ON pomodoro_sessions(date_key);
 
+      CREATE TABLE mistakes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER REFERENCES subjects(id),
+        question TEXT NOT NULL,
+        answer TEXT,
+        category TEXT DEFAULT '',
+        mastered INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE study_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        type TEXT NOT NULL DEFAULT 'custom',
+        subject_id INTEGER REFERENCES subjects(id) ON DELETE SET NULL,
+        related_mistake_id INTEGER REFERENCES mistakes(id) ON DELETE SET NULL,
+        related_entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+        planned_date TEXT NOT NULL,
+        estimate_minutes INTEGER DEFAULT 25,
+        status TEXT NOT NULL DEFAULT 'todo',
+        source TEXT NOT NULL DEFAULT 'manual',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX idx_study_tasks_planned_date ON study_tasks(planned_date);
+      CREATE INDEX idx_study_tasks_status ON study_tasks(status);
+      CREATE INDEX idx_study_tasks_subject_id ON study_tasks(subject_id);
+
       CREATE TABLE diary_templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -558,6 +588,172 @@ describe('database repositories', () => {
       { date: '2026-06-03', total_minutes: 45, session_count: 1 },
     ])
     expect(repositories.pomodoro.getPomodoroRange('2026-06-06', '2026-06-07')).toEqual([])
+  })
+
+  it('creates study tasks with defaults and complete stored rows', () => {
+    const subject = repositories.subjects.createSubject({ name: 'Math' })
+    const entry = database.prepare(
+      'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)'
+    ).run('2026-06-10', 'Entry', 'content', null, 1)
+    const mistake = database.prepare(
+      'INSERT INTO mistakes (subject_id, question, answer) VALUES (?, ?, ?)'
+    ).run(Number(subject.id), 'Question', 'Answer')
+
+    const created = repositories.studyTasks.createStudyTask({
+      title: '  Review wrong answers  ',
+      description: '  keep edge spaces  ',
+      type: '' as never,
+      subject_id: String(subject.id) as never,
+      related_mistake_id: true as never,
+      related_entry_id: String(entry.lastInsertRowid) as never,
+      planned_date: '2026-99-99',
+      estimate_minutes: '' as never,
+      status: '' as never,
+      source: '' as never,
+    })
+
+    expect(created).toEqual(expect.objectContaining({
+      id: 1,
+      title: 'Review wrong answers',
+      description: '  keep edge spaces  ',
+      type: 'custom',
+      subject_id: Number(subject.id),
+      related_mistake_id: Number(mistake.lastInsertRowid),
+      related_entry_id: Number(entry.lastInsertRowid),
+      planned_date: '2026-99-99',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'manual',
+    }))
+    expect(created.created_at).toEqual(expect.any(String))
+    expect(created.updated_at).toEqual(expect.any(String))
+  })
+
+  it('validates study task title, date, enums, related ids, estimate, and task ids', () => {
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 42 as never,
+      planned_date: '2026-06-10',
+    })).toThrow('Task title is required')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid date',
+      planned_date: '06/10/2026',
+    })).toThrow('planned_date must be YYYY-MM-DD')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid type',
+      planned_date: '2026-06-10',
+      type: ' REVIEW ' as never,
+    })).toThrow('Invalid task type')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid status',
+      planned_date: '2026-06-10',
+      status: 'archived' as never,
+    })).toThrow('Invalid task status')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid source',
+      planned_date: '2026-06-10',
+      source: 'timer' as never,
+    })).toThrow('Invalid task source')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid relation',
+      planned_date: '2026-06-10',
+      subject_id: false as never,
+    })).toThrow('Task related ids must be positive integers')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Invalid estimate',
+      planned_date: '2026-06-10',
+      estimate_minutes: 2.5 as never,
+    })).toThrow('estimate_minutes must be a positive integer')
+    expect(() => repositories.studyTasks.updateStudyTask('1' as never, { title: 'bad id' })).toThrow('Task id must be a positive integer')
+  })
+
+  it('preserves study task foreign key failures from SQLite', () => {
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Missing subject',
+      planned_date: '2026-06-10',
+      subject_id: 999,
+    })).toThrow(/FOREIGN KEY constraint failed/)
+  })
+
+  it('orders study tasks by status priority, creation time, and id', () => {
+    const insertTask = database.prepare(`
+      INSERT INTO study_tasks (title, type, planned_date, estimate_minutes, status, source, created_at, updated_at)
+      VALUES (?, 'custom', ?, 25, ?, ?, ?, ?)
+    `)
+    insertTask.run('done', '2026-06-10', 'done', 'manual', '2026-06-10 08:00:00', '2026-06-10 08:00:00')
+    insertTask.run('todo later', '2026-06-10', 'todo', 'manual', '2026-06-10 09:00:00', '2026-06-10 09:00:00')
+    insertTask.run('unknown', '2026-06-10', 'blocked', 'manual', '2026-06-10 07:00:00', '2026-06-10 07:00:00')
+    insertTask.run('skipped', '2026-06-10', 'skipped', 'manual', '2026-06-10 07:00:00', '2026-06-10 07:00:00')
+    insertTask.run('doing', '2026-06-10', 'doing', 'manual', '2026-06-10 10:00:00', '2026-06-10 10:00:00')
+    insertTask.run('todo earlier', '2026-06-10', 'todo', 'manual', '2026-06-10 08:00:00', '2026-06-10 08:00:00')
+    insertTask.run('other date', '2026-06-11', 'doing', 'manual', '2026-06-11 08:00:00', '2026-06-11 08:00:00')
+
+    expect(repositories.studyTasks.getStudyTasksByDate('2026-06-10').map(task => task.title)).toEqual([
+      'doing',
+      'todo earlier',
+      'todo later',
+      'skipped',
+      'done',
+      'unknown',
+    ])
+  })
+
+  it('updates study tasks with stable field order and preserves empty patch behavior', () => {
+    const subject = repositories.subjects.createSubject({ name: 'Math' })
+    const entry = database.prepare(
+      'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)'
+    ).run('2026-06-10', 'Entry', 'content', null, 1)
+    const mistake = database.prepare(
+      'INSERT INTO mistakes (subject_id, question, answer) VALUES (?, ?, ?)'
+    ).run(Number(subject.id), 'Question', 'Answer')
+    const created = repositories.studyTasks.createStudyTask({
+      title: 'Original',
+      planned_date: '2026-06-10',
+    })
+
+    const emptyPatchResult = repositories.studyTasks.updateStudyTask(created.id, {})
+    expect(emptyPatchResult).toEqual(created)
+
+    const updated = repositories.studyTasks.updateStudyTask(created.id, {
+      title: '  Updated  ',
+      description: null as never,
+      type: 'review',
+      subject_id: String(subject.id) as never,
+      related_mistake_id: String(mistake.lastInsertRowid) as never,
+      related_entry_id: String(entry.lastInsertRowid) as never,
+      planned_date: '2026-06-11',
+      estimate_minutes: '30' as never,
+      status: 'doing',
+      source: 'dashboard',
+    })
+
+    expect(updated).toEqual(expect.objectContaining({
+      id: created.id,
+      title: 'Updated',
+      description: '',
+      type: 'review',
+      subject_id: Number(subject.id),
+      related_mistake_id: Number(mistake.lastInsertRowid),
+      related_entry_id: Number(entry.lastInsertRowid),
+      planned_date: '2026-06-11',
+      estimate_minutes: 30,
+      status: 'doing',
+      source: 'dashboard',
+    }))
+  })
+
+  it('returns delete booleans and complete/skip delegated updates', () => {
+    const created = repositories.studyTasks.createStudyTask({
+      title: 'Task',
+      planned_date: '2026-06-10',
+      estimate_minutes: true as never,
+    })
+    expect(created.estimate_minutes).toBe(1)
+
+    expect(repositories.studyTasks.completeStudyTask(created.id)).toEqual(expect.objectContaining({ status: 'done' }))
+    expect(repositories.studyTasks.skipStudyTask(created.id)).toEqual(expect.objectContaining({ status: 'skipped' }))
+    expect(repositories.studyTasks.deleteStudyTask(999)).toBe(false)
+    expect(repositories.studyTasks.deleteStudyTask(created.id)).toBe(true)
+    expect(() => repositories.studyTasks.updateStudyTask(created.id, { title: 'Missing' })).toThrow('Task not found')
   })
 
   it('creates, updates, orders, and protects diary templates', () => {

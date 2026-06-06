@@ -1210,6 +1210,16 @@ describe('database study task APIs', () => {
   it('creates and lists study tasks by planned date', async () => {
     const database = await loadDatabase()
 
+    expect(database.getStudyTasksByDate).toBeTypeOf('function')
+    expect(database.createStudyTask).toBeTypeOf('function')
+    expect(database.updateStudyTask).toBeTypeOf('function')
+    expect(database.deleteStudyTask).toBeTypeOf('function')
+    expect(database.completeStudyTask).toBeTypeOf('function')
+    expect(database.skipStudyTask).toBeTypeOf('function')
+    expect(Object.prototype.hasOwnProperty.call(database, 'getStudyTaskById')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(database, 'requireStudyTask')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(database, 'normalizeStudyTaskTitle')).toBe(false)
+
     const created = database.createStudyTask({
       title: 'Review wrong answers',
       description: '10 high-risk questions',
@@ -1219,6 +1229,32 @@ describe('database study task APIs', () => {
       estimate_minutes: 30,
       source: 'dashboard',
     })
+
+    const insertCall = state.preparedCalls.find(call => call.sql.includes('INSERT INTO study_tasks'))
+    expect(insertCall?.sql).toContain(`INSERT INTO study_tasks (
+          title,
+          description,
+          type,
+          subject_id,
+          related_mistake_id,
+          related_entry_id,
+          planned_date,
+          estimate_minutes,
+          status,
+          source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    expect(insertCall?.params).toEqual([
+      'Review wrong answers',
+      '10 high-risk questions',
+      'review',
+      2,
+      null,
+      null,
+      '2026-05-31',
+      30,
+      'todo',
+      'dashboard',
+    ])
 
     expect(created).toEqual(expect.objectContaining({
       id: 1,
@@ -1235,6 +1271,12 @@ describe('database study task APIs', () => {
     expect(database.getStudyTasksByDate('2026-05-31')).toEqual([created])
     const listCall = lastPreparedCall()
     expect(listCall.sql).toContain('WHERE t.planned_date = ?')
+    expect(listCall.sql).toContain("WHEN 'doing' THEN 0")
+    expect(listCall.sql).toContain("WHEN 'todo' THEN 1")
+    expect(listCall.sql).toContain("WHEN 'skipped' THEN 2")
+    expect(listCall.sql).toContain("WHEN 'done' THEN 3")
+    expect(listCall.sql).toContain('t.created_at ASC')
+    expect(listCall.sql).toContain('t.id ASC')
     expect(listCall.params).toEqual(['2026-05-31'])
   })
 
@@ -1247,19 +1289,58 @@ describe('database study task APIs', () => {
 
     const updated = database.updateStudyTask(created.id, {
       title: 'Write daily reflection',
+      description: null as never,
+      type: 'diary',
+      subject_id: 3,
+      related_mistake_id: 4,
+      related_entry_id: 5,
+      planned_date: '2026-06-01',
       status: 'doing',
       estimate_minutes: 15,
+      source: 'ai',
     })
     expect(updated).toEqual(expect.objectContaining({
       id: created.id,
       title: 'Write daily reflection',
+      description: '',
+      type: 'diary',
+      subject_id: 3,
+      related_mistake_id: 4,
+      related_entry_id: 5,
+      planned_date: '2026-06-01',
       status: 'doing',
       estimate_minutes: 15,
+      source: 'ai',
     }))
+    const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE study_tasks SET title = ?'))
+    expect(updateCall?.sql).toContain('UPDATE study_tasks SET title = ?, description = ?, type = ?, subject_id = ?, related_mistake_id = ?, related_entry_id = ?, planned_date = ?, estimate_minutes = ?, status = ?, source = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    expect(updateCall?.params).toEqual([
+      'Write daily reflection',
+      '',
+      'diary',
+      3,
+      4,
+      5,
+      '2026-06-01',
+      15,
+      'doing',
+      'ai',
+      created.id,
+    ])
+
+    state.preparedCalls = []
+    expect(database.updateStudyTask(created.id, {})).toEqual(expect.objectContaining({ id: created.id, title: 'Write daily reflection' }))
+    expect(state.preparedCalls.some(call => call.sql.includes('UPDATE study_tasks SET'))).toBe(false)
 
     await expect(database.completeStudyTask(created.id)).toEqual(expect.objectContaining({ status: 'done' }))
+    const completeCall = state.preparedCalls.find(call => call.sql.includes('UPDATE study_tasks SET status = ?') && call.params[0] === 'done')
+    expect(completeCall?.params).toEqual(['done', created.id])
     await expect(database.skipStudyTask(created.id)).toEqual(expect.objectContaining({ status: 'skipped' }))
+    const skipCall = state.preparedCalls.find(call => call.sql.includes('UPDATE study_tasks SET status = ?') && call.params[0] === 'skipped')
+    expect(skipCall?.params).toEqual(['skipped', created.id])
     expect(database.deleteStudyTask(created.id)).toBe(true)
+    const deleteCall = state.preparedCalls.find(call => call.sql === 'DELETE FROM study_tasks WHERE id = ?')
+    expect(deleteCall?.params).toEqual([created.id])
     expect(database.getStudyTasksByDate('2026-05-31')).toEqual([])
   })
 
