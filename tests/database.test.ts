@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { safeStorage } from 'electron'
 import { logger } from '../electron/logger'
-import type { Attachment, DiaryTemplate, Mistake, PomodoroStat, Subject, Tag } from '../src/types'
+import type { Attachment, DateMood, DiaryEntry, DiaryTemplate, EntryFilters, Mistake, PomodoroStat, Subject, Tag } from '../src/types'
 
 type PreparedCall = {
   sql: string
@@ -11,6 +11,7 @@ type PreparedCall = {
 }
 
 type BatchTagRow = Tag & { entry_id: number }
+type EntryRow = DiaryEntry & { content_snippet?: string }
 type MistakeImageRow = { id: number; image_path: string | null }
 type StudyTaskRow = {
   id: number
@@ -30,11 +31,18 @@ type StudyTaskRow = {
 
 type DatabaseModule = {
   initialize: () => void
+  createEntry: (entry: Pick<DiaryEntry, 'date' | 'title' | 'content' | 'mood'>) => Partial<DiaryEntry>
+  updateEntry: (id: number, entry: Partial<Pick<DiaryEntry, 'title' | 'content' | 'mood'>>) => DiaryEntry | undefined
+  deleteEntry: (id: number) => { success: boolean }
+  getEntryById: (id: number) => DiaryEntry | undefined
+  getEntryByDate: (date: string) => DiaryEntry | undefined
+  getAllEntries: (filters?: EntryFilters) => DiaryEntry[]
+  searchEntries: (query: string) => DiaryEntry[]
+  getDatesWithEntries: (yearMonth: string) => DateMood[]
   getAllTags: () => Tag[]
   createTag: (tag: Partial<Tag>) => Tag
   updateTag: (id: number, tag: Partial<Tag>) => Tag
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
-  getAttachmentsByEntries: (entryIds: number[]) => Record<number, Attachment[]>
   getAllMistakes: (filters?: { due?: boolean; dueDate?: string }) => { data: Mistake[], total: number, masteredTotal: number }
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
   getStudyTasksByDate: (date: string) => StudyTaskRow[]
@@ -50,7 +58,12 @@ type DatabaseModule = {
   getSetting: (key: string) => unknown | null
   setSetting: (key: string, value: unknown) => { success: boolean }
   getAllSettings: () => Record<string, unknown>
+  addAttachment: (entryId: number, attachment: Pick<Attachment, 'filename' | 'filepath' | 'mimetype'>) => Partial<Attachment>
+  getAttachmentsByEntry: (entryId: number) => Attachment[]
   getAllSubjects: () => Subject[]
+  getAttachmentById: (id: number) => Attachment | undefined
+  removeAttachment: (id: number) => { success: boolean }
+  getAttachmentsByEntries: (entryIds: number[]) => Record<number, Attachment[]>
   createSubject: (subject: Partial<Subject>) => Subject
   updateSubject: (id: number, subject: Partial<Subject>) => Subject
   deleteSubject: (id: number) => { success: boolean }
@@ -64,6 +77,7 @@ const state = vi.hoisted(() => ({
   preparedCalls: [] as PreparedCall[],
   execCalls: [] as string[],
   tagRows: [] as BatchTagRow[],
+  entryRows: [] as EntryRow[],
   attachmentRows: [] as Attachment[],
   tagById: null as Tag | null,
   allTags: [] as Tag[],
@@ -134,6 +148,57 @@ vi.mock('better-sqlite3', () => {
           state.preparedCalls.push({ sql, params })
           if (sql.startsWith('INSERT OR REPLACE INTO settings')) {
             state.settings[String(params[0])] = params[1]
+          }
+          if (sql.includes('INSERT INTO entries')) {
+            const now = '2026-06-06 08:00:00'
+            const row: EntryRow = {
+              id: state.entryRows.length + 1,
+              date: String(params[0]),
+              title: String(params[1] ?? ''),
+              content: String(params[2] ?? ''),
+              mood: params[3] == null ? null : params[3] as DiaryEntry['mood'],
+              word_count: Number(params[4] ?? 0),
+              created_at: now,
+              updated_at: now,
+            }
+            state.entryRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('UPDATE entries SET')) {
+            const id = Number(params[4])
+            const row = state.entryRows.find(item => item.id === id)
+            if (row) {
+              row.title = String(params[0] ?? '')
+              row.content = String(params[1] ?? '')
+              row.mood = params[2] == null ? null : params[2] as DiaryEntry['mood']
+              row.word_count = Number(params[3] ?? 0)
+              row.updated_at = '2026-06-06 09:00:00'
+            }
+            return { lastInsertRowid: 0, changes: row ? 1 : 0 }
+          }
+          if (sql.includes('DELETE FROM entries WHERE id=?')) {
+            const id = Number(params[0])
+            const before = state.entryRows.length
+            state.entryRows = state.entryRows.filter(item => item.id !== id)
+            return { lastInsertRowid: 0, changes: before === state.entryRows.length ? 0 : 1 }
+          }
+          if (sql.includes('INSERT INTO attachments')) {
+            const row: Attachment = {
+              id: state.attachmentRows.length + 1,
+              entry_id: Number(params[0]),
+              filename: String(params[1]),
+              filepath: String(params[2]),
+              mimetype: String(params[3]),
+              created_at: '2026-06-06 08:00:00',
+            }
+            state.attachmentRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('DELETE FROM attachments WHERE id=?')) {
+            const id = Number(params[0])
+            const before = state.attachmentRows.length
+            state.attachmentRows = state.attachmentRows.filter(item => item.id !== id)
+            return { lastInsertRowid: 0, changes: before === state.attachmentRows.length ? 0 : 1 }
           }
           if (sql.includes('INSERT INTO subjects')) {
             const row: Subject = {
@@ -287,6 +352,18 @@ vi.mock('better-sqlite3', () => {
               ? { value: state.settings[key] }
               : undefined
           }
+          if (sql.includes('SELECT * FROM entries WHERE id=?')) {
+            const id = Number(params[0])
+            return state.entryRows.find(item => item.id === id)
+          }
+          if (sql.includes('SELECT * FROM entries WHERE date=?')) {
+            const date = String(params[0])
+            return state.entryRows.find(item => item.date === date)
+          }
+          if (sql.includes('SELECT * FROM attachments WHERE id=?')) {
+            const id = Number(params[0])
+            return state.attachmentRows.find(item => item.id === id)
+          }
           if (sql.includes('SELECT is_default FROM diary_templates WHERE id=?')) {
             const id = Number(params[0])
             const row = state.templateRows.find(item => item.id === id)
@@ -328,11 +405,59 @@ vi.mock('better-sqlite3', () => {
           if (sql.includes('SELECT * FROM settings')) {
             return Object.entries(state.settings).map(([key, value]) => ({ key, value }))
           }
+          if (sql.includes('SUBSTR(content, 1, 200) AS content_snippet FROM entries')) {
+            const rawTerm = String(params[0] ?? '').replace(/^%|%$/g, '')
+            return state.entryRows
+              .filter(row => row.content.includes(rawTerm) || row.title.includes(rawTerm))
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map(({ content, ...row }) => ({ ...row, content_snippet: content.slice(0, 200) }))
+          }
+          if (sql.includes('SELECT date, mood FROM entries WHERE date LIKE ?')) {
+            const rawPattern = String(params[0] ?? '').replace(/%$/g, '')
+            return state.entryRows
+              .filter(row => row.date.startsWith(rawPattern))
+              .map(({ date, mood }) => ({ date, mood }))
+          }
+          if (sql.includes('FROM entries')) {
+            let rows = [...state.entryRows]
+            const includeContent = sql.startsWith('SELECT * FROM entries')
+            const hasMood = sql.includes('mood = ?')
+            const hasStartDate = sql.includes('date >= ?')
+            const hasEndDate = sql.includes('date <= ?')
+            const hasLimit = sql.includes('LIMIT ?')
+            let paramIndex = 0
+            if (hasMood) {
+              const mood = params[paramIndex++]
+              rows = rows.filter(row => row.mood === mood)
+            }
+            if (hasStartDate) {
+              const startDate = String(params[paramIndex++])
+              rows = rows.filter(row => row.date >= startDate)
+            }
+            if (hasEndDate) {
+              const endDate = String(params[paramIndex++])
+              rows = rows.filter(row => row.date <= endDate)
+            }
+            if (sql.includes('entry_tags')) {
+              paramIndex += 1
+            }
+            rows = rows.sort((a, b) => b.date.localeCompare(a.date))
+            if (hasLimit) {
+              rows = rows.slice(0, Number(params[paramIndex]))
+            }
+            return includeContent
+              ? rows
+              : rows.map(({ content, ...row }) => row)
+          }
           if (sql.includes('SELECT * FROM subjects ORDER BY name')) {
             return [...state.subjectRows].sort((a, b) => a.name.localeCompare(b.name))
           }
           if (sql.includes('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC')) {
             return [...state.templateRows].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+          }
+          if (sql.includes('SELECT * FROM attachments WHERE entry_id=?')) {
+            const entryId = Number(params[0])
+            return state.attachmentRows.filter(row => row.entry_id === entryId)
           }
           if (sql.includes('FROM attachments')) {
             return state.attachmentRows
@@ -362,6 +487,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.preparedCalls = []
   state.execCalls = []
   state.tagRows = []
+  state.entryRows = []
   state.attachmentRows = []
   state.tagById = null
   state.allTags = []
@@ -571,6 +697,97 @@ describe('database batch entry metadata APIs', () => {
 describe('database repository facade APIs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('preserves entry CRUD, list, search, and date behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    expect(database.createEntry({
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello world',
+      mood: 'happy',
+    })).toEqual({
+      id: 1,
+      date: '2026-06-06',
+      title: 'First',
+      content: 'hello world',
+      mood: 'happy',
+      word_count: 10,
+    })
+    database.createEntry({
+      date: '2026-06-07',
+      title: 'Second',
+      content: 'quiet focus',
+      mood: 'calm',
+    })
+
+    expect(database.getEntryById(1)).toEqual(expect.objectContaining({ id: 1, title: 'First' }))
+    expect(database.getEntryByDate('2026-06-07')).toEqual(expect.objectContaining({ id: 2, title: 'Second' }))
+    expect(database.getAllEntries({
+      mood: 'happy',
+      startDate: '2026-06-01',
+      endDate: '2026-06-30',
+      tagId: 7,
+      limit: 1,
+    })).toEqual([expect.objectContaining({ id: 1, title: 'First' })])
+    expect(database.searchEntries('focus')).toEqual([expect.objectContaining({ id: 2, content_snippet: 'quiet focus' })])
+    expect(database.getDatesWithEntries('2026-06')).toEqual([
+      { date: '2026-06-06', mood: 'happy' },
+      { date: '2026-06-07', mood: 'calm' },
+    ])
+    expect(database.updateEntry(1, {
+      title: 'Updated',
+      content: 'two words',
+      mood: null,
+    })).toEqual(expect.objectContaining({
+      id: 1,
+      title: 'Updated',
+      content: 'two words',
+      mood: null,
+      word_count: 8,
+    }))
+    expect(database.deleteEntry(2)).toEqual({ success: true })
+
+    expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'UPDATE entries SET title=?, content=?, mood=?, word_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')).toBe(true)
+    const listCall = state.preparedCalls.find(call => call.sql.includes('id IN (SELECT entry_id FROM entry_tags WHERE tag_id = ?)'))
+    expect(listCall?.params).toEqual(['happy', '2026-06-01', '2026-06-30', 7, 1])
+  })
+
+  it('preserves attachment CRUD and batch behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    const first = database.addAttachment(2, {
+      filename: 'first.png',
+      filepath: 'attachments/first.png',
+      mimetype: 'image/png',
+    })
+    const second = database.addAttachment(4, {
+      filename: 'second.jpg',
+      filepath: 'attachments/second.jpg',
+      mimetype: 'image/jpeg',
+    })
+
+    expect(first).toEqual({
+      id: 1,
+      entry_id: 2,
+      filename: 'first.png',
+      filepath: 'attachments/first.png',
+      mimetype: 'image/png',
+    })
+    expect(database.getAttachmentsByEntry(2)).toEqual([expect.objectContaining(first)])
+    expect(database.getAttachmentById(2)).toEqual(expect.objectContaining(second))
+    expect(database.getAttachmentsByEntries([2, 2, 0, -1, 3.5, Number.NaN, 4])).toEqual({
+      2: [expect.objectContaining(first)],
+      4: [expect.objectContaining(second)],
+    })
+    expect(database.removeAttachment(1)).toEqual({ success: true })
+    expect(database.getAttachmentById(1)).toBeUndefined()
+
+    expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO attachments (entry_id, filename, filepath, mimetype) VALUES (?, ?, ?, ?)')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT * FROM attachments WHERE entry_id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'DELETE FROM attachments WHERE id=?')).toBe(true)
   })
 
   it('preserves raw settings get, set, and getAll behavior through database.ts', async () => {
