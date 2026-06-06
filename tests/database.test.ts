@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { safeStorage } from 'electron'
 import { logger } from '../electron/logger'
-import type { Attachment, DateMood, DiaryEntry, DiaryTemplate, EntryFilters, Mistake, PomodoroStat, Subject, Tag } from '../src/types'
+import type { Attachment, DateMood, DiaryEntry, DiaryTemplate, EntryFilters, Mistake, PomodoroRangeEntry, PomodoroSession, PomodoroStat, Subject, Tag } from '../src/types'
 
 type PreparedCall = {
   sql: string
@@ -13,6 +13,14 @@ type PreparedCall = {
 type BatchTagRow = Tag & { entry_id: number }
 type EntryTagRow = { entry_id: number; tag_id: number }
 type EntryRow = DiaryEntry & { content_snippet?: string }
+type PomodoroSessionRow = {
+  id: number
+  subject_id: number | null
+  duration: number
+  date_key: string | null
+  started_at: string | null
+  completed_at: string | null
+}
 type MistakeImageRow = { id: number; image_path: string | null }
 type StudyTaskRow = {
   id: number
@@ -48,7 +56,11 @@ type DatabaseModule = {
   getEntryTags: (entryId: number) => Tag[]
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAllMistakes: (filters?: { due?: boolean; dueDate?: string }) => { data: Mistake[], total: number, masteredTotal: number }
+  addPomodoroSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => { id: unknown; date_key: string; started_at: string | null; completed_at: string }
+  getPomodoroStats: (date: string) => PomodoroStat[]
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
+  getDailyStudyMinutes: (date: string) => number
+  getPomodoroRange: (startDate: string, endDate: string) => PomodoroRangeEntry[]
   getStudyTasksByDate: (date: string) => StudyTaskRow[]
   createStudyTask: (task: Partial<StudyTaskRow>) => StudyTaskRow
   updateStudyTask: (id: number, patch: Partial<StudyTaskRow>) => StudyTaskRow
@@ -89,6 +101,7 @@ const state = vi.hoisted(() => ({
   runChanges: 1,
   settings: {} as Record<string, unknown>,
   mistakeRows: [] as MistakeImageRow[],
+  pomodoroSessionRows: [] as PomodoroSessionRow[],
   pomodoroStatsRows: [] as PomodoroStat[],
   taskRows: [] as StudyTaskRow[],
   subjectRows: [] as Subject[],
@@ -315,6 +328,18 @@ vi.mock('better-sqlite3', () => {
             state.templateRows = state.templateRows.filter(item => item.id !== id)
             return { lastInsertRowid: 0, changes: before === state.templateRows.length ? 0 : 1 }
           }
+          if (sql.includes('INSERT INTO pomodoro_sessions')) {
+            const row: PomodoroSessionRow = {
+              id: state.pomodoroSessionRows.length + 1,
+              subject_id: params[0] == null ? null : Number(params[0]),
+              duration: Number(params[1]),
+              date_key: params[2] == null ? null : String(params[2]),
+              started_at: params[3] == null ? null : String(params[3]),
+              completed_at: params[4] == null ? null : String(params[4]),
+            }
+            state.pomodoroSessionRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
           if (sql.includes('UPDATE mistakes SET')) {
             const id = Number(params[params.length - 1])
             const row = state.mistakeRows.find(item => item.id === id)
@@ -397,6 +422,14 @@ vi.mock('better-sqlite3', () => {
             return Object.prototype.hasOwnProperty.call(state.settings, key)
               ? { value: state.settings[key] }
               : undefined
+          }
+          if (sql.includes('SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE date_key = ?')) {
+            const date = String(params[0])
+            return {
+              total: state.pomodoroSessionRows
+                .filter(row => row.date_key === date)
+                .reduce((sum, row) => sum + row.duration, 0),
+            }
           }
           if (sql.includes('SELECT * FROM entries WHERE id=?')) {
             const id = Number(params[0])
@@ -527,7 +560,45 @@ vi.mock('better-sqlite3', () => {
             return state.attachmentRows
           }
           if (sql.includes('FROM pomodoro_sessions p') && sql.includes('GROUP BY p.subject_id')) {
-            return state.pomodoroStatsRows
+            if (state.pomodoroStatsRows.length > 0) return state.pomodoroStatsRows
+
+            const rows = sql.includes('WHERE p.date_key BETWEEN ? AND ?')
+              ? state.pomodoroSessionRows.filter(row => row.date_key != null && row.date_key >= String(params[0]) && row.date_key <= String(params[1]))
+              : state.pomodoroSessionRows.filter(row => row.date_key === String(params[0]))
+            const grouped = new Map<string, PomodoroStat>()
+            for (const row of rows) {
+              const key = row.subject_id == null ? 'null' : String(row.subject_id)
+              const subject = state.subjectRows.find(item => item.id === row.subject_id)
+              const current = grouped.get(key) ?? {
+                subject_name: subject?.name ?? null,
+                color: subject?.color ?? null,
+                total_minutes: 0,
+                session_count: 0,
+              } as unknown as PomodoroStat
+              current.total_minutes += row.duration
+              current.session_count += 1
+              grouped.set(key, current)
+            }
+            const result = Array.from(grouped.values())
+            return sql.includes('ORDER BY total_minutes DESC')
+              ? result.sort((a, b) => b.total_minutes - a.total_minutes)
+              : result
+          }
+          if (sql.includes('FROM pomodoro_sessions') && sql.includes('GROUP BY date_key')) {
+            const rows = state.pomodoroSessionRows.filter(row =>
+              row.date_key != null &&
+              row.date_key >= String(params[0]) &&
+              row.date_key <= String(params[1])
+            )
+            const grouped = new Map<string, PomodoroRangeEntry>()
+            for (const row of rows) {
+              const date = row.date_key!
+              const current = grouped.get(date) ?? { date, total_minutes: 0, session_count: 0 }
+              current.total_minutes += row.duration
+              current.session_count += 1
+              grouped.set(date, current)
+            }
+            return Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date))
           }
           if (sql.includes('FROM study_tasks t') && sql.includes('WHERE t.planned_date = ?')) {
             const date = String(params[0])
@@ -559,6 +630,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.runChanges = 1
   state.settings = {}
   state.mistakeRows = []
+  state.pomodoroSessionRows = []
   state.pomodoroStatsRows = []
   state.taskRows = []
   state.subjectRows = []
@@ -1028,9 +1100,75 @@ describe('database repository facade APIs', () => {
   })
 })
 
-describe('database pomodoro range subject stats', () => {
+describe('database pomodoro facade APIs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('preserves pomodoro exports, insert SQL, and daily/range query behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    expect(database.addPomodoroSession).toBeTypeOf('function')
+    expect(database.getPomodoroStats).toBeTypeOf('function')
+    expect(database.getPomodoroStatsRange).toBeTypeOf('function')
+    expect(database.getDailyStudyMinutes).toBeTypeOf('function')
+    expect(database.getPomodoroRange).toBeTypeOf('function')
+    expect(Object.prototype.hasOwnProperty.call(database, 'normalizeOptionalDateTime')).toBe(false)
+
+    expect(database.addPomodoroSession({
+      subject_id: 0,
+      duration: 25,
+      date_key: '2026-06-06',
+      started_at: ' 2026-06-06 09:00:00 ',
+      completed_at: ' 2026-06-06 09:25:00 ',
+    })).toEqual({
+      id: 1,
+      date_key: '2026-06-06',
+      started_at: '2026-06-06 09:00:00',
+      completed_at: '2026-06-06 09:25:00',
+    })
+
+    const insertCall = lastPreparedCall()
+    expect(insertCall.sql).toBe('INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?)')
+    expect(insertCall.params).toEqual([null, 25, '2026-06-06', '2026-06-06 09:00:00', '2026-06-06 09:25:00'])
+
+    state.pomodoroStatsRows = [
+      { subject_name: 'Math', color: '#0F766E', total_minutes: 25, session_count: 1 },
+    ]
+    expect(database.getPomodoroStats('2026-06-06')).toEqual(state.pomodoroStatsRows)
+    const statsCall = lastPreparedCall()
+    expect(statsCall.sql).toContain('FROM pomodoro_sessions p')
+    expect(statsCall.sql).toContain('LEFT JOIN subjects s ON p.subject_id = s.id')
+    expect(statsCall.sql).toContain('WHERE p.date_key = ?')
+    expect(statsCall.sql).toContain('GROUP BY p.subject_id')
+    expect(statsCall.sql).not.toContain('ORDER BY')
+    expect(statsCall.params).toEqual(['2026-06-06'])
+
+    state.pomodoroStatsRows = [
+      { subject_name: 'Math', color: '#0F766E', total_minutes: 75, session_count: 3 },
+      { subject_name: 'English', color: '#854D0E', total_minutes: 30, session_count: 1 },
+    ]
+    expect(database.getPomodoroStatsRange('2026-06-01', '2026-06-30')).toEqual(state.pomodoroStatsRows)
+    const rangeStatsCall = lastPreparedCall()
+    expect(rangeStatsCall.sql).toContain('WHERE p.date_key BETWEEN ? AND ?')
+    expect(rangeStatsCall.sql).toContain('GROUP BY p.subject_id')
+    expect(rangeStatsCall.sql).toContain('ORDER BY total_minutes DESC')
+    expect(rangeStatsCall.params).toEqual(['2026-06-01', '2026-06-30'])
+
+    expect(database.getDailyStudyMinutes('2026-06-06')).toBe(25)
+    const dailyTotalCall = lastPreparedCall()
+    expect(dailyTotalCall.sql).toBe('SELECT COALESCE(SUM(duration), 0) as total FROM pomodoro_sessions WHERE date_key = ?')
+    expect(dailyTotalCall.params).toEqual(['2026-06-06'])
+
+    expect(database.getPomodoroRange('2026-06-01', '2026-06-30')).toEqual([
+      { date: '2026-06-06', total_minutes: 25, session_count: 1 },
+    ])
+    const rangeCall = lastPreparedCall()
+    expect(rangeCall.sql).toContain('FROM pomodoro_sessions')
+    expect(rangeCall.sql).toContain('WHERE date_key BETWEEN ? AND ?')
+    expect(rangeCall.sql).toContain('GROUP BY date_key')
+    expect(rangeCall.sql).toContain('ORDER BY date ASC')
+    expect(rangeCall.params).toEqual(['2026-06-01', '2026-06-30'])
   })
 
   it('aggregates pomodoro sessions by subject over an inclusive date range', async () => {

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { createAttachmentsRepository } from './attachmentsRepository';
 import { createEntriesRepository } from './entriesRepository';
+import { createPomodoroRepository } from './pomodoroRepository';
 import { createSettingsRepository } from './settingsRepository';
 import { createSubjectsRepository } from './subjectsRepository';
 import { createTagsRepository } from './tagsRepository';
@@ -10,6 +11,7 @@ export function createDatabaseRepositories(db: Database.Database) {
     return {
         attachments: createAttachmentsRepository(db),
         entries: createEntriesRepository(db),
+        pomodoro: createPomodoroRepository(db),
         settings: createSettingsRepository(db),
         subjects: createSubjectsRepository(db),
         tags: createTagsRepository(db),
