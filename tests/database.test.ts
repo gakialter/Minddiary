@@ -11,6 +11,7 @@ type PreparedCall = {
 }
 
 type BatchTagRow = Tag & { entry_id: number }
+type EntryTagRow = { entry_id: number; tag_id: number }
 type EntryRow = DiaryEntry & { content_snippet?: string }
 type MistakeImageRow = { id: number; image_path: string | null }
 type StudyTaskRow = {
@@ -42,6 +43,9 @@ type DatabaseModule = {
   getAllTags: () => Tag[]
   createTag: (tag: Partial<Tag>) => Tag
   updateTag: (id: number, tag: Partial<Tag>) => Tag
+  deleteTag: (id: number) => { success: boolean }
+  setEntryTags: (entryId: number, tagIds: number[]) => { success: boolean }
+  getEntryTags: (entryId: number) => Tag[]
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAllMistakes: (filters?: { due?: boolean; dueDate?: string }) => { data: Mistake[], total: number, masteredTotal: number }
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
@@ -77,6 +81,7 @@ const state = vi.hoisted(() => ({
   preparedCalls: [] as PreparedCall[],
   execCalls: [] as string[],
   tagRows: [] as BatchTagRow[],
+  entryTagRows: [] as EntryTagRow[],
   entryRows: [] as EntryRow[],
   attachmentRows: [] as Attachment[],
   tagById: null as Tag | null,
@@ -181,6 +186,47 @@ vi.mock('better-sqlite3', () => {
             const before = state.entryRows.length
             state.entryRows = state.entryRows.filter(item => item.id !== id)
             return { lastInsertRowid: 0, changes: before === state.entryRows.length ? 0 : 1 }
+          }
+          if (sql.includes('INSERT INTO tags')) {
+            const row: Tag = {
+              id: state.allTags.length + 1,
+              name: String(params[0]),
+              color: String(params[1]),
+              icon: String(params[2] ?? ''),
+              variant: params[3] as Tag['variant'],
+              pattern: params[4] as Tag['pattern'],
+            }
+            state.allTags.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('UPDATE tags SET')) {
+            const id = Number(params[5])
+            const row = state.allTags.find(item => item.id === id)
+            if (row) {
+              row.name = String(params[0])
+              row.color = String(params[1])
+              row.icon = String(params[2] ?? '')
+              row.variant = params[3] as Tag['variant']
+              row.pattern = params[4] as Tag['pattern']
+            }
+            return { lastInsertRowid: 0, changes: row ? 1 : state.runChanges }
+          }
+          if (sql.includes('DELETE FROM tags WHERE id=?')) {
+            const id = Number(params[0])
+            const before = state.allTags.length
+            state.allTags = state.allTags.filter(item => item.id !== id)
+            state.entryTagRows = state.entryTagRows.filter(item => item.tag_id !== id)
+            return { lastInsertRowid: 0, changes: before === state.allTags.length ? 0 : 1 }
+          }
+          if (sql.includes('DELETE FROM entry_tags WHERE entry_id=?')) {
+            const entryId = Number(params[0])
+            const before = state.entryTagRows.length
+            state.entryTagRows = state.entryTagRows.filter(item => item.entry_id !== entryId)
+            return { lastInsertRowid: 0, changes: before === state.entryTagRows.length ? 0 : 1 }
+          }
+          if (sql.includes('INSERT INTO entry_tags')) {
+            state.entryTagRows.push({ entry_id: Number(params[0]), tag_id: Number(params[1]) })
+            return { lastInsertRowid: 1, changes: 1 }
           }
           if (sql.includes('INSERT INTO attachments')) {
             const row: Attachment = {
@@ -381,7 +427,10 @@ vi.mock('better-sqlite3', () => {
             const id = Number(params[0])
             return state.taskRows.find(item => item.id === id)
           }
-          if (sql.includes('FROM tags') && sql.includes('WHERE id=?')) return state.tagById
+          if (sql.includes('FROM tags') && sql.includes('WHERE id=?')) {
+            const id = Number(params[0])
+            return state.tagById ?? state.allTags.find(item => item.id === id)
+          }
           return undefined
         }),
         all: vi.fn((...params: unknown[]) => {
@@ -397,7 +446,22 @@ vi.mock('better-sqlite3', () => {
             return []
           }
           if (sql.includes('FROM tags') && sql.includes('entry_tags')) {
-            return state.tagRows
+            if (state.tagRows.length > 0) return state.tagRows
+            if (sql.includes('WHERE et.entry_id = ?')) {
+              const entryId = Number(params[0])
+              return state.entryTagRows
+                .filter(row => row.entry_id === entryId)
+                .map(row => state.allTags.find(tag => tag.id === row.tag_id))
+                .filter((tag): tag is Tag => Boolean(tag))
+            }
+            const entryIds = new Set(params.map(Number))
+            return state.entryTagRows
+              .filter(row => entryIds.has(row.entry_id))
+              .map(row => {
+                const tag = state.allTags.find(item => item.id === row.tag_id)
+                return tag ? { entry_id: row.entry_id, ...tag } : null
+              })
+              .filter((row): row is BatchTagRow => Boolean(row))
           }
           if (sql.includes('FROM tags')) {
             return state.allTags
@@ -487,6 +551,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.preparedCalls = []
   state.execCalls = []
   state.tagRows = []
+  state.entryTagRows = []
   state.entryRows = []
   state.attachmentRows = []
   state.tagById = null
@@ -788,6 +853,89 @@ describe('database repository facade APIs', () => {
     expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO attachments (entry_id, filename, filepath, mimetype) VALUES (?, ?, ?, ?)')).toBe(true)
     expect(state.preparedCalls.some(call => call.sql === 'SELECT * FROM attachments WHERE entry_id=?')).toBe(true)
     expect(state.preparedCalls.some(call => call.sql === 'DELETE FROM attachments WHERE id=?')).toBe(true)
+  })
+
+  it('preserves tag facade exports, CRUD, relation replacement, and batch behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    expect(database.getAllTags).toBeTypeOf('function')
+    expect(database.createTag).toBeTypeOf('function')
+    expect(database.updateTag).toBeTypeOf('function')
+    expect(database.deleteTag).toBeTypeOf('function')
+    expect(database.setEntryTags).toBeTypeOf('function')
+    expect(database.getEntryTags).toBeTypeOf('function')
+    expect(database.getEntryTagsBatch).toBeTypeOf('function')
+    expect(Object.prototype.hasOwnProperty.call(database, 'getTagById')).toBe(false)
+
+    const alpha = database.createTag({
+      name: ' alpha ',
+      color: '#0E7490',
+      icon: 'abcde',
+      variant: 'solid',
+      pattern: 'dots',
+    })
+    const beta = database.createTag({ name: 'beta' })
+
+    expect(alpha).toEqual({
+      id: 1,
+      name: 'alpha',
+      color: '#0E7490',
+      icon: 'abcd',
+      variant: 'solid',
+      pattern: 'dots',
+    })
+    expect(beta).toEqual({
+      id: 2,
+      name: 'beta',
+      color: '#0F766E',
+      icon: '',
+      variant: 'soft',
+      pattern: 'none',
+    })
+    expect(database.getAllTags()).toEqual([alpha, beta])
+
+    expect(database.updateTag(alpha.id, { icon: 'xyz12', pattern: 'grid' })).toEqual({
+      id: alpha.id,
+      name: 'alpha',
+      color: '#0E7490',
+      icon: 'xyz1',
+      variant: 'solid',
+      pattern: 'grid',
+    })
+    expect(database.setEntryTags(7, [alpha.id, beta.id])).toEqual({ success: true })
+    expect(database.getEntryTags(7)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: alpha.id, name: 'alpha', icon: 'xyz1', pattern: 'grid' }),
+      beta,
+    ]))
+    expect(database.getEntryTagsBatch([7, 7, 0, -1, 3.5, Number.NaN, 8])).toEqual({
+      7: expect.arrayContaining([
+        expect.objectContaining({ id: alpha.id, name: 'alpha', icon: 'xyz1', pattern: 'grid' }),
+        beta,
+      ]),
+      8: [],
+    })
+    expect(database.deleteTag(beta.id)).toEqual({ success: true })
+
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT * FROM tags ORDER BY name')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO tags (name, color, icon, variant, pattern) VALUES (?, ?, ?, ?, ?)')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT * FROM tags WHERE id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'UPDATE tags SET name=?, color=?, icon=?, variant=?, pattern=? WHERE id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'DELETE FROM tags WHERE id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'DELETE FROM entry_tags WHERE entry_id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO entry_tags (entry_id, tag_id) VALUES (?, ?)')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT t.* FROM tags t JOIN entry_tags et ON t.id = et.tag_id WHERE et.entry_id = ?')).toBe(true)
+    const batchCall = state.preparedCalls.find(call => call.sql.includes('SELECT et.entry_id, t.* FROM tags t JOIN entry_tags et ON t.id = et.tag_id WHERE et.entry_id IN'))
+    expect(batchCall?.sql).toContain('et.entry_id IN (?, ?)')
+    expect(batchCall?.params).toEqual([7, 8])
+    const relationCalls = state.preparedCalls.filter(call =>
+      call.sql === 'DELETE FROM entry_tags WHERE entry_id=?' ||
+      call.sql === 'INSERT INTO entry_tags (entry_id, tag_id) VALUES (?, ?)'
+    )
+    expect(relationCalls.map(call => call.params)).toEqual([
+      [7],
+      [7, alpha.id],
+      [7, beta.id],
+    ])
   })
 
   it('preserves raw settings get, set, and getAll behavior through database.ts', async () => {
