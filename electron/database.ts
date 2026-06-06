@@ -5,10 +5,6 @@ import { logger } from './logger';
 import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
 import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey';
 import {
-    DEFAULT_TAG_PATTERN,
-    DEFAULT_TAG_VARIANT,
-    TAG_PATTERNS,
-    TAG_VARIANTS,
     mergeTagPatch,
     normalizeTag,
     normalizeTagList,
@@ -19,6 +15,11 @@ import {
     type DatabaseBackupRow,
     type NormalizedBackupDatabaseData,
 } from './databaseBackupData';
+import {
+    assertSupportedDatabaseVersion,
+    CURRENT_SCHEMA_VERSION,
+    runDatabaseMigrations,
+} from './databaseMigrations';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -31,8 +32,8 @@ import type {
 // NOTE: fully typing better-sqlite3 query results requires generics at every
 // .get/.all/.run call site. That is a separate task; the exported function
 // signatures are typed, which is what matters for IPC callers.
-let db: Database.Database;
-const CURRENT_SCHEMA_VERSION = 1;
+let db: Database.Database = undefined as unknown as Database.Database;
+let isInitialized = false;
 
 let customDbPath: string | null = null;
 const API_KEY_ENCRYPTION_UNAVAILABLE_MESSAGE = '当前系统加密能力不可用，无法安全保存 API Key';
@@ -49,226 +50,31 @@ function getDbPath() {
 }
 
 function initialize() {
-    db = new BetterSqlite3(getDbPath());
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date DATE NOT NULL,
-      title TEXT,
-      content TEXT NOT NULL DEFAULT '',
-      mood TEXT,
-      word_count INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
-    CREATE INDEX IF NOT EXISTS idx_entries_mood ON entries(mood);
-
-    CREATE TABLE IF NOT EXISTS tags (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      color TEXT DEFAULT '#0F766E',
-      icon TEXT DEFAULT '',
-      variant TEXT DEFAULT 'soft',
-      pattern TEXT DEFAULT 'none'
-    );
-
-    CREATE TABLE IF NOT EXISTS entry_tags (
-      entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
-      tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
-      PRIMARY KEY (entry_id, tag_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_entry_tags_tag_id ON entry_tags(tag_id);
-
-    CREATE TABLE IF NOT EXISTS attachments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
-      filename TEXT NOT NULL,
-      filepath TEXT NOT NULL,
-      mimetype TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS subjects (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      total_chapters INTEGER DEFAULT 0,
-      completed_chapters INTEGER DEFAULT 0,
-      color TEXT DEFAULT '#0F766E'
-    );
-
-    CREATE TABLE IF NOT EXISTS pomodoro_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER REFERENCES subjects(id),
-      duration INTEGER NOT NULL,
-      date_key TEXT,
-      started_at DATETIME,
-      completed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_pomodoro_completed ON pomodoro_sessions(completed_at);
-
-    CREATE TABLE IF NOT EXISTS mistakes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER REFERENCES subjects(id),
-      question TEXT NOT NULL,
-      answer TEXT,
-      notes TEXT,
-      mastered INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_mistakes_subject ON mistakes(subject_id);
-
-    CREATE TABLE IF NOT EXISTS study_tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      type TEXT NOT NULL DEFAULT 'custom',
-      subject_id INTEGER REFERENCES subjects(id) ON DELETE SET NULL,
-      related_mistake_id INTEGER REFERENCES mistakes(id) ON DELETE SET NULL,
-      related_entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
-      planned_date TEXT NOT NULL,
-      estimate_minutes INTEGER DEFAULT 25,
-      status TEXT NOT NULL DEFAULT 'todo',
-      source TEXT NOT NULL DEFAULT 'manual',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_study_tasks_planned_date ON study_tasks(planned_date);
-    CREATE INDEX IF NOT EXISTS idx_study_tasks_status ON study_tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_study_tasks_subject_id ON study_tasks(subject_id);
-
-    CREATE TABLE IF NOT EXISTS ai_chats (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS diary_templates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      content TEXT NOT NULL,
-      is_default INTEGER DEFAULT 0,
-      sort_order INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-    migratePomodoroDateKey();
-    migrateTagStyleColumns();
-
-    // ── v2.0 Migration: Spaced Repetition columns on mistakes ──
-    const srColumns = [
-        { name: 'ease_factor',      sql: 'ALTER TABLE mistakes ADD COLUMN ease_factor REAL DEFAULT 2.5' },
-        { name: 'review_interval',  sql: 'ALTER TABLE mistakes ADD COLUMN review_interval INTEGER DEFAULT 1' },
-        { name: 'next_review_date', sql: 'ALTER TABLE mistakes ADD COLUMN next_review_date TEXT' },
-        { name: 'review_count',     sql: 'ALTER TABLE mistakes ADD COLUMN review_count INTEGER DEFAULT 0' },
-        { name: 'image_path',       sql: 'ALTER TABLE mistakes ADD COLUMN image_path TEXT' },
-    ];
-    for (const col of srColumns) {
-        try { db.exec(col.sql); } catch { /* column already exists — safe to ignore */ }
-    }
-    // Index for due-review queries
-    try { db.exec('CREATE INDEX IF NOT EXISTS idx_mistakes_next_review ON mistakes(next_review_date)'); } catch { /* ignore */ }
-
-    // ── v2.1 Migration: Cleanse legacy non-brand colors in tags & subjects ──
-    const LEGACY_TO_BRAND: Record<string, string> = {
-        '#8b5cf6': '#475569', // Purple → Slate
-        '#6366f1': '#0E7490', // Indigo → Ocean
-        '#3b82f6': '#0F766E', // Blue → Pine
-        '#10b981': '#2F8F6B', // Emerald → Forest
-        '#f59e0b': '#854D0E', // Amber → Earth
-        '#ec4899': '#C65A3A', // Pink → Clay
-        '#ef4444': '#C65A3A', // Red → Clay
-        '#f43f5e': '#C65A3A', // Rose → Clay
-        '#06b6d4': '#0E7490', // Cyan → Ocean
-        '#14b8a6': '#0F766E', // Teal → Pine
-    };
-    const migrateColors = db.transaction(() => {
-        const updateTag = db.prepare('UPDATE tags SET color = ? WHERE LOWER(color) = ?');
-        const updateSubject = db.prepare('UPDATE subjects SET color = ? WHERE LOWER(color) = ?');
-        for (const [legacy, brand] of Object.entries(LEGACY_TO_BRAND)) {
-            updateTag.run(brand, legacy);
-            updateSubject.run(brand, legacy);
+    let candidate: Database.Database | null = null;
+    try {
+        candidate = new BetterSqlite3(getDbPath());
+        assertSupportedDatabaseVersion(candidate);
+        candidate.pragma('journal_mode = WAL');
+        candidate.pragma('foreign_keys = ON');
+        runDatabaseMigrations(candidate);
+        db = candidate;
+        isInitialized = true;
+        candidate = null;
+    } catch (error) {
+        isInitialized = false;
+        db = undefined as unknown as Database.Database;
+        if (candidate) {
+            candidate.close();
         }
-    });
-    try { migrateColors(); } catch { /* safe to ignore on fresh DB */ }
-
-    // ── Seed default diary templates (only if table is empty) ──
-    const templateCount = db.prepare('SELECT COUNT(*) as count FROM diary_templates').get() as { count: number };
-    if (templateCount.count === 0) {
-        const seedTemplates = [
-            {
-                name: '考研模板',
-                content: '## 今日学了什么\n-\n\n## 薄弱点 / 疑问\n-\n\n## 明日计划\n-\n\n## 感悟 / 碎碎念\n',
-                is_default: 1,
-                sort_order: 0,
-            },
-            {
-                name: '简洁模板',
-                content: '## 今日总结\n- 学了什么？\n- 有什么收获？\n- 明天做什么？\n',
-                is_default: 1,
-                sort_order: 1,
-            },
-            {
-                name: '详细模板',
-                content: '## 学习内容\n**科目**：\n**章节**：\n**用时**：小时\n\n## 重点记录\n1.\n2.\n\n## 错题分析\n-\n\n## 心态调整\n-\n',
-                is_default: 1,
-                sort_order: 2,
-            },
-        ];
-        const insertTpl = db.prepare(
-            'INSERT INTO diary_templates (name, content, is_default, sort_order) VALUES (?, ?, ?, ?)'
-        );
-        for (const t of seedTemplates) {
-            insertTpl.run(t.name, t.content, t.is_default, t.sort_order);
-        }
+        throw error;
     }
 }
 
-function hasColumn(tableName: string, columnName: string): boolean {
-    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
-    return columns.some(column => column.name === columnName);
-}
-
-function ensureColumn(tableName: string, columnName: string, definition: string) {
-    if (!hasColumn(tableName, columnName)) {
-        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+function getDb(): Database.Database {
+    if (!isInitialized) {
+        throw new Error('Database has not been initialized');
     }
-}
-
-function migratePomodoroDateKey() {
-    ensureColumn('pomodoro_sessions', 'date_key', 'TEXT');
-    ensureColumn('pomodoro_sessions', 'started_at', 'DATETIME');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_pomodoro_date_key ON pomodoro_sessions(date_key)');
-    db.prepare(`
-        UPDATE pomodoro_sessions
-        SET date_key = DATE(completed_at, 'localtime')
-        WHERE date_key IS NULL OR date_key = ''
-    `).run();
-}
-
-function migrateTagStyleColumns() {
-    ensureColumn('tags', 'icon', "TEXT DEFAULT ''");
-    ensureColumn('tags', 'variant', "TEXT DEFAULT 'soft'");
-    ensureColumn('tags', 'pattern', "TEXT DEFAULT 'none'");
-
-    db.prepare("UPDATE tags SET icon = '' WHERE icon IS NULL").run();
-    db.prepare(`UPDATE tags SET variant = ? WHERE variant IS NULL OR variant NOT IN (${TAG_VARIANTS.map(() => '?').join(', ')})`)
-        .run(DEFAULT_TAG_VARIANT, ...TAG_VARIANTS);
-    db.prepare(`UPDATE tags SET pattern = ? WHERE pattern IS NULL OR pattern NOT IN (${TAG_PATTERNS.map(() => '?').join(', ')})`)
-        .run(DEFAULT_TAG_PATTERN, ...TAG_PATTERNS);
+    return db;
 }
 
 // ==================== Entries ====================
@@ -502,8 +308,9 @@ function getAttachmentsByEntries(entryIds: number[]): Record<number, Attachment[
     ).all(...validEntryIds) as Attachment[];
 
     for (const attachment of rows) {
-        if (result[attachment.entry_id]) {
-            result[attachment.entry_id].push(attachment);
+        const attachmentsForEntry = result[attachment.entry_id];
+        if (attachmentsForEntry) {
+            attachmentsForEntry.push(attachment);
         }
     }
     return result;
@@ -802,12 +609,12 @@ function getStudyStreak() {
     today.setHours(0, 0, 0, 0);
 
     // Check if today or yesterday is in the list to start counting
-    const firstDate = new Date(rows[0].date + 'T00:00:00');
+    const firstDate = new Date(rows[0]!.date + 'T00:00:00');
     const diffFromToday = Math.round((today.getTime() - firstDate.getTime()) / 86400000);
     if (diffFromToday > 1) return 0; // Gap > 1 day, streak broken
 
     for (let i = 0; i < rows.length; i++) {
-        const d = new Date(rows[i].date + 'T00:00:00');
+        const d = new Date(rows[i]!.date + 'T00:00:00');
         const expected = new Date(today);
         expected.setDate(expected.getDate() - streak - diffFromToday);
         expected.setHours(0, 0, 0, 0);
@@ -1270,7 +1077,7 @@ module.exports = {
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
-    setCustomDbPath, getDb: () => db,
+    setCustomDbPath, getDb,
     getAiApiKey, setAiApiKey,
     exportBackupData, restoreBackupData,
 };
