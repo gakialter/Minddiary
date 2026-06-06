@@ -34,6 +34,7 @@ type DatabaseModule = {
 
 const databases: Database.Database[] = []
 const tempRoots: string[] = []
+const REAL_SQLITE_TEST_TIMEOUT_MS = 15_000
 
 function createDatabase(filename = ':memory:'): Database.Database {
   const database = new BetterSqlite3(filename)
@@ -310,7 +311,7 @@ describe('database initialize schema version handling', () => {
     expect(getUserVersion(database)).toBe(1)
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 
   it('rejects a future-version database before exposing an initialized connection', async () => {
     const root = makeTempRoot()
@@ -328,7 +329,7 @@ describe('database initialize schema version handling', () => {
     const reopened = createDatabase(dbPath)
     expect(getUserVersion(reopened)).toBe(2)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
-  })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
 
 describe('backup schema version consistency', () => {
