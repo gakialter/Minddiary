@@ -486,20 +486,18 @@ describe('legacy SQLite fixture provenance', () => {
     expect(legacyDatabaseFixtures.length).toBeGreaterThanOrEqual(3)
   })
 
-  it('keeps fixture capability metadata aligned with the source schemas', () => {
-    for (const fixture of legacyDatabaseFixtures) {
-      const { database } = prepareFixtureDatabase(fixture)
+  it.each(legacyDatabaseFixtures)('keeps $id capability metadata aligned with its source schema', (fixture) => {
+    const { database } = prepareFixtureDatabase(fixture)
 
-      expect(getUserVersion(database)).toBe(0)
-      expect(getColumnNames(database, 'tags').includes('variant')).toBe(fixture.capabilities.tagStyles)
-      expect(getColumnNames(database, 'tags').includes('pattern')).toBe(fixture.capabilities.tagStyles)
-      expect(getColumnNames(database, 'pomodoro_sessions').includes('date_key')).toBe(fixture.capabilities.pomodoroDateKey)
-      expect(getColumnNames(database, 'pomodoro_sessions').includes('started_at')).toBe(fixture.capabilities.pomodoroStartedAt)
-      expect(getColumnNames(database, 'mistakes').includes('ease_factor')).toBe(fixture.capabilities.mistakeReviewColumns)
-      expect(getColumnNames(database, 'mistakes').includes('image_path')).toBe(fixture.capabilities.mistakeImagePath)
-      expect(tableExists(database, 'diary_templates')).toBe(fixture.capabilities.diaryTemplates)
-      expect(tableExists(database, 'study_tasks')).toBe(fixture.capabilities.studyTasks)
-    }
+    expect(getUserVersion(database)).toBe(0)
+    expect(getColumnNames(database, 'tags').includes('variant')).toBe(fixture.capabilities.tagStyles)
+    expect(getColumnNames(database, 'tags').includes('pattern')).toBe(fixture.capabilities.tagStyles)
+    expect(getColumnNames(database, 'pomodoro_sessions').includes('date_key')).toBe(fixture.capabilities.pomodoroDateKey)
+    expect(getColumnNames(database, 'pomodoro_sessions').includes('started_at')).toBe(fixture.capabilities.pomodoroStartedAt)
+    expect(getColumnNames(database, 'mistakes').includes('ease_factor')).toBe(fixture.capabilities.mistakeReviewColumns)
+    expect(getColumnNames(database, 'mistakes').includes('image_path')).toBe(fixture.capabilities.mistakeImagePath)
+    expect(tableExists(database, 'diary_templates')).toBe(fixture.capabilities.diaryTemplates)
+    expect(tableExists(database, 'study_tasks')).toBe(fixture.capabilities.studyTasks)
   })
 })
 
