@@ -20,6 +20,7 @@ import {
     CURRENT_SCHEMA_VERSION,
     runDatabaseMigrations,
 } from './databaseMigrations';
+import { createDatabaseRepositories, type DatabaseRepositories } from './repositories/databaseRepositoryFactory';
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
@@ -33,6 +34,7 @@ import type {
 // .get/.all/.run call site. That is a separate task; the exported function
 // signatures are typed, which is what matters for IPC callers.
 let db: Database.Database = undefined as unknown as Database.Database;
+let repositories: DatabaseRepositories = undefined as unknown as DatabaseRepositories;
 let isInitialized = false;
 
 let customDbPath: string | null = null;
@@ -57,12 +59,14 @@ function initialize() {
         candidate.pragma('journal_mode = WAL');
         candidate.pragma('foreign_keys = ON');
         runDatabaseMigrations(candidate);
+        repositories = createDatabaseRepositories(candidate);
         db = candidate;
         isInitialized = true;
         candidate = null;
     } catch (error) {
         isInitialized = false;
         db = undefined as unknown as Database.Database;
+        repositories = undefined as unknown as DatabaseRepositories;
         if (candidate) {
             candidate.close();
         }
@@ -75,6 +79,13 @@ function getDb(): Database.Database {
         throw new Error('Database has not been initialized');
     }
     return db;
+}
+
+function getRepositories(): DatabaseRepositories {
+    if (!isInitialized) {
+        throw new Error('Database has not been initialized');
+    }
+    return repositories;
 }
 
 // ==================== Entries ====================
@@ -262,22 +273,15 @@ function getEntryTagsBatch(entryIds: number[]): Record<number, Tag[]> {
 
 // ==================== Settings ====================
 function getSetting(key: string) {
-    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: unknown } | undefined;
-    return row ? row.value : null;
+    return getRepositories().settings.getSetting(key);
 }
 
 function setSetting(key: string, value: unknown) {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
-    return { success: true };
+    return getRepositories().settings.setSetting(key, value);
 }
 
 function getAllSettings() {
-    const rows = db.prepare('SELECT * FROM settings').all() as { key: string; value: unknown }[];
-    const settings: Record<string, unknown> = {};
-    for (const row of rows) {
-        settings[row.key] = row.value;
-    }
-    return settings;
+    return getRepositories().settings.getAllSettings();
 }
 
 // ==================== Attachments ====================
@@ -327,28 +331,19 @@ function removeAttachment(id: number) {
 
 // ==================== Subjects ====================
 function getAllSubjects(): Subject[] {
-    return db.prepare('SELECT * FROM subjects ORDER BY name').all() as Subject[];
+    return getRepositories().subjects.getAllSubjects();
 }
 
-function createSubject({ name, total_chapters, color }: Subject) {
-    const stmt = db.prepare(
-        'INSERT INTO subjects (name, total_chapters, color) VALUES (?, ?, ?)'
-    );
-    const defaultColor = '#0F766E';
-    const result = stmt.run(name, total_chapters || 0, color || defaultColor);
-    return { id: result.lastInsertRowid, name, total_chapters: total_chapters || 0, completed_chapters: 0, color: color || defaultColor };
+function createSubject(subject: Partial<Subject>) {
+    return getRepositories().subjects.createSubject(subject);
 }
 
-function updateSubject(id: number, { name, total_chapters, completed_chapters, color }: Subject) {
-    db.prepare(
-        'UPDATE subjects SET name=?, total_chapters=?, completed_chapters=?, color=? WHERE id=?'
-    ).run(name, total_chapters, completed_chapters, color, id);
-    return { id, name, total_chapters, completed_chapters, color };
+function updateSubject(id: number, subject: Partial<Subject>) {
+    return getRepositories().subjects.updateSubject(id, subject);
 }
 
 function deleteSubject(id: number) {
-    db.prepare('DELETE FROM subjects WHERE id=?').run(id);
-    return { success: true };
+    return getRepositories().subjects.deleteSubject(id);
 }
 
 // ==================== Pomodoro ====================
@@ -935,37 +930,19 @@ function getRandomDueMistake(date: string, subjectId?: number) {
 
 // ==================== Templates ====================
 function getAllTemplates(): DiaryTemplate[] {
-    return db.prepare('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC').all() as DiaryTemplate[];
+    return getRepositories().templates.getAllTemplates();
 }
 
 function createTemplate({ name, content, sort_order }: Partial<DiaryTemplate>) {
-    const stmt = db.prepare(
-        'INSERT INTO diary_templates (name, content, is_default, sort_order) VALUES (?, ?, 0, ?)'
-    );
-    const result = stmt.run(name, content || '', sort_order ?? 99);
-    return { id: result.lastInsertRowid, name, content: content || '', is_default: 0, sort_order: sort_order ?? 99 };
+    return getRepositories().templates.createTemplate({ name, content, sort_order });
 }
 
 function updateTemplate(id: number, { name, content, sort_order }: Partial<DiaryTemplate>) {
-    const updates: string[] = [];
-    const params: (string | number)[] = [];
-    if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-    if (content !== undefined) { updates.push('content = ?'); params.push(content); }
-    if (sort_order !== undefined) { updates.push('sort_order = ?'); params.push(sort_order); }
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    params.push(id);
-    db.prepare(`UPDATE diary_templates SET ${updates.join(', ')} WHERE id=?`).run(...params);
-    return db.prepare('SELECT * FROM diary_templates WHERE id=?').get(id) as DiaryTemplate | undefined;
+    return getRepositories().templates.updateTemplate(id, { name, content, sort_order });
 }
 
 function deleteTemplate(id: number) {
-    // Prevent deleting default templates
-    const tpl = db.prepare('SELECT is_default FROM diary_templates WHERE id=?').get(id) as { is_default: number } | undefined;
-    if (tpl && tpl.is_default) {
-        return { success: false, message: '默认模板不可删除' };
-    }
-    db.prepare('DELETE FROM diary_templates WHERE id=?').run(id);
-    return { success: true };
+    return getRepositories().templates.deleteTemplate(id);
 }
 
 // ── AI Key (safeStorage-aware) ──────────────────────────────────────────────

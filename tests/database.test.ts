@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { safeStorage } from 'electron'
 import { logger } from '../electron/logger'
-import type { Attachment, Mistake, PomodoroStat, Tag } from '../src/types'
+import type { Attachment, DiaryTemplate, Mistake, PomodoroStat, Subject, Tag } from '../src/types'
 
 type PreparedCall = {
   sql: string
@@ -47,7 +47,17 @@ type DatabaseModule = {
   deleteMistake: (id: number) => Promise<{ success: boolean }>
   getAiApiKey: () => string | null
   setAiApiKey: (key: string) => void
+  getSetting: (key: string) => unknown | null
+  setSetting: (key: string, value: unknown) => { success: boolean }
   getAllSettings: () => Record<string, unknown>
+  getAllSubjects: () => Subject[]
+  createSubject: (subject: Partial<Subject>) => Subject
+  updateSubject: (id: number, subject: Partial<Subject>) => Subject
+  deleteSubject: (id: number) => { success: boolean }
+  getAllTemplates: () => DiaryTemplate[]
+  createTemplate: (template: Partial<DiaryTemplate>) => Partial<DiaryTemplate>
+  updateTemplate: (id: number, template: Partial<DiaryTemplate>) => DiaryTemplate | undefined
+  deleteTemplate: (id: number) => { success: boolean; message?: string }
 }
 
 const state = vi.hoisted(() => ({
@@ -62,6 +72,8 @@ const state = vi.hoisted(() => ({
   mistakeRows: [] as MistakeImageRow[],
   pomodoroStatsRows: [] as PomodoroStat[],
   taskRows: [] as StudyTaskRow[],
+  subjectRows: [] as Subject[],
+  templateRows: [] as DiaryTemplate[],
   userVersion: 0,
   closeCalls: 0,
 }))
@@ -122,6 +134,75 @@ vi.mock('better-sqlite3', () => {
           state.preparedCalls.push({ sql, params })
           if (sql.startsWith('INSERT OR REPLACE INTO settings')) {
             state.settings[String(params[0])] = params[1]
+          }
+          if (sql.includes('INSERT INTO subjects')) {
+            const row: Subject = {
+              id: state.subjectRows.length + 1,
+              name: String(params[0]),
+              total_chapters: Number(params[1] ?? 0),
+              completed_chapters: 0,
+              color: String(params[2] ?? '#0F766E'),
+            }
+            state.subjectRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('UPDATE subjects SET')) {
+            const id = Number(params[4])
+            const row = state.subjectRows.find(item => item.id === id)
+            if (row) {
+              row.name = String(params[0])
+              row.total_chapters = Number(params[1] ?? 0)
+              row.completed_chapters = Number(params[2] ?? 0)
+              row.color = String(params[3] ?? '#0F766E')
+            }
+            return { lastInsertRowid: 0, changes: row ? 1 : 0 }
+          }
+          if (sql.includes('DELETE FROM subjects WHERE id=?')) {
+            const id = Number(params[0])
+            const before = state.subjectRows.length
+            state.subjectRows = state.subjectRows.filter(item => item.id !== id)
+            return { lastInsertRowid: 0, changes: before === state.subjectRows.length ? 0 : 1 }
+          }
+          if (sql.includes('INSERT INTO diary_templates')) {
+            const now = '2026-06-06 08:00:00'
+            const row: DiaryTemplate = {
+              id: state.templateRows.length + 1,
+              name: String(params[0]),
+              content: String(params[1] ?? ''),
+              is_default: 0,
+              sort_order: Number(params[2] ?? 99),
+              created_at: now,
+              updated_at: now,
+            }
+            state.templateRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('UPDATE diary_templates SET')) {
+            const id = Number(params[params.length - 1])
+            const row = state.templateRows.find(item => item.id === id)
+            if (!row) return { lastInsertRowid: 0, changes: 0 }
+            const assignments = sql.match(/SET (.*) WHERE/)?.[1] ?? ''
+            assignments.split(', ').forEach((assignment, index) => {
+              const field = assignment.split(' = ?')[0]
+              const value = params[index]
+              if (field === 'name') {
+                row.name = String(value)
+              } else if (field === 'content') {
+                row.content = String(value)
+              } else if (field === 'sort_order') {
+                row.sort_order = Number(value)
+              } else if (field === 'updated_at') {
+                row.updated_at = '2026-06-06 09:00:00'
+              }
+            })
+            row.updated_at = '2026-06-06 09:00:00'
+            return { lastInsertRowid: 0, changes: 1 }
+          }
+          if (sql.includes('DELETE FROM diary_templates WHERE id=?')) {
+            const id = Number(params[0])
+            const before = state.templateRows.length
+            state.templateRows = state.templateRows.filter(item => item.id !== id)
+            return { lastInsertRowid: 0, changes: before === state.templateRows.length ? 0 : 1 }
           }
           if (sql.includes('UPDATE mistakes SET')) {
             const id = Number(params[params.length - 1])
@@ -206,6 +287,15 @@ vi.mock('better-sqlite3', () => {
               ? { value: state.settings[key] }
               : undefined
           }
+          if (sql.includes('SELECT is_default FROM diary_templates WHERE id=?')) {
+            const id = Number(params[0])
+            const row = state.templateRows.find(item => item.id === id)
+            return row ? { is_default: row.is_default } : undefined
+          }
+          if (sql.includes('SELECT * FROM diary_templates WHERE id=?')) {
+            const id = Number(params[0])
+            return state.templateRows.find(item => item.id === id)
+          }
           if (sql.includes('SELECT image_path FROM mistakes WHERE id = ?')) {
             const id = Number(params[0])
             return state.mistakeRows.find(item => item.id === id)
@@ -237,6 +327,12 @@ vi.mock('better-sqlite3', () => {
           }
           if (sql.includes('SELECT * FROM settings')) {
             return Object.entries(state.settings).map(([key, value]) => ({ key, value }))
+          }
+          if (sql.includes('SELECT * FROM subjects ORDER BY name')) {
+            return [...state.subjectRows].sort((a, b) => a.name.localeCompare(b.name))
+          }
+          if (sql.includes('SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC')) {
+            return [...state.templateRows].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
           }
           if (sql.includes('FROM attachments')) {
             return state.attachmentRows
@@ -274,6 +370,8 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.mistakeRows = []
   state.pomodoroStatsRows = []
   state.taskRows = []
+  state.subjectRows = []
+  state.templateRows = []
   state.userVersion = 0
   state.closeCalls = 0
   mistakeImageStorageState.deleteManagedMistakeImage.mockReset()
@@ -467,6 +565,101 @@ describe('database batch entry metadata APIs', () => {
     const call = lastPreparedCall()
     expect(call.sql).toContain('entry_id IN (?, ?)')
     expect(call.params).toEqual([2, 4])
+  })
+})
+
+describe('database repository facade APIs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('preserves raw settings get, set, and getAll behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    expect(database.getSetting('theme')).toBeNull()
+    expect(database.setSetting('theme', 'dark')).toEqual({ success: true })
+    expect(database.getSetting('theme')).toBe('dark')
+    expect(database.getAllSettings()).toEqual({ theme: 'dark' })
+
+    expect(state.preparedCalls.map(call => call.sql)).toEqual([
+      'SELECT value FROM settings WHERE key=?',
+      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+      'SELECT value FROM settings WHERE key=?',
+      'SELECT * FROM settings',
+    ])
+  })
+
+  it('preserves subject CRUD behavior through database.ts', async () => {
+    const database = await loadDatabase()
+
+    expect(database.createSubject({ name: 'Math' })).toEqual({
+      id: 1,
+      name: 'Math',
+      total_chapters: 0,
+      completed_chapters: 0,
+      color: '#0F766E',
+    })
+    expect(database.updateSubject(1, {
+      name: 'Advanced Math',
+      total_chapters: 12,
+      completed_chapters: 3,
+      color: '#123456',
+    })).toEqual({
+      id: 1,
+      name: 'Advanced Math',
+      total_chapters: 12,
+      completed_chapters: 3,
+      color: '#123456',
+    })
+    expect(database.getAllSubjects()).toEqual([{
+      id: 1,
+      name: 'Advanced Math',
+      total_chapters: 12,
+      completed_chapters: 3,
+      color: '#123456',
+    }])
+    expect(database.deleteSubject(1)).toEqual({ success: true })
+    expect(database.getAllSubjects()).toEqual([])
+
+    expect(state.preparedCalls.some(call => call.sql === 'INSERT INTO subjects (name, total_chapters, color) VALUES (?, ?, ?)')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'UPDATE subjects SET name=?, total_chapters=?, completed_chapters=?, color=? WHERE id=?')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'DELETE FROM subjects WHERE id=?')).toBe(true)
+  })
+
+  it('preserves template CRUD behavior through database.ts', async () => {
+    const database = await loadDatabase()
+    state.templateRows = [{
+      id: 1,
+      name: 'Default',
+      content: '# Default',
+      is_default: 1,
+      sort_order: 1,
+      created_at: '2026-06-06 08:00:00',
+      updated_at: '2026-06-06 08:00:00',
+    }]
+
+    expect(database.createTemplate({ name: 'Custom', content: '# Custom', sort_order: 4 })).toEqual({
+      id: 2,
+      name: 'Custom',
+      content: '# Custom',
+      is_default: 0,
+      sort_order: 4,
+    })
+    expect(database.getAllTemplates().map(template => template.name)).toEqual(['Default', 'Custom'])
+    expect(database.updateTemplate(2, { content: '# Updated', sort_order: 2 })).toEqual(expect.objectContaining({
+      id: 2,
+      name: 'Custom',
+      content: '# Updated',
+      is_default: 0,
+      sort_order: 2,
+    }))
+    expect(database.deleteTemplate(1)).toEqual({ success: false, message: '默认模板不可删除' })
+    expect(database.deleteTemplate(2)).toEqual({ success: true })
+    expect(database.getAllTemplates().map(template => template.name)).toEqual(['Default'])
+
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT * FROM diary_templates ORDER BY sort_order ASC, id ASC')).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql.includes('UPDATE diary_templates SET content = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?'))).toBe(true)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT is_default FROM diary_templates WHERE id=?')).toBe(true)
   })
 })
 
