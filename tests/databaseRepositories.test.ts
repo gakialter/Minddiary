@@ -1,8 +1,9 @@
 // @vitest-environment node
 
 import BetterSqlite3 from 'better-sqlite3'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDatabaseRepositories } from '../electron/repositories/databaseRepositoryFactory'
+import { getLocalDateKey, toLocalDateTimeString } from '../src/utils/dateKey'
 import type Database from 'better-sqlite3'
 
 describe('database repositories', () => {
@@ -61,6 +62,17 @@ describe('database repositories', () => {
         color TEXT DEFAULT '#0F766E'
       );
 
+      CREATE TABLE pomodoro_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER REFERENCES subjects(id),
+        duration INTEGER NOT NULL,
+        date_key TEXT,
+        started_at DATETIME,
+        completed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX idx_pomodoro_completed ON pomodoro_sessions(completed_at);
+      CREATE INDEX idx_pomodoro_date_key ON pomodoro_sessions(date_key);
+
       CREATE TABLE diary_templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -75,6 +87,7 @@ describe('database repositories', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     database.close()
   })
 
@@ -405,6 +418,146 @@ describe('database repositories', () => {
 
     expect(repositories.subjects.deleteSubject(2)).toEqual({ success: true })
     expect(repositories.subjects.getAllSubjects().map(subject => subject.name)).toEqual(['Advanced Math'])
+  })
+
+  it('adds pomodoro sessions with explicit fields and preserves stored values', () => {
+    const subject = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+
+    expect(repositories.pomodoro.addPomodoroSession({
+      subject_id: Number(subject.id),
+      duration: 25,
+      date_key: '2026-06-06',
+      started_at: ' 2026-06-06 09:00:00 ',
+      completed_at: ' 2026-06-06 09:25:00 ',
+    })).toEqual({
+      id: 1,
+      date_key: '2026-06-06',
+      started_at: '2026-06-06 09:00:00',
+      completed_at: '2026-06-06 09:25:00',
+    })
+
+    expect(database.prepare(
+      'SELECT subject_id, duration, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
+    ).get(1)).toEqual({
+      subject_id: Number(subject.id),
+      duration: 25,
+      date_key: '2026-06-06',
+      started_at: '2026-06-06 09:00:00',
+      completed_at: '2026-06-06 09:25:00',
+    })
+  })
+
+  it('keeps zero subject ids as null and falls back to the started_at local date', () => {
+    const startedAt = '2026-06-08 12:30:00'
+    const completedAt = '2026-06-08 12:55:00'
+
+    const result = repositories.pomodoro.addPomodoroSession({
+      subject_id: 0,
+      duration: 25,
+      date_key: 'not-a-date',
+      started_at: startedAt,
+      completed_at: completedAt,
+    })
+
+    expect(result).toEqual({
+      id: 1,
+      date_key: getLocalDateKey(new Date(startedAt)),
+      started_at: startedAt,
+      completed_at: completedAt,
+    })
+    expect(database.prepare(
+      'SELECT subject_id, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
+    ).get(1)).toEqual({
+      subject_id: null,
+      date_key: getLocalDateKey(new Date(startedAt)),
+      started_at: startedAt,
+      completed_at: completedAt,
+    })
+  })
+
+  it('uses the current local date and datetime when optional pomodoro timestamps are blank', () => {
+    const now = new Date(2026, 5, 9, 12, 34, 56)
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    expect(repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      duration: 15,
+      date_key: undefined,
+      started_at: '   ',
+      completed_at: '   ',
+    })).toEqual({
+      id: 1,
+      date_key: getLocalDateKey(now),
+      started_at: null,
+      completed_at: toLocalDateTimeString(now),
+    })
+  })
+
+  it('aggregates daily pomodoro stats by subject without adding ordering', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const insertSession = database.prepare(
+      'INSERT INTO pomodoro_sessions (subject_id, duration, date_key) VALUES (?, ?, ?)'
+    )
+    insertSession.run(Number(math.id), 25, '2026-06-06')
+    insertSession.run(Number(math.id), 50, '2026-06-06')
+    insertSession.run(Number(english.id), 30, '2026-06-06')
+    insertSession.run(null, 10, '2026-06-06')
+    insertSession.run(Number(math.id), 100, '2026-06-07')
+
+    expect(repositories.pomodoro.getPomodoroStats('2026-06-06')).toEqual(expect.arrayContaining([
+      { subject_name: 'Math', color: '#0F766E', total_minutes: 75, session_count: 2 },
+      { subject_name: 'English', color: '#854D0E', total_minutes: 30, session_count: 1 },
+      { subject_name: null, color: null, total_minutes: 10, session_count: 1 },
+    ]))
+  })
+
+  it('aggregates range pomodoro stats by subject ordered by total minutes descending', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const insertSession = database.prepare(
+      'INSERT INTO pomodoro_sessions (subject_id, duration, date_key) VALUES (?, ?, ?)'
+    )
+    insertSession.run(Number(math.id), 25, '2026-06-01')
+    insertSession.run(Number(math.id), 50, '2026-06-02')
+    insertSession.run(Number(english.id), 30, '2026-06-03')
+    insertSession.run(null, 10, '2026-06-04')
+    insertSession.run(Number(english.id), 100, '2026-07-01')
+
+    expect(repositories.pomodoro.getPomodoroStatsRange('2026-06-01', '2026-06-30')).toEqual([
+      { subject_name: 'Math', color: '#0F766E', total_minutes: 75, session_count: 2 },
+      { subject_name: 'English', color: '#854D0E', total_minutes: 30, session_count: 1 },
+      { subject_name: null, color: null, total_minutes: 10, session_count: 1 },
+    ])
+  })
+
+  it('returns daily study minutes and zero when no pomodoro sessions exist', () => {
+    const insertSession = database.prepare(
+      'INSERT INTO pomodoro_sessions (subject_id, duration, date_key) VALUES (?, ?, ?)'
+    )
+    insertSession.run(null, 25, '2026-06-06')
+    insertSession.run(null, 35, '2026-06-06')
+    insertSession.run(null, 45, '2026-06-07')
+
+    expect(repositories.pomodoro.getDailyStudyMinutes('2026-06-06')).toBe(60)
+    expect(repositories.pomodoro.getDailyStudyMinutes('2026-06-08')).toBe(0)
+  })
+
+  it('aggregates pomodoro sessions by date over an inclusive range without zero filling', () => {
+    const insertSession = database.prepare(
+      'INSERT INTO pomodoro_sessions (subject_id, duration, date_key) VALUES (?, ?, ?)'
+    )
+    insertSession.run(null, 25, '2026-06-01')
+    insertSession.run(null, 35, '2026-06-01')
+    insertSession.run(null, 45, '2026-06-03')
+    insertSession.run(null, 50, '2026-06-05')
+
+    expect(repositories.pomodoro.getPomodoroRange('2026-06-01', '2026-06-03')).toEqual([
+      { date: '2026-06-01', total_minutes: 60, session_count: 2 },
+      { date: '2026-06-03', total_minutes: 45, session_count: 1 },
+    ])
+    expect(repositories.pomodoro.getPomodoroRange('2026-06-06', '2026-06-07')).toEqual([])
   })
 
   it('creates, updates, orders, and protects diary templates', () => {
