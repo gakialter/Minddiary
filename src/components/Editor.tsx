@@ -47,6 +47,24 @@ interface EditorProps {
   onPendingInsertApplied?: (id: number) => void
 }
 
+interface SummaryRequestContext {
+  entryId: number | null
+  entryDate: string
+  content: string
+}
+
+const getSummaryRequestContext = (entry: DiaryEntry | null, content: string): SummaryRequestContext => ({
+  entryId: entry?.id ?? null,
+  entryDate: entry?.date ?? '',
+  content,
+})
+
+const isSameSummaryRequestContext = (a: SummaryRequestContext, b: SummaryRequestContext) => (
+  a.entryId === b.entryId &&
+  a.entryDate === b.entryDate &&
+  a.content === b.content
+)
+
 function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState('')
@@ -67,6 +85,38 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
   const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const summaryGenerationRef = useRef(0)
+  const activeSummaryGenerationRef = useRef<number | null>(null)
+  const summaryRequestContextRef = useRef(getSummaryRequestContext(entry, content))
+
+  const beginSummaryRequest = () => {
+    const generation = ++summaryGenerationRef.current
+    activeSummaryGenerationRef.current = generation
+    setSummaryLoading(true)
+    return generation
+  }
+
+  const isCurrentSummaryRequest = (generation: number, context: SummaryRequestContext) => (
+    summaryGenerationRef.current === generation &&
+    activeSummaryGenerationRef.current === generation &&
+    isSameSummaryRequestContext(summaryRequestContextRef.current, context)
+  )
+
+  const hasActiveSummaryRequest = () => (
+    activeSummaryGenerationRef.current !== null &&
+    summaryGenerationRef.current === activeSummaryGenerationRef.current
+  )
+
+  const invalidateSummaryRequest = (updateLoading = true) => {
+    summaryGenerationRef.current++
+    activeSummaryGenerationRef.current = null
+    if (updateLoading) setSummaryLoading(false)
+  }
+
+  const clearAiSummary = () => {
+    invalidateSummaryRequest()
+    setAiSummary(null)
+  }
 
   // Load daily pomodoro total when the entry date changes
   useEffect(() => {
@@ -114,6 +164,19 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
   }, [entry])
 
   useEffect(() => {
+    const nextContext = getSummaryRequestContext(entry, content)
+    if (!isSameSummaryRequestContext(summaryRequestContextRef.current, nextContext)) {
+      summaryRequestContextRef.current = nextContext
+      invalidateSummaryRequest()
+      setAiSummary(null)
+    }
+  }, [entry?.id, entry?.date, content])
+
+  useEffect(() => () => {
+    invalidateSummaryRequest(false)
+  }, [])
+
+  useEffect(() => {
     if (!entry || !pendingInsert || appliedInsertIdsRef.current.has(pendingInsert.id)) return
     if (pendingInsert.date && pendingInsert.date !== entry.date) return
 
@@ -154,7 +217,11 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
       showToast('请先写点内容再让 AI 总结吧！', 'info')
       return
     }
-    setSummaryLoading(true)
+    if (hasActiveSummaryRequest()) return
+
+    const requestContext = getSummaryRequestContext(entry, content)
+    summaryRequestContextRef.current = requestContext
+    const generation = beginSummaryRequest()
     setSummaryExpanded(true)
     setAiSummary(null)
     try {
@@ -164,6 +231,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
         { role: 'user', content: prompt }
       ]
       const result = await diary.ai.chat(messages)
+      if (!isCurrentSummaryRequest(generation, requestContext)) return
       if (result.error) {
         showToast(result.error, 'error')
       } else {
@@ -171,12 +239,16 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
         showToast('AI 汇总完成！', 'success')
       }
     } catch (e) {
+      if (!isCurrentSummaryRequest(generation, requestContext)) return
       logger.error(e)
       showToast('AI 请求失败，请检查网络', 'error')
     } finally {
-      setSummaryLoading(false)
+      if (isCurrentSummaryRequest(generation, requestContext)) {
+        activeSummaryGenerationRef.current = null
+        setSummaryLoading(false)
+      }
     }
-  }, [content, entry?.date, diary])
+  }, [content, entry?.date, entry?.id, diary])
 
   // MarkdownRenderer handles rendering via react-markdown + remark-gfm
   const handleShare = useCallback(async () => {
@@ -423,7 +495,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
             </div>
             <div className="flex items-center gap-xs">
               <button
-                onClick={e => { e.stopPropagation(); setAiSummary(null) }}
+                onClick={e => { e.stopPropagation(); clearAiSummary() }}
+                aria-label="Close AI summary"
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: 2 }}
                 title="关闭"
               >
