@@ -35,6 +35,7 @@ describe('MistakeBook Component', () => {
     delete: ReturnType<typeof vi.fn>
     toggleMastered: ReturnType<typeof vi.fn>
     review: ReturnType<typeof vi.fn>
+    getRandomDue: ReturnType<typeof vi.fn>
     saveImage: ReturnType<typeof vi.fn> | undefined
   }
   let subjectsApi: {
@@ -49,6 +50,22 @@ describe('MistakeBook Component', () => {
       delete: vi.fn().mockResolvedValue(true),
       toggleMastered: vi.fn().mockResolvedValue(true),
       review: vi.fn().mockResolvedValue(true),
+      getRandomDue: vi.fn().mockResolvedValue({
+        id: 7,
+        subject_id: 1,
+        subject_name: 'Math',
+        subject_color: '#ff0000',
+        question: 'Review Q',
+        answer: 'Review A',
+        notes: '',
+        mastered: false,
+        ease_factor: 2.5,
+        review_interval: 1,
+        review_count: 0,
+        next_review_date: null,
+        image_path: null,
+        created_at: '2026-06-07',
+      }),
       saveImage: undefined,
     }
 
@@ -59,6 +76,7 @@ describe('MistakeBook Component', () => {
     mockUseDiary.mockReturnValue({
       mistakes: mistakesApi,
       subjects: subjectsApi,
+      requestDataRefresh: vi.fn(),
     })
   })
 
@@ -96,8 +114,29 @@ describe('MistakeBook Component', () => {
     // "已掌握" appears in both the stats header and the card label
     expect(screen.getAllByText(/已掌握/).length).toBeGreaterThanOrEqual(1)
     
-    // Notes should be present
+    expect(screen.queryByText('basic')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
     expect(screen.getByText('basic')).toBeInTheDocument()
+  })
+
+  it('starts manual review using the currently selected subject filter', async () => {
+    await act(async () => {
+      render(<MistakeBook />)
+    })
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '1' } })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-start-review-btn'))
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.getRandomDue).toHaveBeenCalledWith(expect.any(String), 1)
+    })
+    expect(await screen.findByText('Review Q')).toBeInTheDocument()
   })
 
   it('applies and clears the due-review filter intent', async () => {

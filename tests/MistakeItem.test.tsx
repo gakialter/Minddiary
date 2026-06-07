@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { MistakeItem } from '../src/components/MistakeItem'
 import type { Mistake } from '../src/types'
@@ -35,6 +35,23 @@ const defaultProps = {
 }
 
 describe('MistakeItem notes markdown rendering', () => {
+  it('hides answer and notes until the user reveals them', () => {
+    render(
+      <MistakeItem
+        mistake={{ ...baseMistake, notes: 'plain note' }}
+        {...defaultProps}
+      />
+    )
+
+    expect(screen.queryByText('2')).not.toBeInTheDocument()
+    expect(screen.queryByText('plain note')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('plain note')).toBeInTheDocument()
+  })
+
   it('renders **bold** notes as <strong>', () => {
     const { container } = render(
       <MistakeItem
@@ -42,6 +59,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const notesMd = container.querySelector('.mistake-notes-md')!
     const strong = notesMd.querySelector('strong')
     expect(strong).not.toBeNull()
@@ -55,6 +73,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const mark = container.querySelector('mark')
     expect(mark).not.toBeNull()
     expect(mark!.textContent).toBe('highlighted')
@@ -67,6 +86,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const u = container.querySelector('u')
     expect(u).not.toBeNull()
     expect(u!.textContent).toBe('underlined')
@@ -79,6 +99,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const span = container.querySelector('span.md-color-red')
     expect(span).not.toBeNull()
     expect(span!.textContent).toBe('important')
@@ -91,6 +112,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const notesMd = container.querySelector('.mistake-notes-md')!
     expect(notesMd.querySelector('strong')!.textContent).toBe('bold')
     expect(notesMd.querySelector('mark')!.textContent).toBe('highlight')
@@ -104,6 +126,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const latexElements = screen.getAllByTestId('latex')
     // question and answer should each be rendered with Latex
     expect(latexElements.length).toBeGreaterThanOrEqual(2)
@@ -118,6 +141,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     const strong = container.querySelector('strong')
     const mark = container.querySelector('mark')
     expect(strong).not.toBeNull()
@@ -144,6 +168,7 @@ describe('MistakeItem notes markdown rendering', () => {
         {...defaultProps}
       />
     )
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
     expect(screen.getByText('plain note')).toBeInTheDocument()
   })
 })

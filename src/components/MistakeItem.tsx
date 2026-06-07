@@ -1,6 +1,6 @@
-import React from 'react'
+import { useState } from 'react'
 import { Mistake } from '../types'
-import { CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin } from 'lucide-react'
+import { CheckCircle2, Clock, Eye, EyeOff, Undo2, Pencil, Trash2, Pin } from 'lucide-react'
 import { isDueForReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
 import Latex from 'react-latex-next'
@@ -28,6 +28,12 @@ export function MistakeItem({
     handleReview,
     onPreviewImage,
 }: MistakeItemProps) {
+    const [answerVisible, setAnswerVisible] = useState(false)
+    const dueForReview = isDueForReview(m.next_review_date)
+    const hasAnswerContent = Boolean(m.answer || m.notes)
+    const canRevealAnswer = hasAnswerContent || (!m.mastered && dueForReview)
+    const showReviewControls = answerVisible && !m.mastered && dueForReview
+
     return (
         <div className="card" style={{
             padding: 'var(--space-md)',
@@ -46,7 +52,7 @@ export function MistakeItem({
                     )}
                     {m.mastered
                         ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 斩首成功 (已掌握)</span>
-                        : isDueForReview(m.next_review_date) 
+                        : dueForReview
                             ? <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
                             : <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 下次复习: {m.next_review_date}</span>
                     }
@@ -102,20 +108,39 @@ export function MistakeItem({
                     })}
                 </div>
             )}
-            {m.answer && (
+            {canRevealAnswer && (
+                <div style={{ marginTop: 'var(--space-sm)' }}>
+                    <button
+                        type="button"
+                        className="button button-secondary"
+                        data-testid={`mistake-toggle-answer-${m.id}`}
+                        onClick={() => setAnswerVisible(visible => !visible)}
+                        style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
+                    >
+                        {answerVisible ? <EyeOff size={13} aria-hidden /> : <Eye size={13} aria-hidden />}
+                        {answerVisible ? '隐藏答案' : '查看答案'}
+                    </button>
+                </div>
+            )}
+            {answerVisible && m.answer && (
                 <div className="text-secondary content-selectable" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
                     <strong>A：</strong><Latex>{m.answer}</Latex>
                 </div>
             )}
-            {m.notes && (
+            {answerVisible && m.notes && (
                 <div className="text-sm text-muted content-selectable" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                     <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} />
                     <MarkdownRenderer className="mistake-notes-md">{m.notes}</MarkdownRenderer>
                 </div>
             )}
+            {answerVisible && !hasAnswerContent && (
+                <div className="text-sm text-muted" style={{ marginTop: 'var(--space-xs)' }}>
+                    暂无答案或备注
+                </div>
+            )}
             
             {/* Spaced Repetition Review Buttons */}
-            {!m.mastered && isDueForReview(m.next_review_date) && (
+            {showReviewControls && (
                 <div className="flex gap-sm" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)' }}>
                     {REVIEW_QUALITIES.map(rq => (
                         <button 
