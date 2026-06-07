@@ -13,6 +13,7 @@ import ClickableImage from './ClickableImage'
 import FormatToolbar from './common/FormatToolbar'
 import { useTextFormat } from '../hooks/useTextFormat'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
+import MistakeReviewModal from './MistakeReviewModal'
 
 interface MistakeFilter {
     subject_id: string
@@ -64,6 +65,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [page, setPage] = useState(1)
     const [isDragging, setIsDragging] = useState(false)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
+    const [showManualReview, setShowManualReview] = useState(false)
     const [editScrollRequest, setEditScrollRequest] = useState(0)
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -311,12 +313,23 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 <div className="text-sm text-muted">
                     共 <strong style={{ color: 'var(--text-primary)' }}>{totalCount}</strong> 条记录，已吃透 <strong style={{ color: 'var(--success)' }}>{masteredCount}</strong> 条
                 </div>
-                <button className="button button-primary" onClick={() => {
-                    setShowForm(!showForm); setEditingId(null);
-                    setForm({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
-                }} data-testid="mistake-add-btn">
-                    + 添加
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                        type="button"
+                        className="button button-primary"
+                        data-testid="mistake-start-review-btn"
+                        onClick={() => setShowManualReview(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                        <BookOpen size={16} /> 开始复习
+                    </button>
+                    <button className="button button-primary" onClick={() => {
+                        setShowForm(!showForm); setEditingId(null);
+                        setForm({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
+                    }} data-testid="mistake-add-btn">
+                        + 添加
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
@@ -524,6 +537,16 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     <button className="button button-secondary" style={{ padding: '4px 12px' }}
                         disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页 ›</button>
                 </div>
+            )}
+            {showManualReview && (
+                <MistakeReviewModal
+                    onClose={() => {
+                        setShowManualReview(false)
+                        loadMistakes()
+                    }}
+                    variant="manual"
+                    subjectId={filter.subject_id ? Number(filter.subject_id) : undefined}
+                />
             )}
             <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
         </div>
