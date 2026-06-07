@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MistakeReviewModal from '../src/components/MistakeReviewModal'
 import type { Mistake } from '../src/types'
@@ -65,6 +65,17 @@ const dueMistake: Mistake = {
   created_at: '2026-06-07T08:00:00Z',
 }
 
+const createDeferredReview = () => {
+  let resolveReview!: (value: { success: boolean }) => void
+  let rejectReview!: (reason: unknown) => void
+  const promise = new Promise<{ success: boolean }>((resolve, reject) => {
+    resolveReview = resolve
+    rejectReview = reject
+  })
+
+  return { promise, resolveReview, rejectReview }
+}
+
 beforeEach(() => {
   mocks.getRandomDue.mockResolvedValue(dueMistake)
   mocks.review.mockResolvedValue({ success: true })
@@ -116,6 +127,56 @@ describe('MistakeReviewModal', () => {
       expect(mocks.getRandomDue).toHaveBeenCalledTimes(2)
     })
     expect(await screen.findByText('当前没有待复习错题')).toBeInTheDocument()
+  })
+
+  it('prevents duplicate submissions while a review request is in flight', async () => {
+    const deferred = createDeferredReview()
+    mocks.review.mockReturnValue(deferred.promise)
+
+    render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
+
+    fireEvent.click(await screen.findByTestId('mistake-review-reveal-answer'))
+    fireEvent.click(screen.getByTestId('mistake-review-quality-4'))
+    fireEvent.click(screen.getByTestId('mistake-review-quality-4'))
+    fireEvent.click(screen.getByTestId('mistake-review-quality-5'))
+
+    expect(mocks.review).toHaveBeenCalledTimes(1)
+    for (const quality of [0, 2, 4, 5]) {
+      expect(screen.getByTestId(`mistake-review-quality-${quality}`)).toBeDisabled()
+    }
+
+    await act(async () => {
+      deferred.resolveReview({ success: true })
+      await deferred.promise
+    })
+
+    expect(screen.getByTestId('mistake-review-done')).toBeInTheDocument()
+  })
+
+  it('reenables scoring controls after a rejected review without refreshing or entering done state', async () => {
+    const deferred = createDeferredReview()
+    mocks.review.mockReturnValue(deferred.promise)
+
+    render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
+
+    fireEvent.click(await screen.findByTestId('mistake-review-reveal-answer'))
+    fireEvent.click(screen.getByTestId('mistake-review-quality-4'))
+
+    for (const quality of [0, 2, 4, 5]) {
+      expect(screen.getByTestId(`mistake-review-quality-${quality}`)).toBeDisabled()
+    }
+
+    await act(async () => {
+      deferred.rejectReview(new Error('review failed'))
+      await deferred.promise.catch(() => undefined)
+    })
+
+    for (const quality of [0, 2, 4, 5]) {
+      expect(screen.getByTestId(`mistake-review-quality-${quality}`)).not.toBeDisabled()
+    }
+    expect(screen.queryByTestId('mistake-review-done')).not.toBeInTheDocument()
+    expect(mocks.requestDataRefresh).not.toHaveBeenCalled()
+    expect(mocks.loggerError).toHaveBeenCalledTimes(1)
   })
 
   it('shows a clear empty state when no due mistake exists', async () => {

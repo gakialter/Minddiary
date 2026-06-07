@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, CheckCircle, Pin, RotateCcw, Trophy, X } from 'lucide-react'
 import Latex from 'react-latex-next'
 import { useDiary } from '../contexts/DiaryContext'
@@ -38,7 +38,9 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     const [loading, setLoading] = useState(true)
     const [phase, setPhase] = useState<ReviewPhase>('question')
     const [noMistakes, setNoMistakes] = useState(false)
+    const [reviewing, setReviewing] = useState(false)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
+    const reviewInFlightRef = useRef(false)
 
     const isBreakReview = variant === 'break'
     const testPrefix = isBreakReview ? 'break-review' : 'mistake-review'
@@ -56,6 +58,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     const loadRandomMistake = useCallback(async () => {
         setLoading(true)
         setPhase('question')
+        reviewInFlightRef.current = false
+        setReviewing(false)
         try {
             const today = getLocalDateKey()
             const dueMistake = subjectId === undefined
@@ -82,7 +86,11 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     }, [loadRandomMistake])
 
     const handleReview = async (quality: number) => {
-        if (!mistake) return
+        if (!mistake || reviewInFlightRef.current) return
+
+        reviewInFlightRef.current = true
+        setReviewing(true)
+
         try {
             const result = calculateNextReview(
                 quality,
@@ -95,6 +103,9 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
             setPhase('done')
         } catch (e) {
             logger.error(e)
+        } finally {
+            reviewInFlightRef.current = false
+            setReviewing(false)
         }
     }
 
@@ -246,6 +257,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                                                 type="button"
                                                 className="button button-secondary"
                                                 data-testid={`${testPrefix}-quality-${rq.quality}`}
+                                                disabled={reviewing}
                                                 style={{ flex: 1, color: rq.color, borderColor: rq.color + '55', fontSize: 13 }}
                                                 onClick={() => handleReview(rq.quality)}
                                             >
@@ -257,7 +269,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                             )}
 
                             {phase === 'done' && (
-                                <div style={{ textAlign: 'center' }}>
+                                <div data-testid={`${testPrefix}-done`} style={{ textAlign: 'center' }}>
                                     <CheckCircle size={32} style={{ color: 'var(--success)', marginBottom: 'var(--space-sm)' }} />
                                     <div style={{ color: 'var(--success)', fontWeight: 600, marginBottom: 'var(--space-md)', fontSize: 15 }}>
                                         已记录，下一次复习时间已更新
