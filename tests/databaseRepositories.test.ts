@@ -516,6 +516,150 @@ describe('database repositories', () => {
     expect(repositories.subjects.getAllSubjects().map(subject => subject.name)).toEqual(['Advanced Math'])
   })
 
+  it('deletes subjects by clearing related history subject ids without deleting history', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const mathId = Number(math.id)
+    const englishId = Number(english.id)
+
+    const mistakeId = insertMistake({
+      subject_id: mathId,
+      question: 'Math question',
+      answer: 'Math answer',
+      notes: 'Keep these notes',
+      mastered: 1,
+      ease_factor: 2.2,
+      review_interval: 7,
+      next_review_date: '2026-06-12',
+      review_count: 3,
+      image_path: 'mistakes/math.png',
+    })
+    const englishMistakeId = insertMistake({ subject_id: englishId, question: 'English question' })
+    const pomodoroId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      mathId,
+      50,
+      '2026-06-07',
+      '2026-06-07 09:00:00',
+      '2026-06-07 09:50:00',
+    ).lastInsertRowid)
+    const englishPomodoroId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      englishId,
+      25,
+      '2026-06-07',
+      '2026-06-07 10:00:00',
+      '2026-06-07 10:25:00',
+    ).lastInsertRowid)
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Math review task',
+      description: 'Keep task detail',
+      type: 'review',
+      subject_id: mathId,
+      planned_date: '2026-06-07',
+      estimate_minutes: 45,
+      status: 'doing',
+      source: 'dashboard',
+    })
+    const englishTask = repositories.studyTasks.createStudyTask({
+      title: 'English review task',
+      subject_id: englishId,
+      planned_date: '2026-06-07',
+    })
+
+    expect(repositories.subjects.deleteSubject(mathId)).toEqual({ success: true })
+
+    expect(repositories.subjects.getAllSubjects().map(subject => subject.name)).toEqual(['English'])
+    expect(database.prepare(`
+      SELECT subject_id, question, answer, notes, mastered, ease_factor, review_interval, next_review_date, review_count, image_path
+      FROM mistakes WHERE id = ?
+    `).get(mistakeId)).toEqual({
+      subject_id: null,
+      question: 'Math question',
+      answer: 'Math answer',
+      notes: 'Keep these notes',
+      mastered: 1,
+      ease_factor: 2.2,
+      review_interval: 7,
+      next_review_date: '2026-06-12',
+      review_count: 3,
+      image_path: 'mistakes/math.png',
+    })
+    expect(database.prepare('SELECT subject_id FROM mistakes WHERE id = ?').get(englishMistakeId)).toEqual({
+      subject_id: englishId,
+    })
+    expect(database.prepare(`
+      SELECT subject_id, duration, date_key, started_at, completed_at
+      FROM pomodoro_sessions WHERE id = ?
+    `).get(pomodoroId)).toEqual({
+      subject_id: null,
+      duration: 50,
+      date_key: '2026-06-07',
+      started_at: '2026-06-07 09:00:00',
+      completed_at: '2026-06-07 09:50:00',
+    })
+    expect(database.prepare('SELECT subject_id FROM pomodoro_sessions WHERE id = ?').get(englishPomodoroId)).toEqual({
+      subject_id: englishId,
+    })
+    expect(database.prepare(`
+      SELECT title, description, type, subject_id, planned_date, estimate_minutes, status, source
+      FROM study_tasks WHERE id = ?
+    `).get(task.id)).toEqual({
+      title: 'Math review task',
+      description: 'Keep task detail',
+      type: 'review',
+      subject_id: null,
+      planned_date: '2026-06-07',
+      estimate_minutes: 45,
+      status: 'doing',
+      source: 'dashboard',
+    })
+    expect(database.prepare('SELECT subject_id FROM study_tasks WHERE id = ?').get(englishTask.id)).toEqual({
+      subject_id: englishId,
+    })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+  })
+
+  it('rolls back subject history unlinking when subject deletion fails mid-transaction', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const mathId = Number(math.id)
+    const mistakeId = insertMistake({ subject_id: mathId, question: 'Math question' })
+    const pomodoroId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key)
+      VALUES (?, ?, ?)
+    `).run(mathId, 25, '2026-06-07').lastInsertRowid)
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Math review task',
+      subject_id: mathId,
+      planned_date: '2026-06-07',
+    })
+
+    database.exec(`
+      CREATE TRIGGER fail_pomodoro_subject_unlink
+      BEFORE UPDATE OF subject_id ON pomodoro_sessions
+      WHEN NEW.subject_id IS NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'pomodoro subject unlink failed');
+      END;
+    `)
+
+    expect(() => repositories.subjects.deleteSubject(mathId)).toThrow('pomodoro subject unlink failed')
+    expect(database.prepare('SELECT id FROM subjects WHERE id = ?').get(mathId)).toEqual({ id: mathId })
+    expect(database.prepare('SELECT subject_id FROM mistakes WHERE id = ?').get(mistakeId)).toEqual({
+      subject_id: mathId,
+    })
+    expect(database.prepare('SELECT subject_id FROM pomodoro_sessions WHERE id = ?').get(pomodoroId)).toEqual({
+      subject_id: mathId,
+    })
+    expect(database.prepare('SELECT subject_id FROM study_tasks WHERE id = ?').get(task.id)).toEqual({
+      subject_id: mathId,
+    })
+  })
+
   it('adds pomodoro sessions with explicit fields and preserves stored values', () => {
     const subject = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
 
