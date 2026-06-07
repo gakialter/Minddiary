@@ -624,6 +624,47 @@ describe('database repositories', () => {
     expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
+  it('keeps existing subjects and related history unchanged when deleting a missing subject id', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const mathId = Number(math.id)
+    const mistakeId = insertMistake({ subject_id: mathId, question: 'Math question' })
+    const pomodoroId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      mathId,
+      25,
+      '2026-06-07',
+      '2026-06-07 09:00:00',
+      '2026-06-07 09:25:00',
+    ).lastInsertRowid)
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Math review task',
+      subject_id: mathId,
+      planned_date: '2026-06-07',
+    })
+
+    expect(repositories.subjects.deleteSubject(999)).toEqual({ success: true })
+
+    expect(repositories.subjects.getAllSubjects()).toEqual([math])
+    expect(database.prepare('SELECT subject_id, question FROM mistakes WHERE id = ?').get(mistakeId)).toEqual({
+      subject_id: mathId,
+      question: 'Math question',
+    })
+    expect(database.prepare('SELECT subject_id, duration, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id = ?').get(pomodoroId)).toEqual({
+      subject_id: mathId,
+      duration: 25,
+      date_key: '2026-06-07',
+      started_at: '2026-06-07 09:00:00',
+      completed_at: '2026-06-07 09:25:00',
+    })
+    expect(database.prepare('SELECT subject_id, title, planned_date FROM study_tasks WHERE id = ?').get(task.id)).toEqual({
+      subject_id: mathId,
+      title: 'Math review task',
+      planned_date: '2026-06-07',
+    })
+  })
+
   it('rolls back subject history unlinking when subject deletion fails mid-transaction', () => {
     const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
     const mathId = Number(math.id)
