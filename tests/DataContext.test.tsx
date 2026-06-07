@@ -700,9 +700,28 @@ describe('DataContext', () => {
     expect(window.api.ai.chat).not.toHaveBeenCalled()
   })
 
-  it('creates mistakes in browser fallback storage and toggles mastered state', async () => {
+  it('creates, updates, and reads mistake answer images in browser fallback storage', async () => {
     mocks.isElectron = false
-    seedEmptyBrowserStorage()
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify([
+      {
+        id: 20,
+        subject_id: null,
+        question: 'Legacy',
+        answer: '',
+        notes: '',
+        mastered: false,
+        ease_factor: 2.5,
+        review_interval: 1,
+        next_review_date: null,
+        review_count: 0,
+        image_path: 'mistake_images/legacy-question.png',
+        created_at: '2026-06-01T00:00:00.000Z',
+      },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+    localStorage.setItem(STORAGE_KEYS.TASKS, '[]')
     const { result } = renderDataHook()
 
     await waitFor(() => {
@@ -711,30 +730,50 @@ describe('DataContext', () => {
 
     let createdMistake: Mistake | undefined
     await act(async () => {
-      createdMistake = await result.current.mistakes.create({ question: 'A' })
+      createdMistake = await result.current.mistakes.create({
+        question: 'A',
+        image_path: 'mistake_images/question.png',
+        answer_image_path: 'mistake_images/answer.png',
+      })
     })
 
     expect(createdMistake).toEqual(expect.objectContaining({
-      id: 1,
+      id: 21,
       question: 'A',
+      image_path: 'mistake_images/question.png',
+      answer_image_path: 'mistake_images/answer.png',
       mastered: false,
       created_at: expect.any(String),
     }))
 
     await act(async () => {
-      await result.current.mistakes.toggleMastered(1)
+      await result.current.mistakes.update(21, { answer_image_path: 'mistake_images/answer-updated.png' })
+      await result.current.mistakes.toggleMastered(21)
     })
 
     const mistakes = await result.current.mistakes.getAll()
 
-    expect(mistakes.data).toHaveLength(1)
-    expect(mistakes.data[0]).toEqual(expect.objectContaining({
-      id: 1,
+    expect(mistakes.data).toHaveLength(2)
+    expect(mistakes.data.find(mistake => mistake.id === 20)).toEqual(expect.objectContaining({
+      id: 20,
+      image_path: 'mistake_images/legacy-question.png',
+      answer_image_path: null,
+    }))
+    expect(mistakes.data.find(mistake => mistake.id === 21)).toEqual(expect.objectContaining({
+      id: 21,
       question: 'A',
+      answer_image_path: 'mistake_images/answer-updated.png',
       mastered: true,
     }))
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MISTAKES) || '[]')[0]).toEqual(
-      expect.objectContaining({ id: 1, question: 'A', mastered: true }),
-    )
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MISTAKES) || '[]')).toEqual([
+      expect.objectContaining({ id: 20, question: 'Legacy' }),
+      expect.objectContaining({
+        id: 21,
+        question: 'A',
+        image_path: 'mistake_images/question.png',
+        answer_image_path: 'mistake_images/answer-updated.png',
+        mastered: true,
+      }),
+    ])
   })
 })

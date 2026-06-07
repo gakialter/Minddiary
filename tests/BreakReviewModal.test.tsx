@@ -59,6 +59,8 @@ const dueMistake: Mistake = {
   review_interval: 1,
   next_review_date: null,
   review_count: 0,
+  image_path: null,
+  answer_image_path: null,
   created_at: '2026-05-19T08:00:00Z',
 }
 
@@ -92,5 +94,23 @@ describe('BreakReviewModal', () => {
       }))
       expect(mocks.requestDataRefresh).toHaveBeenCalledTimes(1)
     })
+  })
+
+  it('keeps break-review answer images hidden until reveal', async () => {
+    mocks.getRandomDue.mockResolvedValue({
+      ...dueMistake,
+      image_path: 'mistake_images/break-question.png',
+      answer_image_path: 'mistake_images/break-answer.png',
+    })
+
+    const { container } = render(<BreakReviewModal onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Q')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题复习题目图片 1"]')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('break-review-reveal-answer'))
+
+    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).toBeInTheDocument()
   })
 })

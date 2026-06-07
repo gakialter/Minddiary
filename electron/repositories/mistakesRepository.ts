@@ -47,24 +47,31 @@ export function createMistakesRepository(db: Database.Database) {
         return { data, total, masteredTotal };
     }
 
-    function createMistake({ subject_id, question, answer, notes, image_path }: Partial<Mistake>) {
+    function createMistake({ subject_id, question, answer, notes, image_path, answer_image_path }: Partial<Mistake>) {
         const stmt = db.prepare(
-            'INSERT INTO mistakes (subject_id, question, answer, notes, image_path) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO mistakes (subject_id, question, answer, notes, image_path, answer_image_path) VALUES (?, ?, ?, ?, ?, ?)'
         );
-        const result = stmt.run(subject_id || null, question || '', answer || '', notes || '', image_path || null);
+        const result = stmt.run(subject_id || null, question || '', answer || '', notes || '', image_path || null, answer_image_path || null);
         return { id: result.lastInsertRowid };
     }
 
-    function getMistakeImagePath(id: number): string | null {
-        const row = db.prepare('SELECT image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null } | undefined;
-        return row?.image_path ?? null;
+    function getMistakeImageFields(id: number): { image_path: string | null; answer_image_path: string | null } {
+        const row = db.prepare('SELECT image_path, answer_image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null; answer_image_path: string | null } | undefined;
+        return {
+            image_path: row?.image_path ?? null,
+            answer_image_path: row?.answer_image_path ?? null,
+        };
     }
 
-    function getOtherMistakeImagePaths(excludingId: number): { id: number; image_path: string | null }[] {
-        return db.prepare('SELECT id, image_path FROM mistakes WHERE id <> ? AND image_path IS NOT NULL').all(excludingId) as { id: number; image_path: string | null }[];
+    function getOtherMistakeImageFields(excludingId: number): { id: number; image_path: string | null; answer_image_path: string | null }[] {
+        return db.prepare(`
+            SELECT id, image_path, answer_image_path
+            FROM mistakes
+            WHERE id <> ? AND (image_path IS NOT NULL OR answer_image_path IS NOT NULL)
+        `).all(excludingId) as { id: number; image_path: string | null; answer_image_path: string | null }[];
     }
 
-    function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: Partial<Mistake>) {
+    function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
         const updates = [];
         const params = [];
         if (subject_id !== undefined) { updates.push('subject_id = ?'); params.push(subject_id); }
@@ -73,6 +80,7 @@ export function createMistakesRepository(db: Database.Database) {
         if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
         if (mastered !== undefined) { updates.push('mastered = ?'); params.push(mastered ? 1 : 0); }
         if (image_path !== undefined) { updates.push('image_path = ?'); params.push(image_path); }
+        if (answer_image_path !== undefined) { updates.push('answer_image_path = ?'); params.push(answer_image_path); }
         updates.push('updated_at = CURRENT_TIMESTAMP');
         params.push(id);
         db.prepare(`UPDATE mistakes SET ${updates.join(', ')} WHERE id=?`).run(...params);
@@ -143,8 +151,8 @@ export function createMistakesRepository(db: Database.Database) {
     return {
         getAllMistakes,
         createMistake,
-        getMistakeImagePath,
-        getOtherMistakeImagePaths,
+        getMistakeImageFields,
+        getOtherMistakeImageFields,
         updateMistake,
         deleteMistake,
         toggleMistakeMastered,

@@ -21,15 +21,19 @@ export interface MistakeReviewModalProps {
 type ReviewPhase = 'question' | 'answer' | 'done'
 
 const parseImagePaths = (raw?: string | null): string[] => {
-    if (!raw) return []
-    if (raw.startsWith('[')) {
+    const trimmed = raw?.trim()
+    if (!trimmed) return []
+    if (trimmed.startsWith('[')) {
         try {
-            return JSON.parse(raw)
+            const parsed = JSON.parse(trimmed)
+            return Array.isArray(parsed)
+                ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+                : []
         } catch {
-            return []
+            return [trimmed]
         }
     }
-    return [raw]
+    return [trimmed]
 }
 
 export default function MistakeReviewModal({ onClose, variant, subjectId }: MistakeReviewModalProps) {
@@ -109,7 +113,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
         }
     }
 
-    const imagePaths = parseImagePaths(mistake?.image_path)
+    const questionImagePaths = parseImagePaths(mistake?.image_path)
+    const answerImagePaths = parseImagePaths(mistake?.answer_image_path)
 
     return (
         <div style={{
@@ -188,11 +193,11 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                                 <Latex>{mistake.question}</Latex>
                             </div>
 
-                            {imagePaths.length > 0 && (
+                            {questionImagePaths.length > 0 && (
                                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 'var(--space-md)' }}>
-                                    {imagePaths.map((imgPath, idx) => {
+                                    {questionImagePaths.map((imgPath, idx) => {
                                         const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
-                                        const alt = `错题复习图片 ${idx + 1}`
+                                        const alt = `错题复习题目图片 ${idx + 1}`
                                         return (
                                             <ClickableImage
                                                 key={idx}
@@ -246,6 +251,33 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                                             </div>
                                         )}
                                     </div>
+
+                                    {answerImagePaths.length > 0 && (
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 'var(--space-md)' }}>
+                                            {answerImagePaths.map((imgPath, idx) => {
+                                                const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
+                                                const alt = `错题复习答案图片 ${idx + 1}`
+                                                return (
+                                                    <ClickableImage
+                                                        key={idx}
+                                                        src={imageUrl}
+                                                        alt={alt}
+                                                        onPreview={setPreviewImage}
+                                                        ariaLabel={`放大查看${alt}`}
+                                                        title={`放大查看${alt}`}
+                                                        buttonStyle={{
+                                                            padding: 0,
+                                                            border: 'none',
+                                                            background: 'transparent',
+                                                            cursor: 'zoom-in',
+                                                            maxWidth: '100%',
+                                                        }}
+                                                        imageStyle={{ maxWidth: '100%', maxHeight: 180, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                    )}
 
                                     <div style={{ marginBottom: 'var(--space-sm)', fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>
                                         对自己的掌握情况打分：

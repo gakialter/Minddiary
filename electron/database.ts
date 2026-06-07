@@ -373,9 +373,14 @@ function getAllMistakes(filters: MistakeFilters = {}): { data: Mistake[], total:
     return getRepositories().mistakes.getAllMistakes(filters);
 }
 
-function createMistake({ subject_id, question, answer, notes, image_path }: Partial<Mistake>) {
-    return getRepositories().mistakes.createMistake({ subject_id, question, answer, notes, image_path });
+function createMistake({ subject_id, question, answer, notes, image_path, answer_image_path }: Partial<Mistake>) {
+    return getRepositories().mistakes.createMistake({ subject_id, question, answer, notes, image_path, answer_image_path });
 }
+
+type MistakeImageFields = {
+    image_path: string | null;
+    answer_image_path: string | null;
+};
 
 function parseMistakeImagePaths(raw: unknown): string[] {
     if (typeof raw !== 'string') return [];
@@ -394,16 +399,23 @@ function parseMistakeImagePaths(raw: unknown): string[] {
     return [trimmed];
 }
 
-function getRemovedMistakeImageRefs(oldValue: unknown, newValue: unknown): string[] {
+function getMistakeImageRefs(fields: MistakeImageFields): string[] {
+    return [
+        ...parseMistakeImagePaths(fields.image_path),
+        ...parseMistakeImagePaths(fields.answer_image_path),
+    ];
+}
+
+function getRemovedMistakeImageRefs(oldFields: MistakeImageFields, newFields: MistakeImageFields): string[] {
     const newKeys = new Set(
-        parseMistakeImagePaths(newValue)
+        getMistakeImageRefs(newFields)
             .map(ref => getMistakeImageReferenceKey(ref))
             .filter((key: string | null): key is string => !!key),
     );
     const removed: string[] = [];
     const seen = new Set<string>();
 
-    for (const ref of parseMistakeImagePaths(oldValue)) {
+    for (const ref of getMistakeImageRefs(oldFields)) {
         const key = getMistakeImageReferenceKey(ref);
         if (!key) {
             removed.push(ref);
@@ -421,14 +433,14 @@ function getRemovedMistakeImageRefs(oldValue: unknown, newValue: unknown): strin
 function isMistakeImageStillReferenced(ref: string, excludingId: number): boolean {
     const targetKey = getMistakeImageReferenceKey(ref);
     if (!targetKey) return false;
-    const rows = getRepositories().mistakes.getOtherMistakeImagePaths(excludingId);
-    return rows.some(row => parseMistakeImagePaths(row.image_path).some(candidate => (
+    const rows = getRepositories().mistakes.getOtherMistakeImageFields(excludingId);
+    return rows.some(row => getMistakeImageRefs(row).some(candidate => (
         getMistakeImageReferenceKey(candidate) === targetKey
     )));
 }
 
-async function cleanupRemovedMistakeImages(mistakeId: number, oldValue: unknown, newValue: unknown): Promise<void> {
-    for (const ref of getRemovedMistakeImageRefs(oldValue, newValue)) {
+async function cleanupRemovedMistakeImages(mistakeId: number, oldFields: MistakeImageFields, newFields: MistakeImageFields): Promise<void> {
+    for (const ref of getRemovedMistakeImageRefs(oldFields, newFields)) {
         const key = getMistakeImageReferenceKey(ref);
         if (!key) {
             logger.warn('[database] Skipped unmanaged mistake image cleanup', ref);
@@ -448,23 +460,28 @@ async function cleanupRemovedMistakeImages(mistakeId: number, oldValue: unknown,
     }
 }
 
-async function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path }: Partial<Mistake>) {
-    const previousImagePath = image_path !== undefined
-        ? getRepositories().mistakes.getMistakeImagePath(id)
+async function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
+    const hasImagePatch = image_path !== undefined || answer_image_path !== undefined;
+    const previousImageFields = hasImagePatch
+        ? getRepositories().mistakes.getMistakeImageFields(id)
         : null;
-    const result = getRepositories().mistakes.updateMistake(id, { subject_id, question, answer, notes, mastered, image_path });
-    if (image_path !== undefined) {
-        await cleanupRemovedMistakeImages(id, previousImagePath, image_path ?? null);
+    const nextImageFields = previousImageFields
+        ? {
+            image_path: image_path !== undefined ? image_path ?? null : previousImageFields.image_path,
+            answer_image_path: answer_image_path !== undefined ? answer_image_path ?? null : previousImageFields.answer_image_path,
+        }
+        : null;
+    const result = getRepositories().mistakes.updateMistake(id, { subject_id, question, answer, notes, mastered, image_path, answer_image_path });
+    if (previousImageFields && nextImageFields) {
+        await cleanupRemovedMistakeImages(id, previousImageFields, nextImageFields);
     }
     return result;
 }
 
 async function deleteMistake(id: number) {
     try {
-        const imagePath = getRepositories().mistakes.getMistakeImagePath(id);
-        if (imagePath) {
-            await cleanupRemovedMistakeImages(id, imagePath, null);
-        }
+        const imageFields = getRepositories().mistakes.getMistakeImageFields(id);
+        await cleanupRemovedMistakeImages(id, imageFields, { image_path: null, answer_image_path: null });
     } catch(e) { logger.error('Failed to cleanup mistake image', e); }
 
     return getRepositories().mistakes.deleteMistake(id);

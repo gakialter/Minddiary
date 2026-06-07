@@ -86,6 +86,7 @@ type MistakeRow = {
   next_review_date: string | null
   review_count: number
   image_path: string | null
+  answer_image_path: string | null
 }
 
 type DiaryTemplateRow = {
@@ -126,7 +127,7 @@ type DatabaseModule = {
   }) => { id: number | bigint; date_key: string; started_at: string | null; completed_at: string }
   getDailyStudyMinutes: (date: string) => number
   getAllMistakes: (filters?: { subject_id?: number; limit?: number }) => { data: MistakeRow[]; total: number; masteredTotal: number }
-  createMistake: (mistake: { subject_id: number | null; question: string; answer: string; notes: string; image_path?: string | null }) => { id: number | bigint }
+  createMistake: (mistake: { subject_id: number | null; question: string; answer: string; notes: string; image_path?: string | null; answer_image_path?: string | null }) => { id: number | bigint }
   createStudyTask: (task: {
     title: string
     planned_date: string
@@ -247,7 +248,7 @@ function expectFixtureProvenance(): void {
 }
 
 function expectCurrentSchema(database: Database.Database): void {
-  expect(getUserVersion(database)).toBe(1)
+  expect(getUserVersion(database)).toBe(2)
   expect(getIntegrityCheck(database)).toBe('ok')
   expect(getForeignKeyViolations(database)).toEqual([])
 
@@ -266,6 +267,7 @@ function expectCurrentSchema(database: Database.Database): void {
     'next_review_date',
     'review_count',
     'image_path',
+    'answer_image_path',
   ]))
   expect(getColumnNames(database, 'study_tasks')).toEqual(expect.arrayContaining([
     'title',
@@ -329,7 +331,7 @@ function expectLegacyDataPreserved(database: Database.Database, expected: Expect
   })
 
   const mistake = database.prepare(`
-    SELECT id, subject_id, question, answer, notes, mastered, ease_factor, review_interval, next_review_date, review_count, image_path
+    SELECT id, subject_id, question, answer, notes, mastered, ease_factor, review_interval, next_review_date, review_count, image_path, answer_image_path
     FROM mistakes
     WHERE id = ?
   `).get(expected.mistake.id) as MistakeRow
@@ -345,6 +347,7 @@ function expectLegacyDataPreserved(database: Database.Database, expected: Expect
     next_review_date: expected.mistake.expectedNextReviewDate,
     review_count: expected.mistake.expectedReviewCount,
     image_path: expected.mistake.expectedImagePath,
+    answer_image_path: null,
   })
 
   expect(database.prepare('SELECT value FROM settings WHERE key = ?').get(expected.setting.key))
@@ -459,6 +462,7 @@ function exerciseDatabaseApi(databaseModule: DatabaseModule, expected: ExpectedL
     answer: 'api answer',
     notes: 'api notes',
     image_path: null,
+    answer_image_path: 'mistake_images/api-answer.png',
   })
   expect(Number(mistake.id)).toBeGreaterThan(expected.mistake.id)
 
@@ -508,7 +512,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const { database, expected } = prepareFixtureDatabase(fixture)
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(1)
+    expect(runDatabaseMigrations(database)).toBe(2)
 
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
@@ -553,16 +557,16 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const fixture = legacyDatabaseFixtures[0]
     expect(fixture).toBeDefined()
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture!)
-    seedDatabase.pragma('user_version = 2')
+    seedDatabase.pragma('user_version = 3')
     closeTrackedDatabase(seedDatabase)
 
     const databaseModule = await loadRealDatabaseModule(root)
     databaseModule.setCustomDbPath(filepath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 2.*supported version 1/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 3.*supported version 2/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = trackDatabase(new BetterSqlite3(filepath))
-    expect(getUserVersion(reopened)).toBe(2)
+    expect(getUserVersion(reopened)).toBe(3)
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
@@ -584,8 +588,8 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     expect(getColumnNames(database, 'tags')).not.toContain('icon')
   })
 
-  it('keeps schema and backup version constants at the V2-02 values', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(1)
+  it('keeps schema and backup format constants aligned with the current schema', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(2)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
   })
 })

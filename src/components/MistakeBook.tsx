@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
-import { BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
+import { ArrowRightLeft, BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
 import { logger } from '../utils/logger'
 import type { Mistake, Subject, MistakeFilters } from '../types'
 import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
@@ -26,8 +26,11 @@ interface MistakeForm {
     question: string
     answer: string
     notes: string
-    image_paths: string[]
+    question_image_paths: string[]
+    answer_image_paths: string[]
 }
+
+type ImageRole = 'question' | 'answer'
 
 export type MistakeFilterIntent = 'due'
 
@@ -37,9 +40,19 @@ interface MistakeBookProps {
 }
 
 const parseImagePaths = (raw?: string | null): string[] => {
-    if (!raw) return []
-    if (raw.startsWith('[')) { try { return JSON.parse(raw) } catch { return [] } }
-    return [raw]
+    const trimmed = raw?.trim()
+    if (!trimmed) return []
+    if (trimmed.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(trimmed)
+            return Array.isArray(parsed)
+                ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+                : []
+        } catch {
+            return [trimmed]
+        }
+    }
+    return [trimmed]
 }
 
 const serializeImagePaths = (paths: string[]): string | null => {
@@ -61,15 +74,16 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [filter, setFilter] = useState<MistakeFilter>({ subject_id: '', mastered: '', search: '' })
     const [dueOnly, setDueOnly] = useState(initialFilter === 'due')
     const [searchInput, setSearchInput] = useState('')
-    const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
+    const [form, setForm] = useState<MistakeForm>({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
     const [page, setPage] = useState(1)
-    const [isDragging, setIsDragging] = useState(false)
+    const [draggingRole, setDraggingRole] = useState<ImageRole | null>(null)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
     const [showManualReview, setShowManualReview] = useState(false)
     const [editScrollRequest, setEditScrollRequest] = useState(0)
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const fileInputRef = useRef<HTMLInputElement>(null)
+    const questionFileInputRef = useRef<HTMLInputElement>(null)
+    const answerFileInputRef = useRef<HTMLInputElement>(null)
     const formRef = useRef<HTMLDivElement>(null)
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
     const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -152,14 +166,15 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 question: form.question,
                 answer: form.answer,
                 notes: form.notes,
-                image_path: serializeImagePaths(form.image_paths)
+                image_path: serializeImagePaths(form.question_image_paths),
+                answer_image_path: serializeImagePaths(form.answer_image_paths),
             }
             if (editingId) {
                 await diary.mistakes.update(editingId, payload)
             } else {
                 await diary.mistakes.create(payload)
             }
-            setForm({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
+            setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
             setShowForm(false)
             setEditingId(null)
             loadMistakes()
@@ -177,13 +192,20 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             question: m.question,
             answer: m.answer || '',
             notes: m.notes || '',
-            image_paths: parseImagePaths(m.image_path)
+            question_image_paths: parseImagePaths(m.image_path),
+            answer_image_paths: parseImagePaths(m.answer_image_path),
         })
         setShowForm(true)
         setEditScrollRequest(request => request + 1)
     }
 
-    const handleImageFile = async (file: File) => {
+    const appendImagePath = (role: ImageRole, filename: string) => {
+        setForm(f => role === 'question'
+            ? { ...f, question_image_paths: [...f.question_image_paths, filename] }
+            : { ...f, answer_image_paths: [...f.answer_image_paths, filename] })
+    }
+
+    const handleImageFile = async (file: File, role: ImageRole) => {
         if (!file.type.startsWith('image/')) {
             showToast(`文件 ${file.name} 不是图片，已拒绝上传`, 'error')
             return
@@ -209,10 +231,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             name: file.name,
                             mimetype: file.type,
                         })
-                        setForm(f => {
-                            const next = { ...f, image_paths: [...f.image_paths, filename] }
-                            return next
-                        })
+                        appendImagePath(role, filename)
                         showToast('图片已上传', 'success')
                     }
                 } catch (error) {
@@ -227,44 +246,70 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         }
     }
 
-    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>, role: ImageRole) => {
         const files = Array.from(e.target.files || [])
-        files.forEach(file => handleImageFile(file))
+        files.forEach(file => handleImageFile(file, role))
         e.target.value = ''
     }
 
-    const handlePaste = (e: React.ClipboardEvent) => {
+    const handlePaste = (e: React.ClipboardEvent, role: ImageRole) => {
         if (!showForm || !e.clipboardData || !e.clipboardData.items) return
         const items = e.clipboardData.items
         for (let i = 0; i < items.length; i++) {
             const item = items[i]
             if (item && item.type.startsWith('image/')) {
                 const file = item.getAsFile()
-                if (file) handleImageFile(file)
+                if (file) handleImageFile(file, role)
+                e.preventDefault()
                 break
             }
         }
     }
 
-    const handleDragOver = (e: React.DragEvent) => {
+    const handleDragOver = (e: React.DragEvent, role: ImageRole) => {
         e.preventDefault()
-        setIsDragging(true)
+        setDraggingRole(role)
     }
 
     const handleDragLeave = (e: React.DragEvent) => {
         e.preventDefault()
-        setIsDragging(false)
+        setDraggingRole(null)
     }
 
-    const handleDrop = (e: React.DragEvent) => {
+    const handleDrop = (e: React.DragEvent, role: ImageRole) => {
         e.preventDefault()
-        setIsDragging(false)
+        setDraggingRole(null)
         if (!showForm || !e.dataTransfer || !e.dataTransfer.files) return
         const files = e.dataTransfer.files
         for (let i = 0; i < files.length; i++) {
             const file = files.item(i)
-            if (file && file.type.startsWith('image/')) handleImageFile(file)
+            if (file && file.type.startsWith('image/')) handleImageFile(file, role)
         }
+    }
+
+    const removeImagePath = (role: ImageRole, index: number) => {
+        setForm(f => role === 'question'
+            ? { ...f, question_image_paths: f.question_image_paths.filter((_, i) => i !== index) }
+            : { ...f, answer_image_paths: f.answer_image_paths.filter((_, i) => i !== index) })
+    }
+
+    const moveImagePath = (fromRole: ImageRole, index: number) => {
+        setForm(f => {
+            const sourcePaths = fromRole === 'question' ? f.question_image_paths : f.answer_image_paths
+            const imagePath = sourcePaths[index]
+            if (!imagePath) return f
+            return fromRole === 'question'
+                ? {
+                    ...f,
+                    question_image_paths: f.question_image_paths.filter((_, i) => i !== index),
+                    answer_image_paths: [...f.answer_image_paths, imagePath],
+                }
+                : {
+                    ...f,
+                    answer_image_paths: f.answer_image_paths.filter((_, i) => i !== index),
+                    question_image_paths: [...f.question_image_paths, imagePath],
+                }
+        })
     }
 
     const handleDelete = async (id: number) => {
@@ -304,6 +349,104 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         }
     }
 
+    const renderImageSection = (
+        role: ImageRole,
+        title: string,
+        description: string,
+        paths: string[],
+    ) => {
+        const fileInputRef = role === 'question' ? questionFileInputRef : answerFileInputRef
+        const moveLabel = role === 'question' ? '移到答案' : '移到题目'
+        const previewLabel = role === 'question' ? '题目图片' : '答案图片'
+        const isRoleDragging = draggingRole === role
+
+        return (
+            <div
+                data-testid={`mistake-${role}-image-zone`}
+                onPaste={e => handlePaste(e, role)}
+                onDragOver={e => handleDragOver(e, role)}
+                onDragLeave={handleDragLeave}
+                onDrop={e => handleDrop(e, role)}
+                style={{
+                    border: isRoleDragging ? '2px dashed var(--accent)' : '1px dashed var(--border)',
+                    borderRadius: 'var(--radius)',
+                    padding: 'var(--space-sm)',
+                    background: isRoleDragging ? 'color-mix(in srgb, var(--accent) 6%, var(--bg-secondary))' : 'var(--bg-secondary)',
+                }}
+            >
+                <div className="flex items-center justify-between" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
+                    <div>
+                        <div className="text-sm font-medium">{title}</div>
+                        <div className="text-xs text-muted">{description}</div>
+                    </div>
+                    <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                        title={`选择${title}文件，支持多选`}
+                    >
+                        <ImagePlus size={16} /> 上传
+                    </button>
+                    <input
+                        ref={fileInputRef}
+                        data-testid={`mistake-${role}-image-input`}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={e => handleFileInputChange(e, role)}
+                        style={{ display: 'none' }}
+                    />
+                </div>
+                {paths.length > 0 ? (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--space-xs)' }}>
+                        {paths.map((imgPath, idx) => (
+                            <div key={`${role}-${imgPath}-${idx}`} style={{ position: 'relative', flexShrink: 0, width: 112 }}>
+                                <ClickableImage
+                                    src={toLocalAssetUrl(imgPath, 'mistake_images')}
+                                    alt={`${previewLabel} ${idx + 1}`}
+                                    onPreview={({ src }) => setPreviewImage({ src, alt: `错题编辑区${previewLabel} ${idx + 1}` })}
+                                    ariaLabel={`放大查看错题编辑区${previewLabel} ${idx + 1}`}
+                                    title={`放大查看${previewLabel} ${idx + 1}`}
+                                    buttonStyle={{
+                                        padding: 0,
+                                        border: 'none',
+                                        background: 'transparent',
+                                        cursor: 'zoom-in',
+                                        display: 'block',
+                                    }}
+                                    imageStyle={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                                />
+                                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                                    <button
+                                        type="button"
+                                        className="button button-secondary text-xs"
+                                        onClick={() => moveImagePath(role, idx)}
+                                        style={{ padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 4 }}
+                                        title={`${moveLabel}${previewLabel} ${idx + 1}`}
+                                    >
+                                        <ArrowRightLeft size={12} /> {moveLabel}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeImagePath(role, idx)}
+                                        style={{ background: 'var(--color-state-danger)', color: 'white', borderRadius: '50%', width: 22, height: 22, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                        title={`删除${previewLabel} ${idx + 1}`}
+                                        aria-label={`删除${previewLabel} ${idx + 1}`}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <span className="text-xs text-muted">拖拽图片到这里，或在此区域 Ctrl/Cmd+V 粘贴</span>
+                )}
+            </div>
+        )
+    }
+
     const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
     const pagedMistakes = mistakes
 
@@ -325,7 +468,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     </button>
                     <button className="button button-primary" onClick={() => {
                         setShowForm(!showForm); setEditingId(null);
-                        setForm({ subject_id: '', question: '', answer: '', notes: '', image_paths: [] })
+                        setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
                     }} data-testid="mistake-add-btn">
                         + 添加
                     </button>
@@ -390,12 +533,8 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                      ref={formRef}
                      style={{ 
                          padding: 'var(--space-lg)', marginBottom: 'var(--space-md)',
-                         border: isDragging ? '2px dashed var(--accent)' : '1px solid var(--border)' 
+                         border: draggingRole ? '2px dashed var(--accent)' : '1px solid var(--border)'
                      }}
-                     onPaste={handlePaste}
-                     onDragOver={handleDragOver}
-                     onDragLeave={handleDragLeave}
-                     onDrop={handleDrop}
                 >
                     <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
                         <h3>{editingId ? '编辑' : '添加错题/知识点'}</h3>
@@ -413,11 +552,13 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             value={form.question} onChange={e => setForm({ ...form, question: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
+                        {renderImageSection('question', '题目图片', '在查看答案前显示', form.question_image_paths)}
                         <textarea
                             className="input" placeholder="答案 / 解析" rows={3}
                             value={form.answer} onChange={e => setForm({ ...form, answer: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
+                        {renderImageSection('answer', '答案图片', '查看答案后显示', form.answer_image_paths)}
                         <div>
                             <FormatToolbar
                                 onBold={notesFormat.bold}
@@ -433,38 +574,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                 data-testid="mistake-notes-textarea"
                             />
                         </div>
-                        {/* Multi-image thumbnails */}
-                        {form.image_paths.length > 0 && (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--space-xs)' }}>
-                                {form.image_paths.map((imgPath, idx) => (
-                                    <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
-                                        <ClickableImage
-                                            src={toLocalAssetUrl(imgPath, 'mistake_images')}
-                                            alt={`图片 ${idx + 1}`}
-                                            // Preview alt intentionally differs from thumbnail alt to preserve pre-refactor behavior.
-                                            onPreview={({ src }) => setPreviewImage({ src, alt: `错题编辑区图片 ${idx + 1}` })}
-                                            ariaLabel={`放大查看错题编辑区图片 ${idx + 1}`}
-                                            title={`放大查看图片 ${idx + 1}`}
-                                            buttonStyle={{
-                                                padding: 0,
-                                                border: 'none',
-                                                background: 'transparent',
-                                                cursor: 'zoom-in',
-                                                display: 'block',
-                                            }}
-                                            imageStyle={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setForm(f => ({ ...f, image_paths: f.image_paths.filter((_, i) => i !== idx) }))}
-                                            style={{ position: 'absolute', top: -8, right: -8, background: 'var(--color-state-danger)', color: 'white', borderRadius: '50%', width: 22, height: 22, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                            title="删除此图片"
-                                        ><X size={14} /></button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        {/* Action row: submit + cancel + upload */}
+                        {/* Action row: submit + cancel */}
                         <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
                             <button className="button button-primary" onClick={handleSubmit}>
                                 {editingId ? '保存' : '添加'}
@@ -472,25 +582,6 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             <button className="button button-secondary" onClick={() => { setShowForm(false); setEditingId(null) }}>
                                 取消
                             </button>
-                            <button
-                                className="button button-secondary"
-                                onClick={() => fileInputRef.current?.click()}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                title="选择图片文件（支持多选）"
-                            >
-                                <ImagePlus size={16} /> 上传图片
-                            </button>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={handleFileInputChange}
-                                style={{ display: 'none' }}
-                            />
-                            {form.image_paths.length === 0 && (
-                                <span className="text-xs text-muted">或拖拽 / Ctrl+V 粘贴</span>
-                            )}
                         </div>
                     </div>
                 </div>

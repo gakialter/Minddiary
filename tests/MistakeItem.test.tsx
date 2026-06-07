@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { MistakeItem } from '../src/components/MistakeItem'
 import type { Mistake } from '../src/types'
+import { REVIEW_QUALITIES } from '../src/utils/reviewLabels'
 
 // Mock react-latex-next to render children as plain text for testing
 vi.mock('react-latex-next', () => ({
@@ -22,6 +23,7 @@ const baseMistake: Mistake = {
   review_count: 0,
   next_review_date: null,
   image_path: null,
+  answer_image_path: null,
   created_at: '2026-01-01',
 }
 
@@ -35,6 +37,54 @@ const defaultProps = {
 }
 
 describe('MistakeItem notes markdown rendering', () => {
+  it('shows question images immediately and keeps answer images out of the DOM until reveal', () => {
+    const { container } = render(
+      <MistakeItem
+        mistake={{
+          ...baseMistake,
+          image_path: 'mistake_images/question.png',
+          answer_image_path: 'mistake_images/answer.png',
+        }}
+        {...defaultProps}
+      />
+    )
+
+    expect(container.querySelector('img[alt="错题题目图片 1"]')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题答案图片 1"]')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
+    expect(container.querySelector('img[alt="错题答案图片 1"]')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
+    expect(container.querySelector('img[alt="错题答案图片 1"]')).not.toBeInTheDocument()
+  })
+
+  it('allows reveal when a mastered mistake only has an answer image', () => {
+    const { container } = render(
+      <MistakeItem
+        mistake={{
+          ...baseMistake,
+          answer: '',
+          mastered: true,
+          next_review_date: '2099-01-01',
+          answer_image_path: 'mistake_images/answer-only.png',
+        }}
+        {...defaultProps}
+      />
+    )
+
+    expect(screen.getByTestId('mistake-toggle-answer-1')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题答案图片 1"]')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
+    expect(container.querySelector('img[alt="错题答案图片 1"]')).toBeInTheDocument()
+    expect(screen.queryByText('暂无答案或备注')).not.toBeInTheDocument()
+    expect(screen.queryByText(REVIEW_QUALITIES[0]!.label)).not.toBeInTheDocument()
+  })
+
   it('hides answer and notes until the user reveals them', () => {
     render(
       <MistakeItem

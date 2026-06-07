@@ -62,6 +62,7 @@ const dueMistake: Mistake = {
   next_review_date: '2026-06-07',
   review_count: 0,
   image_path: null,
+  answer_image_path: null,
   created_at: '2026-06-07T08:00:00Z',
 }
 
@@ -84,6 +85,24 @@ beforeEach(() => {
 })
 
 describe('MistakeReviewModal', () => {
+  it('shows question images during the question phase and answer images only after reveal', async () => {
+    mocks.getRandomDue.mockResolvedValue({
+      ...dueMistake,
+      image_path: 'mistake_images/question.png',
+      answer_image_path: JSON.stringify(['mistake_images/answer.png']),
+    })
+
+    const { container } = render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
+
+    expect(await screen.findByText('Manual question')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题复习题目图片 1"]')).toBeInTheDocument()
+    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('mistake-review-reveal-answer'))
+
+    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).toBeInTheDocument()
+  })
+
   it('loads a manual subject-scoped due mistake and hides answer content until reveal', async () => {
     render(<MistakeReviewModal onClose={vi.fn()} variant="manual" subjectId={2} />)
 

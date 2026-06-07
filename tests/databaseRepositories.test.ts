@@ -86,7 +86,8 @@ describe('database repositories', () => {
         review_interval INTEGER DEFAULT 1,
         next_review_date TEXT,
         review_count INTEGER DEFAULT 0,
-        image_path TEXT
+        image_path TEXT,
+        answer_image_path TEXT
       );
 
       CREATE TABLE study_tasks (
@@ -139,6 +140,7 @@ describe('database repositories', () => {
     next_review_date: string | null
     review_count: number
     image_path: string | null
+    answer_image_path: string | null
   }> = {}) {
     const row = {
       subject_id: null,
@@ -153,6 +155,7 @@ describe('database repositories', () => {
       next_review_date: null,
       review_count: 0,
       image_path: null,
+      answer_image_path: null,
       ...overrides,
     }
     const result = database.prepare(`
@@ -168,8 +171,9 @@ describe('database repositories', () => {
         review_interval,
         next_review_date,
         review_count,
-        image_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        image_path,
+        answer_image_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.subject_id,
       row.question,
@@ -183,6 +187,7 @@ describe('database repositories', () => {
       row.next_review_date,
       row.review_count,
       row.image_path,
+      row.answer_image_path,
     )
     return Number(result.lastInsertRowid)
   }
@@ -965,17 +970,19 @@ describe('database repositories', () => {
       answer: 'Answer',
       notes: 'Notes',
       image_path: 'mistake_images/a.png',
+      answer_image_path: 'mistake_images/answer.png',
     })
 
     expect(created).toEqual({ id: 1 })
     expect(database.prepare(
-      'SELECT subject_id, question, answer, notes, image_path FROM mistakes WHERE id=?'
+      'SELECT subject_id, question, answer, notes, image_path, answer_image_path FROM mistakes WHERE id=?'
     ).get(Number(created.id))).toEqual({
       subject_id: Number(math.id),
       question: 'Question',
       answer: 'Answer',
       notes: 'Notes',
       image_path: 'mistake_images/a.png',
+      answer_image_path: 'mistake_images/answer.png',
     })
 
     const defaulted = repositories.mistakes.createMistake({
@@ -984,15 +991,17 @@ describe('database repositories', () => {
       answer: '',
       notes: '',
       image_path: '',
+      answer_image_path: '',
     })
     expect(database.prepare(
-      'SELECT subject_id, question, answer, notes, image_path FROM mistakes WHERE id=?'
+      'SELECT subject_id, question, answer, notes, image_path, answer_image_path FROM mistakes WHERE id=?'
     ).get(Number(defaulted.id))).toEqual({
       subject_id: null,
       question: '',
       answer: '',
       notes: '',
       image_path: null,
+      answer_image_path: null,
     })
 
     expect(() => repositories.mistakes.createMistake({
@@ -1012,6 +1021,7 @@ describe('database repositories', () => {
       mastered: 0,
       updated_at: '2026-01-01 00:00:00',
       image_path: 'mistake_images/old.png',
+      answer_image_path: 'mistake_images/old-answer.png',
     })
 
     expect(repositories.mistakes.updateMistake(id, {
@@ -1021,9 +1031,10 @@ describe('database repositories', () => {
       notes: 'Updated notes',
       mastered: true,
       image_path: 'mistake_images/new.png',
+      answer_image_path: 'mistake_images/new-answer.png',
     })).toEqual({ success: true })
     expect(database.prepare(`
-      SELECT subject_id, question, answer, notes, mastered, image_path
+      SELECT subject_id, question, answer, notes, mastered, image_path, answer_image_path
       FROM mistakes WHERE id=?
     `).get(id)).toEqual({
       subject_id: Number(english.id),
@@ -1032,6 +1043,15 @@ describe('database repositories', () => {
       notes: 'Updated notes',
       mastered: 1,
       image_path: 'mistake_images/new.png',
+      answer_image_path: 'mistake_images/new-answer.png',
+    })
+
+    expect(repositories.mistakes.updateMistake(id, {
+      answer_image_path: 'mistake_images/answer-only.png',
+    })).toEqual({ success: true })
+    expect(database.prepare('SELECT image_path, answer_image_path FROM mistakes WHERE id=?').get(id)).toEqual({
+      image_path: 'mistake_images/new.png',
+      answer_image_path: 'mistake_images/answer-only.png',
     })
 
     const emptyPatchId = insertMistake({ updated_at: '2026-01-01 00:00:00' })
@@ -1113,14 +1133,22 @@ describe('database repositories', () => {
 
   it('returns raw mistake image-path query data without parsing or cleanup', () => {
     const jsonPath = JSON.stringify(['mistake_images/b.png'])
-    const firstId = insertMistake({ image_path: 'mistake_images/a.png' })
+    const firstId = insertMistake({ image_path: 'mistake_images/a.png', answer_image_path: 'mistake_images/answer-a.png' })
     insertMistake({ image_path: null })
     const thirdId = insertMistake({ image_path: jsonPath })
+    const fourthId = insertMistake({ image_path: null, answer_image_path: 'mistake_images/answer-only.png' })
 
-    expect(repositories.mistakes.getMistakeImagePath(firstId)).toBe('mistake_images/a.png')
-    expect(repositories.mistakes.getMistakeImagePath(999)).toBeNull()
-    expect(repositories.mistakes.getOtherMistakeImagePaths(firstId)).toEqual([
-      { id: thirdId, image_path: jsonPath },
+    expect(repositories.mistakes.getMistakeImageFields(firstId)).toEqual({
+      image_path: 'mistake_images/a.png',
+      answer_image_path: 'mistake_images/answer-a.png',
+    })
+    expect(repositories.mistakes.getMistakeImageFields(999)).toEqual({
+      image_path: null,
+      answer_image_path: null,
+    })
+    expect(repositories.mistakes.getOtherMistakeImageFields(firstId)).toEqual([
+      { id: thirdId, image_path: jsonPath, answer_image_path: null },
+      { id: fourthId, image_path: null, answer_image_path: 'mistake_images/answer-only.png' },
     ])
   })
 

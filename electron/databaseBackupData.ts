@@ -70,6 +70,7 @@ export const DATABASE_BACKUP_TABLES = [
             'next_review_date',
             'review_count',
             'image_path',
+            'answer_image_path',
         ],
     },
     {
