@@ -134,7 +134,7 @@ export default function StudyProgress() {
     }
 
     const handleDelete = async (id: number) => {
-        if (!window.confirm('确定要删除这个科目吗？配套的错题也会失去分类。')) return;
+        if (!window.confirm('确定要删除这个科目吗？关联的错题、专注记录和任务会保留，但将不再归属任何科目。')) return;
         try {
             await subjectsAPI.delete(id)
             loadAllData()

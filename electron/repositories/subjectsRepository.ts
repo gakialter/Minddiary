@@ -4,6 +4,17 @@ import type { Subject } from '../../src/types/index';
 const DEFAULT_SUBJECT_COLOR = '#0F766E';
 
 export function createSubjectsRepository(db: Database.Database) {
+    const unlinkMistakesFromSubject = db.prepare('UPDATE mistakes SET subject_id = NULL WHERE subject_id = ?');
+    const unlinkPomodoroSessionsFromSubject = db.prepare('UPDATE pomodoro_sessions SET subject_id = NULL WHERE subject_id = ?');
+    const unlinkStudyTasksFromSubject = db.prepare('UPDATE study_tasks SET subject_id = NULL WHERE subject_id = ?');
+    const deleteSubjectById = db.prepare('DELETE FROM subjects WHERE id=?');
+    const deleteSubjectWithRelatedHistory = db.transaction((id: number) => {
+        unlinkMistakesFromSubject.run(id);
+        unlinkPomodoroSessionsFromSubject.run(id);
+        unlinkStudyTasksFromSubject.run(id);
+        deleteSubjectById.run(id);
+    });
+
     return {
         getAllSubjects(): Subject[] {
             return db.prepare('SELECT * FROM subjects ORDER BY name').all() as Subject[];
@@ -33,7 +44,7 @@ export function createSubjectsRepository(db: Database.Database) {
         },
 
         deleteSubject(id: number) {
-            db.prepare('DELETE FROM subjects WHERE id=?').run(id);
+            deleteSubjectWithRelatedHistory(id);
             return { success: true };
         },
     };
