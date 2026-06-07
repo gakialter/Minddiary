@@ -21,7 +21,21 @@ type PomodoroSessionRow = {
   started_at: string | null
   completed_at: string | null
 }
-type MistakeImageRow = { id: number; image_path: string | null }
+type MistakeImageRow = {
+  id: number
+  image_path: string | null
+  subject_id?: number | null
+  question?: string
+  answer?: string
+  notes?: string
+  mastered?: number
+  ease_factor?: number
+  review_interval?: number
+  next_review_date?: string | null
+  review_count?: number
+  subject_name?: string | null
+  subject_color?: string | null
+}
 type StudyTaskRow = {
   id: number
   title: string
@@ -55,7 +69,8 @@ type DatabaseModule = {
   setEntryTags: (entryId: number, tagIds: number[]) => { success: boolean }
   getEntryTags: (entryId: number) => Tag[]
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
-  getAllMistakes: (filters?: { due?: boolean; dueDate?: string }) => { data: Mistake[], total: number, masteredTotal: number }
+  getAllMistakes: (filters?: { subject_id?: number; mastered?: boolean | number; search?: string; due?: boolean; dueDate?: string; limit?: number; offset?: number }) => { data: Mistake[], total: number, masteredTotal: number }
+  createMistake: (mistake: Partial<Mistake>) => { id: unknown }
   addPomodoroSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => { id: unknown; date_key: string; started_at: string | null; completed_at: string }
   getPomodoroStats: (date: string) => PomodoroStat[]
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
@@ -67,8 +82,12 @@ type DatabaseModule = {
   deleteStudyTask: (id: number) => boolean
   completeStudyTask: (id: number) => StudyTaskRow
   skipStudyTask: (id: number) => StudyTaskRow
-  updateMistake: (id: number, mistake: { image_path?: string | null; question?: string }) => Promise<{ success: boolean }>
+  updateMistake: (id: number, mistake: Partial<Mistake>) => Promise<{ success: boolean }>
   deleteMistake: (id: number) => Promise<{ success: boolean }>
+  toggleMistakeMastered: (id: number) => { mastered: number }
+  reviewMistake: (id: number, data: Partial<Mistake>) => { success: boolean }
+  getDueForReviewCount: (date: string) => number
+  getRandomDueMistake: (date: string, subjectId?: number) => Mistake | null
   getAiApiKey: () => string | null
   setAiApiKey: (key: string) => void
   getSetting: (key: string) => unknown | null
@@ -106,6 +125,7 @@ const state = vi.hoisted(() => ({
   taskRows: [] as StudyTaskRow[],
   subjectRows: [] as Subject[],
   templateRows: [] as DiaryTemplate[],
+  mistakeImagePathQueryError: null as Error | null,
   userVersion: 0,
   closeCalls: 0,
 }))
@@ -340,17 +360,57 @@ vi.mock('better-sqlite3', () => {
             state.pomodoroSessionRows.push(row)
             return { lastInsertRowid: row.id, changes: 1 }
           }
+          if (sql.includes('INSERT INTO mistakes')) {
+            const row: MistakeImageRow = {
+              id: state.mistakeRows.length + 1,
+              subject_id: params[0] == null ? null : Number(params[0]),
+              question: String(params[1] ?? ''),
+              answer: String(params[2] ?? ''),
+              notes: String(params[3] ?? ''),
+              mastered: 0,
+              image_path: params[4] == null ? null : String(params[4]),
+            }
+            state.mistakeRows.push(row)
+            return { lastInsertRowid: row.id, changes: 1 }
+          }
+          if (sql.includes('UPDATE mistakes SET mastered = 1 - mastered')) {
+            const id = Number(params[0])
+            const row = state.mistakeRows.find(item => item.id === id)
+            if (row) {
+              row.mastered = 1 - (row.mastered ?? 0)
+            }
+            return { lastInsertRowid: 0, changes: row ? 1 : state.runChanges }
+          }
           if (sql.includes('UPDATE mistakes SET')) {
             const id = Number(params[params.length - 1])
             const row = state.mistakeRows.find(item => item.id === id)
-            if (row && sql.includes('image_path = ?')) {
-              const imagePathIndex = sql.split(', ').findIndex(part => part.includes('image_path = ?'))
-              row.image_path = params[imagePathIndex] as string | null
+            if (row) {
+              const assignments = sql.match(/SET (.*) WHERE id=\?/)?.[1] ?? ''
+              assignments.split(', ').forEach((assignment, index) => {
+                const field = assignment.split(' = ?')[0]
+                const value = params[index]
+                if (field === 'subject_id') {
+                  row.subject_id = value == null ? null : Number(value)
+                } else if (field === 'question') {
+                  row.question = String(value)
+                } else if (field === 'answer') {
+                  row.answer = String(value)
+                } else if (field === 'notes') {
+                  row.notes = String(value)
+                } else if (field === 'mastered') {
+                  row.mastered = Number(value)
+                } else if (field === 'image_path') {
+                  row.image_path = value as string | null
+                }
+              })
             }
+            return { lastInsertRowid: 0, changes: row ? 1 : state.runChanges }
           }
           if (sql.includes('DELETE FROM mistakes WHERE id=?')) {
             const id = Number(params[0])
+            const before = state.mistakeRows.length
             state.mistakeRows = state.mistakeRows.filter(item => item.id !== id)
+            return { lastInsertRowid: 0, changes: before === state.mistakeRows.length ? 0 : 1 }
           }
           if (sql.includes('INSERT INTO study_tasks')) {
             const now = '2026-05-31 08:00:00'
@@ -416,6 +476,18 @@ vi.mock('better-sqlite3', () => {
         get: vi.fn((...params: unknown[]) => {
           state.preparedCalls.push({ sql, params })
           if (sql === 'PRAGMA user_version') return { user_version: state.userVersion }
+          if (sql.includes('SELECT COUNT(*) as total, SUM(CASE WHEN m.mastered = 1')) {
+            return {
+              total: state.mistakeRows.length,
+              mastered_total: state.mistakeRows.filter(row => row.mastered === 1).length,
+            }
+          }
+          if (sql.includes('SELECT COUNT(*) as cnt FROM mistakes m')) {
+            return { cnt: state.mistakeRows.filter(row => row.mastered !== 1).length }
+          }
+          if (sql.includes('SELECT COUNT(*) as count FROM mistakes')) {
+            return { count: state.mistakeRows.filter(row => row.mastered !== 1).length }
+          }
           if (sql.includes('COUNT(*)')) return { count: 1 }
           if (sql.includes('SELECT value FROM settings WHERE key=?')) {
             const key = String(params[0])
@@ -453,8 +525,23 @@ vi.mock('better-sqlite3', () => {
             return state.templateRows.find(item => item.id === id)
           }
           if (sql.includes('SELECT image_path FROM mistakes WHERE id = ?')) {
+            if (state.mistakeImagePathQueryError) throw state.mistakeImagePathQueryError
             const id = Number(params[0])
             return state.mistakeRows.find(item => item.id === id)
+          }
+          if (sql.includes('SELECT mastered FROM mistakes WHERE id=?')) {
+            const id = Number(params[0])
+            const row = state.mistakeRows.find(item => item.id === id)
+            return row ? { mastered: row.mastered ?? 0 } : undefined
+          }
+          if (sql.includes('FROM mistakes m LEFT JOIN subjects s') && sql.includes('LIMIT 1 OFFSET ?')) {
+            const subjectId = sql.includes('AND m.subject_id = ?') ? Number(params[1]) : null
+            const offset = Number(params[params.length - 1])
+            const rows = state.mistakeRows.filter(row => (
+              row.mastered !== 1 &&
+              (subjectId == null || row.subject_id === subjectId)
+            ))
+            return rows[offset]
           }
           if (sql.includes('FROM study_tasks t') && sql.includes('WHERE t.id = ?')) {
             const id = Number(params[0])
@@ -605,6 +692,7 @@ vi.mock('better-sqlite3', () => {
             return state.taskRows.filter(row => row.planned_date === date)
           }
           if (sql.includes('FROM mistakes') && sql.includes('id <> ?')) {
+            if (state.mistakeImagePathQueryError) throw state.mistakeImagePathQueryError
             const excludedId = Number(params[0])
             return state.mistakeRows.filter(row => row.id !== excludedId && row.image_path)
           }
@@ -635,6 +723,7 @@ async function loadDatabase(options: { preserveInitializeCalls?: boolean } = {})
   state.taskRows = []
   state.subjectRows = []
   state.templateRows = []
+  state.mistakeImagePathQueryError = null
   state.userVersion = 0
   state.closeCalls = 0
   mistakeImageStorageState.deleteManagedMistakeImage.mockReset()
@@ -1458,6 +1547,94 @@ describe('database mistake image cleanup', () => {
     vi.clearAllMocks()
   })
 
+  it('keeps public mistake exports while hiding cleanup query helpers from module exports', async () => {
+    const database = await loadDatabase()
+
+    expect(database.getAllMistakes).toEqual(expect.any(Function))
+    expect(database.createMistake).toEqual(expect.any(Function))
+    expect(database.updateMistake).toEqual(expect.any(Function))
+    expect(database.deleteMistake).toEqual(expect.any(Function))
+    expect(database.toggleMistakeMastered).toEqual(expect.any(Function))
+    expect(database.reviewMistake).toEqual(expect.any(Function))
+    expect(database.getDueForReviewCount).toEqual(expect.any(Function))
+    expect(database.getRandomDueMistake).toEqual(expect.any(Function))
+    expect(database).not.toHaveProperty('getMistakeImagePath')
+    expect(database).not.toHaveProperty('getOtherMistakeImagePaths')
+  })
+
+  it('keeps mistake facade SQL and parameter order stable through the repository', async () => {
+    const database = await loadDatabase()
+
+    expect(database.createMistake({
+      subject_id: 0,
+      question: '',
+      answer: 'Answer',
+      notes: '',
+      image_path: '',
+    })).toEqual({ id: 1 })
+    const insertCall = state.preparedCalls.find(call => call.sql.includes('INSERT INTO mistakes'))
+    expect(insertCall).toEqual({
+      sql: 'INSERT INTO mistakes (subject_id, question, answer, notes, image_path) VALUES (?, ?, ?, ?, ?)',
+      params: [null, '', 'Answer', '', null],
+    })
+
+    state.mistakeRows = [{ id: 3, image_path: null, mastered: 0 }]
+    await expect(database.updateMistake(3, {
+      subject_id: 2,
+      question: 'Question',
+      answer: 'Answer',
+      notes: 'Notes',
+      mastered: false,
+      image_path: 'mistake_images/new.png',
+    })).resolves.toEqual({ success: true })
+    const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE mistakes SET subject_id = ?'))
+    expect(updateCall).toEqual({
+      sql: 'UPDATE mistakes SET subject_id = ?, question = ?, answer = ?, notes = ?, mastered = ?, image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
+      params: [2, 'Question', 'Answer', 'Notes', 0, 'mistake_images/new.png', 3],
+    })
+
+    expect(database.toggleMistakeMastered(3)).toEqual({ mastered: 1 })
+    expect(state.preparedCalls).toEqual(expect.arrayContaining([
+      {
+        sql: 'UPDATE mistakes SET mastered = 1 - mastered, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+        params: [3],
+      },
+      {
+        sql: 'SELECT mastered FROM mistakes WHERE id=?',
+        params: [3],
+      },
+    ]))
+
+    expect(database.reviewMistake(3, {
+      ease_factor: 2.4,
+      review_interval: 5,
+      next_review_date: '2026-06-11',
+      review_count: 2,
+    })).toEqual({ success: true })
+    const reviewCall = state.preparedCalls.find(call => call.sql.includes('SET ease_factor = ?'))
+    expect(reviewCall?.params).toEqual([2.4, 5, '2026-06-11', 2, 3])
+
+    state.mistakeRows = [{ id: 3, image_path: null, mastered: 0 }]
+    expect(database.getDueForReviewCount('2026-06-06')).toBe(1)
+    const dueCountCall = state.preparedCalls.find(call => call.sql.includes('SELECT COUNT(*) as count FROM mistakes'))
+    expect(dueCountCall?.sql).toContain('mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)')
+    expect(dueCountCall?.params).toEqual(['2026-06-06'])
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.75)
+    state.mistakeRows = [
+      { id: 10, image_path: null, subject_id: 2, mastered: 0, question: 'first' },
+      { id: 11, image_path: null, subject_id: 2, mastered: 0, question: 'second' },
+      { id: 12, image_path: null, subject_id: 2, mastered: 0, question: 'third' },
+      { id: 13, image_path: null, subject_id: 2, mastered: 0, question: 'fourth' },
+    ]
+    expect(database.getRandomDueMistake('2026-06-06', 2)).toEqual(expect.objectContaining({ id: 13 }))
+    randomSpy.mockRestore()
+    const randomCountCall = state.preparedCalls.find(call => call.sql.includes('SELECT COUNT(*) as cnt FROM mistakes m'))
+    const randomSelectCall = state.preparedCalls.find(call => call.sql.includes('LIMIT 1 OFFSET ?'))
+    expect(randomCountCall?.params).toEqual(['2026-06-06', 2])
+    expect(randomSelectCall?.params).toEqual(['2026-06-06', 2, 3])
+  })
+
   it('deletes a removed single-image legacy reference', async () => {
     const database = await loadDatabase()
     state.mistakeRows = [{ id: 1, image_path: 'mistake_images/old.png' }]
@@ -1508,5 +1685,70 @@ describe('database mistake image cleanup', () => {
 
     expect(state.preparedCalls.some(call => call.sql.includes('UPDATE mistakes SET'))).toBe(true)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to delete removed mistake image'), 'disk locked')
+  })
+
+  it('keeps deleteMistake cleanup before deleting the database row', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/remove.png' }]
+    let rowStillExistsDuringCleanup = false
+    mistakeImageStorageState.deleteManagedMistakeImage.mockImplementationOnce(async () => {
+      rowStillExistsDuringCleanup = state.mistakeRows.some(row => row.id === 1)
+    })
+
+    await expect(database.deleteMistake(1)).resolves.toEqual({ success: true })
+
+    expect(rowStillExistsDuringCleanup).toBe(true)
+    expect(state.mistakeRows).toEqual([])
+    const cleanupSelectIndex = state.preparedCalls.findIndex(call => call.sql === 'SELECT image_path FROM mistakes WHERE id = ?')
+    const deleteIndex = state.preparedCalls.findIndex(call => call.sql === 'DELETE FROM mistakes WHERE id=?')
+    expect(cleanupSelectIndex).toBeGreaterThanOrEqual(0)
+    expect(deleteIndex).toBeGreaterThan(cleanupSelectIndex)
+  })
+
+  it('keeps deleting the database row and logs the original cleanup error when cleanup fails', async () => {
+    const database = await loadDatabase()
+    const cleanupError = new Error('cleanup query failed')
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/remove.png' }]
+    state.mistakeImagePathQueryError = cleanupError
+
+    await expect(database.deleteMistake(1)).resolves.toEqual({ success: true })
+
+    expect(state.mistakeRows).toEqual([])
+    expect(logger.error).toHaveBeenCalledWith('Failed to cleanup mistake image', cleanupError)
+  })
+
+  it('does not query old image paths or cleanup files when updateMistake omits image_path', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/old.png' }]
+
+    await expect(database.updateMistake(1, { question: 'No image change' })).resolves.toEqual({ success: true })
+
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT image_path FROM mistakes WHERE id = ?')).toBe(false)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT id, image_path FROM mistakes WHERE id <> ? AND image_path IS NOT NULL')).toBe(false)
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+    expect(state.preparedCalls).toEqual(expect.arrayContaining([
+      {
+        sql: 'UPDATE mistakes SET question = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
+        params: ['No image change', 1],
+      },
+    ]))
+  })
+
+  it('does not delete images still referenced after update or equivalent reference-key changes', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{
+      id: 1,
+      image_path: JSON.stringify(['mistake_images/a.png', 'mistake_images/b.png']),
+    }]
+
+    await database.updateMistake(1, {
+      image_path: JSON.stringify(['mistake_images/b.png', 'mistake_images/a.png']),
+    })
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+
+    state.mistakeRows = [{ id: 1, image_path: 'local://mistake_images/Case.png' }]
+    await database.updateMistake(1, { image_path: 'mistake_images/case.png' })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
   })
 })

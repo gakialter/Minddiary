@@ -78,10 +78,15 @@ describe('database repositories', () => {
         subject_id INTEGER REFERENCES subjects(id),
         question TEXT NOT NULL,
         answer TEXT,
-        category TEXT DEFAULT '',
+        notes TEXT,
         mastered INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        ease_factor REAL DEFAULT 2.5,
+        review_interval INTEGER DEFAULT 1,
+        next_review_date TEXT,
+        review_count INTEGER DEFAULT 0,
+        image_path TEXT
       );
 
       CREATE TABLE study_tasks (
@@ -120,6 +125,67 @@ describe('database repositories', () => {
     vi.useRealTimers()
     database.close()
   })
+
+  function insertMistake(overrides: Partial<{
+    subject_id: number | null
+    question: string
+    answer: string | null
+    notes: string | null
+    mastered: number
+    created_at: string
+    updated_at: string
+    ease_factor: number
+    review_interval: number
+    next_review_date: string | null
+    review_count: number
+    image_path: string | null
+  }> = {}) {
+    const row = {
+      subject_id: null,
+      question: 'Question',
+      answer: 'Answer',
+      notes: '',
+      mastered: 0,
+      created_at: '2026-06-01 08:00:00',
+      updated_at: '2026-06-01 08:00:00',
+      ease_factor: 2.5,
+      review_interval: 1,
+      next_review_date: null,
+      review_count: 0,
+      image_path: null,
+      ...overrides,
+    }
+    const result = database.prepare(`
+      INSERT INTO mistakes (
+        subject_id,
+        question,
+        answer,
+        notes,
+        mastered,
+        created_at,
+        updated_at,
+        ease_factor,
+        review_interval,
+        next_review_date,
+        review_count,
+        image_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      row.subject_id,
+      row.question,
+      row.answer,
+      row.notes,
+      row.mastered,
+      row.created_at,
+      row.updated_at,
+      row.ease_factor,
+      row.review_interval,
+      row.next_review_date,
+      row.review_count,
+      row.image_path,
+    )
+    return Number(result.lastInsertRowid)
+  }
 
   it('normalizes, validates, updates, orders, and deletes tags', () => {
     database.prepare(
@@ -588,6 +654,289 @@ describe('database repositories', () => {
       { date: '2026-06-03', total_minutes: 45, session_count: 1 },
     ])
     expect(repositories.pomodoro.getPomodoroRange('2026-06-06', '2026-06-07')).toEqual([])
+  })
+
+  it('lists mistakes with filters, counts, joins, ordering, pagination, and empty results', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'question needle',
+      answer: 'alpha answer',
+      notes: 'alpha notes',
+      mastered: 0,
+      created_at: '2026-06-01 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'gamma question',
+      answer: 'gamma answer needle',
+      notes: 'gamma notes',
+      mastered: 0,
+      created_at: '2026-06-02 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(english.id),
+      question: 'beta question',
+      answer: 'beta answer',
+      notes: 'notes needle',
+      mastered: 1,
+      created_at: '2026-06-03 08:00:00',
+    })
+
+    const all = repositories.mistakes.getAllMistakes()
+    expect(all.total).toBe(3)
+    expect(all.masteredTotal).toBe(1)
+    expect(all.data.map(mistake => mistake.question)).toEqual([
+      'beta question',
+      'gamma question',
+      'question needle',
+    ])
+    expect(all.data[0]).toEqual(expect.objectContaining({
+      subject_name: 'English',
+      subject_color: '#854D0E',
+    }))
+
+    expect(repositories.mistakes.getAllMistakes({ subject_id: Number(math.id) }).data.map(mistake => mistake.question)).toEqual([
+      'gamma question',
+      'question needle',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ mastered: true }).data.map(mistake => mistake.question)).toEqual([
+      'beta question',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ search: 'question needle' }).data.map(mistake => mistake.question)).toEqual([
+      'question needle',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ search: 'answer needle' }).data.map(mistake => mistake.question)).toEqual([
+      'gamma question',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ search: 'notes needle' }).data.map(mistake => mistake.question)).toEqual([
+      'beta question',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ limit: 1, offset: 1 }).data.map(mistake => mistake.question)).toEqual([
+      'gamma question',
+    ])
+
+    const empty = repositories.mistakes.getAllMistakes({ search: 'missing' })
+    expect(empty).toEqual({ data: [], total: 0, masteredTotal: 0 })
+  })
+
+  it('filters due mistakes with default local date, explicit date, and due priority over mastered', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 5, 6, 12, 0, 0))
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'due null',
+      mastered: 0,
+      next_review_date: null,
+      created_at: '2026-06-01 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'due equal default date',
+      mastered: 0,
+      next_review_date: '2026-06-06',
+      created_at: '2026-06-04 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'due explicit date',
+      mastered: 0,
+      next_review_date: '2026-06-05',
+      created_at: '2026-06-03 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'future',
+      mastered: 0,
+      next_review_date: '2026-06-07',
+      created_at: '2026-06-05 08:00:00',
+    })
+    insertMistake({
+      subject_id: Number(math.id),
+      question: 'mastered due',
+      mastered: 1,
+      next_review_date: null,
+      created_at: '2026-06-06 08:00:00',
+    })
+
+    expect(repositories.mistakes.getAllMistakes({ due: true, mastered: true }).data.map(mistake => mistake.question)).toEqual([
+      'due equal default date',
+      'due explicit date',
+      'due null',
+    ])
+    expect(repositories.mistakes.getAllMistakes({ due: true, dueDate: '2026-06-05' }).data.map(mistake => mistake.question)).toEqual([
+      'due explicit date',
+      'due null',
+    ])
+  })
+
+  it('creates mistakes with existing defaults and preserves SQLite foreign-key errors', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const created = repositories.mistakes.createMistake({
+      subject_id: Number(math.id),
+      question: 'Question',
+      answer: 'Answer',
+      notes: 'Notes',
+      image_path: 'mistake_images/a.png',
+    })
+
+    expect(created).toEqual({ id: 1 })
+    expect(database.prepare(
+      'SELECT subject_id, question, answer, notes, image_path FROM mistakes WHERE id=?'
+    ).get(Number(created.id))).toEqual({
+      subject_id: Number(math.id),
+      question: 'Question',
+      answer: 'Answer',
+      notes: 'Notes',
+      image_path: 'mistake_images/a.png',
+    })
+
+    const defaulted = repositories.mistakes.createMistake({
+      subject_id: 0,
+      question: '',
+      answer: '',
+      notes: '',
+      image_path: '',
+    })
+    expect(database.prepare(
+      'SELECT subject_id, question, answer, notes, image_path FROM mistakes WHERE id=?'
+    ).get(Number(defaulted.id))).toEqual({
+      subject_id: null,
+      question: '',
+      answer: '',
+      notes: '',
+      image_path: null,
+    })
+
+    expect(() => repositories.mistakes.createMistake({
+      subject_id: 999,
+      question: 'Missing subject',
+    })).toThrow(/FOREIGN KEY constraint failed/)
+  })
+
+  it('updates mistakes with stable field semantics and empty patch behavior', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const id = insertMistake({
+      subject_id: Number(math.id),
+      question: 'Original',
+      answer: 'Original answer',
+      notes: 'Original notes',
+      mastered: 0,
+      updated_at: '2026-01-01 00:00:00',
+      image_path: 'mistake_images/old.png',
+    })
+
+    expect(repositories.mistakes.updateMistake(id, {
+      subject_id: Number(english.id),
+      question: 'Updated',
+      answer: 'Updated answer',
+      notes: 'Updated notes',
+      mastered: true,
+      image_path: 'mistake_images/new.png',
+    })).toEqual({ success: true })
+    expect(database.prepare(`
+      SELECT subject_id, question, answer, notes, mastered, image_path
+      FROM mistakes WHERE id=?
+    `).get(id)).toEqual({
+      subject_id: Number(english.id),
+      question: 'Updated',
+      answer: 'Updated answer',
+      notes: 'Updated notes',
+      mastered: 1,
+      image_path: 'mistake_images/new.png',
+    })
+
+    const emptyPatchId = insertMistake({ updated_at: '2026-01-01 00:00:00' })
+    expect(repositories.mistakes.updateMistake(emptyPatchId, {})).toEqual({ success: true })
+    expect(database.prepare('SELECT updated_at FROM mistakes WHERE id=?').get(emptyPatchId)).not.toEqual({
+      updated_at: '2026-01-01 00:00:00',
+    })
+    expect(repositories.mistakes.updateMistake(999, { question: 'Missing' })).toEqual({ success: true })
+  })
+
+  it('deletes mistakes and keeps missing ids successful', () => {
+    const id = insertMistake()
+
+    expect(repositories.mistakes.deleteMistake(id)).toEqual({ success: true })
+    expect(database.prepare('SELECT id FROM mistakes WHERE id=?').get(id)).toBeUndefined()
+    expect(repositories.mistakes.deleteMistake(999)).toEqual({ success: true })
+  })
+
+  it('toggles mastered state and updates the timestamp', () => {
+    const id = insertMistake({ mastered: 0, updated_at: '2026-01-01 00:00:00' })
+
+    expect(repositories.mistakes.toggleMistakeMastered(id)).toEqual({ mastered: 1 })
+    expect(database.prepare('SELECT mastered, updated_at FROM mistakes WHERE id=?').get(id)).toEqual(expect.objectContaining({
+      mastered: 1,
+    }))
+    expect(database.prepare('SELECT updated_at FROM mistakes WHERE id=?').get(id)).not.toEqual({
+      updated_at: '2026-01-01 00:00:00',
+    })
+    expect(repositories.mistakes.toggleMistakeMastered(id)).toEqual({ mastered: 0 })
+  })
+
+  it('writes spaced-repetition review fields without computing them', () => {
+    const id = insertMistake()
+
+    expect(repositories.mistakes.reviewMistake(id, {
+      ease_factor: 2.1,
+      review_interval: 6,
+      next_review_date: '2026-06-12',
+      review_count: 4,
+    })).toEqual({ success: true })
+
+    expect(database.prepare(`
+      SELECT ease_factor, review_interval, next_review_date, review_count
+      FROM mistakes WHERE id=?
+    `).get(id)).toEqual({
+      ease_factor: 2.1,
+      review_interval: 6,
+      next_review_date: '2026-06-12',
+      review_count: 4,
+    })
+  })
+
+  it('counts and selects due mistakes with count plus random offset semantics', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const emptySubject = repositories.subjects.createSubject({ name: 'Chemistry', color: '#0E7490' })
+    insertMistake({ subject_id: Number(math.id), question: 'due null', mastered: 0, next_review_date: null })
+    insertMistake({ subject_id: Number(english.id), question: 'due equal', mastered: 0, next_review_date: '2026-06-06' })
+    insertMistake({ subject_id: Number(math.id), question: 'future', mastered: 0, next_review_date: '2026-06-07' })
+    insertMistake({ subject_id: Number(math.id), question: 'mastered due', mastered: 1, next_review_date: null })
+    insertMistake({ subject_id: Number(math.id), question: 'due past', mastered: 0, next_review_date: '2026-06-05' })
+
+    expect(repositories.mistakes.getDueForReviewCount('2026-06-06')).toBe(3)
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    expect(repositories.mistakes.getRandomDueMistake('2026-06-06')).toEqual(expect.objectContaining({
+      question: 'due equal',
+      subject_name: 'English',
+      subject_color: '#854D0E',
+    }))
+    randomSpy.mockReturnValue(0.9)
+    expect(repositories.mistakes.getRandomDueMistake('2026-06-06', Number(math.id))).toEqual(expect.objectContaining({
+      question: 'due past',
+      subject_name: 'Math',
+      subject_color: '#0F766E',
+    }))
+    expect(repositories.mistakes.getRandomDueMistake('2026-06-06', Number(emptySubject.id))).toBeNull()
+  })
+
+  it('returns raw mistake image-path query data without parsing or cleanup', () => {
+    const jsonPath = JSON.stringify(['mistake_images/b.png'])
+    const firstId = insertMistake({ image_path: 'mistake_images/a.png' })
+    insertMistake({ image_path: null })
+    const thirdId = insertMistake({ image_path: jsonPath })
+
+    expect(repositories.mistakes.getMistakeImagePath(firstId)).toBe('mistake_images/a.png')
+    expect(repositories.mistakes.getMistakeImagePath(999)).toBeNull()
+    expect(repositories.mistakes.getOtherMistakeImagePaths(firstId)).toEqual([
+      { id: thirdId, image_path: jsonPath },
+    ])
   })
 
   it('creates study tasks with defaults and complete stored rows', () => {
