@@ -24,6 +24,7 @@ type PomodoroSessionRow = {
 type MistakeImageRow = {
   id: number
   image_path: string | null
+  answer_image_path?: string | null
   subject_id?: number | null
   question?: string
   answer?: string
@@ -369,6 +370,7 @@ vi.mock('better-sqlite3', () => {
               notes: String(params[3] ?? ''),
               mastered: 0,
               image_path: params[4] == null ? null : String(params[4]),
+              answer_image_path: params[5] == null ? null : String(params[5]),
             }
             state.mistakeRows.push(row)
             return { lastInsertRowid: row.id, changes: 1 }
@@ -401,6 +403,8 @@ vi.mock('better-sqlite3', () => {
                   row.mastered = Number(value)
                 } else if (field === 'image_path') {
                   row.image_path = value as string | null
+                } else if (field === 'answer_image_path') {
+                  row.answer_image_path = value as string | null
                 }
               })
             }
@@ -524,7 +528,7 @@ vi.mock('better-sqlite3', () => {
             const id = Number(params[0])
             return state.templateRows.find(item => item.id === id)
           }
-          if (sql.includes('SELECT image_path FROM mistakes WHERE id = ?')) {
+          if (sql.includes('SELECT image_path, answer_image_path FROM mistakes WHERE id = ?')) {
             if (state.mistakeImagePathQueryError) throw state.mistakeImagePathQueryError
             const id = Number(params[0])
             return state.mistakeRows.find(item => item.id === id)
@@ -694,7 +698,7 @@ vi.mock('better-sqlite3', () => {
           if (sql.includes('FROM mistakes') && sql.includes('id <> ?')) {
             if (state.mistakeImagePathQueryError) throw state.mistakeImagePathQueryError
             const excludedId = Number(params[0])
-            return state.mistakeRows.filter(row => row.id !== excludedId && row.image_path)
+            return state.mistakeRows.filter(row => row.id !== excludedId && (row.image_path || row.answer_image_path))
           }
           return []
         }),
@@ -1560,6 +1564,8 @@ describe('database mistake image cleanup', () => {
     expect(database.getRandomDueMistake).toEqual(expect.any(Function))
     expect(database).not.toHaveProperty('getMistakeImagePath')
     expect(database).not.toHaveProperty('getOtherMistakeImagePaths')
+    expect(database).not.toHaveProperty('getMistakeImageFields')
+    expect(database).not.toHaveProperty('getOtherMistakeImageFields')
   })
 
   it('keeps mistake facade SQL and parameter order stable through the repository', async () => {
@@ -1571,14 +1577,15 @@ describe('database mistake image cleanup', () => {
       answer: 'Answer',
       notes: '',
       image_path: '',
+      answer_image_path: '',
     })).toEqual({ id: 1 })
     const insertCall = state.preparedCalls.find(call => call.sql.includes('INSERT INTO mistakes'))
     expect(insertCall).toEqual({
-      sql: 'INSERT INTO mistakes (subject_id, question, answer, notes, image_path) VALUES (?, ?, ?, ?, ?)',
-      params: [null, '', 'Answer', '', null],
+      sql: 'INSERT INTO mistakes (subject_id, question, answer, notes, image_path, answer_image_path) VALUES (?, ?, ?, ?, ?, ?)',
+      params: [null, '', 'Answer', '', null, null],
     })
 
-    state.mistakeRows = [{ id: 3, image_path: null, mastered: 0 }]
+    state.mistakeRows = [{ id: 3, image_path: null, answer_image_path: null, mastered: 0 }]
     await expect(database.updateMistake(3, {
       subject_id: 2,
       question: 'Question',
@@ -1586,11 +1593,12 @@ describe('database mistake image cleanup', () => {
       notes: 'Notes',
       mastered: false,
       image_path: 'mistake_images/new.png',
+      answer_image_path: 'mistake_images/answer.png',
     })).resolves.toEqual({ success: true })
     const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE mistakes SET subject_id = ?'))
     expect(updateCall).toEqual({
-      sql: 'UPDATE mistakes SET subject_id = ?, question = ?, answer = ?, notes = ?, mastered = ?, image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
-      params: [2, 'Question', 'Answer', 'Notes', 0, 'mistake_images/new.png', 3],
+      sql: 'UPDATE mistakes SET subject_id = ?, question = ?, answer = ?, notes = ?, mastered = ?, image_path = ?, answer_image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
+      params: [2, 'Question', 'Answer', 'Notes', 0, 'mistake_images/new.png', 'mistake_images/answer.png', 3],
     })
 
     expect(database.toggleMistakeMastered(3)).toEqual({ mastered: 1 })
@@ -1614,7 +1622,7 @@ describe('database mistake image cleanup', () => {
     const reviewCall = state.preparedCalls.find(call => call.sql.includes('SET ease_factor = ?'))
     expect(reviewCall?.params).toEqual([2.4, 5, '2026-06-11', 2, 3])
 
-    state.mistakeRows = [{ id: 3, image_path: null, mastered: 0 }]
+    state.mistakeRows = [{ id: 3, image_path: null, answer_image_path: null, mastered: 0 }]
     expect(database.getDueForReviewCount('2026-06-06')).toBe(1)
     const dueCountCall = state.preparedCalls.find(call => call.sql.includes('SELECT COUNT(*) as count FROM mistakes'))
     expect(dueCountCall?.sql).toContain('mastered = 0 AND (next_review_date IS NULL OR next_review_date <= ?)')
@@ -1622,10 +1630,10 @@ describe('database mistake image cleanup', () => {
 
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.75)
     state.mistakeRows = [
-      { id: 10, image_path: null, subject_id: 2, mastered: 0, question: 'first' },
-      { id: 11, image_path: null, subject_id: 2, mastered: 0, question: 'second' },
-      { id: 12, image_path: null, subject_id: 2, mastered: 0, question: 'third' },
-      { id: 13, image_path: null, subject_id: 2, mastered: 0, question: 'fourth' },
+      { id: 10, image_path: null, answer_image_path: null, subject_id: 2, mastered: 0, question: 'first' },
+      { id: 11, image_path: null, answer_image_path: null, subject_id: 2, mastered: 0, question: 'second' },
+      { id: 12, image_path: null, answer_image_path: null, subject_id: 2, mastered: 0, question: 'third' },
+      { id: 13, image_path: null, answer_image_path: null, subject_id: 2, mastered: 0, question: 'fourth' },
     ]
     expect(database.getRandomDueMistake('2026-06-06', 2)).toEqual(expect.objectContaining({ id: 13 }))
     randomSpy.mockRestore()
@@ -1642,6 +1650,15 @@ describe('database mistake image cleanup', () => {
     await expect(database.updateMistake(1, { image_path: null })).resolves.toEqual({ success: true })
 
     expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/old.png')
+  })
+
+  it('deletes a removed answer-image reference', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: null, answer_image_path: 'mistake_images/old-answer.png' }]
+
+    await expect(database.updateMistake(1, { answer_image_path: null })).resolves.toEqual({ success: true })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/old-answer.png')
   })
 
   it('deletes only the removed image from a JSON image list', async () => {
@@ -1664,6 +1681,65 @@ describe('database mistake image cleanup', () => {
     await database.updateMistake(1, { image_path: null })
 
     expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+
+  it('does not delete when moving an image between question and answer roles on the same mistake', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [
+      { id: 1, image_path: 'mistake_images/move.png', answer_image_path: null },
+    ]
+
+    await database.updateMistake(1, {
+      image_path: null,
+      answer_image_path: 'mistake_images/move.png',
+    })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+
+    state.mistakeRows = [
+      { id: 1, image_path: null, answer_image_path: 'mistake_images/move.png' },
+    ]
+    await database.updateMistake(1, {
+      image_path: 'mistake_images/move.png',
+      answer_image_path: null,
+    })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+
+  it('does not delete when the same mistake still references the image in the other role', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [
+      { id: 1, image_path: 'mistake_images/shared-role.png', answer_image_path: 'mistake_images/shared-role.png' },
+    ]
+
+    await database.updateMistake(1, { image_path: null })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+
+  it('does not delete when another mistake references the image through the opposite role', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [
+      { id: 1, image_path: 'mistake_images/cross.png', answer_image_path: null },
+      { id: 2, image_path: null, answer_image_path: 'mistake_images/cross.png' },
+    ]
+
+    await database.updateMistake(1, { image_path: null })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+
+  it('deduplicates equivalent removed refs across both roles before deleting', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [
+      { id: 1, image_path: 'local://mistake_images/Case.png', answer_image_path: 'mistake_images/case.png' },
+    ]
+
+    await database.updateMistake(1, { image_path: null, answer_image_path: null })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledTimes(1)
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('local://mistake_images/Case.png')
   })
 
   it('does not delete paths outside the managed mistake image directory', async () => {
@@ -1689,7 +1765,7 @@ describe('database mistake image cleanup', () => {
 
   it('keeps deleteMistake cleanup before deleting the database row', async () => {
     const database = await loadDatabase()
-    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/remove.png' }]
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/remove.png', answer_image_path: 'mistake_images/remove-answer.png' }]
     let rowStillExistsDuringCleanup = false
     mistakeImageStorageState.deleteManagedMistakeImage.mockImplementationOnce(async () => {
       rowStillExistsDuringCleanup = state.mistakeRows.some(row => row.id === 1)
@@ -1698,11 +1774,23 @@ describe('database mistake image cleanup', () => {
     await expect(database.deleteMistake(1)).resolves.toEqual({ success: true })
 
     expect(rowStillExistsDuringCleanup).toBe(true)
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/remove.png')
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/remove-answer.png')
     expect(state.mistakeRows).toEqual([])
-    const cleanupSelectIndex = state.preparedCalls.findIndex(call => call.sql === 'SELECT image_path FROM mistakes WHERE id = ?')
+    const cleanupSelectIndex = state.preparedCalls.findIndex(call => call.sql === 'SELECT image_path, answer_image_path FROM mistakes WHERE id = ?')
     const deleteIndex = state.preparedCalls.findIndex(call => call.sql === 'DELETE FROM mistakes WHERE id=?')
     expect(cleanupSelectIndex).toBeGreaterThanOrEqual(0)
     expect(deleteIndex).toBeGreaterThan(cleanupSelectIndex)
+  })
+
+  it('deduplicates deleteMistake cleanup across both image roles', async () => {
+    const database = await loadDatabase()
+    state.mistakeRows = [{ id: 1, image_path: 'mistake_images/same.png', answer_image_path: 'local://mistake_images/Same.png' }]
+
+    await expect(database.deleteMistake(1)).resolves.toEqual({ success: true })
+
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledTimes(1)
+    expect(state.mistakeRows).toEqual([])
   })
 
   it('keeps deleting the database row and logs the original cleanup error when cleanup fails', async () => {
@@ -1723,8 +1811,8 @@ describe('database mistake image cleanup', () => {
 
     await expect(database.updateMistake(1, { question: 'No image change' })).resolves.toEqual({ success: true })
 
-    expect(state.preparedCalls.some(call => call.sql === 'SELECT image_path FROM mistakes WHERE id = ?')).toBe(false)
-    expect(state.preparedCalls.some(call => call.sql === 'SELECT id, image_path FROM mistakes WHERE id <> ? AND image_path IS NOT NULL')).toBe(false)
+    expect(state.preparedCalls.some(call => call.sql === 'SELECT image_path, answer_image_path FROM mistakes WHERE id = ?')).toBe(false)
+    expect(state.preparedCalls.some(call => call.sql.includes('SELECT id, image_path, answer_image_path'))).toBe(false)
     expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
     expect(state.preparedCalls).toEqual(expect.arrayContaining([
       {

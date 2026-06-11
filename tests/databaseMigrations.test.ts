@@ -171,23 +171,23 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 1 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(1)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1])
+  it('defines schema version 2 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(2)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 1', () => {
+  it('migrates a new database from user_version 0 to schema version 2', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(1)
+    expect(runDatabaseMigrations(database)).toBe(2)
 
-    expect(getUserVersion(database)).toBe(1)
-    expect(getDatabaseSchemaVersion(database)).toBe(1)
+    expect(getUserVersion(database)).toBe(2)
+    expect(getDatabaseSchemaVersion(database)).toBe(2)
     for (const tableName of ['entries', 'tags', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
@@ -195,6 +195,17 @@ describe('SQLite schema migrations', () => {
       expect(indexExists(database, indexName)).toBe(true)
     }
     expect(getTableCount(database, 'diary_templates')).toBe(3)
+    expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining(['image_path', 'answer_image_path']))
+  })
+
+  it('keeps target schema version 1 free of version 2 mistake answer image columns', () => {
+    const database = createDatabase()
+
+    expect(runDatabaseMigrations(database, { targetVersion: 1 })).toBe(1)
+
+    expect(getUserVersion(database)).toBe(1)
+    expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining(['image_path']))
+    expect(getColumnNames(database, 'mistakes')).not.toContain('answer_image_path')
   })
 
   it('adopts a representative unversioned legacy database without losing user data', () => {
@@ -204,7 +215,7 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(1)
+    expect(getUserVersion(database)).toBe(2)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at']))
@@ -215,7 +226,12 @@ describe('SQLite schema migrations', () => {
       'next_review_date',
       'review_count',
       'image_path',
+      'answer_image_path',
     ]))
+    expect(database.prepare('SELECT image_path, answer_image_path FROM mistakes WHERE id = 1').get()).toEqual({
+      image_path: null,
+      answer_image_path: null,
+    })
     expect(tableExists(database, 'study_tasks')).toBe(true)
     expect(indexExists(database, 'idx_mistakes_next_review')).toBe(true)
     expect(indexExists(database, 'idx_study_tasks_subject_id')).toBe(true)
@@ -252,17 +268,17 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(1)
+    expect(getUserVersion(database)).toBe(2)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
   })
 
   it('rejects databases from newer schema versions without mutation', () => {
     const database = createDatabase()
-    database.pragma('user_version = 2')
+    database.pragma('user_version = 3')
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 2.*supported version 1/i)
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 3.*supported version 2/i)
 
-    expect(getUserVersion(database)).toBe(2)
+    expect(getUserVersion(database)).toBe(3)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -297,7 +313,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 1', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 2', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -307,8 +323,9 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(1)
-    expect(getUserVersion(database)).toBe(1)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(2)
+    expect(getUserVersion(database)).toBe(2)
+    expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
@@ -317,17 +334,17 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 2')
+    seed.pragma('user_version = 3')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 2.*supported version 1/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 3.*supported version 2/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(2)
+    expect(getUserVersion(reopened)).toBe(3)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
@@ -347,9 +364,9 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(1)
+    expect(CURRENT_SCHEMA_VERSION).toBe(2)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 1')
+    expect(zipText).toContain('"schemaVersion": 2')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
 })

@@ -11,7 +11,7 @@ describe('database backup data normalization', () => {
         countdownEvents: [{ id: 'exam', title: 'Exam' }],
       },
       mistakes: {
-        data: [{ id: 7, question: '2 + 2', answer: '4' }],
+        data: [{ id: 7, question: '2 + 2', answer: '4', image_path: 'mistake_images/q.png' }],
       },
       pomodoro: [{
         id: 6,
@@ -27,7 +27,7 @@ describe('database backup data normalization', () => {
       { key: 'theme', value: 'dark' },
       { key: 'countdownEvents', value: JSON.stringify([{ id: 'exam', title: 'Exam' }]) },
     ])
-    expect(normalized.mistakes).toEqual([{ id: 7, question: '2 + 2', answer: '4' }])
+    expect(normalized.mistakes).toEqual([{ id: 7, question: '2 + 2', answer: '4', image_path: 'mistake_images/q.png' }])
     expect(normalized.pomodoro_sessions).toEqual([{
       id: 6,
       subject_id: 2,
@@ -69,6 +69,23 @@ describe('database backup data normalization', () => {
 
     expect(normalized.study_tasks).toEqual([task])
     expect(DATABASE_BACKUP_TABLES.some(item => item.table === 'study_tasks')).toBe(true)
+  })
+
+  it('exports answer image paths in the mistake backup column list without requiring old backups to contain them', () => {
+    const mistakeTable = DATABASE_BACKUP_TABLES.find(item => item.table === 'mistakes')
+
+    expect(mistakeTable?.columns).toEqual(expect.arrayContaining(['image_path', 'answer_image_path']))
+    expect(mistakeTable?.columns.indexOf('answer_image_path')).toBe(
+      (mistakeTable?.columns.indexOf('image_path') ?? -2) + 1,
+    )
+
+    const normalized = normalizeBackupDatabaseData({
+      mistakes: [{ id: 8, question: 'legacy', image_path: 'mistake_images/legacy.png' }],
+    })
+
+    expect(normalized.mistakes).toEqual([
+      { id: 8, question: 'legacy', image_path: 'mistake_images/legacy.png' },
+    ])
   })
 
   it('filters sensitive settings from object-shaped restore payloads', () => {

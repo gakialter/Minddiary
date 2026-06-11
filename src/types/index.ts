@@ -112,6 +112,7 @@ export interface Mistake {
   next_review_date: string | null  // 'YYYY-MM-DD' or null if never reviewed
   review_count: number
   image_path?: string | null
+  answer_image_path?: string | null
   subject_name?: string
   subject_color?: string
   created_at: string

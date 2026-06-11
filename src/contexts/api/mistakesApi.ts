@@ -14,7 +14,7 @@ export const createMistakesApi = (
         if (IS_ELECTRON) return window.api.mistakes.getAll(filters)
         let result = mistakesRef.current.map(m => {
             const subject = subjectsRef.current.find(s => s.id === m.subject_id)
-            return { ...m, subject_name: subject?.name, subject_color: subject?.color }
+            return { ...m, image_path: m.image_path ?? null, answer_image_path: m.answer_image_path ?? null, subject_name: subject?.name, subject_color: subject?.color }
         })
         if (filters.subject_id) result = result.filter(m => m.subject_id === filters.subject_id)
         if (filters.due) {
@@ -51,6 +51,7 @@ export const createMistakesApi = (
         const newMistake: Mistake = {
             question: '', answer: '', notes: '', subject_id: null,
             ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
+            image_path: null, answer_image_path: null,
             ...data,
             id: Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1,
             mastered: false,

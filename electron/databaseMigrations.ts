@@ -6,7 +6,7 @@ import {
     TAG_VARIANTS,
 } from '../src/utils/tagStyle';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export type DatabaseMigration = {
     version: number;
@@ -316,11 +316,20 @@ function migrateToSchemaVersion1(database: Database.Database): void {
     seedDefaultDiaryTemplates(database);
 }
 
+function migrateToSchemaVersion2(database: Database.Database): void {
+    ensureColumn(database, 'mistakes', 'answer_image_path', 'TEXT');
+}
+
 export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     {
         version: 1,
         name: 'adopt-current-schema',
         up: migrateToSchemaVersion1,
+    },
+    {
+        version: 2,
+        name: 'add-mistake-answer-images',
+        up: migrateToSchemaVersion2,
     },
 ] as const;
 

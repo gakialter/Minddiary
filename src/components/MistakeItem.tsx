@@ -30,7 +30,10 @@ export function MistakeItem({
 }: MistakeItemProps) {
     const [answerVisible, setAnswerVisible] = useState(false)
     const dueForReview = isDueForReview(m.next_review_date)
-    const hasAnswerContent = Boolean(m.answer || m.notes)
+    const questionImagePaths = parseImagePaths(m.image_path)
+    const answerImagePaths = parseImagePaths(m.answer_image_path)
+    const hasTextAnswerContent = Boolean(m.answer || m.notes)
+    const hasAnswerContent = hasTextAnswerContent || answerImagePaths.length > 0
     const canRevealAnswer = hasAnswerContent || (!m.mastered && dueForReview)
     const showReviewControls = answerVisible && !m.mastered && dueForReview
 
@@ -81,11 +84,11 @@ export function MistakeItem({
             <div className="content-selectable" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
                 <strong>Q：</strong><Latex>{m.question}</Latex>
             </div>
-            {m.image_path && (
+            {questionImagePaths.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
-                    {parseImagePaths(m.image_path).map((imgPath, idx) => {
+                    {questionImagePaths.map((imgPath, idx) => {
                         const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
-                        const alt = `错题附图 ${idx + 1}`
+                        const alt = `错题题目图片 ${idx + 1}`
                         return (
                             <ClickableImage
                                 key={idx}
@@ -127,13 +130,40 @@ export function MistakeItem({
                     <strong>A：</strong><Latex>{m.answer}</Latex>
                 </div>
             )}
+            {answerVisible && answerImagePaths.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
+                    {answerImagePaths.map((imgPath, idx) => {
+                        const imageUrl = toLocalAssetUrl(imgPath, 'mistake_images')
+                        const alt = `错题答案图片 ${idx + 1}`
+                        return (
+                            <ClickableImage
+                                key={idx}
+                                src={imageUrl}
+                                alt={alt}
+                                onPreview={onPreviewImage}
+                                ariaLabel={`放大查看${alt}`}
+                                title={`放大查看${alt}`}
+                                buttonStyle={{
+                                    padding: 0,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: 'zoom-in',
+                                    display: 'block',
+                                    maxWidth: '100%',
+                                }}
+                                imageStyle={{ maxHeight: 240, maxWidth: '100%', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                            />
+                        )
+                    })}
+                </div>
+            )}
             {answerVisible && m.notes && (
                 <div className="text-sm text-muted content-selectable" style={{ fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                     <Pin size={13} style={{ flexShrink: 0, marginTop: 2 }} />
                     <MarkdownRenderer className="mistake-notes-md">{m.notes}</MarkdownRenderer>
                 </div>
             )}
-            {answerVisible && !hasAnswerContent && (
+            {answerVisible && !hasTextAnswerContent && answerImagePaths.length === 0 && (
                 <div className="text-sm text-muted" style={{ marginTop: 'var(--space-xs)' }}>
                     暂无答案或备注
                 </div>
