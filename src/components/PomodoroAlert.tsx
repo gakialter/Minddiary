@@ -3,7 +3,8 @@ import { Coffee, Zap, X } from 'lucide-react'
 
 interface PomodoroAlertProps {
   visible: boolean
-  isWorkComplete: boolean   // true = work done (show break msg), false = break done
+  isWorkComplete: boolean   // true = focus done, false = break done
+  completionKind?: 'completed' | 'interrupted'
   duration: number          // in minutes
   todayTotal: number        // in minutes
   onClose: () => void
@@ -15,6 +16,7 @@ interface PomodoroAlertProps {
 export default function PomodoroAlert({
   visible,
   isWorkComplete,
+  completionKind = 'completed',
   duration,
   todayTotal,
   onClose,
@@ -41,6 +43,16 @@ export default function PomodoroAlert({
   }, [autoCloseTimer, visible, onClose])
 
   if (!visible) return null
+
+  const isInterruptedFocus = isWorkComplete && completionKind === 'interrupted'
+  const title = isInterruptedFocus
+    ? '专注已保存'
+    : isWorkComplete ? '专注完成！' : '休息结束！'
+  const subtitle = isInterruptedFocus
+    ? '本次提前结束，实际专注时长已计入统计。'
+    : isWorkComplete
+      ? '干得漂亮，休息几分钟再继续吧～'
+      : '精力充沛，继续加油！'
 
   return (
     <div
@@ -69,7 +81,6 @@ export default function PomodoroAlert({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close button */}
         <button
           onClick={onClose}
           style={{
@@ -81,7 +92,6 @@ export default function PomodoroAlert({
           <X size={16} />
         </button>
 
-        {/* Icon */}
         <div style={{
           width: 72, height: 72, borderRadius: '50%',
           background: isWorkComplete
@@ -97,20 +107,14 @@ export default function PomodoroAlert({
           {isWorkComplete ? <Coffee size={32} color="white" /> : <Zap size={32} color="white" />}
         </div>
 
-        {/* Title */}
         <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 'var(--space-sm)', color: 'var(--text-primary)' }}>
-          {isWorkComplete ? '专注完成！' : '休息结束！'}
+          {title}
         </h2>
 
-        {/* Subtitle */}
         <p className="text-sm text-secondary" style={{ marginBottom: 'var(--space-lg)', lineHeight: 1.6 }}>
-          {isWorkComplete
-            ? '干得漂亮，休息几分钟再继续吧～'
-            : '精力充沛，继续加油！'
-          }
+          {subtitle}
         </p>
 
-        {/* Stats */}
         <div className="flex gap-md" style={{ justifyContent: 'center', marginBottom: 'var(--space-lg)' }}>
           <div style={{
             background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
@@ -130,7 +134,6 @@ export default function PomodoroAlert({
           </div>
         </div>
 
-        {/* Action button */}
         {showSettlementActions && isWorkComplete && (
           <div className="flex flex-col gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
             <button
@@ -159,17 +162,18 @@ export default function PomodoroAlert({
             </button>
           </div>
         )}
-        <button
-          className="button button-primary w-full"
-          onClick={onClose}
-          data-testid="pomodoro-alert-primary-action"
-          style={{
-            display: showSettlementActions && isWorkComplete ? 'none' : undefined,
-            height: 44, borderRadius: 22, fontSize: 15, fontWeight: 600,
-          }}
-        >
-          {isWorkComplete ? '开始休息' : '继续专注'} ({autoCloseTimer}s)
-        </button>
+        {!(showSettlementActions && isWorkComplete) && (
+          <button
+            className="button button-primary w-full"
+            onClick={onClose}
+            data-testid="pomodoro-alert-primary-action"
+            style={{
+              height: 44, borderRadius: 22, fontSize: 15, fontWeight: 600,
+            }}
+          >
+            {isWorkComplete ? '开始休息' : '继续专注'} ({autoCloseTimer}s)
+          </button>
+        )}
       </div>
 
       <style>{`

@@ -12,11 +12,18 @@ interface PomodoroMode {
   color: string
 }
 
+interface CountdownFocusSettlementPreview {
+  elapsedSeconds: number
+  roundedMinutes: number
+  capturedAtMs: number
+}
+
 interface PomodoroTimerValue {
   mode: PomodoroMode
   timeLeft: number
   isRunning: boolean
   hasActiveTimerSession: boolean
+  countdownElapsedSeconds: number
   progress: number
   circleCircumference: number
   miniCircumference: number
@@ -32,11 +39,13 @@ interface PomodoroDataValue {
   alertState: {
     visible: boolean
     isWorkComplete: boolean
+    completionKind: PomodoroCompletionKind
     duration: number
     todayTotal: number
     showSettlementActions: boolean
     subjectName: string | null
   }
+  isSavingInterruptedFocus: boolean
 }
 
 interface PomodoroActionsValue {
@@ -45,6 +54,8 @@ interface PomodoroActionsValue {
   setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
   toggleTimer: () => void
   resetTimer: () => void
+  getCountdownFocusSettlementPreview: () => CountdownFocusSettlementPreview | null
+  finishCountdownFocusSession: (preview?: CountdownFocusSettlementPreview) => Promise<boolean>
   finishStopwatchSession: () => Promise<boolean>
   formatTime: (seconds: number) => string
   loadSubjects: () => Promise<void>
@@ -64,6 +75,7 @@ const RESTORE_CLOCK_SKEW_MS = 5 * 60 * 1000
 const MAX_POMODORO_MODE_SECONDS = 24 * 60 * 60
 
 type PomodoroModeId = 'work' | 'custom' | 'short_break' | 'long_break' | 'stopwatch'
+type PomodoroCompletionKind = 'completed' | 'interrupted'
 
 type PersistedPomodoroSession = {
   version: 1
@@ -316,9 +328,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   // Alert modal state
   const [alertState, setAlertState] = useState({
-    visible: false, isWorkComplete: true, duration: 0, todayTotal: 0,
+    visible: false, isWorkComplete: true, completionKind: 'completed' as PomodoroCompletionKind, duration: 0, todayTotal: 0,
     showSettlementActions: false, subjectName: null as string | null,
   })
+  const [isSavingInterruptedFocus, setIsSavingInterruptedFocus] = useState(false)
 
   const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
 
@@ -336,6 +349,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const lastTickRemainingRef = useRef(timeLeft)
   const stopwatchElapsedBeforeRunRef = useRef(0)
   const stopwatchRunStartedAtRef = useRef<number | null>(null)
+  const sessionSettlementInFlightRef = useRef(false)
 
   useEffect(() => {
     todayDateKeyRef.current = todayDateKey
@@ -358,6 +372,46 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       MAX_POMODORO_MODE_SECONDS,
     )
   }, [])
+
+  const getCurrentCountdownRemainingSeconds = useCallback((nowMs = Date.now()) => {
+    const currentMode = modeRef.current
+    if (!isCountdownFocusModeId(currentMode.id)) return 0
+
+    const modeTime = Math.max(1, currentMode.time)
+    if (isRunning && endTimeRef.current) {
+      let remaining = clampSeconds((endTimeRef.current - nowMs) / 1000, modeTime)
+      const previousRemaining = clampSeconds(lastTickRemainingRef.current, modeTime)
+      if (remaining > previousRemaining) {
+        remaining = previousRemaining
+      }
+      return remaining
+    }
+
+    return clampSeconds(timeLeft, modeTime)
+  }, [isRunning, timeLeft])
+
+  const getCurrentCountdownElapsedSeconds = useCallback((nowMs = Date.now()) => {
+    const currentMode = modeRef.current
+    if (!isCountdownFocusModeId(currentMode.id)) return 0
+
+    const modeTime = Math.max(1, currentMode.time)
+    const remaining = getCurrentCountdownRemainingSeconds(nowMs)
+    return Math.max(0, Math.min(modeTime, modeTime - remaining))
+  }, [getCurrentCountdownRemainingSeconds])
+
+  const getCountdownFocusSettlementPreview = useCallback((): CountdownFocusSettlementPreview | null => {
+    const currentMode = modeRef.current
+    if (!isCountdownFocusModeId(currentMode.id) || !activeSessionRef.current) return null
+    if (sessionSettlementInFlightRef.current) return null
+
+    const capturedAtMs = Date.now()
+    const elapsedSeconds = getCurrentCountdownElapsedSeconds(capturedAtMs)
+    return {
+      elapsedSeconds,
+      roundedMinutes: getRoundedElapsedMinutes(elapsedSeconds),
+      capturedAtMs,
+    }
+  }, [getCurrentCountdownElapsedSeconds])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -428,6 +482,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setMode = useCallback<React.Dispatch<React.SetStateAction<PomodoroMode>>>((nextModeAction) => {
+    if (sessionSettlementInFlightRef.current) return
+
     const nextMode = typeof nextModeAction === 'function'
       ? nextModeAction(modeRef.current)
       : nextModeAction
@@ -471,6 +527,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   // Phase-complete handler
   const handlePhaseComplete = useCallback(async () => {
+    if (sessionSettlementInFlightRef.current) return
+    sessionSettlementInFlightRef.current = true
+    try {
     const completedMode = mode
     const completedSubject = selectedSubject
     const startedAtForRecord = sessionStartedAtRef.current
@@ -532,6 +591,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           setAlertState({
             visible: true,
             isWorkComplete: true,
+            completionKind: 'completed',
             duration: Math.round(completedMode.time / 60),
             todayTotal: newTotal,
             showSettlementActions: true,
@@ -552,6 +612,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         setAlertState({
           visible: true,
           isWorkComplete: false,
+          completionKind: 'completed',
           duration: Math.round(completedMode.time / 60),
           todayTotal: newTotal,
           showSettlementActions: false,
@@ -560,6 +621,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
       await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
       setIdleMode(dynamicModes.WORK!)
+    }
+    } finally {
+      sessionSettlementInFlightRef.current = false
     }
   }, [
     mode,
@@ -737,6 +801,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [customMinutes, isRunning, mode, selectedSubject, timeLeft])
 
   const toggleTimer = useCallback(() => {
+    if (sessionSettlementInFlightRef.current) return
+
     const nextIsRunning = !isRunning
     activeSessionRef.current = true
     setHasActiveTimerSession(true)
@@ -772,6 +838,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [getCurrentStopwatchElapsedSeconds, isRunning, mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
+    if (sessionSettlementInFlightRef.current) return
+
     const resetMode = mode.id === 'custom'
       ? dynamicModes.CUSTOM!
       : mode.id === 'work'
@@ -781,6 +849,91 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     clearActiveSessionState()
     setIdleMode(resetMode)
   }, [clearActiveSessionState, dynamicModes, mode, setIdleMode])
+
+  const finishCountdownFocusSession = useCallback(async (preview?: CountdownFocusSettlementPreview) => {
+    const currentMode = modeRef.current
+    if (!isCountdownFocusModeId(currentMode.id) || !activeSessionRef.current) return false
+    if (sessionSettlementInFlightRef.current) return false
+
+    const settlementPreview = preview ?? getCountdownFocusSettlementPreview()
+    if (!settlementPreview || !Number.isFinite(settlementPreview.capturedAtMs)) return false
+
+    const modeTime = Math.max(1, currentMode.time)
+    const elapsedSeconds = Math.max(0, Math.min(modeTime, settlementPreview.elapsedSeconds))
+    const remainingSeconds = clampSeconds(modeTime - elapsedSeconds, modeTime)
+    if (elapsedSeconds < 60) return false
+
+    sessionSettlementInFlightRef.current = true
+    setIsSavingInterruptedFocus(true)
+
+    endTimeRef.current = null
+    lastTickRemainingRef.current = remainingSeconds
+    setTimeLeft(remainingSeconds)
+    setIsRunning(false)
+
+    const roundedMinutes = settlementPreview.roundedMinutes
+    const completedAt = new Date(settlementPreview.capturedAtMs)
+    const startedAt = sessionStartedAtRef.current
+      ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
+    const completedSubject = selectedSubject
+    const idleMode = currentMode.id === 'custom' ? dynamicModes.CUSTOM! : dynamicModes.WORK!
+
+    try {
+      await addPomodoroSessionRecord({
+        durationSeconds: roundedMinutes * 60,
+        subjectId: completedSubject,
+        startedAt,
+        completedAt,
+      })
+
+      clearActiveSessionState()
+      setIdleMode(idleMode)
+
+      if (coerceBoolean(settingsData?.pomodoroAlert, true)) {
+        try {
+          const alertDateKey = getLocalDateKey()
+          const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(error => {
+            logger.warn('Failed to refresh pomodoro total after interrupted save:', error)
+            return todayTotal
+          })
+          setAlertState({
+            visible: true,
+            isWorkComplete: true,
+            completionKind: 'interrupted',
+            duration: roundedMinutes,
+            todayTotal: newTotal,
+            showSettlementActions: true,
+            subjectName: getSubjectName(completedSubject),
+          })
+        } catch (error) {
+          logger.warn('Failed to show interrupted focus alert:', error)
+        }
+      }
+
+      notificationAPI.show('专注已保存', `本次实际专注 ${roundedMinutes} 分钟已计入统计。`)
+        .catch(error => logger.warn('Failed to show interrupted focus notification:', error))
+
+      return true
+    } catch (error) {
+      logger.error(error)
+      return false
+    } finally {
+      sessionSettlementInFlightRef.current = false
+      setIsSavingInterruptedFocus(false)
+    }
+  }, [
+    addPomodoroSessionRecord,
+    clearActiveSessionState,
+    dynamicModes,
+    getCountdownFocusSettlementPreview,
+    getSubjectName,
+    notificationAPI,
+    pomodoroAPI,
+    selectedSubject,
+    setIdleMode,
+    settingsData,
+    todayTotal,
+  ])
 
   const finishStopwatchSession = useCallback(async () => {
     if (!isStopwatchModeId(mode.id) || !activeSessionRef.current) return false
@@ -816,6 +969,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         setAlertState({
           visible: true,
           isWorkComplete: true,
+          completionKind: 'completed',
           duration: roundedMinutes,
           todayTotal: newTotal,
           showSettlementActions: true,
@@ -859,23 +1013,26 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     : mode.time > 0
       ? Math.max(0, Math.min(1, 1 - (timeLeft / mode.time)))
     : 0
+  const countdownElapsedSeconds = isCountdownFocusModeId(mode.id)
+    ? Math.max(0, Math.min(mode.time, mode.time - clampSeconds(timeLeft, mode.time)))
+    : 0
   const circleCircumference = 2 * Math.PI * 90
   const miniCircumference = 2 * Math.PI * 18
 
   // Context Values
   const timerValue = useMemo((): PomodoroTimerValue => ({
-    mode, timeLeft, isRunning, hasActiveTimerSession, progress, circleCircumference, miniCircumference, dynamicModes
-  }), [mode, timeLeft, isRunning, hasActiveTimerSession, progress, circleCircumference, miniCircumference, dynamicModes])
+    mode, timeLeft, isRunning, hasActiveTimerSession, countdownElapsedSeconds, progress, circleCircumference, miniCircumference, dynamicModes
+  }), [mode, timeLeft, isRunning, hasActiveTimerSession, countdownElapsedSeconds, progress, circleCircumference, miniCircumference, dynamicModes])
 
   const dataValue = useMemo((): PomodoroDataValue => ({
-    subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState
-  }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState])
+    subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, isSavingInterruptedFocus
+  }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, isSavingInterruptedFocus])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
-    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, finishStopwatchSession, formatTime,
+    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
     loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart,
-  }), [toggleTimer, resetTimer, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
+  }), [toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>

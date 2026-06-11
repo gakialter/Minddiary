@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiaryEntry } from '../src/types'
@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     setEntryTags: vi.fn(),
   },
   setOnBreakStart: vi.fn(),
+  breakStartCallback: null as (() => void) | null,
   dismissAlert: vi.fn(),
   setActiveView: vi.fn(),
   setSelectedDate: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   alertState: {
     visible: false,
     isWorkComplete: false,
+    completionKind: 'completed' as 'completed' | 'interrupted',
     duration: 0,
     todayTotal: 0,
     showSettlementActions: false,
@@ -95,20 +97,29 @@ vi.mock('../src/components/MoodPicker', () => ({ default: () => null }))
 vi.mock('../src/components/Pomodoro', () => ({ default: () => null }))
 vi.mock('../src/components/CommandPalette', () => ({ default: () => null }))
 vi.mock('../src/components/ExportModal', () => ({ default: () => null }))
-vi.mock('../src/components/BreakReviewModal', () => ({ default: () => null }))
+vi.mock('../src/components/BreakReviewModal', () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="mock-break-review-modal">
+      <button onClick={onClose}>Close break review</button>
+    </div>
+  ),
+}))
 vi.mock('../src/components/PomodoroAlert', () => ({
   default: ({
     visible,
+    completionKind,
     onWriteDiary,
     onAddMistake,
     onClose,
   }: {
     visible: boolean
+    completionKind?: 'completed' | 'interrupted'
     onWriteDiary?: () => void
     onAddMistake?: () => void
     onClose: () => void
   }) => visible ? (
     <div>
+      <div data-testid="mock-alert-kind">{completionKind}</div>
       <button data-testid="mock-alert-write-diary" onClick={onWriteDiary}>Write diary</button>
       <button data-testid="mock-alert-add-mistake" onClick={onAddMistake}>Add mistake</button>
       <button data-testid="mock-alert-close" onClick={onClose}>Close</button>
@@ -147,11 +158,16 @@ describe('App diary save flow', () => {
     mocks.alertState = {
       visible: false,
       isWorkComplete: false,
+      completionKind: 'completed',
       duration: 0,
       todayTotal: 0,
       showSettlementActions: false,
       subjectName: null,
     }
+    mocks.breakStartCallback = null
+    mocks.setOnBreakStart.mockImplementation((cb: (() => void) | null) => {
+      mocks.breakStartCallback = cb
+    })
   })
 
   it('sets tags after a new diary receives its saved entry id', async () => {
@@ -177,6 +193,7 @@ describe('App diary save flow', () => {
     mocks.alertState = {
       visible: true,
       isWorkComplete: true,
+      completionKind: 'interrupted',
       duration: 25,
       todayTotal: 50,
       showSettlementActions: true,
@@ -199,6 +216,7 @@ describe('App diary save flow', () => {
     mocks.alertState = {
       visible: true,
       isWorkComplete: true,
+      completionKind: 'interrupted',
       duration: 25,
       todayTotal: 50,
       showSettlementActions: true,
@@ -211,5 +229,37 @@ describe('App diary save flow', () => {
 
     expect(mocks.setActiveView).toHaveBeenCalledWith('mistakes')
     expect(mocks.dismissAlert).toHaveBeenCalled()
+  })
+
+  it('opens break review only when the natural completion callback fires', async () => {
+    render(<App />)
+
+    expect(screen.queryByTestId('mock-break-review-modal')).not.toBeInTheDocument()
+    expect(mocks.breakStartCallback).toEqual(expect.any(Function))
+
+    await act(async () => {
+      mocks.breakStartCallback?.()
+    })
+
+    expect(screen.getByTestId('mock-break-review-modal')).toBeInTheDocument()
+  })
+
+  it('does not open break review for an interrupted focus settlement alert', () => {
+    mocks.alertState = {
+      visible: true,
+      isWorkComplete: true,
+      completionKind: 'interrupted',
+      duration: 19,
+      todayTotal: 44,
+      showSettlementActions: true,
+      subjectName: 'Math',
+    }
+
+    render(<App />)
+
+    expect(screen.getByTestId('mock-alert-kind')).toHaveTextContent('interrupted')
+    expect(screen.queryByTestId('mock-break-review-modal')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mock-alert-write-diary')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-alert-add-mistake')).toBeInTheDocument()
   })
 })

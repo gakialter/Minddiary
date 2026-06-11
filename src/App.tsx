@@ -324,6 +324,7 @@ function AppContent() {
       <PomodoroAlert
         visible={alertState.visible}
         isWorkComplete={alertState.isWorkComplete}
+        completionKind={alertState.completionKind}
         duration={alertState.duration}
         todayTotal={alertState.todayTotal}
         onClose={dismissAlert}
