@@ -29,6 +29,11 @@ describe('Pomodoro Component', () => {
       writable: true,
       value: vi.fn().mockResolvedValue(undefined),
     })
+    Object.defineProperty(window, 'confirm', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => true),
+    })
     
     // Default mock implementation
     mockUseDiary.mockReturnValue({
@@ -59,6 +64,13 @@ describe('Pomodoro Component', () => {
           <Pomodoro isWidget={isWidget} onExpand={() => {}} isCollapsed={false} />
         </PomodoroProvider>
       )
+    })
+  }
+
+  const flushAsyncWork = async () => {
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
     })
   }
 
@@ -399,5 +411,277 @@ describe('Pomodoro Component', () => {
       duration: 1,
     }))
     expect(screen.getByText('00:00')).toBeInTheDocument()
+  })
+
+  it('shows the countdown finish button only for active work/custom countdowns', async () => {
+    await renderPomodoro()
+
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).toBeDisabled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).not.toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    })
+    fireEvent.click(screen.getByTestId('pomodoro-mode-custom'))
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    })
+    fireEvent.click(screen.getByTestId('pomodoro-mode-short_break'))
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    })
+    fireEvent.click(screen.getByTestId('pomodoro-mode-stopwatch'))
+    expect(screen.getByTestId('pomodoro-finish-stopwatch-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+  })
+
+  it('confirms and saves an interrupted countdown once from the full page', async () => {
+    const addSession = vi.fn().mockResolvedValue(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    const confirmMock = vi.mocked(window.confirm)
+    confirmMock.mockReturnValue(true)
+
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(65_000)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+      fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+    })
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('1 分 05 秒'))
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('1 分钟计入统计'))
+    await flushAsyncWork()
+    expect(addSession).toHaveBeenCalledTimes(1)
+    expect(addSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 1,
+    }))
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+  })
+
+  it('does not save when interrupted countdown confirmation is cancelled', async () => {
+    const addSession = vi.fn().mockResolvedValue(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    vi.mocked(window.confirm).mockReturnValue(false)
+
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(65_000)
+    })
+    fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+
+    expect(addSession).not.toHaveBeenCalled()
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).toBeInTheDocument()
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByText('23:54')).toBeInTheDocument()
+  })
+
+  it('saves an interrupted countdown from Zen and exits fullscreen on success', async () => {
+    const addSession = vi.fn().mockResolvedValue(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    vi.mocked(window.confirm).mockReturnValue(true)
+
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(65_000)
+      fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+    })
+
+    const zenFinishButton = screen.getByTestId('focus-zen-finish-countdown-btn')
+    expect(zenFinishButton).not.toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(zenFinishButton)
+    })
+
+    await flushAsyncWork()
+    expect(addSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('focus-zen-mode')).not.toBeInTheDocument()
+    expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps Zen open and retryable when interrupted save fails', async () => {
+    const addSession = vi.fn().mockRejectedValue(new Error('insert failed'))
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    vi.mocked(window.confirm).mockReturnValue(true)
+
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(65_000)
+      fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('focus-zen-finish-countdown-btn'))
+    })
+
+    await flushAsyncWork()
+    expect(addSession).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+    expect(screen.getByTestId('focus-zen-finish-countdown-btn')).not.toBeDisabled()
+    expect(window.api.window.setFullScreen).not.toHaveBeenLastCalledWith(false)
+  })
+
+  it('does not show the Zen countdown finish button for break or stopwatch modes', async () => {
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-short_break'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+    expect(screen.queryByTestId('focus-zen-finish-countdown-btn')).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+
+    fireEvent.click(screen.getByTestId('pomodoro-mode-stopwatch'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+    expect(screen.queryByTestId('focus-zen-finish-countdown-btn')).not.toBeInTheDocument()
+  })
+
+  it('keeps interrupted countdown retryable after save failure', async () => {
+    const addSession = vi.fn()
+      .mockRejectedValueOnce(new Error('insert failed'))
+      .mockResolvedValueOnce(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    vi.mocked(window.confirm).mockReturnValue(true)
+
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(65_000)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+    })
+    await flushAsyncWork()
+    expect(addSession).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).not.toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+    })
+    await flushAsyncWork()
+    expect(addSession).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+  })
+
+  it('warns before resetting an active countdown but resets idle immediately', async () => {
+    const confirmMock = vi.mocked(window.confirm)
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    expect(confirmMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(1_000)
+    })
+
+    confirmMock.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    expect(confirmMock).toHaveBeenCalledWith('重置将放弃本次尚未保存的专注记录。确定继续吗？')
+    expect(screen.getByTestId('pomodoro-finish-countdown-btn')).toBeInTheDocument()
+    expect(screen.getByText('24:59')).toBeInTheDocument()
+
+    confirmMock.mockReturnValueOnce(true)
+    fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+    expect(screen.getByText('25:00')).toBeInTheDocument()
   })
 })

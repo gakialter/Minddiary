@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Minimize2, Pause, Play } from 'lucide-react'
+import { Minimize2, Pause, Play, Square } from 'lucide-react'
 
 interface FocusZenModeProps {
   visible: boolean
@@ -11,6 +11,10 @@ interface FocusZenModeProps {
   onExit: () => void | Promise<void>
   formatTime: (seconds: number) => string
   selectedSubjectName?: string
+  showFinishEarly?: boolean
+  canFinishEarly?: boolean
+  isFinishingEarly?: boolean
+  onFinishEarly?: () => void | Promise<void>
 }
 
 const CONTROL_HIDE_DELAY_MS = 2400
@@ -25,6 +29,10 @@ export default function FocusZenMode({
   onExit,
   formatTime,
   selectedSubjectName,
+  showFinishEarly = false,
+  canFinishEarly = false,
+  isFinishingEarly = false,
+  onFinishEarly,
 }: FocusZenModeProps) {
   const [controlsVisible, setControlsVisible] = useState(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -180,6 +188,30 @@ export default function FocusZenMode({
         >
           <Minimize2 size={16} /> 退出全屏
         </button>
+        {showFinishEarly && (
+          <button
+            type="button"
+            className="button button-secondary"
+            data-testid="focus-zen-finish-countdown-btn"
+            disabled={!canFinishEarly || isFinishingEarly}
+            onClick={() => {
+              revealControls()
+              void onFinishEarly?.()
+            }}
+            title={canFinishEarly ? '提前结束并保存当前实际专注时长' : '至少专注 1 分钟后可保存'}
+            style={{
+              minWidth: 148,
+              height: 42,
+              borderRadius: 21,
+              background: canFinishEarly && !isFinishingEarly ? 'var(--bg-secondary)' : 'var(--bg-tertiary)',
+              color: canFinishEarly && !isFinishingEarly ? 'var(--text-primary)' : 'var(--text-muted)',
+              border: '1px solid var(--border-light)',
+              cursor: canFinishEarly && !isFinishingEarly ? 'pointer' : 'not-allowed',
+            }}
+          >
+            <Square size={16} /> {isFinishingEarly ? '正在保存...' : '提前结束并保存'}
+          </button>
+        )}
       </div>
     </div>
   )

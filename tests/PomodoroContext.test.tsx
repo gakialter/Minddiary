@@ -166,6 +166,31 @@ const waitForExpect = async (assertion: () => void) => {
   }
 }
 
+const advanceTimer = async (milliseconds: number) => {
+  await act(async () => {
+    vi.advanceTimersByTime(milliseconds)
+  })
+}
+
+const startCustomCountdown = async (
+  result: ReturnType<typeof renderPomodoroHook>['result'],
+  minutes: number,
+) => {
+  await act(async () => {
+    result.current.actions.setCustomMinutes(minutes)
+  })
+  await act(async () => {
+    result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+  })
+  await waitForExpect(() => {
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.timeLeft).toBe(minutes * 60)
+  })
+  await act(async () => {
+    result.current.actions.toggleTimer()
+  })
+}
+
 beforeEach(() => {
   vi.setSystemTime(new Date('2026-05-05T00:00:00.000Z'))
   localStorage.clear()
@@ -560,6 +585,351 @@ describe('PomodoroContext', () => {
       expect(result.current.data.alertState.showSettlementActions).toBe(true)
       expect(result.current.data.alertState.duration).toBe(25)
     })
+  })
+
+  it('saves an interrupted running custom countdown with rounded effective duration and subject', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.setSelectedSubject(1)
+    })
+    await startCustomCountdown(result, 40)
+    await advanceTimer((18 * 60 + 32) * 1000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1,
+      duration: 19,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:18:32/),
+    }))
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.timeLeft).toBe(40 * 60)
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+    expect(result.current.data.alertState).toEqual(expect.objectContaining({
+      visible: true,
+      completionKind: 'interrupted',
+      duration: 19,
+      showSettlementActions: true,
+      subjectName: 'Math',
+    }))
+  })
+
+  it('does not count paused wall-clock time when saving an interrupted countdown', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(10 * 60 * 1000)
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await advanceTimer(5 * 60 * 1000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 10,
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:15:/),
+    }))
+  })
+
+  it('continues effective elapsed time after resuming a paused countdown', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(5 * 60 * 1000)
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await advanceTimer(10 * 60 * 1000)
+    await act(async () => {
+      result.current.actions.toggleTimer()
+    })
+    await advanceTimer((4 * 60 + 40) * 1000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 10,
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:19:40/),
+    }))
+  })
+
+  it.each([
+    [59, false, null],
+    [60, true, 1],
+    [18 * 60 + 29, true, 18],
+    [18 * 60 + 30, true, 19],
+    [18 * 60 + 32, true, 19],
+  ])('applies interrupted countdown minimum and rounding at %s elapsed seconds', async (elapsedSeconds, expectedSaved, expectedMinutes) => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(elapsedSeconds * 1000)
+
+    let saved = true
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(expectedSaved)
+    if (expectedMinutes === null) {
+      expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+      expect(result.current.timer.hasActiveTimerSession).toBe(true)
+      expect(result.current.timer.isRunning).toBe(true)
+      expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+    } else {
+      expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+        duration: expectedMinutes,
+      }))
+    }
+  })
+
+  it('keeps an interrupted countdown paused and retryable when saving fails', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    mocks.pomodoroAddSession
+      .mockRejectedValueOnce(new Error('insert failed'))
+      .mockResolvedValueOnce({ success: true })
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(2 * 60 * 1000)
+
+    let firstSaved = true
+    await act(async () => {
+      firstSaved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    expect(firstSaved).toBe(false)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.loggerError).toHaveBeenCalled()
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(result.current.timer.timeLeft).toBe(38 * 60)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+    expect(result.current.data.alertState.visible).toBe(false)
+    expect(mocks.notificationShow).not.toHaveBeenCalledWith('专注已保存', expect.any(String))
+
+    let secondSaved = false
+    await act(async () => {
+      secondSaved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(secondSaved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(2)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('uses a synchronous settlement lock to prevent duplicate interrupted countdown saves', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    let resolveAddSession: (value: { success: boolean }) => void = () => {}
+    mocks.pomodoroAddSession.mockReturnValueOnce(new Promise(resolve => {
+      resolveAddSession = resolve
+    }))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(2 * 60 * 1000)
+
+    let firstSave!: Promise<boolean>
+    let secondSave!: Promise<boolean>
+    await act(async () => {
+      firstSave = result.current.actions.finishCountdownFocusSession()
+      secondSave = result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(result.current.data.isSavingInterruptedFocus).toBe(true)
+    await expect(secondSave).resolves.toBe(false)
+
+    await act(async () => {
+      resolveAddSession({ success: true })
+      await firstSave
+    })
+    await flushAsyncWork()
+
+    expect(result.current.data.isSavingInterruptedFocus).toBe(false)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('does not double-write or open break review when interrupted save wins a natural completion race', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const onBreakStart = vi.fn()
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.setOnBreakStart(onBreakStart)
+      result.current.actions.toggleTimer()
+    })
+    await advanceTimer(25 * 60 * 1000 - 500)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await advanceTimer(1000)
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(result.current.data.alertState).toEqual(expect.objectContaining({
+      completionKind: 'interrupted',
+      duration: 25,
+    }))
+    expect(result.current.timer.mode.id).toBe('work')
+    expect(onBreakStart).not.toHaveBeenCalled()
+  })
+
+  it('preserves natural countdown completion behavior with the settlement lock', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const onBreakStart = vi.fn()
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      result.current.actions.setOnBreakStart(onBreakStart)
+      result.current.actions.toggleTimer()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000)
+    })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 25,
+      date_key: '2026-05-05',
+    }))
+    expect(result.current.timer.mode.id).toBe('short_break')
+    expect(onBreakStart).toHaveBeenCalledTimes(1)
+    expect(result.current.data.alertState).toEqual(expect.objectContaining({
+      completionKind: 'completed',
+      duration: 25,
+      showSettlementActions: true,
+    }))
+  })
+
+  it('saves an interrupted countdown restored from a running persisted session', async () => {
+    const startedAtMs = new Date(2026, 4, 5, 8, 0, 0).getTime()
+    const nowMs = new Date(2026, 4, 5, 8, 5, 0).getTime()
+    vi.setSystemTime(nowMs)
+    localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      modeId: 'work',
+      modeTime: 25 * 60,
+      customMinutes: 30,
+      selectedSubject: 1,
+      timeLeft: 20 * 60,
+      isRunning: true,
+      startedAtMs,
+      endTimeMs: nowMs + 20 * 60 * 1000,
+      savedAtMs: nowMs,
+    }))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1,
+      duration: 5,
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:05:/),
+    }))
+  })
+
+  it('saves an interrupted countdown restored from a paused persisted session', async () => {
+    const startedAtMs = new Date(2026, 4, 5, 8, 0, 0).getTime()
+    const nowMs = new Date(2026, 4, 5, 8, 15, 0).getTime()
+    vi.setSystemTime(nowMs)
+    localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      modeId: 'custom',
+      modeTime: 40 * 60,
+      customMinutes: 40,
+      selectedSubject: null,
+      timeLeft: 30 * 60,
+      isRunning: false,
+      startedAtMs,
+      endTimeMs: null,
+      savedAtMs: nowMs,
+    }))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: null,
+      duration: 10,
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:15:/),
+    }))
+  })
+
+  it('keeps interrupted countdown date_key on the session start date across midnight', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 55, 0))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(20 * 60 * 1000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 20,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 23:55:/),
+      completed_at: expect.stringMatching(/^2026-05-06 00:15:/),
+    }))
   })
 
   it('stores custom minutes and uses them when switching to custom mode', async () => {

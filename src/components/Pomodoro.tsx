@@ -78,6 +78,17 @@ function sameFocusTarget(a: FocusWhitelistItem, b: FocusWhitelistItem): boolean 
     || normalize(a.name) === normalize(b.name)
 }
 
+function formatElapsedForConfirmation(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0))
+  const minutes = Math.floor(safeSeconds / 60)
+  const remainingSeconds = safeSeconds % 60
+  return `${minutes} 分 ${remainingSeconds.toString().padStart(2, '0')} 秒`
+}
+
+function getRoundedElapsedMinutesForDisplay(seconds: number): number {
+  return Math.max(1, Math.round(Math.max(0, seconds) / 60))
+}
+
 interface PomodoroProps {
   isWidget: boolean
   onExpand: () => void
@@ -90,18 +101,19 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   const {
     mode, timeLeft, isRunning,
     progress, circleCircumference, miniCircumference,
-    dynamicModes, hasActiveTimerSession,
+    dynamicModes, hasActiveTimerSession, countdownElapsedSeconds,
   } = usePomodoroTimer()
 
   const {
     subjects, selectedSubject,
     todayStats, todayTotal,
     customMinutes,
+    isSavingInterruptedFocus,
   } = usePomodoroData()
 
   const {
     setMode, setSelectedSubject, setCustomMinutes,
-    toggleTimer, resetTimer, finishStopwatchSession, formatTime,
+    toggleTimer, resetTimer, finishCountdownFocusSession, finishStopwatchSession, formatTime,
   } = usePomodoroActions()
 
   const [focusViolation, setFocusViolation] = useState<ActiveAppInfo | null>(null)
@@ -123,6 +135,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     onViolation: handleFocusViolation,
   })
   const [zenVisible, setZenVisible] = useState(false)
+  const finishCountdownClickInFlightRef = useRef(false)
   useEffect(() => {
     onFullscreenChange?.(zenVisible)
   }, [onFullscreenChange, zenVisible])
@@ -134,8 +147,11 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     [selectedSubject, subjects],
   )
   const isStopwatchMode = mode.id === 'stopwatch'
-  const isFocusMode = mode.id === 'work' || mode.id === 'custom' || isStopwatchMode
+  const isCountdownFocusMode = mode.id === 'work' || mode.id === 'custom'
+  const isFocusMode = isCountdownFocusMode || isStopwatchMode
   const canSaveStopwatchSession = isStopwatchMode && hasActiveTimerSession && timeLeft >= 60
+  const showFinishCountdownSession = isCountdownFocusMode && hasActiveTimerSession
+  const canFinishCountdownSession = showFinishCountdownSession && countdownElapsedSeconds >= 60 && !isSavingInterruptedFocus
   const timerStatusText = isRunning
     ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
     : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
@@ -265,6 +281,35 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
       logger.warn('[zen] Browser fullscreen exit failed:', error)
     }
   }, [])
+
+  const handleFinishCountdownFocusSession = useCallback(async () => {
+    if (finishCountdownClickInFlightRef.current || !canFinishCountdownSession) return
+
+    const elapsedSeconds = Math.max(0, Math.floor(countdownElapsedSeconds))
+    const roundedMinutes = getRoundedElapsedMinutesForDisplay(elapsedSeconds)
+    const confirmed = window.confirm(
+      `本次已有效专注 ${formatElapsedForConfirmation(elapsedSeconds)}，将按 ${roundedMinutes} 分钟计入统计。确定提前结束并保存吗？`,
+    )
+    if (!confirmed) return
+
+    finishCountdownClickInFlightRef.current = true
+    try {
+      const saved = await finishCountdownFocusSession()
+      if (saved && zenVisible) {
+        await exitZenMode()
+      }
+    } finally {
+      finishCountdownClickInFlightRef.current = false
+    }
+  }, [canFinishCountdownSession, countdownElapsedSeconds, exitZenMode, finishCountdownFocusSession, zenVisible])
+
+  const handleResetTimer = useCallback(() => {
+    if (isCountdownFocusMode && hasActiveTimerSession) {
+      const confirmed = window.confirm('重置将放弃本次尚未保存的专注记录。确定继续吗？')
+      if (!confirmed) return
+    }
+    resetTimer()
+  }, [hasActiveTimerSession, isCountdownFocusMode, resetTimer])
 
   useEffect(() => {
     const removeFullScreenListener = window.api?.window?.onFullScreenChange?.((fullScreen: boolean) => {
@@ -461,12 +506,30 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
           className="button button-secondary"
           data-testid="pomodoro-reset-btn"
           style={{ width: 44, height: 44, borderRadius: 22, padding: 0 }}
-          onClick={resetTimer}
+          onClick={handleResetTimer}
           title="重置"
           aria-label="重置番茄钟"
         >
           <RotateCcw size={18} />
         </button>
+        {showFinishCountdownSession && (
+          <button
+            className="button"
+            data-testid="pomodoro-finish-countdown-btn"
+            disabled={!canFinishCountdownSession}
+            style={{
+              minWidth: 148, height: 44, borderRadius: 22, fontWeight: 600, border: 'none',
+              background: canFinishCountdownSession ? mode.color : 'var(--bg-tertiary)',
+              color: canFinishCountdownSession ? 'white' : 'var(--text-muted)',
+              cursor: canFinishCountdownSession ? 'pointer' : 'not-allowed',
+              boxShadow: canFinishCountdownSession ? `0 8px 16px ${mode.color}30` : 'none',
+            }}
+            title={canFinishCountdownSession ? '提前结束并保存当前实际专注时长' : '至少专注 1 分钟后可保存'}
+            onClick={() => { void handleFinishCountdownFocusSession() }}
+          >
+            <Square size={16} /> {isSavingInterruptedFocus ? '正在保存...' : '提前结束并保存'}
+          </button>
+        )}
         {isStopwatchMode && (
           <button
             className="button"
@@ -556,6 +619,10 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
       onExit={exitZenMode}
       formatTime={formatTime}
       selectedSubjectName={selectedSubjectName}
+      showFinishEarly={showFinishCountdownSession}
+      canFinishEarly={canFinishCountdownSession}
+      isFinishingEarly={isSavingInterruptedFocus}
+      onFinishEarly={handleFinishCountdownFocusSession}
     />
     {focusNotice}
     </>
