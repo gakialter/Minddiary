@@ -880,6 +880,59 @@ describe('PomodoroContext', () => {
     expect(result.current.timer.timeLeft).toBe(40 * 60)
   })
 
+  it('ignores mode changes while interrupted countdown save is pending and keeps failed saves retryable', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    let rejectAddSession: (reason?: unknown) => void = () => {}
+    mocks.pomodoroAddSession
+      .mockReturnValueOnce(new Promise((_, reject) => {
+        rejectAddSession = reject
+      }))
+      .mockResolvedValueOnce({ success: true })
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(65_000)
+
+    let firstSave!: Promise<boolean>
+    await act(async () => {
+      firstSave = result.current.actions.finishCountdownFocusSession()
+      await Promise.resolve()
+    })
+
+    const frozenTimeLeft = result.current.timer.timeLeft
+    await act(async () => {
+      result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+    })
+
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(frozenTimeLeft)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+
+    let failedSave = true
+    await act(async () => {
+      rejectAddSession(new Error('insert failed'))
+      failedSave = await firstSave
+    })
+    await flushAsyncWork()
+
+    expect(failedSave).toBe(false)
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.timeLeft).toBe(frozenTimeLeft)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+
+    let retriedSave = false
+    await act(async () => {
+      retriedSave = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(retriedSave).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(2)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
   it('does not double-write or open break review when interrupted save wins a natural completion race', async () => {
     vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
     const onBreakStart = vi.fn()

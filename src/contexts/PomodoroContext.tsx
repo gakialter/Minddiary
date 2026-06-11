@@ -15,6 +15,7 @@ interface PomodoroMode {
 interface CountdownFocusSettlementPreview {
   elapsedSeconds: number
   roundedMinutes: number
+  capturedAtMs: number
 }
 
 interface PomodoroTimerValue {
@@ -54,7 +55,7 @@ interface PomodoroActionsValue {
   toggleTimer: () => void
   resetTimer: () => void
   getCountdownFocusSettlementPreview: () => CountdownFocusSettlementPreview | null
-  finishCountdownFocusSession: () => Promise<boolean>
+  finishCountdownFocusSession: (preview?: CountdownFocusSettlementPreview) => Promise<boolean>
   finishStopwatchSession: () => Promise<boolean>
   formatTime: (seconds: number) => string
   loadSubjects: () => Promise<void>
@@ -403,10 +404,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     if (!isCountdownFocusModeId(currentMode.id) || !activeSessionRef.current) return null
     if (sessionSettlementInFlightRef.current) return null
 
-    const elapsedSeconds = getCurrentCountdownElapsedSeconds(Date.now())
+    const capturedAtMs = Date.now()
+    const elapsedSeconds = getCurrentCountdownElapsedSeconds(capturedAtMs)
     return {
       elapsedSeconds,
       roundedMinutes: getRoundedElapsedMinutes(elapsedSeconds),
+      capturedAtMs,
     }
   }, [getCurrentCountdownElapsedSeconds])
 
@@ -479,6 +482,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setMode = useCallback<React.Dispatch<React.SetStateAction<PomodoroMode>>>((nextModeAction) => {
+    if (sessionSettlementInFlightRef.current) return
+
     const nextMode = typeof nextModeAction === 'function'
       ? nextModeAction(modeRef.current)
       : nextModeAction
@@ -845,14 +850,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setIdleMode(resetMode)
   }, [clearActiveSessionState, dynamicModes, mode, setIdleMode])
 
-  const finishCountdownFocusSession = useCallback(async () => {
+  const finishCountdownFocusSession = useCallback(async (preview?: CountdownFocusSettlementPreview) => {
     const currentMode = modeRef.current
     if (!isCountdownFocusModeId(currentMode.id) || !activeSessionRef.current) return false
     if (sessionSettlementInFlightRef.current) return false
 
-    const nowMs = Date.now()
-    const remainingSeconds = getCurrentCountdownRemainingSeconds(nowMs)
-    const elapsedSeconds = getCurrentCountdownElapsedSeconds(nowMs)
+    const settlementPreview = preview ?? getCountdownFocusSettlementPreview()
+    if (!settlementPreview || !Number.isFinite(settlementPreview.capturedAtMs)) return false
+
+    const modeTime = Math.max(1, currentMode.time)
+    const elapsedSeconds = Math.max(0, Math.min(modeTime, settlementPreview.elapsedSeconds))
+    const remainingSeconds = clampSeconds(modeTime - elapsedSeconds, modeTime)
     if (elapsedSeconds < 60) return false
 
     sessionSettlementInFlightRef.current = true
@@ -863,8 +871,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setTimeLeft(remainingSeconds)
     setIsRunning(false)
 
-    const roundedMinutes = getRoundedElapsedMinutes(elapsedSeconds)
-    const completedAt = new Date(nowMs)
+    const roundedMinutes = settlementPreview.roundedMinutes
+    const completedAt = new Date(settlementPreview.capturedAtMs)
     const startedAt = sessionStartedAtRef.current
       ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
     const completedSubject = selectedSubject
@@ -917,8 +925,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     addPomodoroSessionRecord,
     clearActiveSessionState,
     dynamicModes,
-    getCurrentCountdownElapsedSeconds,
-    getCurrentCountdownRemainingSeconds,
+    getCountdownFocusSettlementPreview,
     getSubjectName,
     notificationAPI,
     pomodoroAPI,

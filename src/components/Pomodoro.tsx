@@ -294,7 +294,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
 
     finishCountdownClickInFlightRef.current = true
     try {
-      const saved = await finishCountdownFocusSession()
+      const saved = await finishCountdownFocusSession(preview)
       if (saved && zenVisible) {
         await exitZenMode()
       }
@@ -423,7 +423,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
         {Object.values(dynamicModes).map(m => {
           const isCurrentMode = mode.id === m.id
           const shouldLockModeSwitch = hasActiveTimerSession && isFocusMode
-          const isSwitchDisabled = !isCurrentMode && shouldLockModeSwitch
+          const isSwitchDisabled = isSavingInterruptedFocus || (!isCurrentMode && shouldLockModeSwitch)
           return (
             <button
               key={m.id}

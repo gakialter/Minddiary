@@ -696,11 +696,13 @@ describe('Pomodoro Component', () => {
 
     expect(screen.getByTestId('pomodoro-start-btn')).toBeDisabled()
     expect(screen.getByTestId('pomodoro-reset-btn')).toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-work')).toBeDisabled()
     expect(screen.getByTestId('pomodoro-finish-countdown-btn')).toBeDisabled()
     expect(screen.getByText('23:55')).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
     fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    fireEvent.click(screen.getByTestId('pomodoro-mode-work'))
     await act(async () => {
       vi.advanceTimersByTime(1000)
     })
@@ -714,6 +716,7 @@ describe('Pomodoro Component', () => {
 
     expect(screen.getByTestId('pomodoro-start-btn')).not.toBeDisabled()
     expect(screen.getByTestId('pomodoro-reset-btn')).not.toBeDisabled()
+    expect(screen.getByTestId('pomodoro-mode-work')).not.toBeDisabled()
     expect(screen.getByTestId('pomodoro-finish-countdown-btn')).not.toBeDisabled()
     expect(screen.getByText('23:55')).toBeInTheDocument()
 
@@ -817,6 +820,49 @@ describe('Pomodoro Component', () => {
     expect(confirmation).toMatch(/10.*\S/)
     expect(addSession).toHaveBeenCalledWith(expect.objectContaining({
       duration: 10,
+    }))
+  })
+
+  it('uses the confirmation preview snapshot for final interrupted save duration and completed time', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const addSession = vi.fn().mockResolvedValue(true)
+    mockUseDiary.mockReturnValue({
+      settingsData: { pomodoroMinutes: 25, focusGuardEnabled: false },
+      settings: { updateGeneral: vi.fn().mockResolvedValue({ success: true }) },
+      subjects: { getAll: vi.fn().mockResolvedValue([{ id: 1, name: 'Math' }]) },
+      pomodoro: {
+        getStats: vi.fn().mockResolvedValue([]),
+        getDailyTotal: vi.fn().mockResolvedValue(0),
+        addSession,
+      },
+      notification: {
+        show: vi.fn().mockResolvedValue(true),
+      },
+    })
+    const confirmMock = vi.mocked(window.confirm)
+    confirmMock.mockImplementation(() => {
+      vi.setSystemTime(new Date(Date.now() + 35_000))
+      return true
+    })
+
+    await renderPomodoro()
+
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await act(async () => {
+      vi.advanceTimersByTime(89_000)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-finish-countdown-btn'))
+    })
+    await flushAsyncWork()
+
+    const confirmation = String(confirmMock.mock.calls[confirmMock.mock.calls.length - 1]?.[0] ?? '')
+    expect(confirmation).toContain('1 分 29 秒')
+    expect(confirmation).toContain('1 分钟计入统计')
+    expect(addSession).toHaveBeenCalledWith(expect.objectContaining({
+      duration: 1,
+      completed_at: '2026-05-05 08:01:29',
     }))
   })
 
