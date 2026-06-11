@@ -12,6 +12,11 @@ interface PomodoroMode {
   color: string
 }
 
+interface CountdownFocusSettlementPreview {
+  elapsedSeconds: number
+  roundedMinutes: number
+}
+
 interface PomodoroTimerValue {
   mode: PomodoroMode
   timeLeft: number
@@ -48,6 +53,7 @@ interface PomodoroActionsValue {
   setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
   toggleTimer: () => void
   resetTimer: () => void
+  getCountdownFocusSettlementPreview: () => CountdownFocusSettlementPreview | null
   finishCountdownFocusSession: () => Promise<boolean>
   finishStopwatchSession: () => Promise<boolean>
   formatTime: (seconds: number) => string
@@ -391,6 +397,18 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const remaining = getCurrentCountdownRemainingSeconds(nowMs)
     return Math.max(0, Math.min(modeTime, modeTime - remaining))
   }, [getCurrentCountdownRemainingSeconds])
+
+  const getCountdownFocusSettlementPreview = useCallback((): CountdownFocusSettlementPreview | null => {
+    const currentMode = modeRef.current
+    if (!isCountdownFocusModeId(currentMode.id) || !activeSessionRef.current) return null
+    if (sessionSettlementInFlightRef.current) return null
+
+    const elapsedSeconds = getCurrentCountdownElapsedSeconds(Date.now())
+    return {
+      elapsedSeconds,
+      roundedMinutes: getRoundedElapsedMinutes(elapsedSeconds),
+    }
+  }, [getCurrentCountdownElapsedSeconds])
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -778,6 +796,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [customMinutes, isRunning, mode, selectedSubject, timeLeft])
 
   const toggleTimer = useCallback(() => {
+    if (sessionSettlementInFlightRef.current) return
+
     const nextIsRunning = !isRunning
     activeSessionRef.current = true
     setHasActiveTimerSession(true)
@@ -813,6 +833,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [getCurrentStopwatchElapsedSeconds, isRunning, mode.id, mode.time, timeLeft])
 
   const resetTimer = useCallback(() => {
+    if (sessionSettlementInFlightRef.current) return
+
     const resetMode = mode.id === 'custom'
       ? dynamicModes.CUSTOM!
       : mode.id === 'work'
@@ -1000,10 +1022,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, isSavingInterruptedFocus])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
-    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, finishCountdownFocusSession, finishStopwatchSession, formatTime,
+    setMode, setSelectedSubject, setCustomMinutes, toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
     loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart,
-  }), [toggleTimer, resetTimer, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
+  }), [toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>

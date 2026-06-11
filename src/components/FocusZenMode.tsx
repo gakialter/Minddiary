@@ -67,7 +67,7 @@ export default function FocusZenMode({
       if (event.key === ' ' || event.code === 'Space') {
         event.preventDefault()
         revealControls()
-        onToggleTimer()
+        if (!isFinishingEarly) onToggleTimer()
       }
     }
 
@@ -76,7 +76,7 @@ export default function FocusZenMode({
       window.removeEventListener('keydown', handleKeyDown)
       clearHideTimer()
     }
-  }, [clearHideTimer, onExit, onToggleTimer, revealControls, visible])
+  }, [clearHideTimer, isFinishingEarly, onExit, onToggleTimer, revealControls, visible])
 
   if (!visible) return null
 
@@ -157,8 +157,10 @@ export default function FocusZenMode({
           type="button"
           className="button button-secondary"
           data-testid="focus-zen-toggle-btn"
+          disabled={isFinishingEarly}
           onClick={() => {
             revealControls()
+            if (isFinishingEarly) return
             onToggleTimer()
           }}
           style={{
@@ -166,8 +168,9 @@ export default function FocusZenMode({
             height: 42,
             borderRadius: 21,
             background: 'var(--bg-secondary)',
-            color: 'var(--text-primary)',
+            color: isFinishingEarly ? 'var(--text-muted)' : 'var(--text-primary)',
             border: '1px solid var(--border-light)',
+            cursor: isFinishingEarly ? 'not-allowed' : 'pointer',
           }}
         >
           {isRunning ? <><Pause size={16} /> 暂停</> : <><Play size={16} /> 继续</>}

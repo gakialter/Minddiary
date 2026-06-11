@@ -70,6 +70,24 @@ describe('FocusZenMode', () => {
     expect(onExit).toHaveBeenCalledTimes(1)
   })
 
+  it('disables Zen pause and Space toggle while an early finish is saving', () => {
+    const onToggleTimer = vi.fn()
+    renderZen({
+      isFinishingEarly: true,
+      onToggleTimer,
+      showFinishEarly: true,
+      canFinishEarly: true,
+    })
+
+    fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+    expect(screen.getByTestId('focus-zen-toggle-btn')).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('focus-zen-toggle-btn'))
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' })
+
+    expect(onToggleTimer).not.toHaveBeenCalled()
+  })
+
   it('still auto-hides controls after reveal', () => {
     renderZen({
       showFinishEarly: true,

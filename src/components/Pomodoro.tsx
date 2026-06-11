@@ -85,10 +85,6 @@ function formatElapsedForConfirmation(seconds: number): string {
   return `${minutes} 分 ${remainingSeconds.toString().padStart(2, '0')} 秒`
 }
 
-function getRoundedElapsedMinutesForDisplay(seconds: number): number {
-  return Math.max(1, Math.round(Math.max(0, seconds) / 60))
-}
-
 interface PomodoroProps {
   isWidget: boolean
   onExpand: () => void
@@ -113,7 +109,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
 
   const {
     setMode, setSelectedSubject, setCustomMinutes,
-    toggleTimer, resetTimer, finishCountdownFocusSession, finishStopwatchSession, formatTime,
+    toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
   } = usePomodoroActions()
 
   const [focusViolation, setFocusViolation] = useState<ActiveAppInfo | null>(null)
@@ -152,6 +148,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   const canSaveStopwatchSession = isStopwatchMode && hasActiveTimerSession && timeLeft >= 60
   const showFinishCountdownSession = isCountdownFocusMode && hasActiveTimerSession
   const canFinishCountdownSession = showFinishCountdownSession && countdownElapsedSeconds >= 60 && !isSavingInterruptedFocus
+  const timerControlsDisabled = isSavingInterruptedFocus
   const timerStatusText = isRunning
     ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
     : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
@@ -285,8 +282,11 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   const handleFinishCountdownFocusSession = useCallback(async () => {
     if (finishCountdownClickInFlightRef.current || !canFinishCountdownSession) return
 
-    const elapsedSeconds = Math.max(0, Math.floor(countdownElapsedSeconds))
-    const roundedMinutes = getRoundedElapsedMinutesForDisplay(elapsedSeconds)
+    const preview = getCountdownFocusSettlementPreview()
+    if (!preview || preview.elapsedSeconds < 60) return
+
+    const elapsedSeconds = Math.max(0, Math.floor(preview.elapsedSeconds))
+    const roundedMinutes = preview.roundedMinutes
     const confirmed = window.confirm(
       `本次已有效专注 ${formatElapsedForConfirmation(elapsedSeconds)}，将按 ${roundedMinutes} 分钟计入统计。确定提前结束并保存吗？`,
     )
@@ -301,15 +301,17 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     } finally {
       finishCountdownClickInFlightRef.current = false
     }
-  }, [canFinishCountdownSession, countdownElapsedSeconds, exitZenMode, finishCountdownFocusSession, zenVisible])
+  }, [canFinishCountdownSession, exitZenMode, finishCountdownFocusSession, getCountdownFocusSettlementPreview, zenVisible])
 
   const handleResetTimer = useCallback(() => {
+    if (isSavingInterruptedFocus) return
+
     if (isCountdownFocusMode && hasActiveTimerSession) {
       const confirmed = window.confirm('重置将放弃本次尚未保存的专注记录。确定继续吗？')
       if (!confirmed) return
     }
     resetTimer()
-  }, [hasActiveTimerSession, isCountdownFocusMode, resetTimer])
+  }, [hasActiveTimerSession, isCountdownFocusMode, isSavingInterruptedFocus, resetTimer])
 
   useEffect(() => {
     const removeFullScreenListener = window.api?.window?.onFullScreenChange?.((fullScreen: boolean) => {
@@ -383,8 +385,12 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
       >
         <div
           data-no-drag
-          style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-          onClick={(e) => { e.stopPropagation(); toggleTimer(); }}
+          aria-disabled={timerControlsDisabled}
+          style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: timerControlsDisabled ? 'not-allowed' : 'pointer', opacity: timerControlsDisabled ? 0.6 : 1 }}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (!timerControlsDisabled) toggleTimer()
+          }}
         >
           <svg viewBox="0 0 40 40" width="32" height="32" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
             <circle cx="20" cy="20" r="18" fill="none" stroke="var(--border)" strokeWidth="3" />
@@ -490,11 +496,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
         <button
           className="button"
           data-testid="pomodoro-start-btn"
+          disabled={timerControlsDisabled}
           style={{
             minWidth: 120, height: 44, borderRadius: 22, fontSize: 16, fontWeight: 600, border: 'none',
-            background: isRunning ? 'var(--bg-tertiary)' : mode.color,
-            color: isRunning ? 'var(--text-primary)' : 'white',
+            background: timerControlsDisabled ? 'var(--bg-tertiary)' : isRunning ? 'var(--bg-tertiary)' : mode.color,
+            color: timerControlsDisabled ? 'var(--text-muted)' : isRunning ? 'var(--text-primary)' : 'white',
             boxShadow: isRunning ? 'none' : `0 8px 16px ${mode.color}40`,
+            cursor: timerControlsDisabled ? 'not-allowed' : 'pointer',
           }}
           onClick={toggleTimer}
         >
@@ -505,7 +513,8 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
         <button
           className="button button-secondary"
           data-testid="pomodoro-reset-btn"
-          style={{ width: 44, height: 44, borderRadius: 22, padding: 0 }}
+          disabled={timerControlsDisabled}
+          style={{ width: 44, height: 44, borderRadius: 22, padding: 0, cursor: timerControlsDisabled ? 'not-allowed' : 'pointer' }}
           onClick={handleResetTimer}
           title="重置"
           aria-label="重置番茄钟"

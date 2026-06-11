@@ -784,6 +784,102 @@ describe('PomodoroContext', () => {
     expect(result.current.timer.hasActiveTimerSession).toBe(false)
   })
 
+  it('ignores toggle and reset while interrupted countdown save is pending and keeps failed saves retryable', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    let rejectAddSession: (reason?: unknown) => void = () => {}
+    mocks.pomodoroAddSession
+      .mockReturnValueOnce(new Promise((_, reject) => {
+        rejectAddSession = reject
+      }))
+      .mockResolvedValueOnce({ success: true })
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(65_000)
+
+    let firstSave!: Promise<boolean>
+    await act(async () => {
+      firstSave = result.current.actions.finishCountdownFocusSession()
+      await Promise.resolve()
+    })
+
+    expect(result.current.data.isSavingInterruptedFocus).toBe(true)
+    expect(result.current.timer.isRunning).toBe(false)
+    const frozenTimeLeft = result.current.timer.timeLeft
+
+    await act(async () => {
+      result.current.actions.toggleTimer()
+      result.current.actions.resetTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(frozenTimeLeft)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).not.toBeNull()
+
+    let failedSave = true
+    await act(async () => {
+      rejectAddSession(new Error('insert failed'))
+      failedSave = await firstSave
+    })
+    await flushAsyncWork()
+
+    expect(failedSave).toBe(false)
+    expect(result.current.data.isSavingInterruptedFocus).toBe(false)
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(result.current.timer.timeLeft).toBe(frozenTimeLeft)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+
+    let retriedSave = false
+    await act(async () => {
+      retriedSave = await result.current.actions.finishCountdownFocusSession()
+    })
+
+    expect(retriedSave).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(2)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('ignores reset while interrupted countdown settlement resolves so the session is saved once', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    let resolveAddSession: (value: { success: boolean }) => void = () => {}
+    mocks.pomodoroAddSession.mockReturnValueOnce(new Promise(resolve => {
+      resolveAddSession = resolve
+    }))
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await startCustomCountdown(result, 40)
+    await advanceTimer(65_000)
+
+    let savePromise!: Promise<boolean>
+    await act(async () => {
+      savePromise = result.current.actions.finishCountdownFocusSession()
+      await Promise.resolve()
+    })
+
+    const frozenTimeLeft = result.current.timer.timeLeft
+    await act(async () => {
+      result.current.actions.resetTimer()
+    })
+    expect(result.current.timer.timeLeft).toBe(frozenTimeLeft)
+    expect(result.current.timer.hasActiveTimerSession).toBe(true)
+
+    let saved = false
+    await act(async () => {
+      resolveAddSession({ success: true })
+      saved = await savePromise
+    })
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+    expect(result.current.timer.mode.id).toBe('custom')
+    expect(result.current.timer.timeLeft).toBe(40 * 60)
+  })
+
   it('does not double-write or open break review when interrupted save wins a natural completion race', async () => {
     vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
     const onBreakStart = vi.fn()
