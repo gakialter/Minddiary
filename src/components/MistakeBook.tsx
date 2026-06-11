@@ -293,6 +293,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             : { ...f, answer_image_paths: f.answer_image_paths.filter((_, i) => i !== index) })
     }
 
+    const appendUniqueImagePath = (paths: string[], imagePath: string): string[] => (
+        paths.includes(imagePath) ? paths : [...paths, imagePath]
+    )
+
     const moveImagePath = (fromRole: ImageRole, index: number) => {
         setForm(f => {
             const sourcePaths = fromRole === 'question' ? f.question_image_paths : f.answer_image_paths
@@ -302,12 +306,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 ? {
                     ...f,
                     question_image_paths: f.question_image_paths.filter((_, i) => i !== index),
-                    answer_image_paths: [...f.answer_image_paths, imagePath],
+                    answer_image_paths: appendUniqueImagePath(f.answer_image_paths, imagePath),
                 }
                 : {
                     ...f,
                     answer_image_paths: f.answer_image_paths.filter((_, i) => i !== index),
-                    question_image_paths: [...f.question_image_paths, imagePath],
+                    question_image_paths: appendUniqueImagePath(f.question_image_paths, imagePath),
                 }
         })
     }
@@ -363,6 +367,9 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         return (
             <div
                 data-testid={`mistake-${role}-image-zone`}
+                tabIndex={0}
+                role="group"
+                aria-label={`${title}上传区域`}
                 onPaste={e => handlePaste(e, role)}
                 onDragOver={e => handleDragOver(e, role)}
                 onDragLeave={handleDragLeave}

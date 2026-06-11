@@ -86,6 +86,15 @@ describe('MistakeBook Component', () => {
     vi.unstubAllGlobals()
   })
 
+  const createImageClipboardData = (file: File) => ({
+    items: [
+      {
+        type: file.type,
+        getAsFile: () => file,
+      },
+    ],
+  })
+
   it('renders the empty state when no mistakes exist', async () => {
     mistakesApi.getAll.mockResolvedValue([])
     
@@ -330,6 +339,193 @@ describe('MistakeBook Component', () => {
     expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
       image_path: null,
       answer_image_path: 'mistake_images/question.png',
+    }))
+  })
+
+  it('does not duplicate a question image when moving it to an answer area that already has the same path', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      {
+        ...mockMistakes[0],
+        image_path: 'mistake_images/shared.png',
+        answer_image_path: 'mistake_images/shared.png',
+      },
+    ])
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    await act(async () => {
+      fireEvent.click(editButtons[0]!)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /移到答案/ }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    })
+
+    expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      image_path: null,
+      answer_image_path: 'mistake_images/shared.png',
+    }))
+  })
+
+  it('does not duplicate an answer image when moving it to a question area that already has the same path', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      {
+        ...mockMistakes[0],
+        image_path: 'mistake_images/shared.png',
+        answer_image_path: 'mistake_images/shared.png',
+      },
+    ])
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    await act(async () => {
+      fireEvent.click(editButtons[0]!)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /移到题目/ }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    })
+
+    expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      image_path: 'mistake_images/shared.png',
+      answer_image_path: null,
+    }))
+  })
+
+  it('allows the question image paste zone to receive focus', async () => {
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+
+    const questionZone = screen.getByTestId('mistake-question-image-zone')
+    questionZone.focus()
+
+    expect(questionZone).toHaveFocus()
+    expect(questionZone).toHaveAttribute('role', 'group')
+    expect(questionZone).toHaveAttribute('aria-label', '题目图片上传区域')
+  })
+
+  it('pastes into the focused question image zone without writing answer images', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/pasted-question.png')
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Pasted question image' } })
+    })
+
+    const questionZone = screen.getByTestId('mistake-question-image-zone')
+    questionZone.focus()
+
+    await act(async () => {
+      fireEvent.paste(questionZone, {
+        clipboardData: createImageClipboardData(new File(['question'], 'question.png', { type: 'image/png' })),
+      })
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.saveImage).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    })
+
+    expect(mistakesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      image_path: 'mistake_images/pasted-question.png',
+      answer_image_path: null,
+    }))
+  })
+
+  it('pastes into the focused answer image zone without writing question images', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/pasted-answer.png')
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Pasted answer image' } })
+    })
+
+    const answerZone = screen.getByTestId('mistake-answer-image-zone')
+    answerZone.focus()
+
+    await act(async () => {
+      fireEvent.paste(answerZone, {
+        clipboardData: createImageClipboardData(new File(['answer'], 'answer.png', { type: 'image/png' })),
+      })
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.saveImage).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    })
+
+    expect(mistakesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      image_path: null,
+      answer_image_path: 'mistake_images/pasted-answer.png',
+    }))
+  })
+
+  it('keeps a single paste event scoped to one image role', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/one-paste.png')
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'One paste role' } })
+    })
+
+    const questionZone = screen.getByTestId('mistake-question-image-zone')
+    const answerZone = screen.getByTestId('mistake-answer-image-zone')
+    questionZone.focus()
+
+    await act(async () => {
+      fireEvent.paste(questionZone, {
+        clipboardData: createImageClipboardData(new File(['one'], 'one.png', { type: 'image/png' })),
+      })
+    })
+
+    await waitFor(() => {
+      expect(mistakesApi.saveImage).toHaveBeenCalledTimes(1)
+    })
+
+    expect(answerZone.querySelector('img')).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    })
+
+    expect(mistakesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      image_path: 'mistake_images/one-paste.png',
+      answer_image_path: null,
     }))
   })
 
