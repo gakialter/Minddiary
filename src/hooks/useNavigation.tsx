@@ -17,9 +17,14 @@ import type { MistakeFilterIntent } from '../components/MistakeBook'
 import AIPanel from '../components/AIPanel'
 import Settings from '../components/Settings'
 
+export type DiarySaveOrigin = 'editor-auto' | 'editor-manual'
+export interface DiarySaveOptions {
+  origin?: DiarySaveOrigin
+}
+
 interface ViewRenderProps {
   entry: DiaryEntry | null
-  saveEntry: (data: Partial<DiaryEntry>) => Promise<void>
+  saveEntry: (data: Partial<DiaryEntry>, options?: DiarySaveOptions) => Promise<DiaryEntry | null>
   loading: boolean
   selectedDate: string
   setSelectedDate: (date: string) => void

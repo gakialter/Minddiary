@@ -98,11 +98,14 @@ describe('Editor tag selection', () => {
     fireEvent.keyDown(window, { key: 's', code: 'KeyS', ctrlKey: true })
 
     await waitFor(() => {
-      expect(onSave).toHaveBeenCalledWith({
-        title: 'Entry title',
-        content: 'Entry body',
-        tags: [2],
-      })
+      expect(onSave).toHaveBeenCalledWith(
+        {
+          title: 'Entry title',
+          content: 'Entry body',
+          tags: [2],
+        },
+        { origin: 'editor-manual' },
+      )
     })
   })
 })
