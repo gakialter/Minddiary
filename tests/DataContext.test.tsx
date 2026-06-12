@@ -125,6 +125,7 @@ const createWindowApiMock = (): ElectronAPI => ({
     delete: vi.fn().mockResolvedValue(true),
     complete: vi.fn().mockResolvedValue({ id: 1, status: 'done' }),
     skip: vi.fn().mockResolvedValue({ id: 1, status: 'skipped' }),
+    startFocus: vi.fn().mockResolvedValue({ id: 1, status: 'doing' }),
   },
   dashboard: {
     streak: vi.fn().mockResolvedValue(0),
@@ -138,6 +139,18 @@ const createWindowApiMock = (): ElectronAPI => ({
         riskPoolCount: 0,
         lockedKnowledgeGrowth: 0,
         focusConversionRate: 0,
+      },
+      taskFocusToday: {
+        effectiveTaskCount: 0,
+        completedTaskCount: 0,
+        completionRate: 0,
+        focusedTaskCount: 0,
+        focusCoverageRate: 0,
+        focusedMinutes: 0,
+        skippedTaskCount: 0,
+        openWithoutFocusCount: 0,
+        focusedOpenTaskCount: 0,
+        unclosedTaskTitles: [],
       },
       streakDays: 0,
     }),
@@ -189,6 +202,7 @@ const seedEmptyBrowserStorage = () => {
   localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
   localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
   localStorage.setItem(STORAGE_KEYS.TASKS, '[]')
+  localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, '[]')
 }
 
 beforeEach(() => {
@@ -250,11 +264,13 @@ describe('DataContext', () => {
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS)
+    expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.POMODORO_SESSIONS)
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.ENTRIES, JSON.stringify(mockEntries))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TAGS, JSON.stringify(mockTags))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES, JSON.stringify(mockMistakes))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS, JSON.stringify(mockSubjects))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS, JSON.stringify([]))
+    expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.POMODORO_SESSIONS, JSON.stringify([]))
   })
 
   it('passes core API calls through to Electron window.api namespaces', async () => {
@@ -292,6 +308,7 @@ describe('DataContext', () => {
       await result.current.tasks.getByDate('2026-05-05')
       await result.current.tasks.create({ title: 'task', planned_date: '2026-05-05' })
       await result.current.tasks.update(1, { status: 'doing' })
+      await result.current.tasks.startFocus(1, '2026-05-05')
       await result.current.tasks.complete(1)
       await result.current.tasks.skip(1)
       await result.current.tasks.delete(1)
@@ -324,6 +341,7 @@ describe('DataContext', () => {
     expect(window.api.tasks.getByDate).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.tasks.create).toHaveBeenCalledWith({ title: 'task', planned_date: '2026-05-05' })
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
+    expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
     expect(window.api.tasks.complete).toHaveBeenCalledWith(1)
     expect(window.api.tasks.skip).toHaveBeenCalledWith(1)
     expect(window.api.tasks.delete).toHaveBeenCalledWith(1)
@@ -540,6 +558,95 @@ describe('DataContext', () => {
 
     await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([])
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([])
+  })
+
+  it('starts fallback task focus, stores pomodoro task_id, and clears it when the task is deleted', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([
+      { id: 1, name: 'Math', color: '#0F766E' },
+    ]))
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const task = await result.current.tasks.create({
+      title: 'Finish algebra',
+      planned_date: '2026-05-31',
+      subject_id: 1,
+      estimate_minutes: 25,
+    })
+
+    await expect(result.current.tasks.startFocus(task.id, '2026-05-31')).resolves.toEqual(expect.objectContaining({
+      id: task.id,
+      status: 'doing',
+    }))
+    await result.current.pomodoro.addSession({
+      subject_id: 1,
+      task_id: task.id,
+      duration: 25,
+      date_key: '2026-05-31',
+      started_at: '2026-05-31 09:00:00',
+      completed_at: '2026-05-31 09:25:00',
+    })
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.POMODORO_SESSIONS) || '[]')).toEqual([
+      expect.objectContaining({ task_id: task.id, subject_id: 1, duration: 25 }),
+    ])
+    await expect(result.current.todayDashboard.getData('2026-05-31')).resolves.toEqual(expect.objectContaining({
+      taskFocusToday: expect.objectContaining({
+        effectiveTaskCount: 1,
+        focusedTaskCount: 1,
+        focusCoverageRate: 100,
+        focusedMinutes: 25,
+        focusedOpenTaskCount: 1,
+        unclosedTaskTitles: ['Finish algebra'],
+      }),
+    }))
+
+    await result.current.tasks.delete(task.id)
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.POMODORO_SESSIONS) || '[]')).toEqual([
+      expect.objectContaining({ task_id: null }),
+    ])
+    await expect(result.current.todayDashboard.getData('2026-05-31')).resolves.toEqual(expect.objectContaining({
+      taskFocusToday: expect.objectContaining({
+        effectiveTaskCount: 0,
+        focusedMinutes: 0,
+      }),
+    }))
+  })
+
+  it('rejects fallback focus start for missing, completed, skipped, or non-today tasks', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const doneTask = await result.current.tasks.create({
+      title: 'Done task',
+      planned_date: '2026-05-31',
+      status: 'done',
+    })
+    const skippedTask = await result.current.tasks.create({
+      title: 'Skipped task',
+      planned_date: '2026-05-31',
+      status: 'skipped',
+    })
+    const tomorrowTask = await result.current.tasks.create({
+      title: 'Tomorrow task',
+      planned_date: '2026-06-01',
+    })
+
+    await expect(result.current.tasks.startFocus(999, '2026-05-31')).rejects.toThrow('Task not found')
+    await expect(result.current.tasks.startFocus(doneTask.id, '2026-05-31')).rejects.toThrow('Cannot start focus for a completed or skipped task')
+    await expect(result.current.tasks.startFocus(skippedTask.id, '2026-05-31')).rejects.toThrow('Cannot start focus for a completed or skipped task')
+    await expect(result.current.tasks.startFocus(tomorrowTask.id, '2026-05-31')).rejects.toThrow('Task is not planned for this date')
   })
 
   it('rejects invalid browser fallback task writes before persisting', async () => {

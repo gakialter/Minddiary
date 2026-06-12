@@ -113,6 +113,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
     delete: vi.fn(),
     complete: vi.fn(),
     skip: vi.fn(),
+    startFocus: vi.fn(),
   },
   dashboard: {
     streak: vi.fn(),

@@ -53,6 +53,19 @@ const createDeferredTask = () => {
   return { promise, resolve }
 }
 
+const EMPTY_TASK_FOCUS: TodayDashboardData['taskFocusToday'] = {
+  effectiveTaskCount: 0,
+  completedTaskCount: 0,
+  completionRate: 0,
+  focusedTaskCount: 0,
+  focusCoverageRate: 0,
+  focusedMinutes: 0,
+  skippedTaskCount: 0,
+  openWithoutFocusCount: 0,
+  focusedOpenTaskCount: 0,
+  unclosedTaskTitles: [],
+}
+
 const FULL_DATA: TodayDashboardData = {
   todayEntry: { id: 1, title: '测试', wordCount: 320, mood: 'happy' },
   pomodoroToday: { totalMinutes: 45, sessionCount: 2 },
@@ -61,6 +74,7 @@ const FULL_DATA: TodayDashboardData = {
     lockedKnowledgeGrowth: 8,
     focusConversionRate: 75,
   },
+  taskFocusToday: EMPTY_TASK_FOCUS,
   streakDays: 7,
 }
 
@@ -72,6 +86,7 @@ const EMPTY_DATA: TodayDashboardData = {
     lockedKnowledgeGrowth: 0,
     focusConversionRate: 0,
   },
+  taskFocusToday: EMPTY_TASK_FOCUS,
   streakDays: 0,
 }
 
@@ -212,6 +227,56 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('Write reflection')).toBeInTheDocument()
     expect(screen.getByTestId('task-status-1')).toHaveTextContent('todo')
     expect(screen.getByTestId('task-status-2')).toHaveTextContent('done')
+  })
+
+  it('renders lightweight task focus loop metrics', async () => {
+    mockHookState = {
+      data: {
+        ...FULL_DATA,
+        taskFocusToday: {
+          effectiveTaskCount: 4,
+          completedTaskCount: 2,
+          completionRate: 50,
+          focusedTaskCount: 3,
+          focusCoverageRate: 75,
+          focusedMinutes: 65,
+          skippedTaskCount: 1,
+          openWithoutFocusCount: 1,
+          focusedOpenTaskCount: 1,
+          unclosedTaskTitles: ['Math problem set', 'English reading'],
+        },
+      },
+      loading: false,
+      error: null,
+      refresh: mockRefresh,
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    const metrics = await screen.findByTestId('task-focus-loop-metrics')
+    expect(metrics).toHaveTextContent('任务完成率')
+    expect(metrics).toHaveTextContent('50%')
+    expect(metrics).toHaveTextContent('专注覆盖率')
+    expect(metrics).toHaveTextContent('75%')
+    expect(metrics).toHaveTextContent('任务专注')
+    expect(metrics).toHaveTextContent('65m')
+    expect(metrics).toHaveTextContent('Math problem set、English reading')
+  })
+
+  it('renders an empty task focus loop state without NaN', async () => {
+    mockHookState = {
+      data: EMPTY_DATA,
+      loading: false,
+      error: null,
+      refresh: mockRefresh,
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    const metrics = await screen.findByTestId('task-focus-loop-metrics')
+    expect(metrics).toHaveTextContent('暂无任务')
+    expect(metrics).toHaveTextContent('添加任务后开始闭环')
+    expect(metrics).not.toHaveTextContent('NaN')
   })
 
   it('creates suggested review and diary tasks from today context', async () => {

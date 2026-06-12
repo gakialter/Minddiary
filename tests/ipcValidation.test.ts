@@ -5,6 +5,7 @@ import {
   IPC_VALIDATION_LIMITS,
   validateAiMessagesPayload,
   validateAiSummaryPayload,
+  validateDateKeyPayload,
   validateEntryCreatePayload,
   validateEntryUpdatePayload,
   validateMistakeReviewPayload,
@@ -84,9 +85,16 @@ describe('IPC runtime payload validation', () => {
     expect(validateStudyTaskCreatePayload(task)).toBe(task)
   })
 
+  it('validates task focus start date keys', () => {
+    expect(validateDateKeyPayload('2026-06-03', 'task planned_date')).toBe('2026-06-03')
+    expect(() => validateDateKeyPayload('2026/06/03', 'task planned_date')).toThrow('task planned_date must be YYYY-MM-DD')
+    expect(() => validateDateKeyPayload(20260603, 'task planned_date')).toThrow('task planned_date must be YYYY-MM-DD')
+  })
+
   it('rejects invalid pomodoro duration, date, and subject id payloads', () => {
     const baseSession = {
       subject_id: null,
+      task_id: null,
       duration: 25,
       date_key: '2026-06-03',
       started_at: '2026-06-03 09:00:00',
@@ -96,11 +104,16 @@ describe('IPC runtime payload validation', () => {
     expect(() => validatePomodoroSessionPayload({ ...baseSession, duration: '25' })).toThrow('pomodoro duration must be a positive number')
     expect(() => validatePomodoroSessionPayload({ ...baseSession, date_key: ['2026-06-03'] })).toThrow('pomodoro date_key must be YYYY-MM-DD')
     expect(() => validatePomodoroSessionPayload({ ...baseSession, subject_id: '1' })).toThrow('pomodoro subject_id must be a positive integer or null')
+    expect(() => validatePomodoroSessionPayload({ ...baseSession, task_id: 0 })).toThrow('pomodoro task_id must be a positive integer')
+    expect(() => validatePomodoroSessionPayload({ ...baseSession, task_id: -1 })).toThrow('pomodoro task_id must be a positive integer')
+    expect(() => validatePomodoroSessionPayload({ ...baseSession, task_id: 1.5 })).toThrow('pomodoro task_id must be a positive integer')
+    expect(() => validatePomodoroSessionPayload({ ...baseSession, task_id: '1' })).toThrow('pomodoro task_id must be a positive integer')
   })
 
   it('accepts valid pomodoro session payloads unchanged', () => {
     const session = {
       subject_id: 1,
+      task_id: 2,
       duration: 25,
       date_key: '2026-06-03',
       started_at: '2026-06-03 09:00:00',

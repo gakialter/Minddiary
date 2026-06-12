@@ -6,7 +6,7 @@ import {
     TAG_VARIANTS,
 } from '../src/utils/tagStyle';
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type DatabaseMigration = {
     version: number;
@@ -320,6 +320,11 @@ function migrateToSchemaVersion2(database: Database.Database): void {
     ensureColumn(database, 'mistakes', 'answer_image_path', 'TEXT');
 }
 
+function migrateToSchemaVersion3(database: Database.Database): void {
+    ensureColumn(database, 'pomodoro_sessions', 'task_id', 'INTEGER REFERENCES study_tasks(id) ON DELETE SET NULL');
+    database.exec('CREATE INDEX IF NOT EXISTS idx_pomodoro_task_id ON pomodoro_sessions(task_id)');
+}
+
 export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     {
         version: 1,
@@ -330,6 +335,11 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
         version: 2,
         name: 'add-mistake-answer-images',
         up: migrateToSchemaVersion2,
+    },
+    {
+        version: 3,
+        name: 'add-pomodoro-task-attribution',
+        up: migrateToSchemaVersion3,
     },
 ] as const;
 

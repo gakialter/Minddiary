@@ -2,6 +2,7 @@ import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
 import type {
     NewStudyTask,
+    PomodoroSession,
     SaveToLocalFn,
     StudyTask,
     StudyTaskSource,
@@ -87,7 +88,8 @@ function sortTasks(tasks: StudyTask[]): StudyTask[] {
 
 export const createTasksApi = (
     tasksRef: MutableRefObject<StudyTask[]>,
-    saveToLocal: SaveToLocalFn
+    saveToLocal: SaveToLocalFn,
+    pomodoroSessionsRef?: MutableRefObject<PomodoroSession[]>
 ): TasksContextAPI => ({
     getByDate: async (date: string) => {
         if (IS_ELECTRON) return window.api.tasks.getByDate(date)
@@ -150,14 +152,36 @@ export const createTasksApi = (
         const before = tasksRef.current.length
         tasksRef.current = tasksRef.current.filter(task => task.id !== id)
         saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
+        if (pomodoroSessionsRef) {
+            pomodoroSessionsRef.current = pomodoroSessionsRef.current.map(session => (
+                session.task_id === id ? { ...session, task_id: null } : session
+            ))
+            saveToLocal(STORAGE_KEYS.POMODORO_SESSIONS, pomodoroSessionsRef.current)
+        }
         return before !== tasksRef.current.length
     },
     complete: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.complete(id)
-        return createTasksApi(tasksRef, saveToLocal).update(id, { status: 'done' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'done' })
     },
     skip: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.skip(id)
-        return createTasksApi(tasksRef, saveToLocal).update(id, { status: 'skipped' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'skipped' })
+    },
+    startFocus: async (id: number, date: string) => {
+        if (IS_ELECTRON) return window.api.tasks.startFocus(id, date)
+        requireDateKey(date)
+        const existing = tasksRef.current.find(task => task.id === id)
+        if (!existing) {
+            throw new Error('Task not found')
+        }
+        if (existing.planned_date !== date) {
+            throw new Error('Task is not planned for this date')
+        }
+        if (existing.status === 'done' || existing.status === 'skipped') {
+            throw new Error('Cannot start focus for a completed or skipped task')
+        }
+        if (existing.status === 'doing') return existing
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'doing' })
     },
 })

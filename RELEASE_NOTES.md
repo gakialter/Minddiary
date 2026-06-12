@@ -1,65 +1,76 @@
-# MindDiary v1.9.9
+# MindDiary v1.10.0
 
-MindDiary v1.9.9 是一次围绕错题主动复习、专注中断统计、数据迁移可靠性和内部维护边界的稳定性更新。它把错题复习、图片归属、科目删除和倒计时保存几个高频学习场景做得更稳，同时补齐了 SQLite schema version 与历史数据库升级验证。
+MindDiary v1.10.0 打通“今日任务 → 专注 → 结算 → 复盘 → Dashboard”的学习闭环。用户可以把今日任务绑定到 work、custom 或 stopwatch 专注，专注记录会归因到任务，结束后由用户明确决定任务是否完成，并可把一句话复盘追加到今日日记。
 
 ## 本版亮点
 
-- 错题本新增主动「开始复习」入口，可按当前科目限定今日到期错题范围。
-- 错题列表和主动复习默认先展示问题，答案、备注和答案图片在「查看答案」后再显示。
-- 错题图片拆分为题目图片和答案图片两个角色，历史图片继续作为题目图片保留。
-- work / custom 倒计时可在至少有效专注 1 分钟后提前结束并保存，普通页面和 Zen 模式都可操作。
-- 删除科目时保留关联错题、专注记录和学习任务，只解除这些历史记录的科目归属。
-- SQLite schema version 升至 2，并增加真实历史数据库 fixture 的升级测试。
-- AI 请求增加历史清理、role / 数量 / 长度边界和旧响应覆盖防护。
+- Pomodoro 页面新增今日任务选择，支持不绑定任务，也可以随时清空选择。
+- 绑定的 `todo` 任务开始专注时进入 `doing`；`doing` 保持进行中；`done` / `skipped` 不允许启动新专注。
+- `pomodoro_sessions` 新增 nullable `task_id`，历史专注记录可以安全归因到学习任务。
+- 专注结束结算支持“标记任务完成”“保持任务进行中”“跳过复盘”“添加错题”和“仅保存专注记录”。
+- 一句话复盘会按时间追加到今日日记；没有今日日记时，经用户确认后创建。
+- Dashboard 新增今日任务完成率、任务专注覆盖率、任务专注分钟和未闭环任务提示。
+- Electron 与 browser fallback 保持同一契约，包含 task_id 存储、任务删除后置空、旧 localStorage 和旧 backup 兼容。
 
-## 错题复习与图片
+## 今日任务与专注
 
-- 错题本顶部提供明确的「开始复习」入口，进入今日到期错题的主动复习流程。
-- 当前科目筛选会同步限制主动复习池，方便只复盘某一科目的到期错题。
-- 复习卡片先显示问题和题目图片；答案、备注、答案图片和评分按钮默认隐藏。
-- 点击「查看答案」后再显示答案与备注，并继续使用现有 SM-2 评分更新下次复习时间。
-- 列表里的错题同样默认折叠答案与备注，降低直接看到答案造成的干扰。
-- 新增和编辑错题时，题目图片与答案图片分区管理；两区都支持上传、粘贴和拖拽。
-- 已有图片可以在题目 / 答案角色之间移动。图片清理会同时检查两个角色，移动或共享引用不会误删本地文件。
-- 自动备份、旧备份恢复和 browser fallback 已兼容 `answer_image_path`。
+- work、custom 和 stopwatch 模式都可以绑定今日 `todo` / `doing` 任务。
+- 任务选择会展示任务标题、状态、科目和预计时长。
+- 任务有关联科目时，会在用户尚未手动选择科目的情况下建议该科目；用户手动改科目后不会再被任务覆盖。
+- 活动 session 会持久化 `task_id`、科目、模式、时长、运行/暂停状态、开始时间和暂停相关数据。
+- 页面刷新或应用重启后会恢复绑定任务；如果任务已删除，会安全降级为未绑定。
+- Zen 全屏专注会展示当前任务、科目和模式，提前结束保存时保留任务归因。
 
-## 专注体验
+## 结束结算与复盘
 
-- work / custom 倒计时运行至少有效专注 1 分钟后，可以点击「提前结束并保存」。
-- 保存前会显示实际有效专注时长和最终计入统计的分钟数。
-- 暂停期间不计入有效专注时长；计入分钟规则与正计时保存保持一致。
-- Zen 全屏专注界面提供同样的提前保存入口。
-- 提前保存失败时，会话保持暂停状态，用户可以重试保存。
-- 活动倒计时执行 reset 时会明确提示将放弃尚未保存的专注记录。
-- 提前保存不会自动进入短休，也不会打开休息错题复习弹窗；自然完成的番茄行为保持不变。
+- 自然完成、提前保存、stopwatch 保存和恢复后的活动 session 保存都会携带 `task_id`。
+- 专注记录保存成功后，任务完成状态由用户明确选择，不会自动完成任务。
+- 任务状态更新失败时，不会重复写入 pomodoro session，用户可以重试结算动作。
+- 复盘写入格式：
 
-## 数据安全与升级
+```markdown
+## 专注复盘
 
-- SQLite 数据库开始显式管理 schema version，当前 schema version 为 2。
-- 新增 `answer_image_path` nullable 字段，用于保存答案图片引用。
-- 历史 `image_path` 数据不会被改写，旧错题图片继续作为题目图片显示。
-- version 0、version 1 和 current database 的升级路径都有测试覆盖。
-- migration runner 使用 versioned registry，覆盖幂等执行和 foreign key 检查。
-- 自动备份 manifest 记录 schema version，旧备份恢复会拒绝未来 schema，并保持现有自动备份 ZIP 兼容。
-- 历史 SQLite fixture 矩阵来自真实版本结构，用于验证旧数据升级后的兼容性。
+- 时间：HH:mm
+- 任务：任务标题
+- 科目：科目名称
+- 专注：N 分钟
+- 结果：用户输入的一句话复盘
+```
 
-## AI 稳定性
+- 空复盘不会写入空区块，同一次结算不会重复追加复盘。
 
-- 复用历史聊天时只发送清理后的最近历史副本，不改写本地缓存或界面展示内容。
-- AI chat 请求增加 role schema、消息数量、单条长度、总长度和 summary 输入长度边界。
-- AI 汇总、快捷请求和聊天请求增加 stale-response guard，避免导航、清空历史、切换请求或状态变化后，旧响应覆盖当前内容。
+## Dashboard 闭环指标
 
-## 内部工程改进
+- 今日任务完成率：`done / (todo + doing + done)`，`skipped` 不进入分母。
+- 今日任务专注覆盖率：今天至少拥有一条有效 task_id 专注记录的任务数 / 今日有效任务数。
+- 今日任务实际专注时长：今天归因到今日任务的 pomodoro session duration 总和。
+- 未闭环提示会指出进行中但无专注记录、已有专注但未完成的任务。
+- 无今日任务时显示空状态，不出现 NaN 或除零。
 
-- 数据库访问拆分为 settings、subjects、templates、entries、attachments、tags / entry_tags、pomodoro、study tasks 和 mistakes repositories。
-- `electron/database.ts` 继续作为兼容 façade，负责 migration、backup、公开 API 兼容和跨模块副作用编排。
-- repository 与 façade 层测试覆盖强化，确认原公开 API、SQL 行为、backup / restore 和 UI 消费路径保持兼容。
-- 迁移相关测试稳定化，降低 legacy fixture 和 CI timeout 对发布验证的影响。
+## 数据模型与备份
 
-## 兼容性与已知边界
+- SQLite schema version 升至 3。
+- `pomodoro_sessions` 新增 `task_id INTEGER REFERENCES study_tasks(id) ON DELETE SET NULL`。
+- 新增索引 `idx_pomodoro_task_id`。
+- fresh database 直接包含新字段；version 0、1、2 旧库可升级到 current。
+- migration 保持幂等，升级后通过 `PRAGMA integrity_check` 和 `PRAGMA foreign_key_check` 验证。
+- 自动 ZIP 备份导出包含 `pomodoro_sessions.task_id`。
+- 恢复顺序调整为先恢复 `study_tasks`，再恢复 `pomodoro_sessions`；删除旧数据使用反向依赖顺序。
+- 旧 backup 不含 `task_id` 时仍可恢复；任务删除后历史 session 的 `task_id` 自动置空。
 
-- 本版本不包含 Pomodoro 与 study task 绑定。
-- 本版本不新增 `pomodoro_sessions.task_id`。
-- 本版本不包含 AI 自动创建任务或直接写入数据库。
-- 本版本不包含 Dashboard 任务闭环或 v2.0 产品闭环。
-- AI 输出仍应作为学习建议参考，不能替代用户自己的复习判断。
+## 兼容性
+
+- v1.9.9 用户升级后，无 `task_id` 的历史专注记录保持未绑定，不会被错误归因。
+- `task_id = null` 的旧调用路径继续兼容。
+- `answer_image_path` 继续 nullable，旧 `image_path` 数据不会被改写。
+- browser fallback 与 Electron 在任务筛选、todo → doing、专注保存、复盘、Dashboard 指标和任务删除置空方面保持一致。
+
+## 明确不做
+
+- 不做错题任务回写或 `related_mistake_id` 新闭环。
+- 不做日记任务深度自动回写。
+- 不做 AI 今日行动建议、AI 建任务或 AI 直接写数据库。
+- 不新增 `focus_reviews` 表。
+- 不做大型 HomeDashboard / Pomodoro UI 重构。
+- 不创建 v1.10.0 tag，不创建 GitHub Release，不触发正式发布。

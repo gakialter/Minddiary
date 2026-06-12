@@ -149,6 +149,7 @@ export interface AttachmentData {
 export interface PomodoroSession {
   id?: number
   subject_id: number | null
+  task_id?: number | null
   duration: number
   date_key?: string
   started_at?: string
@@ -156,8 +157,8 @@ export interface PomodoroSession {
 }
 
 export interface PomodoroStat {
-  subject_name: string
-  color: string
+  subject_name: string | null
+  color: string | null
   total_minutes: number
   session_count: number
 }
@@ -252,6 +253,18 @@ export interface TodayDashboardData {
     lockedKnowledgeGrowth: number
     focusConversionRate: number
   }
+  taskFocusToday: {
+    effectiveTaskCount: number
+    completedTaskCount: number
+    completionRate: number
+    focusedTaskCount: number
+    focusCoverageRate: number
+    focusedMinutes: number
+    skippedTaskCount: number
+    openWithoutFocusCount: number
+    focusedOpenTaskCount: number
+    unclosedTaskTitles: string[]
+  }
   streakDays: number
 }
 
@@ -263,6 +276,7 @@ export interface StorageKeys {
   MISTAKES: string
   SUBJECTS: string
   TASKS: string
+  POMODORO_SESSIONS: string
 }
 
 // ─── Shared Callback Types ──────────────────────────────────────────────────

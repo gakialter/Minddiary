@@ -105,10 +105,11 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     todayStats, todayTotal,
     customMinutes,
     isSavingInterruptedFocus,
+    todayTasks, selectedTaskId, selectedTask, taskError,
   } = usePomodoroData()
 
   const {
-    setMode, setSelectedSubject, setCustomMinutes,
+    setMode, setSelectedSubject, selectFocusTask, setCustomMinutes,
     toggleTimer, resetTimer, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
   } = usePomodoroActions()
 
@@ -142,9 +143,16 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     () => subjects.find(subject => subject.id === selectedSubject)?.name,
     [selectedSubject, subjects],
   )
+  const subjectNameById = useMemo(() => new Map(subjects.map(subject => [subject.id, subject.name])), [subjects])
   const isStopwatchMode = mode.id === 'stopwatch'
   const isCountdownFocusMode = mode.id === 'work' || mode.id === 'custom'
   const isFocusMode = isCountdownFocusMode || isStopwatchMode
+  const selectableTasks = useMemo(
+    () => todayTasks.filter(task => task.status === 'todo' || task.status === 'doing'),
+    [todayTasks],
+  )
+  const selectedTaskTitle = selectedTask?.title
+  const selectedTaskSubjectName = selectedTask?.subject_id ? subjectNameById.get(selectedTask.subject_id) : undefined
   const canSaveStopwatchSession = isStopwatchMode && hasActiveTimerSession && timeLeft >= 60
   const showFinishCountdownSession = isCountdownFocusMode && hasActiveTimerSession
   const canFinishCountdownSession = showFinishCountdownSession && countdownElapsedSeconds >= 60 && !isSavingInterruptedFocus
@@ -250,7 +258,10 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   }, [])
 
   const enterZenMode = useCallback(async () => {
-    if (!isRunning) toggleTimer()
+    if (!isRunning) {
+      const started = await toggleTimer()
+      if (!started) return
+    }
     setZenVisible(true)
     await requestAppFullscreen()
   }, [isRunning, requestAppFullscreen, toggleTimer])
@@ -389,7 +400,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
           style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: timerControlsDisabled ? 'not-allowed' : 'pointer', opacity: timerControlsDisabled ? 0.6 : 1 }}
           onClick={(e) => {
             e.stopPropagation()
-            if (!timerControlsDisabled) toggleTimer()
+            if (!timerControlsDisabled) void toggleTimer()
           }}
         >
           <svg viewBox="0 0 40 40" width="32" height="32" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
@@ -504,7 +515,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
             boxShadow: isRunning ? 'none' : `0 8px 16px ${mode.color}40`,
             cursor: timerControlsDisabled ? 'not-allowed' : 'pointer',
           }}
-          onClick={toggleTimer}
+          onClick={() => { void toggleTimer() }}
         >
           {isRunning
             ? <><Pause size={18} /> 暂停</>
@@ -567,6 +578,56 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
         </button>
       </div>
 
+      {isFocusMode && (
+        <div
+          data-testid="pomodoro-task-binding"
+          style={{ width: '100%', maxWidth: 360, marginBottom: 'var(--space-md)' }}
+        >
+          <select
+            className="input w-full"
+            data-testid="pomodoro-task-select"
+            value={selectedTask?.id ?? ''}
+            onChange={(event) => selectFocusTask(event.target.value ? Number(event.target.value) : null)}
+            disabled={hasActiveTimerSession || timerControlsDisabled}
+          >
+            <option value="">不绑定今日任务</option>
+            {selectableTasks.map(task => {
+              const subjectName = task.subject_id ? subjectNameById.get(task.subject_id) : undefined
+              const details = [
+                task.status,
+                subjectName,
+                task.estimate_minutes ? `${task.estimate_minutes}m` : undefined,
+              ].filter(Boolean).join(' · ')
+              return (
+                <option key={task.id} value={task.id}>
+                  {task.title}{details ? ` · ${details}` : ''}
+                </option>
+              )
+            })}
+          </select>
+          {selectedTask && (
+            <div
+              data-testid="pomodoro-selected-task-summary"
+              className="text-xs"
+              style={{ marginTop: 8, color: 'var(--text-secondary)', textAlign: 'center' }}
+            >
+              当前任务：{selectedTask.title}
+              {selectedTaskSubjectName ? ` · ${selectedTaskSubjectName}` : ''}
+              {selectedTask.estimate_minutes ? ` · 预计 ${selectedTask.estimate_minutes} 分钟` : ''}
+            </div>
+          )}
+          {taskError && (
+            <div
+              data-testid="pomodoro-task-error"
+              className="text-xs"
+              style={{ marginTop: 8, color: 'var(--danger)', textAlign: 'center' }}
+            >
+              {taskError}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Subject Select */}
       <div style={{ width: '100%', maxWidth: '300px', marginBottom: 'var(--space-xl)' }}>
         <select
@@ -628,6 +689,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
       onExit={exitZenMode}
       formatTime={formatTime}
       selectedSubjectName={selectedSubjectName}
+      selectedTaskTitle={selectedTaskTitle}
       showFinishEarly={showFinishCountdownSession}
       canFinishEarly={canFinishCountdownSession}
       isFinishingEarly={isSavingInterruptedFocus}

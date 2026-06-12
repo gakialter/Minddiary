@@ -18,6 +18,7 @@ import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './upda
 import {
     validateAiMessagesPayload,
     validateAiSummaryPayload,
+    validateDateKeyPayload,
     validateEntryCreatePayload,
     validateEntryUpdatePayload,
     validateMistakeReviewPayload,
@@ -612,6 +613,12 @@ ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
 ipcMain.handle('tasks:delete', (_: unknown, id: unknown) => db.deleteStudyTask(validatePositiveIdPayload(id, 'task id')));
 ipcMain.handle('tasks:complete', (_: unknown, id: unknown) => db.completeStudyTask(validatePositiveIdPayload(id, 'task id')));
 ipcMain.handle('tasks:skip', (_: unknown, id: unknown) => db.skipStudyTask(validatePositiveIdPayload(id, 'task id')));
+ipcMain.handle('tasks:startFocus', (_: unknown, id: unknown, date: unknown) => {
+    return db.startStudyTaskFocus(
+        validatePositiveIdPayload(id, 'task id'),
+        validateDateKeyPayload(date, 'task planned_date'),
+    );
+});
 
 // ==================== Focus Guard ====================
 ipcMain.handle('focusGuard:getActiveApp', async () => {

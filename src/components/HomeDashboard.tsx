@@ -120,6 +120,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   }
 
   const { commanderMetrics } = data
+  const taskFocus = data.taskFocusToday
   const hasReviewTask = tasks.some(task => task.type === 'review')
   const hasDiaryTask = tasks.some(task => task.type === 'diary')
   const taskStatusCounts = tasks.reduce<Record<StudyTask['status'], number>>((counts, task) => {
@@ -287,6 +288,40 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                 )}
               </div>
             ) : null}
+
+            <div
+              data-testid="task-focus-loop-metrics"
+              className="mt-4 grid gap-3 md:grid-cols-4"
+            >
+              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>任务完成率</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {taskFocus.effectiveTaskCount > 0 ? `${taskFocus.completionRate}%` : '暂无任务'}
+                </div>
+              </div>
+              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>专注覆盖率</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {taskFocus.effectiveTaskCount > 0 ? `${taskFocus.focusCoverageRate}%` : '暂无任务'}
+                </div>
+              </div>
+              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>任务专注</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {taskFocus.focusedMinutes}m
+                </div>
+              </div>
+              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>未闭环提示</div>
+                <div className="mt-1 text-sm font-medium" style={{ color: taskFocus.unclosedTaskTitles.length > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
+                  {taskFocus.effectiveTaskCount === 0
+                    ? '添加任务后开始闭环'
+                    : taskFocus.unclosedTaskTitles.length > 0
+                      ? taskFocus.unclosedTaskTitles.join('、')
+                      : '今日任务已闭环'}
+                </div>
+              </div>
+            </div>
 
             <div className="mt-4 space-y-2">
               {tasks.length === 0 ? (

@@ -178,4 +178,5 @@ export const STORAGE_KEYS: StorageKeys = {
   MISTAKES: 'mindiary_mistakes',
   SUBJECTS: 'mindiary_subjects',
   TASKS: 'mindiary_study_tasks',
+  POMODORO_SESSIONS: 'mindiary_pomodoro_sessions',
 }

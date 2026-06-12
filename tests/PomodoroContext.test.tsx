@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings, PomodoroStat, Subject } from '../src/types'
+import type { AppSettings, PomodoroStat, StudyTask, Subject } from '../src/types'
 
 const mocks = vi.hoisted(() => ({
   useDiary: vi.fn(),
@@ -9,6 +9,14 @@ const mocks = vi.hoisted(() => ({
   pomodoroGetStats: vi.fn(),
   pomodoroGetDailyTotal: vi.fn(),
   pomodoroAddSession: vi.fn(),
+  tasksGetByDate: vi.fn(),
+  tasksStartFocus: vi.fn(),
+  tasksComplete: vi.fn(),
+  tasksUpdate: vi.fn(),
+  entriesGetByDate: vi.fn(),
+  entriesCreate: vi.fn(),
+  entriesUpdate: vi.fn(),
+  requestDataRefresh: vi.fn(),
   notificationShow: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
@@ -113,6 +121,23 @@ const TODAY_STATS: PomodoroStat[] = [
   { subject_name: 'Math', color: '#0F766E', total_minutes: 25, session_count: 1 },
 ]
 
+const makeStudyTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
+  id: 42,
+  title: 'Math problem set',
+  description: '',
+  type: 'focus',
+  subject_id: 1,
+  related_mistake_id: null,
+  related_entry_id: null,
+  planned_date: '2026-05-05',
+  estimate_minutes: 30,
+  status: 'todo',
+  source: 'manual',
+  created_at: '2026-05-05T00:00:00.000Z',
+  updated_at: '2026-05-05T00:00:00.000Z',
+  ...overrides,
+})
+
 const ACTIVE_SESSION_STORAGE_KEY = 'pomodoro-active-session-v1'
 
 const settingsData = (overrides: Partial<AppSettings> = {}): AppSettings => ({
@@ -172,6 +197,30 @@ const advanceTimer = async (milliseconds: number) => {
   })
 }
 
+const startBoundCustomCountdown = async (
+  result: ReturnType<typeof renderPomodoroHook>['result'],
+  taskId: number,
+  minutes = 40,
+) => {
+  await flushAsyncWork()
+  expect(result.current.data.todayTasks.some(task => task.id === taskId)).toBe(true)
+  await act(async () => {
+    result.current.actions.selectFocusTask(taskId)
+  })
+  await act(async () => {
+    result.current.actions.setCustomMinutes(minutes)
+  })
+  await act(async () => {
+    result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
+  })
+  await flushAsyncWork()
+  expect(result.current.timer.mode.id).toBe('custom')
+  expect(result.current.timer.timeLeft).toBe(minutes * 60)
+  await act(async () => {
+    await result.current.actions.toggleTimer()
+  })
+}
+
 const startCustomCountdown = async (
   result: ReturnType<typeof renderPomodoroHook>['result'],
   minutes: number,
@@ -200,6 +249,14 @@ beforeEach(() => {
   mocks.pomodoroGetStats.mockResolvedValue(TODAY_STATS)
   mocks.pomodoroGetDailyTotal.mockResolvedValue(25)
   mocks.pomodoroAddSession.mockResolvedValue({ success: true })
+  mocks.tasksGetByDate.mockResolvedValue([])
+  mocks.tasksStartFocus.mockImplementation(async (id: number) => ({ id, status: 'doing' }))
+  mocks.tasksComplete.mockImplementation(async (id: number) => ({ id, status: 'done' }))
+  mocks.tasksUpdate.mockImplementation(async (id: number, patch: Record<string, unknown>) => ({ id, ...patch }))
+  mocks.entriesGetByDate.mockResolvedValue(null)
+  mocks.entriesCreate.mockResolvedValue({ id: 1 })
+  mocks.entriesUpdate.mockResolvedValue({ id: 1 })
+  mocks.requestDataRefresh.mockReturnValue(undefined)
   mocks.notificationShow.mockResolvedValue(undefined)
   mocks.requestNotificationPermission.mockResolvedValue('granted')
   mocks.useDiary.mockReturnValue({
@@ -215,6 +272,19 @@ beforeEach(() => {
     notification: {
       show: mocks.notificationShow,
     },
+    tasks: {
+      getByDate: mocks.tasksGetByDate,
+      startFocus: mocks.tasksStartFocus,
+      complete: mocks.tasksComplete,
+      update: mocks.tasksUpdate,
+    },
+    entries: {
+      getByDate: mocks.entriesGetByDate,
+      create: mocks.entriesCreate,
+      update: mocks.entriesUpdate,
+    },
+    requestDataRefresh: mocks.requestDataRefresh,
+    dataRefreshVersion: 0,
   } as unknown as ReturnType<typeof useDiary>)
 
   vi.clearAllMocks()
@@ -1311,6 +1381,148 @@ describe('PomodoroContext', () => {
     expect(result.current.data.todayTotal).toBe(0)
   })
 
+  it('loads the next local date tasks after midnight while idle and clears the old selection', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 50))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [oldTask]
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Old day task'])
+
+    await act(async () => {
+      result.current.actions.selectFocusTask(oldTask.id)
+    })
+    expect(result.current.data.selectedTask?.title).toBe('Old day task')
+
+    await advanceTimer(11_000)
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(mocks.tasksGetByDate).toHaveBeenCalledWith('2026-05-06')
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBeNull()
+      expect(result.current.data.selectedTask).toBeNull()
+    })
+  })
+
+  it('keeps an active session task snapshot when the visible task list rolls over', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 50))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const doingOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'doing' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [oldTask]
+    ))
+    mocks.tasksStartFocus.mockResolvedValue(doingOldTask)
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, oldTask.id)
+
+    expect(result.current.data.selectedTaskId).toBe(oldTask.id)
+    expect(result.current.data.selectedTask?.title).toBe('Old day task')
+
+    await advanceTimer(11_000)
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBe(oldTask.id)
+      expect(result.current.data.selectedTask?.title).toBe('Old day task')
+    })
+  })
+
+  it('settles a pre-midnight task session after midnight against the session date', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 0))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const doingOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'doing' })
+    const doneOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'done' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [doingOldTask]
+    ))
+    mocks.tasksStartFocus.mockResolvedValue(doingOldTask)
+    mocks.tasksComplete.mockResolvedValue(doneOldTask)
+    mocks.entriesGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-05'
+        ? {
+            id: 8,
+            date,
+            title: 'Old diary',
+            content: 'Before review',
+            mood: 'calm',
+            created_at: '2026-05-05T00:00:00.000Z',
+            updated_at: '2026-05-05T00:00:00.000Z',
+          }
+        : null
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTasks.length).toBeGreaterThan(0)
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [doingOldTask]
+    ))
+    await startBoundCustomCountdown(result, oldTask.id)
+    await advanceTimer(125_000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      task_id: oldTask.id,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 23:59:/),
+      completed_at: expect.stringMatching(/^2026-05-06 00:01:/),
+    }))
+    expect(result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+      id: oldTask.id,
+      title: 'Old day task',
+      dateKey: '2026-05-05',
+    }))
+
+    let settled = false
+    await act(async () => {
+      settled = await result.current.actions.settleFocusTask({
+        completeTask: true,
+        reviewText: 'Closed the loop after midnight.',
+      })
+    })
+    await flushAsyncWork()
+
+    expect(settled).toBe(true)
+    expect(mocks.tasksGetByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(oldTask.id)
+    expect(mocks.entriesGetByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledWith(8, {
+      content: expect.stringContaining('- 结果：Closed the loop after midnight.'),
+    })
+
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: false,
+        reviewText: 'Closed the loop after midnight.',
+      })
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+    await waitForExpect(() => {
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBeNull()
+    })
+  })
+
   it('hasActiveTimerSession is false initially', async () => {
     const { result } = renderPomodoroHook()
 
@@ -1386,6 +1598,159 @@ describe('PomodoroContext', () => {
     expect(second.result.current.timer.hasActiveTimerSession).toBe(true)
     expect(second.result.current.timer.isRunning).toBe(false)
     expect(second.result.current.timer.mode.id).toBe('work')
+  })
+
+  it('completes a bound task, appends a one-line review, and de-duplicates settlement retries', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const task = makeStudyTask()
+    const doingTask = makeStudyTask({ status: 'doing' })
+    const doneTask = makeStudyTask({ status: 'done' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.tasksComplete.mockResolvedValue(doneTask)
+    mocks.entriesGetByDate.mockResolvedValue({
+      id: 7,
+      date: '2026-05-05',
+      title: 'Today',
+      content: 'Existing note',
+      mood: 'calm',
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    })
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1,
+      task_id: task.id,
+      duration: 2,
+      date_key: '2026-05-05',
+    }))
+    expect(result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+      id: task.id,
+      title: task.title,
+      subjectName: 'Math',
+      status: 'doing',
+      duration: 2,
+    }))
+
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+    let settled = false
+    await act(async () => {
+      settled = await result.current.actions.settleFocusTask({
+        completeTask: true,
+        reviewText: 'Finished the hardest examples.',
+      })
+    })
+
+    expect(settled).toBe(true)
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledWith(7, {
+      content: expect.stringContaining('Existing note'),
+    })
+    const updatedContent = mocks.entriesUpdate.mock.calls[0]![1].content as string
+    expect(updatedContent).toContain('## 专注复盘')
+    expect(updatedContent).toContain('- 任务：Math problem set')
+    expect(updatedContent).toContain('- 科目：Math')
+    expect(updatedContent).toContain('- 专注：2 分钟')
+    expect(updatedContent).toContain('- 结果：Finished the hardest examples.')
+
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: false,
+        reviewText: 'Finished the hardest examples.',
+      })
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates today diary for a bound focus review when the user confirms', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 10, 0, 0))
+    const task = makeStudyTask()
+    const doingTask = makeStudyTask({ status: 'doing' })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.entriesGetByDate.mockResolvedValue(null)
+
+    try {
+      const { result } = renderPomodoroHook()
+      await flushAsyncWork()
+      await startBoundCustomCountdown(result, task.id)
+      await advanceTimer(125_000)
+
+      await act(async () => {
+        await result.current.actions.finishCountdownFocusSession()
+      })
+      await flushAsyncWork()
+
+      mocks.tasksGetByDate.mockResolvedValue([doingTask])
+      let settled = false
+      await act(async () => {
+        settled = await result.current.actions.settleFocusTask({
+          completeTask: false,
+          reviewText: 'Kept momentum for tomorrow.',
+        })
+      })
+
+      expect(settled).toBe(true)
+      expect(confirmSpy).toHaveBeenCalled()
+      expect(mocks.tasksComplete).not.toHaveBeenCalled()
+      expect(mocks.entriesCreate).toHaveBeenCalledWith({
+        date: '2026-05-05',
+        title: '专注复盘',
+        content: expect.stringContaining('- 结果：Kept momentum for tomorrow.'),
+        mood: null,
+      })
+    } finally {
+      confirmSpy.mockRestore()
+    }
+  })
+
+  it('does not write a diary block for an empty bound focus review', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 11, 0, 0))
+    const task = makeStudyTask()
+    const doingTask = makeStudyTask({ status: 'doing' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+
+    await act(async () => {
+      await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+    let settled = false
+    await act(async () => {
+      settled = await result.current.actions.settleFocusTask({
+        completeTask: false,
+        reviewText: '   ',
+      })
+    })
+
+    expect(settled).toBe(true)
+    expect(mocks.entriesGetByDate).not.toHaveBeenCalled()
+    expect(mocks.entriesCreate).not.toHaveBeenCalled()
+    expect(mocks.entriesUpdate).not.toHaveBeenCalled()
   })
 
   it('starts stopwatch mode from zero and counts up', async () => {

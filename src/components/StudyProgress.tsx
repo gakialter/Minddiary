@@ -65,7 +65,11 @@ export default function StudyProgress() {
         }
 
         // Index pomodoro time by subject name
-        const pomodoroIndex = new Map<string, number>(pomodoroStats.map(p => [p.subject_name, p.total_minutes]))
+        const pomodoroIndex = new Map<string, number>(
+            pomodoroStats
+                .filter((p): p is typeof p & { subject_name: string } => typeof p.subject_name === 'string')
+                .map(p => [p.subject_name, p.total_minutes]),
+        )
 
         let chTotal = 0
         let chCompleted = 0

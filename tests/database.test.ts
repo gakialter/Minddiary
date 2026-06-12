@@ -16,6 +16,7 @@ type EntryRow = DiaryEntry & { content_snippet?: string }
 type PomodoroSessionRow = {
   id: number
   subject_id: number | null
+  task_id: number | null
   duration: number
   date_key: string | null
   started_at: string | null
@@ -72,7 +73,7 @@ type DatabaseModule = {
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAllMistakes: (filters?: { subject_id?: number; mastered?: boolean | number; search?: string; due?: boolean; dueDate?: string; limit?: number; offset?: number }) => { data: Mistake[], total: number, masteredTotal: number }
   createMistake: (mistake: Partial<Mistake>) => { id: unknown }
-  addPomodoroSession: (session: Pick<PomodoroSession, 'subject_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => { id: unknown; date_key: string; started_at: string | null; completed_at: string }
+  addPomodoroSession: (session: Pick<PomodoroSession, 'subject_id' | 'task_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => { id: unknown; date_key: string; started_at: string | null; completed_at: string }
   getPomodoroStats: (date: string) => PomodoroStat[]
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
   getDailyStudyMinutes: (date: string) => number
@@ -83,6 +84,7 @@ type DatabaseModule = {
   deleteStudyTask: (id: number) => boolean
   completeStudyTask: (id: number) => StudyTaskRow
   skipStudyTask: (id: number) => StudyTaskRow
+  startStudyTaskFocus: (id: number, date: string) => StudyTaskRow
   updateMistake: (id: number, mistake: Partial<Mistake>) => Promise<{ success: boolean }>
   deleteMistake: (id: number) => Promise<{ success: boolean }>
   toggleMistakeMastered: (id: number) => { mastered: number }
@@ -353,10 +355,11 @@ vi.mock('better-sqlite3', () => {
             const row: PomodoroSessionRow = {
               id: state.pomodoroSessionRows.length + 1,
               subject_id: params[0] == null ? null : Number(params[0]),
-              duration: Number(params[1]),
-              date_key: params[2] == null ? null : String(params[2]),
-              started_at: params[3] == null ? null : String(params[3]),
-              completed_at: params[4] == null ? null : String(params[4]),
+              task_id: params[1] == null ? null : Number(params[1]),
+              duration: Number(params[2]),
+              date_key: params[3] == null ? null : String(params[3]),
+              started_at: params[4] == null ? null : String(params[4]),
+              completed_at: params[5] == null ? null : String(params[5]),
             }
             state.pomodoroSessionRows.push(row)
             return { lastInsertRowid: row.id, changes: 1 }
@@ -1222,8 +1225,8 @@ describe('database pomodoro facade APIs', () => {
     })
 
     const insertCall = lastPreparedCall()
-    expect(insertCall.sql).toBe('INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?)')
-    expect(insertCall.params).toEqual([null, 25, '2026-06-06', '2026-06-06 09:00:00', '2026-06-06 09:25:00'])
+    expect(insertCall.sql).toBe('INSERT INTO pomodoro_sessions (subject_id, task_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)')
+    expect(insertCall.params).toEqual([null, null, 25, '2026-06-06', '2026-06-06 09:00:00', '2026-06-06 09:25:00'])
 
     state.pomodoroStatsRows = [
       { subject_name: 'Math', color: '#0F766E', total_minutes: 25, session_count: 1 },
@@ -1309,6 +1312,7 @@ describe('database study task APIs', () => {
     expect(database.deleteStudyTask).toBeTypeOf('function')
     expect(database.completeStudyTask).toBeTypeOf('function')
     expect(database.skipStudyTask).toBeTypeOf('function')
+    expect(database.startStudyTaskFocus).toBeTypeOf('function')
     expect(Object.prototype.hasOwnProperty.call(database, 'getStudyTaskById')).toBe(false)
     expect(Object.prototype.hasOwnProperty.call(database, 'requireStudyTask')).toBe(false)
     expect(Object.prototype.hasOwnProperty.call(database, 'normalizeStudyTaskTitle')).toBe(false)
@@ -1425,6 +1429,7 @@ describe('database study task APIs', () => {
     expect(database.updateStudyTask(created.id, {})).toEqual(expect.objectContaining({ id: created.id, title: 'Write daily reflection' }))
     expect(state.preparedCalls.some(call => call.sql.includes('UPDATE study_tasks SET'))).toBe(false)
 
+    await expect(database.startStudyTaskFocus(created.id, '2026-06-01')).toEqual(expect.objectContaining({ status: 'doing' }))
     await expect(database.completeStudyTask(created.id)).toEqual(expect.objectContaining({ status: 'done' }))
     const completeCall = state.preparedCalls.find(call => call.sql.includes('UPDATE study_tasks SET status = ?') && call.params[0] === 'done')
     expect(completeCall?.params).toEqual(['done', created.id])

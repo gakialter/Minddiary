@@ -214,6 +214,10 @@ export function validatePositiveIdPayload(value: unknown, label: string): number
     return requirePositiveInteger(value, label);
 }
 
+export function validateDateKeyPayload(value: unknown, label: string): string {
+    return requireDateKey(value, label);
+}
+
 export function validateAiMessagesPayload(payload: unknown): AIMessage[] {
     return validateAiRequestMessages(payload);
 }
@@ -237,6 +241,7 @@ export function validateStudyTaskUpdatePayload(payload: unknown): Partial<StudyT
 export function validatePomodoroSessionPayload(payload: unknown): PomodoroSession {
     const record = requireRecord(payload, 'pomodoro:addSession payload');
     validateRequiredNullablePositiveInteger(record, 'subject_id', 'pomodoro subject_id');
+    validateOptionalNullablePositiveInteger(record, 'task_id', 'pomodoro task_id');
     requirePositiveFiniteNumber(record.duration, 'pomodoro duration');
     validateOptionalDateKey(record, 'date_key', 'pomodoro date_key');
     validateOptionalString(record, 'started_at', 'pomodoro started_at', IPC_VALIDATION_LIMITS.dateTime);

@@ -7,16 +7,30 @@ export function createPomodoroRepository(db: Database.Database) {
         return typeof value === 'string' && value.trim() ? value.trim() : null;
     }
 
+    function normalizeTaskIdForSession(taskId: PomodoroSession['task_id']): number | null {
+        if (taskId === undefined || taskId === null) return null;
+        if (!Number.isInteger(taskId) || taskId <= 0) {
+            throw new Error('pomodoro task_id must be a positive integer or null');
+        }
+
+        const task = db.prepare('SELECT id FROM study_tasks WHERE id = ?').get(taskId) as { id: number } | undefined;
+        if (!task) {
+            throw new Error('Task not found');
+        }
+        return taskId;
+    }
+
     return {
-        addPomodoroSession({ subject_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
+        addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
             const completedAt = normalizeOptionalDateTime(completed_at) || toLocalDateTimeString();
             const startedAt = normalizeOptionalDateTime(started_at);
             const dateKey = isDateKey(date_key) ? date_key : getLocalDateKey(startedAt ? new Date(startedAt) : new Date());
+            const taskId = normalizeTaskIdForSession(task_id);
 
             const stmt = db.prepare(
-                'INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO pomodoro_sessions (subject_id, task_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)'
             );
-            const result = stmt.run(subject_id || null, duration, dateKey, startedAt, completedAt);
+            const result = stmt.run(subject_id || null, taskId, duration, dateKey, startedAt, completedAt);
             return { id: result.lastInsertRowid, date_key: dateKey, started_at: startedAt, completed_at: completedAt };
         },
 

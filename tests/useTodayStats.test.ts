@@ -41,6 +41,19 @@ import { getTodayStr } from '../src/utils/helpers'
 import { logger } from '../src/utils/logger'
 import { useTodayStats } from '../src/hooks/useTodayStats'
 
+const EMPTY_TASK_FOCUS: TodayDashboardData['taskFocusToday'] = {
+  effectiveTaskCount: 0,
+  completedTaskCount: 0,
+  completionRate: 0,
+  focusedTaskCount: 0,
+  focusCoverageRate: 0,
+  focusedMinutes: 0,
+  skippedTaskCount: 0,
+  openWithoutFocusCount: 0,
+  focusedOpenTaskCount: 0,
+  unclosedTaskTitles: [],
+}
+
 const EMPTY_STATE: TodayDashboardData = {
   todayEntry: null,
   pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
@@ -49,6 +62,7 @@ const EMPTY_STATE: TodayDashboardData = {
     lockedKnowledgeGrowth: 0,
     focusConversionRate: 0,
   },
+  taskFocusToday: EMPTY_TASK_FOCUS,
   streakDays: 0,
 }
 
@@ -65,6 +79,7 @@ const FULL_DATA: TodayDashboardData = {
     lockedKnowledgeGrowth: 12,
     focusConversionRate: 75,
   },
+  taskFocusToday: EMPTY_TASK_FOCUS,
   streakDays: 8,
 }
 
@@ -81,6 +96,7 @@ const UPDATED_DATA: TodayDashboardData = {
     lockedKnowledgeGrowth: 18,
     focusConversionRate: 88,
   },
+  taskFocusToday: EMPTY_TASK_FOCUS,
   streakDays: 9,
 }
 
