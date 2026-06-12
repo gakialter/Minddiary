@@ -220,12 +220,12 @@ describe('HomeDashboard Component - Commander Engine', () => {
         description: '',
         type: 'review',
         subject_id: null,
-        related_mistake_id: null,
+        related_mistake_id: 44,
         related_entry_id: null,
         planned_date: '2026-05-31',
         estimate_minutes: 25,
         status: 'todo',
-        source: 'manual',
+        source: 'ai',
         created_at: '2026-05-31T00:00:00.000Z',
         updated_at: '2026-05-31T00:00:00.000Z',
       },
@@ -236,7 +236,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
         type: 'diary',
         subject_id: null,
         related_mistake_id: null,
-        related_entry_id: null,
+        related_entry_id: 1,
         planned_date: '2026-05-31',
         estimate_minutes: 15,
         status: 'done',
@@ -253,6 +253,9 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('Write reflection')).toBeInTheDocument()
     expect(screen.getByTestId('task-status-1')).toHaveTextContent('todo')
     expect(screen.getByTestId('task-status-2')).toHaveTextContent('done')
+    expect(screen.getByText('AI 建议')).toBeInTheDocument()
+    expect(screen.getByText('关联错题 #44')).toBeInTheDocument()
+    expect(screen.getByText('关联日记 #1')).toBeInTheDocument()
   })
 
   it('renders lightweight task focus loop metrics', async () => {
@@ -280,6 +283,8 @@ describe('HomeDashboard Component - Commander Engine', () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
     const metrics = await screen.findByTestId('task-focus-loop-metrics')
+    expect(metrics).toHaveTextContent('计划预计')
+    expect(metrics).toHaveTextContent('0m / 65m')
     expect(metrics).toHaveTextContent('任务完成率')
     expect(metrics).toHaveTextContent('50%')
     expect(metrics).toHaveTextContent('专注覆盖率')

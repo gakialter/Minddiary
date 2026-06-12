@@ -134,6 +134,9 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
     counts[task.status] += 1
     return counts
   }, { todo: 0, doing: 0, done: 0, skipped: 0 })
+  const plannedTaskMinutes = tasks
+    .filter(task => task.status !== 'skipped')
+    .reduce((total, task) => total + task.estimate_minutes, 0)
 
   const handleCTA = () => {
     // Navigate based on the exact state logic Action intent
@@ -301,8 +304,14 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
 
             <div
               data-testid="task-focus-loop-metrics"
-              className="mt-4 grid gap-3 md:grid-cols-4"
+              className="mt-4 grid gap-3 md:grid-cols-5"
             >
+              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>计划预计</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {plannedTaskMinutes}m / {taskFocus.focusedMinutes}m
+                </div>
+              </div>
               <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
                 <div className="text-xs" style={{ color: 'var(--text-muted)' }}>任务完成率</div>
                 <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -364,6 +373,21 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                       <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {task.type} · {task.estimate_minutes}m
                       </span>
+                      {task.source === 'ai' && (
+                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--accent)', border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                          AI 建议
+                        </span>
+                      )}
+                      {task.related_mistake_id !== null && (
+                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
+                          关联错题 #{task.related_mistake_id}
+                        </span>
+                      )}
+                      {task.related_entry_id !== null && (
+                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 45%, transparent)', background: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
+                          关联日记 #{task.related_entry_id}
+                        </span>
+                      )}
                     </div>
                     {task.description && (
                       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
