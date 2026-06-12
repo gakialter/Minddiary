@@ -108,6 +108,7 @@ interface FocusTaskSettlement {
   subjectName: string | null
   status: StudyTask['status']
   duration: number
+  dateKey: string
   completedAt: string
   settlementKey: string
 }
@@ -382,6 +383,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [selectedSubject, setSelectedSubjectState] = useState<number | null>(null)
   const [todayTasks, setTodayTasks] = useState<StudyTask[]>([])
   const [selectedTaskId, setSelectedTaskIdState] = useState<number | null>(null)
+  const [activeTaskSnapshot, setActiveTaskSnapshotState] = useState<StudyTask | null>(null)
   const [taskError, setTaskError] = useState<string | null>(null)
   const [todayStats, setTodayStats] = useState<PomodoroStat[]>([])
   const [todayTotal, setTodayTotal] = useState(0)
@@ -390,6 +392,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const sessionStartedAtRef = useRef<Date | null>(null)
   const selectedTaskIdRef = useRef<number | null>(null)
   const todayTasksRef = useRef<StudyTask[]>([])
+  const activeTaskSnapshotRef = useRef<StudyTask | null>(null)
   const manualSubjectOverrideRef = useRef(false)
   const onBreakStartRef = useRef<(() => void) | null>(null)
   const setOnBreakStart = useCallback((cb: (() => void) | null) => {
@@ -413,21 +416,31 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     return subjects.find(subject => subject.id === subjectId)?.name ?? null
   }, [subjects])
 
+  const setActiveTaskSnapshot = useCallback((task: StudyTask | null) => {
+    activeTaskSnapshotRef.current = task
+    setActiveTaskSnapshotState(task)
+  }, [])
+
   const buildTaskSettlement = useCallback((
     taskId: number | null,
     duration: number,
     completedAt: Date,
     startedAt: Date,
+    taskSnapshot: StudyTask | null = activeTaskSnapshotRef.current,
   ): FocusTaskSettlement | null => {
     if (taskId === null) return null
-    const task = todayTasksRef.current.find(candidate => candidate.id === taskId)
+    const task = taskSnapshot?.id === taskId
+      ? taskSnapshot
+      : todayTasksRef.current.find(candidate => candidate.id === taskId)
     if (!task) return null
+    const dateKey = getLocalDateKey(startedAt)
     return {
       id: task.id,
       title: task.title,
       subjectName: getSubjectName(task.subject_id),
       status: task.status,
       duration,
+      dateKey,
       completedAt: toLocalDateTimeString(completedAt),
       settlementKey: `${task.id}:${startedAt.getTime()}:${completedAt.getTime()}:${duration}`,
     }
@@ -541,7 +554,13 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       todayTasksRef.current = tasks || []
 
       const selectedId = selectedTaskIdRef.current
-      if (selectedId !== null && !(tasks || []).some(task => task.id === selectedId)) {
+      const visibleSelectedTask = selectedId === null
+        ? null
+        : (tasks || []).find(task => task.id === selectedId) ?? null
+      if (visibleSelectedTask && activeSessionRef.current) {
+        setActiveTaskSnapshot(visibleSelectedTask)
+      }
+      if (selectedId !== null && !visibleSelectedTask && !activeSessionRef.current) {
         selectedTaskIdRef.current = null
         setSelectedTaskIdState(null)
       }
@@ -549,7 +568,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       logger.error(error)
       setTaskError(error instanceof Error ? error.message : String(error))
     }
-  }, [tasksAPI])
+  }, [setActiveTaskSnapshot, tasksAPI])
 
   const setSelectedSubject = useCallback<React.Dispatch<React.SetStateAction<number | null>>>((nextSubjectAction) => {
     manualSubjectOverrideRef.current = true
@@ -566,16 +585,18 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const resolveRestoredTaskId = useCallback(async (taskId: number | null, dateKey: string): Promise<number | null> => {
-    if (taskId === null) return null
+  const resolveSessionTask = useCallback(async (
+    taskId: number | null,
+    dateKey: string,
+  ): Promise<{ taskId: number | null; task: StudyTask | null }> => {
+    if (taskId === null) return { taskId: null, task: null }
     try {
       const tasks = await tasksAPI.getByDate(dateKey)
-      setTodayTasks(tasks || [])
-      todayTasksRef.current = tasks || []
-      return (tasks || []).some(task => task.id === taskId) ? taskId : null
+      const task = (tasks || []).find(candidate => candidate.id === taskId) ?? null
+      return { taskId: task ? task.id : null, task }
     } catch (error) {
       logger.warn('Failed to resolve restored pomodoro task:', error)
-      return taskId
+      return { taskId, task: null }
     }
   }, [tasksAPI])
 
@@ -603,6 +624,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           setTodayTotal(0)
           todayDateKeyRef.current = nextDateKey
           void loadTodayStats(nextDateKey)
+          void loadTodayTasks(nextDateKey)
         }
         scheduleRolloverCheck()
       }, getDelayUntilNextLocalDate())
@@ -610,7 +632,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     scheduleRolloverCheck()
     return () => window.clearTimeout(timeout)
-  }, [loadTodayStats])
+  }, [loadTodayStats, loadTodayTasks])
 
   const clearActiveSessionState = useCallback(() => {
     activeSessionRef.current = false
@@ -619,8 +641,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     sessionStartedAtRef.current = null
     stopwatchElapsedBeforeRunRef.current = 0
     stopwatchRunStartedAtRef.current = null
+    setActiveTaskSnapshot(null)
     clearPersistedActiveSession()
-  }, [])
+  }, [setActiveTaskSnapshot])
 
   const setIdleMode = useCallback((nextMode: PomodoroMode) => {
     const idleSeconds = getIdleDisplaySeconds(nextMode)
@@ -705,8 +728,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       `- 结果：${trimmedReview}`,
     ].join('\n')
 
-    const today = getLocalDateKey()
-    const existing = await entriesAPI.getByDate(today)
+    const reviewDateKey = settlement.dateKey
+    const existing = await entriesAPI.getByDate(reviewDateKey)
     if (existing) {
       const content = existing.content.trim()
         ? `${existing.content.trimEnd()}\n\n${reviewBlock}`
@@ -716,7 +739,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const confirmed = window.confirm('今天还没有日记。是否创建今日日记并写入本次专注复盘？')
       if (!confirmed) return
       await entriesAPI.create({
-        date: today,
+        date: reviewDateKey,
         title: '专注复盘',
         content: reviewBlock,
         mood: null,
@@ -737,9 +760,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setAlertState(current => ({ ...current, settlementError: null, isSettlingTask: true }))
 
     try {
-      const latestTasks = await tasksAPI.getByDate(todayDateKeyRef.current)
-      setTodayTasks(latestTasks || [])
-      todayTasksRef.current = latestTasks || []
+      const latestTasks = await tasksAPI.getByDate(settlement.dateKey)
+      if (settlement.dateKey === todayDateKeyRef.current) {
+        setTodayTasks(latestTasks || [])
+        todayTasksRef.current = latestTasks || []
+      }
       const latestTask = (latestTasks || []).find(task => task.id === settlement.id)
       if (!latestTask) {
         setAlertState(current => ({
@@ -748,6 +773,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           settlementError: '绑定任务已不存在，专注记录已保留。可直接关闭本次结算。',
           isSettlingTask: false,
         }))
+        void loadTodayTasks(todayDateKeyRef.current)
         requestDataRefresh()
         return false
       }
@@ -771,8 +797,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           }
           throw error
         }
-        setTodayTasks(current => current.map(task => task.id === updatedTask.id ? updatedTask : task))
-        todayTasksRef.current = todayTasksRef.current.map(task => task.id === updatedTask.id ? updatedTask : task)
+        if (settlement.dateKey === todayDateKeyRef.current) {
+          setTodayTasks(current => current.map(task => task.id === updatedTask.id ? updatedTask : task))
+          todayTasksRef.current = todayTasksRef.current.map(task => task.id === updatedTask.id ? updatedTask : task)
+        }
         if (selectedTaskIdRef.current === updatedTask.id) {
           selectedTaskIdRef.current = null
           setSelectedTaskIdState(null)
@@ -805,6 +833,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const completedMode = mode
     const completedSubject = selectedSubject
     const completedTaskId = selectedTaskIdRef.current
+    const completedTaskSnapshot = activeTaskSnapshotRef.current
     const startedAtForRecord = sessionStartedAtRef.current
 
     clearActiveSessionState()
@@ -864,9 +893,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           Math.round(completedMode.time / 60),
           completedAt,
           startedAt,
+          completedTaskSnapshot,
         )
         if (coerceBoolean(settingsData?.pomodoroAlert, true) || taskSettlement) {
-          const alertDateKey = getLocalDateKey()
+          const alertDateKey = getLocalDateKey(startedAt)
           const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
           setAlertState({
             visible: true,
@@ -951,11 +981,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         void (async () => {
           const startedAt = new Date(restore.session.startedAtMs!)
           const completedAt = new Date(restore.session.endTimeMs!)
-          const taskId = await resolveRestoredTaskId(restore.session.selectedTaskId, getLocalDateKey(startedAt))
+          const resolvedTask = await resolveSessionTask(restore.session.selectedTaskId, getLocalDateKey(startedAt))
           await addPomodoroSessionRecord({
             durationSeconds: restore.session.modeTime,
             subjectId: restore.session.selectedSubject,
-            taskId,
+            taskId: resolvedTask.taskId,
             startedAt,
             completedAt,
           })
@@ -995,11 +1025,14 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     selectedTaskIdRef.current = restore.session.selectedTaskId
     setSelectedTaskIdState(restore.session.selectedTaskId)
     if (restore.session.selectedTaskId !== null && restore.session.startedAtMs) {
-      void resolveRestoredTaskId(restore.session.selectedTaskId, getLocalDateKey(new Date(restore.session.startedAtMs)))
-        .then(taskId => {
+      void resolveSessionTask(restore.session.selectedTaskId, getLocalDateKey(new Date(restore.session.startedAtMs)))
+        .then(({ taskId, task }) => {
           if (taskId === null) {
             selectedTaskIdRef.current = null
             setSelectedTaskIdState(null)
+            setActiveTaskSnapshot(null)
+          } else if (task) {
+            setActiveTaskSnapshot(task)
           }
         })
     }
@@ -1011,7 +1044,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     buildTaskSettlement,
     clearActiveSessionState,
     dynamicModes,
-    resolveRestoredTaskId,
+    resolveSessionTask,
+    setActiveTaskSnapshot,
     setIdleMode,
   ])
 
@@ -1121,12 +1155,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const originalTask = taskIdForSession === null
       ? null
       : todayTasksRef.current.find(task => task.id === taskIdForSession) ?? null
+    let taskSnapshotForSession: StudyTask | null = taskIdForSession === null ? null : activeTaskSnapshotRef.current
 
     if (isStartingNewFocusSession && taskIdForSession !== null) {
       try {
         const updatedTask = await tasksAPI.startFocus(taskIdForSession, todayDateKeyRef.current)
-        setTodayTasks(current => current.map(task => task.id === updatedTask.id ? updatedTask : task))
-        todayTasksRef.current = todayTasksRef.current.map(task => task.id === updatedTask.id ? updatedTask : task)
+        const startedTask = originalTask ? { ...originalTask, ...updatedTask } : updatedTask
+        taskSnapshotForSession = startedTask
+        setTodayTasks(current => current.map(task => task.id === updatedTask.id ? startedTask : task))
+        todayTasksRef.current = todayTasksRef.current.map(task => task.id === updatedTask.id ? startedTask : task)
         requestDataRefresh()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -1197,6 +1234,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     stopwatchElapsedBeforeRunRef.current = nextStopwatchElapsedBeforeRun
     stopwatchRunStartedAtRef.current = nextStopwatchRunStartedAt
     endTimeRef.current = nextEndTimeMs
+    if (isStartingNewFocusSession) {
+      setActiveTaskSnapshot(taskSnapshotForSession)
+    }
     setTaskError(null)
 
     if (!nextIsRunning && isStopwatch) {
@@ -1210,6 +1250,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     isRunning,
     requestDataRefresh,
     selectedSubject,
+    setActiveTaskSnapshot,
     tasksAPI,
     timeLeft,
   ])
@@ -1254,6 +1295,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
     const completedSubject = selectedSubject
     const completedTaskId = selectedTaskIdRef.current
+    const completedTaskSnapshot = activeTaskSnapshotRef.current
     const idleMode = currentMode.id === 'custom' ? dynamicModes.CUSTOM! : dynamicModes.WORK!
 
     try {
@@ -1269,6 +1311,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         roundedMinutes,
         completedAt,
         startedAt,
+        completedTaskSnapshot,
       )
 
       clearActiveSessionState()
@@ -1276,7 +1319,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
       if (coerceBoolean(settingsData?.pomodoroAlert, true) || taskSettlement) {
         try {
-          const alertDateKey = getLocalDateKey()
+          const alertDateKey = getLocalDateKey(startedAt)
           const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(error => {
             logger.warn('Failed to refresh pomodoro total after interrupted save:', error)
             return todayTotal
@@ -1345,6 +1388,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const startedAt = sessionStartedAtRef.current
       ?? new Date(completedAt.getTime() - elapsedSeconds * 1000)
     const completedTaskId = selectedTaskIdRef.current
+    const completedTaskSnapshot = activeTaskSnapshotRef.current
 
     try {
       await addPomodoroSessionRecord({
@@ -1359,9 +1403,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         roundedMinutes,
         completedAt,
         startedAt,
+        completedTaskSnapshot,
       )
       if (coerceBoolean(settingsData?.pomodoroAlert, true) || taskSettlement) {
-        const alertDateKey = getLocalDateKey()
+        const alertDateKey = getLocalDateKey(startedAt)
         const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
         setAlertState({
           visible: true,
@@ -1419,8 +1464,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const circleCircumference = 2 * Math.PI * 90
   const miniCircumference = 2 * Math.PI * 18
   const selectedTask = useMemo(
-    () => selectedTaskId === null ? null : todayTasks.find(task => task.id === selectedTaskId) ?? null,
-    [selectedTaskId, todayTasks],
+    () => {
+      if (selectedTaskId === null) return null
+      return todayTasks.find(task => task.id === selectedTaskId)
+        ?? (hasActiveTimerSession && activeTaskSnapshot?.id === selectedTaskId ? activeTaskSnapshot : null)
+    },
+    [activeTaskSnapshot, hasActiveTimerSession, selectedTaskId, todayTasks],
   )
 
   // Context Values

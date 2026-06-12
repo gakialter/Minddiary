@@ -202,9 +202,8 @@ const startBoundCustomCountdown = async (
   taskId: number,
   minutes = 40,
 ) => {
-  await waitForExpect(() => {
-    expect(result.current.data.todayTasks.some(task => task.id === taskId)).toBe(true)
-  })
+  await flushAsyncWork()
+  expect(result.current.data.todayTasks.some(task => task.id === taskId)).toBe(true)
   await act(async () => {
     result.current.actions.selectFocusTask(taskId)
   })
@@ -214,10 +213,9 @@ const startBoundCustomCountdown = async (
   await act(async () => {
     result.current.actions.setMode(result.current.timer.dynamicModes.CUSTOM!)
   })
-  await waitForExpect(() => {
-    expect(result.current.timer.mode.id).toBe('custom')
-    expect(result.current.timer.timeLeft).toBe(minutes * 60)
-  })
+  await flushAsyncWork()
+  expect(result.current.timer.mode.id).toBe('custom')
+  expect(result.current.timer.timeLeft).toBe(minutes * 60)
   await act(async () => {
     await result.current.actions.toggleTimer()
   })
@@ -1381,6 +1379,148 @@ describe('PomodoroContext', () => {
 
     expect(mocks.pomodoroGetDailyTotal).toHaveBeenCalledWith('2026-05-18')
     expect(result.current.data.todayTotal).toBe(0)
+  })
+
+  it('loads the next local date tasks after midnight while idle and clears the old selection', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 50))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [oldTask]
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Old day task'])
+
+    await act(async () => {
+      result.current.actions.selectFocusTask(oldTask.id)
+    })
+    expect(result.current.data.selectedTask?.title).toBe('Old day task')
+
+    await advanceTimer(11_000)
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(mocks.tasksGetByDate).toHaveBeenCalledWith('2026-05-06')
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBeNull()
+      expect(result.current.data.selectedTask).toBeNull()
+    })
+  })
+
+  it('keeps an active session task snapshot when the visible task list rolls over', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 50))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const doingOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'doing' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [oldTask]
+    ))
+    mocks.tasksStartFocus.mockResolvedValue(doingOldTask)
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, oldTask.id)
+
+    expect(result.current.data.selectedTaskId).toBe(oldTask.id)
+    expect(result.current.data.selectedTask?.title).toBe('Old day task')
+
+    await advanceTimer(11_000)
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBe(oldTask.id)
+      expect(result.current.data.selectedTask?.title).toBe('Old day task')
+    })
+  })
+
+  it('settles a pre-midnight task session after midnight against the session date', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 23, 59, 0))
+    const oldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05' })
+    const doingOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'doing' })
+    const doneOldTask = makeStudyTask({ id: 42, title: 'Old day task', planned_date: '2026-05-05', status: 'done' })
+    const nextTask = makeStudyTask({ id: 43, title: 'Next day task', planned_date: '2026-05-06' })
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [doingOldTask]
+    ))
+    mocks.tasksStartFocus.mockResolvedValue(doingOldTask)
+    mocks.tasksComplete.mockResolvedValue(doneOldTask)
+    mocks.entriesGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-05'
+        ? {
+            id: 8,
+            date,
+            title: 'Old diary',
+            content: 'Before review',
+            mood: 'calm',
+            created_at: '2026-05-05T00:00:00.000Z',
+            updated_at: '2026-05-05T00:00:00.000Z',
+          }
+        : null
+    ))
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTasks.length).toBeGreaterThan(0)
+    mocks.tasksGetByDate.mockImplementation(async (date: string) => (
+      date === '2026-05-06' ? [nextTask] : [doingOldTask]
+    ))
+    await startBoundCustomCountdown(result, oldTask.id)
+    await advanceTimer(125_000)
+
+    let saved = false
+    await act(async () => {
+      saved = await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    expect(saved).toBe(true)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      task_id: oldTask.id,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 23:59:/),
+      completed_at: expect.stringMatching(/^2026-05-06 00:01:/),
+    }))
+    expect(result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+      id: oldTask.id,
+      title: 'Old day task',
+      dateKey: '2026-05-05',
+    }))
+
+    let settled = false
+    await act(async () => {
+      settled = await result.current.actions.settleFocusTask({
+        completeTask: true,
+        reviewText: 'Closed the loop after midnight.',
+      })
+    })
+    await flushAsyncWork()
+
+    expect(settled).toBe(true)
+    expect(mocks.tasksGetByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(oldTask.id)
+    expect(mocks.entriesGetByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledWith(8, {
+      content: expect.stringContaining('- 结果：Closed the loop after midnight.'),
+    })
+
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: false,
+        reviewText: 'Closed the loop after midnight.',
+      })
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+    await waitForExpect(() => {
+      expect(result.current.data.todayTasks.map(task => task.title)).toEqual(['Next day task'])
+      expect(result.current.data.selectedTaskId).toBeNull()
+    })
   })
 
   it('hasActiveTimerSession is false initially', async () => {
