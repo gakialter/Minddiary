@@ -1,13 +1,14 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
 import { getLocalDateKey } from '../../utils/dateKey'
-import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData } from '../../types'
+import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData, StudyTask } from '../../types'
 import type { MistakesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createMistakesApi = (
     mistakesRef: MutableRefObject<Mistake[]>,
     subjectsRef: MutableRefObject<Subject[]>,
+    tasksRef: MutableRefObject<StudyTask[]>,
     saveToLocal: SaveToLocalFn
 ): MistakesContextAPI => ({
     getAll: async (filters: MistakeFilters = {}) => {
@@ -77,6 +78,10 @@ export const createMistakesApi = (
         }
         mistakesRef.current = mistakesRef.current.filter(m => m.id !== id)
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
+        tasksRef.current = tasksRef.current.map(task => (
+            task.related_mistake_id === id ? { ...task, related_mistake_id: null } : task
+        ))
+        saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
         return true
     },
     toggleMastered: async (id: number) => {
@@ -91,12 +96,16 @@ export const createMistakesApi = (
     },
     review: async (id: number, data: ReviewData) => {
         if (IS_ELECTRON) {
-            await window.api.mistakes.review(id, data);
-            return { success: true };
+            return window.api.mistakes.review(id, data);
         }
-        mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, ...data } : m);
+        const existing = mistakesRef.current.find(m => m.id === id)
+        if (!existing) {
+            throw new Error('Mistake not found')
+        }
+        const updated = { ...existing, ...data, updated_at: new Date().toISOString() }
+        mistakesRef.current = mistakesRef.current.map(m => m.id === id ? updated : m);
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
-        return { success: true };
+        return { success: true, mistake: updated };
     },
     getDueCount: async (date: string) => {
         if (IS_ELECTRON) return window.api.mistakes.getDueCount(date);

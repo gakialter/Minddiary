@@ -84,6 +84,14 @@ export interface StudyTask {
   updated_at: string
 }
 
+export interface StudyTaskQuery {
+  planned_date?: string
+  type?: StudyTaskType
+  status?: StudyTaskStatus | StudyTaskStatus[]
+  related_mistake_id?: number | null
+  related_entry_id?: number | null
+}
+
 export type NewStudyTask = Pick<StudyTask, 'title' | 'planned_date'> & Partial<
   Pick<
     StudyTask,
@@ -287,6 +295,11 @@ export interface ReviewData {
   review_interval: number
   next_review_date: string
   review_count: number
+}
+
+export interface MistakeReviewResult {
+  success: boolean
+  mistake: Mistake
 }
 
 // ─── Diary Templates ───────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   validateMistakeReviewPayload,
   validatePomodoroSessionPayload,
   validateStudyTaskCreatePayload,
+  validateStudyTaskQueryPayload,
 } from '../electron/ipcValidation'
 
 describe('IPC runtime payload validation', () => {
@@ -83,6 +84,21 @@ describe('IPC runtime payload validation', () => {
     }
 
     expect(validateStudyTaskCreatePayload(task)).toBe(task)
+  })
+
+  it('accepts structured task query payloads and rejects unsupported fields', () => {
+    const query = {
+      planned_date: '2026-06-03',
+      type: 'review',
+      status: ['todo', 'doing'],
+      related_mistake_id: 12,
+      related_entry_id: null,
+    }
+
+    expect(validateStudyTaskQueryPayload(query)).toBe(query)
+    expect(() => validateStudyTaskQueryPayload({ ...query, title: 'not allowed' })).toThrow('unsupported field')
+    expect(() => validateStudyTaskQueryPayload({ ...query, status: ['todo', 'blocked'] })).toThrow('task status[1] must be one of')
+    expect(() => validateStudyTaskQueryPayload({ ...query, related_mistake_id: '12' })).toThrow('task related_mistake_id must be a positive integer')
   })
 
   it('validates task focus start date keys', () => {

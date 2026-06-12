@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockEntries, mockMistakes, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
-import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake } from '../src/types'
+import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake, StudyTask } from '../src/types'
 import type { ElectronAPI } from '../src/types/api'
 
 const mocks = vi.hoisted(() => ({
@@ -92,6 +92,7 @@ const createWindowApiMock = (): ElectronAPI => ({
   },
   tasks: {
     getByDate: vi.fn().mockResolvedValue([]),
+    find: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({
       id: 1,
       title: 'task',
@@ -306,6 +307,7 @@ describe('DataContext', () => {
       await result.current.pomodoro.getStats('2026-05-05')
       await result.current.pomodoro.getStatsRange('2026-05-01', '2026-05-05')
       await result.current.tasks.getByDate('2026-05-05')
+      await result.current.tasks.find({ planned_date: '2026-05-05', status: ['todo', 'doing'] })
       await result.current.tasks.create({ title: 'task', planned_date: '2026-05-05' })
       await result.current.tasks.update(1, { status: 'doing' })
       await result.current.tasks.startFocus(1, '2026-05-05')
@@ -339,6 +341,7 @@ describe('DataContext', () => {
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.pomodoro.getStatsRange).toHaveBeenCalledWith('2026-05-01', '2026-05-05')
     expect(window.api.tasks.getByDate).toHaveBeenCalledWith('2026-05-05')
+    expect(window.api.tasks.find).toHaveBeenCalledWith({ planned_date: '2026-05-05', status: ['todo', 'doing'] })
     expect(window.api.tasks.create).toHaveBeenCalledWith({ title: 'task', planned_date: '2026-05-05' })
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
     expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
@@ -389,14 +392,75 @@ describe('DataContext', () => {
     expect(createdEntry).toEqual(expect.objectContaining({
       id: 1,
       title: 'test',
-      word_count: 'created content'.length,
+      word_count: 14,
       images: [],
       created_at: expect.any(String),
       updated_at: expect.any(String),
     }))
+
+    const titleOnlyUpdate = await result.current.entries.update(createdEntry!.id, { title: 'retitled' })
+    expect(titleOnlyUpdate).toEqual(expect.objectContaining({
+      id: createdEntry!.id,
+      title: 'retitled',
+      content: 'created content',
+      mood: null,
+      word_count: 14,
+    }))
+    const contentUpdate = await result.current.entries.update(createdEntry!.id, { content: 'A B\nC' })
+    expect(contentUpdate).toEqual(expect.objectContaining({
+      id: createdEntry!.id,
+      title: 'retitled',
+      content: 'A B\nC',
+      word_count: 3,
+    }))
     expect(allEntries).toHaveLength(1)
     expect(allEntries[0]).toEqual(createdEntry)
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([createdEntry])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
+      expect.objectContaining({ id: createdEntry!.id, title: 'retitled', content: 'A B\nC', word_count: 3 }),
+    ])
+  })
+
+  it('clears browser fallback task entry links when an entry is deleted', async () => {
+    mocks.isElectron = false
+    const entry: DiaryEntry = {
+      ...mockEntries[0]!,
+      id: 11,
+      date: '2026-05-31',
+      content: 'linked diary body',
+      word_count: 15,
+    }
+    const linkedTask: StudyTask = {
+      id: 7,
+      title: 'Diary task',
+      description: '',
+      type: 'diary',
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: 11,
+      planned_date: '2026-05-31',
+      estimate_minutes: 15,
+      status: 'done',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([entry]))
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify([linkedTask]))
+    localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, '[]')
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await result.current.entries.delete(11)
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([
+      expect.objectContaining({ id: 7, related_entry_id: null, status: 'done' }),
+    ])
   })
 
   it('sets, resolves, persists, and removes entry tags in browser fallback storage', async () => {
@@ -526,6 +590,7 @@ describe('DataContext', () => {
         type: 'review',
         planned_date: '2026-05-31',
         estimate_minutes: 30,
+        related_mistake_id: 42,
         source: 'dashboard',
       })
     })
@@ -537,6 +602,7 @@ describe('DataContext', () => {
       type: 'review',
       planned_date: '2026-05-31',
       estimate_minutes: 30,
+      related_mistake_id: 42,
       status: 'todo',
       source: 'dashboard',
       created_at: expect.any(String),
@@ -546,6 +612,15 @@ describe('DataContext', () => {
     await act(async () => {
       await result.current.tasks.update(1, { status: 'doing', estimate_minutes: 20 })
     })
+    await expect(result.current.tasks.find({
+      planned_date: '2026-05-31',
+      type: 'review',
+      status: ['todo', 'doing'],
+      related_mistake_id: 42,
+      related_entry_id: null,
+    })).resolves.toEqual([
+      expect.objectContaining({ id: 1, status: 'doing', related_mistake_id: 42 }),
+    ])
     await expect(result.current.tasks.complete(1)).resolves.toEqual(expect.objectContaining({ status: 'done' }))
     await expect(result.current.tasks.skip(1)).resolves.toEqual(expect.objectContaining({ status: 'skipped' }))
     await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([
@@ -881,6 +956,80 @@ describe('DataContext', () => {
         answer_image_path: 'mistake_images/answer-updated.png',
         mastered: true,
       }),
+    ])
+  })
+
+  it('reviews mistakes with a verifiable result and clears task links on browser fallback delete', async () => {
+    mocks.isElectron = false
+    const mistake: Mistake = {
+      id: 31,
+      subject_id: null,
+      question: 'Question',
+      answer: 'Answer',
+      notes: '',
+      mastered: false,
+      ease_factor: 2.5,
+      review_interval: 1,
+      next_review_date: null,
+      review_count: 0,
+      image_path: null,
+      answer_image_path: null,
+      created_at: '2026-05-31T00:00:00.000Z',
+    }
+    const linkedTask: StudyTask = {
+      id: 9,
+      title: 'Linked review',
+      description: '',
+      type: 'review',
+      subject_id: null,
+      related_mistake_id: 31,
+      related_entry_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 10,
+      status: 'done',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify([mistake]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify([linkedTask]))
+    localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, '[]')
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.mistakes.review(999, {
+      ease_factor: 2.3,
+      review_interval: 3,
+      next_review_date: '2026-06-03',
+      review_count: 1,
+    })).rejects.toThrow('Mistake not found')
+
+    await expect(result.current.mistakes.review(31, {
+      ease_factor: 2.3,
+      review_interval: 3,
+      next_review_date: '2026-06-03',
+      review_count: 1,
+    })).resolves.toEqual({
+      success: true,
+      mistake: expect.objectContaining({
+        id: 31,
+        ease_factor: 2.3,
+        review_interval: 3,
+        next_review_date: '2026-06-03',
+        review_count: 1,
+      }),
+    })
+
+    await result.current.mistakes.delete(31)
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([
+      expect.objectContaining({ id: 9, related_mistake_id: null, status: 'done' }),
     ])
   })
 })

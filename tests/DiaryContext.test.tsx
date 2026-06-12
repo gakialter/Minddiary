@@ -108,6 +108,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
   },
   tasks: {
     getByDate: vi.fn(),
+    find: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),

@@ -3,9 +3,9 @@ import type {
   Tag, Subject, Mistake, MistakeFilters,
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
-  StudyTask, NewStudyTask,
+  StudyTask, NewStudyTask, StudyTaskQuery,
   AppSettings, AIMessage, AISettings, AIResponse,
-  TodayDashboardData, DiaryTemplate, ReviewData, CountdownEvent,
+  TodayDashboardData, DiaryTemplate, ReviewData, MistakeReviewResult, CountdownEvent,
   FocusWhitelistItem, ActiveAppInfo,
 } from '.'
 
@@ -125,6 +125,7 @@ export interface ElectronPomodoroAPI {
 
 export interface ElectronTasksAPI {
   getByDate: (date: string) => Promise<StudyTask[]>
+  find: (query: StudyTaskQuery) => Promise<StudyTask[]>
   create: (data: NewStudyTask) => Promise<StudyTask>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
@@ -148,7 +149,7 @@ export interface ElectronMistakesAPI {
   update: (id: number, mistake: Partial<Mistake>) => Promise<void>
   delete: (id: number) => Promise<void>
   toggleMastered: (id: number) => Promise<{ mastered: number }>
-  review: (id: number, data: ReviewData) => Promise<{ success: boolean }>
+  review: (id: number, data: ReviewData) => Promise<MistakeReviewResult>
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
   saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
@@ -267,7 +268,7 @@ export interface MistakesContextAPI {
   update: (id: number, data: Partial<Mistake>) => Promise<Partial<Mistake>>
   delete: (id: number) => Promise<boolean>
   toggleMastered: (id: number) => Promise<{ mastered: boolean }>
-  review: (id: number, data: ReviewData) => Promise<{ success: boolean }>
+  review: (id: number, data: ReviewData) => Promise<MistakeReviewResult>
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
   saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
@@ -291,6 +292,7 @@ export interface PomodoroContextAPI {
 
 export interface TasksContextAPI {
   getByDate: (date: string) => Promise<StudyTask[]>
+  find: (query: StudyTaskQuery) => Promise<StudyTask[]>
   create: (data: NewStudyTask) => Promise<StudyTask>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>

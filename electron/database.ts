@@ -19,7 +19,7 @@ import { createDatabaseRepositories, type DatabaseRepositories } from './reposit
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
-    PomodoroSession, PomodoroStat, StudyTask, NewStudyTask,
+    PomodoroSession, PomodoroStat, StudyTask, NewStudyTask, StudyTaskQuery,
     Mistake, MistakeFilters,
     DiaryTemplate, TodayDashboardData, DateMood, Attachment
 } from '../src/types/index';
@@ -219,6 +219,10 @@ function getPomodoroRange(startDate: string, endDate: string) {
 
 function getStudyTasksByDate(date: string): StudyTask[] {
     return getRepositories().studyTasks.getStudyTasksByDate(date);
+}
+
+function findStudyTasks(query: StudyTaskQuery): StudyTask[] {
+    return getRepositories().studyTasks.findStudyTasks(query);
 }
 
 function createStudyTask(data: NewStudyTask): StudyTask {
@@ -684,7 +688,7 @@ module.exports = {
     addAttachment, getAttachmentsByEntry, getAttachmentsByEntries, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
-    getStudyTasksByDate, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
+    getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
