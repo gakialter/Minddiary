@@ -6,6 +6,8 @@ import type { Mistake } from '../src/types'
 const mocks = vi.hoisted(() => ({
   getRandomDue: vi.fn(),
   review: vi.fn(),
+  tasksFind: vi.fn(),
+  tasksUpdate: vi.fn(),
   requestDataRefresh: vi.fn(),
   getLocalDateKey: vi.fn(() => '2026-05-19'),
   loggerError: vi.fn(),
@@ -13,6 +15,10 @@ const mocks = vi.hoisted(() => ({
     mistakes: {
       getRandomDue: ReturnType<typeof vi.fn>
       review: ReturnType<typeof vi.fn>
+    }
+    tasks: {
+      find: ReturnType<typeof vi.fn>
+      update: ReturnType<typeof vi.fn>
     }
     requestDataRefresh: ReturnType<typeof vi.fn>
   },
@@ -22,6 +28,10 @@ mocks.diary = {
   mistakes: {
     getRandomDue: mocks.getRandomDue,
     review: mocks.review,
+  },
+  tasks: {
+    find: mocks.tasksFind,
+    update: mocks.tasksUpdate,
   },
   requestDataRefresh: mocks.requestDataRefresh,
 }
@@ -66,7 +76,9 @@ const dueMistake: Mistake = {
 
 beforeEach(() => {
   mocks.getRandomDue.mockResolvedValue(dueMistake)
-  mocks.review.mockResolvedValue({ success: true })
+  mocks.review.mockResolvedValue({ success: true, mistake: dueMistake })
+  mocks.tasksFind.mockResolvedValue([])
+  mocks.tasksUpdate.mockResolvedValue({ id: 1, status: 'done' })
   mocks.getLocalDateKey.mockReturnValue('2026-05-19')
   vi.clearAllMocks()
 })
