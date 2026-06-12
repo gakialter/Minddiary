@@ -6,6 +6,7 @@ import { getLocalDateKey } from '../utils/dateKey'
 import { CommanderHero } from './dashboard/CommanderHero'
 import { TrustMetric } from './dashboard/TrustMetric'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
+import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import type { NewStudyTask, StudyTask, StudyTaskType } from '../types'
 
@@ -20,6 +21,9 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
     settingsData,
     tasks: tasksAPI,
     mistakes: mistakesAPI,
+    subjects: subjectsAPI,
+    entries: entriesAPI,
+    ai: aiAPI,
     requestDataRefresh,
     dataRefreshVersion = 0,
   } = useDiary()
@@ -33,6 +37,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
+  const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
   const todayDate = getLocalDateKey()
 
   const config = useDashboardMasterState(data)
@@ -202,6 +207,16 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
               {taskLoading && (
                 <span className="text-sm" style={{ color: 'var(--text-muted)' }}>同步中...</span>
               )}
+              <button
+                type="button"
+                className="button button-secondary"
+                data-testid="open-ai-today-action-suggestions"
+                disabled={taskMutating}
+                onClick={() => setAiSuggestionOpen(true)}
+                style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+              >
+                AI 规划今日行动
+              </button>
             </div>
 
             <form className="mt-4 grid gap-3 md:grid-cols-[1fr_150px_120px_auto]" onSubmit={handleManualTaskSubmit}>
@@ -462,6 +477,21 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
           mistakesAPI={mistakesAPI}
           tasksAPI={tasksAPI}
           onClose={() => setReviewPickerOpen(false)}
+          onCreated={async () => {
+            await loadTasks()
+            requestDataRefresh()
+          }}
+        />
+      )}
+      {aiSuggestionOpen && (
+        <TodayActionSuggestionDialog
+          date={todayDate}
+          aiAPI={aiAPI}
+          tasksAPI={tasksAPI}
+          mistakesAPI={mistakesAPI}
+          subjectsAPI={subjectsAPI}
+          entriesAPI={entriesAPI}
+          onClose={() => setAiSuggestionOpen(false)}
           onCreated={async () => {
             await loadTasks()
             requestDataRefresh()
