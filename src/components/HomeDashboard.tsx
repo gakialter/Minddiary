@@ -5,6 +5,7 @@ import { useDashboardMasterState } from '../hooks/useDashboardMasterState'
 import { getLocalDateKey } from '../utils/dateKey'
 import { CommanderHero } from './dashboard/CommanderHero'
 import { TrustMetric } from './dashboard/TrustMetric'
+import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import type { NewStudyTask, StudyTask, StudyTaskType } from '../types'
 
@@ -18,6 +19,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const {
     settingsData,
     tasks: tasksAPI,
+    mistakes: mistakesAPI,
     requestDataRefresh,
     dataRefreshVersion = 0,
   } = useDiary()
@@ -30,6 +32,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
+  const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const todayDate = getLocalDateKey()
 
   const config = useDashboardMasterState(data)
@@ -121,8 +124,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
 
   const { commanderMetrics } = data
   const taskFocus = data.taskFocusToday
-  const hasReviewTask = tasks.some(task => task.type === 'review')
-  const hasDiaryTask = tasks.some(task => task.type === 'diary')
+  const hasDiaryTask = hasActiveSuggestionTask(tasks, 'diary')
   const taskStatusCounts = tasks.reduce<Record<StudyTask['status'], number>>((counts, task) => {
     counts[task.status] += 1
     return counts
@@ -246,23 +248,16 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
               </button>
             </form>
 
-            {(commanderMetrics.riskPoolCount > 0 && !hasReviewTask) || (!data.todayEntry && !hasDiaryTask) ? (
+            {commanderMetrics.riskPoolCount > 0 || (!data.todayEntry && !hasDiaryTask) ? (
               <div className="mt-4 flex flex-wrap gap-2">
-                {commanderMetrics.riskPoolCount > 0 && !hasReviewTask && (
+                {commanderMetrics.riskPoolCount > 0 && (
                   <button
                     data-testid="create-review-task-suggestion"
                     type="button"
                     className="button"
                     disabled={taskMutating}
                     style={{ height: 36, padding: '0 12px', borderRadius: 'var(--radius-sm)' }}
-                    onClick={() => createSuggestedTask('review', {
-                      title: '复习今日待复习错题',
-                      description: `今日风险池 ${commanderMetrics.riskPoolCount} 题，先完成一轮复盘。`,
-                      type: 'review',
-                      planned_date: todayDate,
-                      estimate_minutes: Math.max(15, commanderMetrics.riskPoolCount * 3),
-                      source: 'dashboard',
-                    })}
+                    onClick={() => setReviewPickerOpen(true)}
                   >
                     生成今日错题复习任务
                   </button>
@@ -460,6 +455,19 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
 
         </div>
       </div>
+      {reviewPickerOpen && (
+        <ReviewTaskPickerDialog
+          date={todayDate}
+          riskPoolCount={commanderMetrics.riskPoolCount}
+          mistakesAPI={mistakesAPI}
+          tasksAPI={tasksAPI}
+          onClose={() => setReviewPickerOpen(false)}
+          onCreated={async () => {
+            await loadTasks()
+            requestDataRefresh()
+          }}
+        />
+      )}
     </div>
   )
 }

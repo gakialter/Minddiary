@@ -7,7 +7,12 @@ import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
-import { calculateNextReview } from '../utils/spacedRepetition'
+import {
+    settleMistakeReviewTask,
+    submitMistakeReview,
+    type MistakeReviewSubmitResult,
+    type MistakeTaskSettlementStatus,
+} from '../utils/mistakeReviewCoordinator'
 import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import MarkdownRenderer from './common/MarkdownRenderer'
@@ -43,6 +48,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     const [phase, setPhase] = useState<ReviewPhase>('question')
     const [noMistakes, setNoMistakes] = useState(false)
     const [reviewing, setReviewing] = useState(false)
+    const [settlementResult, setSettlementResult] = useState<MistakeReviewSubmitResult | null>(null)
+    const [settlementRetrying, setSettlementRetrying] = useState(false)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
     const reviewInFlightRef = useRef(false)
 
@@ -62,6 +69,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     const loadRandomMistake = useCallback(async () => {
         setLoading(true)
         setPhase('question')
+        setSettlementResult(null)
+        setSettlementRetrying(false)
         reviewInFlightRef.current = false
         setReviewing(false)
         try {
@@ -96,13 +105,15 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
         setReviewing(true)
 
         try {
-            const result = calculateNextReview(
+            const reviewDate = getLocalDateKey()
+            const result = await submitMistakeReview({
+                mistake,
                 quality,
-                mistake.ease_factor || 2.5,
-                mistake.review_interval || 1,
-                mistake.review_count || 0
-            )
-            await diary.mistakes.review(mistake.id, result)
+                reviewDate,
+                mistakesAPI: diary.mistakes,
+                tasksAPI: diary.tasks,
+            })
+            setSettlementResult(result)
             diary.requestDataRefresh()
             setPhase('done')
         } catch (e) {
@@ -111,6 +122,33 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
             reviewInFlightRef.current = false
             setReviewing(false)
         }
+    }
+
+    const retryTaskSettlement = async (taskId?: number) => {
+        if (!mistake || settlementRetrying) return
+        setSettlementRetrying(true)
+        try {
+            const reviewDate = getLocalDateKey()
+            const settlement = await settleMistakeReviewTask({
+                mistakeId: mistake.id,
+                reviewDate,
+                tasksAPI: diary.tasks,
+                taskId,
+            })
+            setSettlementResult(current => current ? { ...current, ...settlement } : current)
+            diary.requestDataRefresh()
+        } catch (e) {
+            logger.error(e)
+        } finally {
+            setSettlementRetrying(false)
+        }
+    }
+
+    const settlementTextByStatus: Record<MistakeTaskSettlementStatus, string> = {
+        none: '复习已保存',
+        completed: '复习已保存，关联任务已完成',
+        conflict: '复习已保存，发现多个关联任务',
+        failed: '复习已保存，任务结算失败',
     }
 
     const questionImagePaths = parseImagePaths(mistake?.image_path)
@@ -304,8 +342,45 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                                 <div data-testid={`${testPrefix}-done`} style={{ textAlign: 'center' }}>
                                     <CheckCircle size={32} style={{ color: 'var(--success)', marginBottom: 'var(--space-sm)' }} />
                                     <div style={{ color: 'var(--success)', fontWeight: 600, marginBottom: 'var(--space-md)', fontSize: 15 }}>
-                                        已记录，下一次复习时间已更新
+                                        {settlementResult
+                                            ? settlementTextByStatus[settlementResult.taskSettlementStatus]
+                                            : '已记录，下一次复习时间已更新'}
                                     </div>
+                                    {settlementResult?.taskSettlementStatus === 'conflict' && (
+                                        <div style={{ marginBottom: 'var(--space-md)', textAlign: 'left' }}>
+                                            <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-sm)', textAlign: 'center' }}>
+                                                请选择一个任务完成，或稍后在今日行动队列手动处理。
+                                            </p>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {settlementResult.conflictTasks.map(task => (
+                                                    <button
+                                                        key={task.id}
+                                                        type="button"
+                                                        className="button button-secondary"
+                                                        disabled={settlementRetrying}
+                                                        onClick={() => retryTaskSettlement(task.id)}
+                                                    >
+                                                        完成：{task.title}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {settlementResult?.taskSettlementStatus === 'failed' && (
+                                        <div style={{ marginBottom: 'var(--space-md)' }}>
+                                            <p className="text-sm" style={{ color: 'var(--danger)', marginBottom: 'var(--space-sm)' }}>
+                                                {settlementResult.settlementError || '任务更新失败'}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                className="button button-secondary"
+                                                disabled={settlementRetrying}
+                                                onClick={() => retryTaskSettlement()}
+                                            >
+                                                {settlementRetrying ? '重试中...' : '重试任务结算'}
+                                            </button>
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'center' }}>
                                         <button type="button" className="button button-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={loadRandomMistake}>
                                             <RotateCcw size={14} /> 再来一题

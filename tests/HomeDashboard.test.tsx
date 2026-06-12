@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import HomeDashboard from '../src/components/HomeDashboard'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
-import type { StudyTask, TodayDashboardData } from '../src/types'
+import type { Mistake, StudyTask, TodayDashboardData } from '../src/types'
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(),
@@ -11,10 +11,12 @@ vi.mock('../src/contexts/DiaryContext', () => ({
 const mockRefresh = vi.fn()
 const mockRequestDataRefresh = vi.fn()
 const mockTasksGetByDate = vi.fn()
+const mockTasksFind = vi.fn()
 const mockTasksCreate = vi.fn()
 const mockTasksComplete = vi.fn()
 const mockTasksSkip = vi.fn()
 const mockTasksDelete = vi.fn()
+const mockMistakesGetAll = vi.fn()
 let mockHookState: {
   data: TodayDashboardData
   loading: boolean
@@ -42,6 +44,24 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   source: 'dashboard',
   created_at: '2026-05-31T00:00:00.000Z',
   updated_at: '2026-05-31T00:00:00.000Z',
+  ...overrides,
+})
+
+const makeMistake = (overrides: Partial<Mistake> = {}): Mistake => ({
+  id: 101,
+  subject_id: 3,
+  question: '二次函数顶点式转换错误',
+  answer: '配方后检查符号。',
+  notes: '',
+  mastered: false,
+  ease_factor: 2.5,
+  review_interval: 1,
+  next_review_date: '2026-05-31',
+  review_count: 0,
+  subject_name: '数学',
+  subject_color: '#2563eb',
+  created_at: '2026-05-30T00:00:00.000Z',
+  updated_at: '2026-05-30T00:00:00.000Z',
   ...overrides,
 })
 
@@ -95,19 +115,25 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
   beforeEach(() => {
     mockTasksGetByDate.mockResolvedValue([])
+    mockTasksFind.mockResolvedValue([])
     mockTasksCreate.mockResolvedValue(makeTask())
     mockTasksComplete.mockResolvedValue({ id: 1, status: 'done' })
     mockTasksSkip.mockResolvedValue({ id: 2, status: 'skipped' })
     mockTasksDelete.mockResolvedValue(true)
+    mockMistakesGetAll.mockResolvedValue({ data: [makeMistake()], total: 1 })
     mockUseDiary.mockReturnValue({
       settingsData: { examDate: '2026-12-25' },
       tasks: {
         getByDate: mockTasksGetByDate,
+        find: mockTasksFind,
         create: mockTasksCreate,
         update: vi.fn(),
         delete: mockTasksDelete,
         complete: mockTasksComplete,
         skip: mockTasksSkip,
+      },
+      mistakes: {
+        getAll: mockMistakesGetAll,
       },
       requestDataRefresh: mockRequestDataRefresh,
     })
@@ -280,6 +306,8 @@ describe('HomeDashboard Component - Commander Engine', () => {
   })
 
   it('creates suggested review and diary tasks from today context', async () => {
+    const dueMistake = makeMistake({ id: 42, question: '三角函数诱导公式符号错误' })
+    mockMistakesGetAll.mockResolvedValue({ data: [dueMistake], total: 1 })
     mockHookState = {
       data: {
         ...EMPTY_DATA,
@@ -299,16 +327,31 @@ describe('HomeDashboard Component - Commander Engine', () => {
     await act(async () => {
       fireEvent.click(await screen.findByTestId('create-review-task-suggestion'))
     })
+    expect(await screen.findByText(/三角函数诱导公式符号错误/)).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.click(screen.getByText('全选可创建项'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('创建任务'))
+    })
+    await waitFor(() => {
+      expect(mockTasksCreate).toHaveBeenCalledWith(expect.objectContaining({
+        title: expect.stringContaining('复习错题 42'),
+        type: 'review',
+        related_mistake_id: 42,
+        subject_id: 3,
+        source: 'dashboard',
+      }))
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('关闭错题任务选择'))
+    })
     await act(async () => {
       fireEvent.click(await screen.findByTestId('create-diary-task-suggestion'))
     })
 
     await waitFor(() => {
-      expect(mockTasksCreate).toHaveBeenCalledWith(expect.objectContaining({
-        title: '复习今日待复习错题',
-        type: 'review',
-        source: 'dashboard',
-      }))
       expect(mockTasksCreate).toHaveBeenCalledWith(expect.objectContaining({
         title: '写今日学习沉淀',
         type: 'diary',
@@ -318,7 +361,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(mockRequestDataRefresh).toHaveBeenCalled()
   })
 
-  it('does not create duplicate review suggestions while a mutation is pending', async () => {
+  it('does not create review suggestions before a mistake is selected in the picker', async () => {
     const createResult = createDeferredTask()
     mockTasksCreate.mockReturnValue(createResult.promise)
     mockHookState = {
@@ -344,14 +387,10 @@ describe('HomeDashboard Component - Commander Engine', () => {
       fireEvent.click(reviewButton)
     })
 
-    expect(mockTasksCreate).toHaveBeenCalledTimes(1)
-    await waitFor(() => {
-      expect(reviewButton).toBeDisabled()
-    })
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(mockTasksCreate).not.toHaveBeenCalled()
 
-    await act(async () => {
-      createResult.resolve(makeTask({ type: 'review' }))
-    })
+    createResult.resolve(makeTask({ type: 'review' }))
   })
 
   it('does not create duplicate diary suggestions while a mutation is pending', async () => {
