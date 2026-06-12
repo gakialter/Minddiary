@@ -74,7 +74,7 @@ function AppContent() {
 
   // Register break-start handler with Pomodoro context
   const { alertState } = usePomodoroData()
-  const { setOnBreakStart, dismissAlert } = usePomodoroActions()
+  const { setOnBreakStart, dismissAlert, settleFocusTask } = usePomodoroActions()
 
   useEffect(() => {
     setOnBreakStart(() => setShowBreakReview(true))
@@ -329,6 +329,10 @@ function AppContent() {
         todayTotal={alertState.todayTotal}
         onClose={dismissAlert}
         showSettlementActions={alertState.showSettlementActions}
+        taskSettlement={alertState.taskSettlement}
+        settlementError={alertState.settlementError}
+        isSettlingTask={alertState.isSettlingTask}
+        onSettleTask={settleFocusTask}
         onWriteDiary={handleWriteFocusDiary}
         onAddMistake={handleAddFocusMistake}
       />

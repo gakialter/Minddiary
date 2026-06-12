@@ -196,8 +196,8 @@ function deleteSubject(id: number) {
 }
 
 // ==================== Pomodoro ====================
-function addPomodoroSession({ subject_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
-    return getRepositories().pomodoro.addPomodoroSession({ subject_id, duration, date_key, started_at, completed_at });
+function addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
+    return getRepositories().pomodoro.addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at });
 }
 
 function getPomodoroStats(date: string): PomodoroStat[] {
@@ -239,6 +239,10 @@ function completeStudyTask(id: number): StudyTask {
 
 function skipStudyTask(id: number): StudyTask {
     return getRepositories().studyTasks.skipStudyTask(id);
+}
+
+function startStudyTaskFocus(id: number, date: string): StudyTask {
+    return getRepositories().studyTasks.startStudyTaskFocus(id, date);
 }
 
 // Dashboard: entry dates with mood for heatmap
@@ -343,6 +347,32 @@ function getTodayDashboard(date: string): TodayDashboardData {
             conversionRate = 100; // Did work without pomodoro
         }
 
+        const taskRows = db.prepare(`
+            SELECT id, title, status
+            FROM study_tasks
+            WHERE planned_date = ?
+        `).all(date) as Array<{ id: number; title: string; status: StudyTask['status'] }>;
+        const taskFocusRows = db.prepare(`
+            SELECT p.task_id as task_id, COALESCE(SUM(p.duration), 0) as total_minutes
+            FROM pomodoro_sessions p
+            INNER JOIN study_tasks t ON t.id = p.task_id
+            WHERE p.date_key = ? AND t.planned_date = ?
+            GROUP BY p.task_id
+        `).all(date, date) as Array<{ task_id: number; total_minutes: number }>;
+        const focusedMinutesByTask = new Map(taskFocusRows.map(row => [row.task_id, row.total_minutes]));
+        const effectiveTasks = taskRows.filter(task => task.status !== 'skipped');
+        const completedTaskCount = effectiveTasks.filter(task => task.status === 'done').length;
+        const focusedTaskCount = effectiveTasks.filter(task => (focusedMinutesByTask.get(task.id) ?? 0) > 0).length;
+        const openWithoutFocusTasks = effectiveTasks.filter(task => task.status === 'doing' && !(focusedMinutesByTask.get(task.id) ?? 0));
+        const focusedOpenTasks = effectiveTasks.filter(task => task.status !== 'done' && (focusedMinutesByTask.get(task.id) ?? 0) > 0);
+        const focusedMinutes = taskFocusRows.reduce((total, row) => total + row.total_minutes, 0);
+        const completionRate = effectiveTasks.length > 0
+            ? Math.round((completedTaskCount / effectiveTasks.length) * 100)
+            : 0;
+        const focusCoverageRate = effectiveTasks.length > 0
+            ? Math.round((focusedTaskCount / effectiveTasks.length) * 100)
+            : 0;
+
         const streak = getStudyStreak();
 
         return {
@@ -360,6 +390,21 @@ function getTodayDashboard(date: string): TodayDashboardData {
                 riskPoolCount: riskRow.count,
                 lockedKnowledgeGrowth: lockedRow.count,
                 focusConversionRate: conversionRate
+            },
+            taskFocusToday: {
+                effectiveTaskCount: effectiveTasks.length,
+                completedTaskCount,
+                completionRate,
+                focusedTaskCount,
+                focusCoverageRate,
+                focusedMinutes,
+                skippedTaskCount: taskRows.filter(task => task.status === 'skipped').length,
+                openWithoutFocusCount: openWithoutFocusTasks.length,
+                focusedOpenTaskCount: focusedOpenTasks.length,
+                unclosedTaskTitles: [...openWithoutFocusTasks, ...focusedOpenTasks]
+                    .filter((task, index, tasks) => tasks.findIndex(candidate => candidate.id === task.id) === index)
+                    .slice(0, 3)
+                    .map(task => task.title),
             },
             streakDays: streak
         };
@@ -621,6 +666,10 @@ function restoreBackupData(data: Record<string, unknown>): void {
         for (const definition of DATABASE_BACKUP_TABLES) {
             insertBackupRows(definition.table, definition.columns, getNormalizedBackupRows(normalized, definition.key));
         }
+        const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+        if (foreignKeyViolations.length > 0) {
+            throw new Error(`Backup restore failed foreign_key_check with ${foreignKeyViolations.length} violation(s)`);
+        }
     });
     transaction();
 }
@@ -635,7 +684,7 @@ module.exports = {
     addAttachment, getAttachmentsByEntry, getAttachmentsByEntries, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
-    getStudyTasksByDate, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask,
+    getStudyTasksByDate, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,

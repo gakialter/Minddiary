@@ -180,6 +180,20 @@ export function createStudyTasksRepository(db: Database.Database) {
         return updateStudyTask(id, { status: 'skipped' });
     }
 
+    function startStudyTaskFocus(id: number, date: string): StudyTask {
+        const taskId = normalizeStudyTaskId(id);
+        const plannedDate = normalizeStudyTaskDate(date);
+        const task = requireStudyTask(taskId);
+        if (task.planned_date !== plannedDate) {
+            throw new Error('Task is not planned for this date');
+        }
+        if (task.status === 'done' || task.status === 'skipped') {
+            throw new Error('Cannot start focus for a completed or skipped task');
+        }
+        if (task.status === 'doing') return task;
+        return updateStudyTask(taskId, { status: 'doing' });
+    }
+
     return {
         getStudyTasksByDate,
         createStudyTask,
@@ -187,6 +201,7 @@ export function createStudyTasksRepository(db: Database.Database) {
         deleteStudyTask,
         completeStudyTask,
         skipStudyTask,
+        startStudyTaskFocus,
     };
 }
 

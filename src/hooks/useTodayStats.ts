@@ -5,7 +5,7 @@
  * the todayDashboard context API.  Manages loading/error/data state
  * internally to avoid polluting the global context.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { getTodayStr } from '../utils/helpers'
 import { logger } from '../utils/logger'
@@ -19,6 +19,18 @@ const EMPTY_STATE: TodayDashboardData = {
     lockedKnowledgeGrowth: 0,
     focusConversionRate: 0,
   },
+  taskFocusToday: {
+    effectiveTaskCount: 0,
+    completedTaskCount: 0,
+    completionRate: 0,
+    focusedTaskCount: 0,
+    focusCoverageRate: 0,
+    focusedMinutes: 0,
+    skippedTaskCount: 0,
+    openWithoutFocusCount: 0,
+    focusedOpenTaskCount: 0,
+    unclosedTaskTitles: [],
+  },
   streakDays: 0,
 }
 
@@ -27,18 +39,24 @@ export function useTodayStats() {
   const [data, setData] = useState<TodayDashboardData>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     setError(null)
     try {
       const result = await todayDashboard.getData(getTodayStr())
+      if (requestId !== requestIdRef.current) return
       setData(result)
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       logger.error('[useTodayStats] Failed to load:', err)
       setError(err instanceof Error ? err.message : '加载今日数据失败')
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [todayDashboard])
 

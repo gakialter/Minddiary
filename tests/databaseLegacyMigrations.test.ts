@@ -68,6 +68,7 @@ type SubjectRow = {
 type PomodoroRow = {
   id: number
   subject_id: number | null
+  task_id: number | null
   duration: number
   date_key: string | null
   started_at: string | null
@@ -120,6 +121,7 @@ type DatabaseModule = {
   getEntryTags: (entryId: number) => TagRow[]
   addPomodoroSession: (session: {
     subject_id: number | null
+    task_id?: number | null
     duration: number
     date_key?: string
     started_at?: string
@@ -160,6 +162,7 @@ const CURRENT_INDEXES = [
   'idx_entry_tags_tag_id',
   'idx_pomodoro_completed',
   'idx_pomodoro_date_key',
+  'idx_pomodoro_task_id',
   'idx_mistakes_subject',
   'idx_mistakes_next_review',
   'idx_study_tasks_planned_date',
@@ -248,7 +251,7 @@ function expectFixtureProvenance(): void {
 }
 
 function expectCurrentSchema(database: Database.Database): void {
-  expect(getUserVersion(database)).toBe(2)
+  expect(getUserVersion(database)).toBe(3)
   expect(getIntegrityCheck(database)).toBe('ok')
   expect(getForeignKeyViolations(database)).toEqual([])
 
@@ -260,7 +263,7 @@ function expectCurrentSchema(database: Database.Database): void {
   }
 
   expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
-  expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at']))
+  expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
   expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining([
     'ease_factor',
     'review_interval',
@@ -317,13 +320,14 @@ function expectLegacyDataPreserved(database: Database.Database, expected: Expect
   }
 
   const pomodoro = database.prepare(`
-    SELECT id, subject_id, duration, date_key, started_at, completed_at
+    SELECT id, subject_id, task_id, duration, date_key, started_at, completed_at
     FROM pomodoro_sessions
     WHERE id = ?
   `).get(expected.pomodoro.id) as PomodoroRow
   expect(pomodoro).toEqual({
     id: expected.pomodoro.id,
     subject_id: expected.subject.id,
+    task_id: null,
     duration: expected.pomodoro.duration,
     date_key: expected.pomodoro.expectedDateKey,
     started_at: expected.pomodoro.expectedStartedAt,
@@ -444,8 +448,19 @@ function exerciseDatabaseApi(databaseModule: DatabaseModule, expected: ExpectedL
   expect(databaseModule.setEntryTags(entryId, [tag.id]).success).toBe(true)
   expect(databaseModule.getEntryTags(entryId).map(row => row.id)).toEqual([tag.id])
 
+  const task = databaseModule.createStudyTask({
+    title: 'api task',
+    planned_date: '2026-05-24',
+    subject_id: expected.subject.id,
+    related_mistake_id: expected.mistake.id,
+    related_entry_id: expected.entry.id,
+    estimate_minutes: 25,
+  })
+  expect(task.title).toBe('api task')
+
   const pomodoro = databaseModule.addPomodoroSession({
     subject_id: expected.subject.id,
+    task_id: task.id,
     duration: 35,
     date_key: '2026-05-24',
     started_at: '2026-05-24 12:00:00',
@@ -453,6 +468,9 @@ function exerciseDatabaseApi(databaseModule: DatabaseModule, expected: ExpectedL
   })
   expect(pomodoro.date_key).toBe('2026-05-24')
   expect(databaseModule.getDailyStudyMinutes('2026-05-24')).toBe(35)
+  expect(databaseModule.getDb().prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(Number(pomodoro.id))).toEqual({
+    task_id: task.id,
+  })
 
   const mistakes = databaseModule.getAllMistakes({ subject_id: expected.subject.id })
   expect(mistakes.data.some(mistake => mistake.id === expected.mistake.id)).toBe(true)
@@ -466,15 +484,6 @@ function exerciseDatabaseApi(databaseModule: DatabaseModule, expected: ExpectedL
   })
   expect(Number(mistake.id)).toBeGreaterThan(expected.mistake.id)
 
-  const task = databaseModule.createStudyTask({
-    title: 'api task',
-    planned_date: '2026-05-24',
-    subject_id: expected.subject.id,
-    related_mistake_id: expected.mistake.id,
-    related_entry_id: expected.entry.id,
-    estimate_minutes: 25,
-  })
-  expect(task.title).toBe('api task')
   expect(databaseModule.getStudyTasksByDate('2026-05-24').some(row => row.id === task.id)).toBe(true)
   expect(databaseModule.getAllTemplates().length).toBeGreaterThanOrEqual(expected.expectedDefaultTemplateCount)
 }
@@ -512,7 +521,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const { database, expected } = prepareFixtureDatabase(fixture)
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(2)
+    expect(runDatabaseMigrations(database)).toBe(3)
 
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
@@ -557,16 +566,16 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const fixture = legacyDatabaseFixtures[0]
     expect(fixture).toBeDefined()
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture!)
-    seedDatabase.pragma('user_version = 3')
+    seedDatabase.pragma('user_version = 4')
     closeTrackedDatabase(seedDatabase)
 
     const databaseModule = await loadRealDatabaseModule(root)
     databaseModule.setCustomDbPath(filepath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 3.*supported version 2/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 4.*supported version 3/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = trackDatabase(new BetterSqlite3(filepath))
-    expect(getUserVersion(reopened)).toBe(3)
+    expect(getUserVersion(reopened)).toBe(4)
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
@@ -589,7 +598,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
   })
 
   it('keeps schema and backup format constants aligned with the current schema', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(2)
+    expect(CURRENT_SCHEMA_VERSION).toBe(3)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
   })
 })

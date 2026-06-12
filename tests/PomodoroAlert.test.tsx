@@ -74,4 +74,39 @@ describe('PomodoroAlert', () => {
     fireEvent.click(primaryAction)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('renders task settlement controls and submits the one-line review', () => {
+    const onSettleTask = vi.fn().mockResolvedValue(true)
+    render(
+      <PomodoroAlert
+        visible
+        isWorkComplete
+        duration={25}
+        todayTotal={50}
+        showSettlementActions
+        taskSettlement={{
+          id: 7,
+          title: 'Finish algebra',
+          subjectName: 'Math',
+          status: 'doing',
+          duration: 25,
+        }}
+        onClose={vi.fn()}
+        onSettleTask={onSettleTask}
+        onAddMistake={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('pomodoro-task-settlement')).toHaveTextContent('Finish algebra')
+    fireEvent.change(screen.getByTestId('pomodoro-focus-review-input'), {
+      target: { value: 'Worked through the hardest example.' },
+    })
+    fireEvent.click(screen.getByTestId('pomodoro-settle-complete'))
+
+    expect(onSettleTask).toHaveBeenCalledWith({
+      completeTask: true,
+      reviewText: 'Worked through the hardest example.',
+    })
+    expect(screen.queryByTestId('pomodoro-alert-write-diary')).not.toBeInTheDocument()
+  })
 })

@@ -16,6 +16,7 @@ describe('database backup data normalization', () => {
       pomodoro: [{
         id: 6,
         subject_id: 2,
+        task_id: 3,
         duration: 25,
         date_key: '2026-05-20',
         started_at: '2026-05-20 01:00:00',
@@ -31,6 +32,7 @@ describe('database backup data normalization', () => {
     expect(normalized.pomodoro_sessions).toEqual([{
       id: 6,
       subject_id: 2,
+      task_id: 3,
       duration: 25,
       date_key: '2026-05-20',
       started_at: '2026-05-20 01:00:00',
@@ -69,6 +71,32 @@ describe('database backup data normalization', () => {
 
     expect(normalized.study_tasks).toEqual([task])
     expect(DATABASE_BACKUP_TABLES.some(item => item.table === 'study_tasks')).toBe(true)
+  })
+
+  it('exports pomodoro task attribution after study tasks for dependency-safe restore', () => {
+    const taskIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'study_tasks')
+    const pomodoroIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'pomodoro_sessions')
+    const pomodoroTable = DATABASE_BACKUP_TABLES[pomodoroIndex]
+
+    expect(taskIndex).toBeGreaterThanOrEqual(0)
+    expect(pomodoroIndex).toBeGreaterThan(taskIndex)
+    expect(pomodoroTable?.columns).toEqual(expect.arrayContaining(['task_id']))
+
+    const normalized = normalizeBackupDatabaseData({
+      pomodoro_sessions: [{
+        id: 10,
+        subject_id: null,
+        duration: 30,
+        date_key: '2026-06-12',
+      }],
+    })
+
+    expect(normalized.pomodoro_sessions).toEqual([{
+      id: 10,
+      subject_id: null,
+      duration: 30,
+      date_key: '2026-06-12',
+    }])
   })
 
   it('exports answer image paths in the mistake backup column list without requiring old backups to contain them', () => {

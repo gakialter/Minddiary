@@ -11,6 +11,7 @@ interface FocusZenModeProps {
   onExit: () => void | Promise<void>
   formatTime: (seconds: number) => string
   selectedSubjectName?: string
+  selectedTaskTitle?: string
   showFinishEarly?: boolean
   canFinishEarly?: boolean
   isFinishingEarly?: boolean
@@ -29,6 +30,7 @@ export default function FocusZenMode({
   onExit,
   formatTime,
   selectedSubjectName,
+  selectedTaskTitle,
   showFinishEarly = false,
   canFinishEarly = false,
   isFinishingEarly = false,
@@ -81,9 +83,9 @@ export default function FocusZenMode({
   if (!visible) return null
 
   const isBreakMode = modeLabel.includes('休')
-  const statusText = selectedSubjectName && !isBreakMode
-    ? selectedSubjectName
-    : isBreakMode ? '休息中' : '专注中'
+  const statusText = isBreakMode
+    ? '休息中'
+    : [selectedTaskTitle, selectedSubjectName, modeLabel].filter(Boolean).join(' · ') || '专注中'
 
   return (
     <div

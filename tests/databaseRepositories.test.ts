@@ -65,6 +65,7 @@ describe('database repositories', () => {
       CREATE TABLE pomodoro_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         subject_id INTEGER REFERENCES subjects(id),
+        task_id INTEGER REFERENCES study_tasks(id) ON DELETE SET NULL,
         duration INTEGER NOT NULL,
         date_key TEXT,
         started_at DATETIME,
@@ -72,6 +73,7 @@ describe('database repositories', () => {
       );
       CREATE INDEX idx_pomodoro_completed ON pomodoro_sessions(completed_at);
       CREATE INDEX idx_pomodoro_date_key ON pomodoro_sessions(date_key);
+      CREATE INDEX idx_pomodoro_task_id ON pomodoro_sessions(task_id);
 
       CREATE TABLE mistakes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -708,9 +710,16 @@ describe('database repositories', () => {
 
   it('adds pomodoro sessions with explicit fields and preserves stored values', () => {
     const subject = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Math focus',
+      subject_id: Number(subject.id),
+      planned_date: '2026-06-06',
+      status: 'doing',
+    })
 
     expect(repositories.pomodoro.addPomodoroSession({
       subject_id: Number(subject.id),
+      task_id: task.id,
       duration: 25,
       date_key: '2026-06-06',
       started_at: ' 2026-06-06 09:00:00 ',
@@ -723,9 +732,10 @@ describe('database repositories', () => {
     })
 
     expect(database.prepare(
-      'SELECT subject_id, duration, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
+      'SELECT subject_id, task_id, duration, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
     ).get(1)).toEqual({
       subject_id: Number(subject.id),
+      task_id: task.id,
       duration: 25,
       date_key: '2026-06-06',
       started_at: '2026-06-06 09:00:00',
@@ -752,13 +762,120 @@ describe('database repositories', () => {
       completed_at: completedAt,
     })
     expect(database.prepare(
-      'SELECT subject_id, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
+      'SELECT subject_id, task_id, date_key, started_at, completed_at FROM pomodoro_sessions WHERE id=?'
     ).get(1)).toEqual({
       subject_id: null,
+      task_id: null,
       date_key: getLocalDateKey(new Date(startedAt)),
       started_at: startedAt,
       completed_at: completedAt,
     })
+  })
+
+  it('validates pomodoro task attribution ids while preserving historical task status', () => {
+    const todo = repositories.studyTasks.createStudyTask({
+      title: 'Todo focus',
+      planned_date: '2026-06-06',
+      status: 'todo',
+    })
+    const done = repositories.studyTasks.createStudyTask({
+      title: 'Done focus',
+      planned_date: '2026-06-06',
+      status: 'done',
+    })
+    const skipped = repositories.studyTasks.createStudyTask({
+      title: 'Skipped focus',
+      planned_date: '2026-06-06',
+      status: 'skipped',
+    })
+
+    expect(repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: todo.id,
+      duration: 25,
+      date_key: '2026-06-06',
+    })).toEqual(expect.objectContaining({ id: 1 }))
+    expect(() => repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: 0,
+      duration: 25,
+      date_key: '2026-06-06',
+    })).toThrow('pomodoro task_id must be a positive integer or null')
+    expect(() => repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: 999,
+      duration: 25,
+      date_key: '2026-06-06',
+    })).toThrow('Task not found')
+    expect(repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: done.id,
+      duration: 25,
+      date_key: '2026-06-06',
+    })).toEqual(expect.objectContaining({ id: 2 }))
+    expect(repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: skipped.id,
+      duration: 25,
+      date_key: '2026-06-06',
+    })).toEqual(expect.objectContaining({ id: 3 }))
+  })
+
+  it('starts focus only for today todo or doing tasks', () => {
+    const todo = repositories.studyTasks.createStudyTask({
+      title: 'Todo focus',
+      planned_date: '2026-06-06',
+      status: 'todo',
+    })
+    const doing = repositories.studyTasks.createStudyTask({
+      title: 'Doing focus',
+      planned_date: '2026-06-06',
+      status: 'doing',
+    })
+    const done = repositories.studyTasks.createStudyTask({
+      title: 'Done focus',
+      planned_date: '2026-06-06',
+      status: 'done',
+    })
+    const skipped = repositories.studyTasks.createStudyTask({
+      title: 'Skipped focus',
+      planned_date: '2026-06-06',
+      status: 'skipped',
+    })
+
+    expect(repositories.studyTasks.startStudyTaskFocus(todo.id, '2026-06-06')).toEqual(expect.objectContaining({
+      id: todo.id,
+      status: 'doing',
+    }))
+    expect(repositories.studyTasks.startStudyTaskFocus(doing.id, '2026-06-06')).toEqual(expect.objectContaining({
+      id: doing.id,
+      status: 'doing',
+    }))
+    expect(() => repositories.studyTasks.startStudyTaskFocus(todo.id, '2026-06-07')).toThrow('Task is not planned for this date')
+    expect(() => repositories.studyTasks.startStudyTaskFocus(done.id, '2026-06-06')).toThrow('Cannot start focus for a completed or skipped task')
+    expect(() => repositories.studyTasks.startStudyTaskFocus(skipped.id, '2026-06-06')).toThrow('Cannot start focus for a completed or skipped task')
+    expect(() => repositories.studyTasks.startStudyTaskFocus(999, '2026-06-06')).toThrow('Task not found')
+  })
+
+  it('clears historical pomodoro task ids when the linked study task is deleted', () => {
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Linked focus',
+      planned_date: '2026-06-06',
+      status: 'doing',
+    })
+    const session = repositories.pomodoro.addPomodoroSession({
+      subject_id: null,
+      task_id: task.id,
+      duration: 25,
+      date_key: '2026-06-06',
+    })
+
+    expect(repositories.studyTasks.deleteStudyTask(task.id)).toBe(true)
+
+    expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(Number(session.id))).toEqual({
+      task_id: null,
+    })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
   it('uses the current local date and datetime when optional pomodoro timestamps are blank', () => {

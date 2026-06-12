@@ -49,11 +49,6 @@ export const DATABASE_BACKUP_TABLES = [
         columns: ['id', 'entry_id', 'filename', 'filepath', 'mimetype', 'created_at'],
     },
     {
-        key: 'pomodoro_sessions',
-        table: 'pomodoro_sessions',
-        columns: ['id', 'subject_id', 'duration', 'date_key', 'started_at', 'completed_at'],
-    },
-    {
         key: 'mistakes',
         table: 'mistakes',
         columns: [
@@ -91,6 +86,11 @@ export const DATABASE_BACKUP_TABLES = [
             'created_at',
             'updated_at',
         ],
+    },
+    {
+        key: 'pomodoro_sessions',
+        table: 'pomodoro_sessions',
+        columns: ['id', 'subject_id', 'task_id', 'duration', 'date_key', 'started_at', 'completed_at'],
     },
     {
         key: 'ai_chats',

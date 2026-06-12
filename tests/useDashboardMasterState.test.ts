@@ -24,6 +24,18 @@ const makeMockData = (overrides: MockDataOverrides = {}): TodayDashboardData => 
       lockedKnowledgeGrowth: 1,
       focusConversionRate: 80,
     },
+    taskFocusToday: {
+      effectiveTaskCount: 0,
+      completedTaskCount: 0,
+      completionRate: 0,
+      focusedTaskCount: 0,
+      focusCoverageRate: 0,
+      focusedMinutes: 0,
+      skippedTaskCount: 0,
+      openWithoutFocusCount: 0,
+      focusedOpenTaskCount: 0,
+      unclosedTaskTitles: [],
+    },
     streakDays: 1,
   }
 

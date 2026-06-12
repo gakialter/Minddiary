@@ -30,6 +30,8 @@ type DatabaseModule = {
   initialize: () => void
   setCustomDbPath: (filepath: string) => void
   getDb: () => Database.Database
+  exportBackupData: () => Record<string, unknown>
+  restoreBackupData: (data: Record<string, unknown>) => void
 }
 
 const databases: Database.Database[] = []
@@ -171,31 +173,34 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 2 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(2)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2])
+  it('defines schema version 3 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(3)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 2', () => {
+  it('migrates a new database from user_version 0 to schema version 3', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(2)
+    expect(runDatabaseMigrations(database)).toBe(3)
 
-    expect(getUserVersion(database)).toBe(2)
-    expect(getDatabaseSchemaVersion(database)).toBe(2)
+    expect(getUserVersion(database)).toBe(3)
+    expect(getDatabaseSchemaVersion(database)).toBe(3)
     for (const tableName of ['entries', 'tags', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
-    for (const indexName of ['idx_entries_date', 'idx_pomodoro_date_key', 'idx_mistakes_next_review', 'idx_study_tasks_planned_date']) {
+    for (const indexName of ['idx_entries_date', 'idx_pomodoro_date_key', 'idx_pomodoro_task_id', 'idx_mistakes_next_review', 'idx_study_tasks_planned_date']) {
       expect(indexExists(database, indexName)).toBe(true)
     }
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining(['image_path', 'answer_image_path']))
+    expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['task_id']))
+    expect(database.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
   it('keeps target schema version 1 free of version 2 mistake answer image columns', () => {
@@ -215,11 +220,11 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(2)
+    expect(getUserVersion(database)).toBe(3)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
-    expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at']))
-    expect(database.prepare('SELECT date_key FROM pomodoro_sessions WHERE id = 1').get()).toEqual({ date_key: '2026-05-20' })
+    expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
+    expect(database.prepare('SELECT date_key, task_id FROM pomodoro_sessions WHERE id = 1').get()).toEqual({ date_key: '2026-05-20', task_id: null })
     expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining([
       'ease_factor',
       'review_interval',
@@ -238,6 +243,8 @@ describe('SQLite schema migrations', () => {
     expect(database.prepare('SELECT color FROM tags WHERE id = 1').get()).toEqual({ color: '#475569' })
     expect(database.prepare('SELECT color FROM subjects WHERE id = 1').get()).toEqual({ color: '#0F766E' })
     expect(getTableCount(database, 'diary_templates')).toBe(1)
+    expect(database.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
   it('treats schema version 1 as a no-op', () => {
@@ -268,17 +275,45 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(2)
+    expect(getUserVersion(database)).toBe(3)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
+  })
+
+  it('migrates schema version 2 databases to task-attributed pomodoro sessions', () => {
+    const database = createDatabase()
+    runDatabaseMigrations(database, { targetVersion: 2 })
+    const taskId = Number(database.prepare(`
+      INSERT INTO study_tasks (title, planned_date, status)
+      VALUES ('Math focus', '2026-06-12', 'todo')
+    `).run().lastInsertRowid)
+    const sessionId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at)
+      VALUES (NULL, 25, '2026-06-12', '2026-06-12 09:00:00', '2026-06-12 09:25:00')
+    `).run().lastInsertRowid)
+
+    expect(getUserVersion(database)).toBe(2)
+    expect(getColumnNames(database, 'pomodoro_sessions')).not.toContain('task_id')
+
+    expect(runDatabaseMigrations(database)).toBe(3)
+    expect(runDatabaseMigrations(database)).toBe(3)
+
+    expect(getUserVersion(database)).toBe(3)
+    expect(indexExists(database, 'idx_pomodoro_task_id')).toBe(true)
+    expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
+    database.prepare('UPDATE pomodoro_sessions SET task_id = ? WHERE id = ?').run(taskId, sessionId)
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    database.prepare('DELETE FROM study_tasks WHERE id = ?').run(taskId)
+    expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
+    expect(database.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
   })
 
   it('rejects databases from newer schema versions without mutation', () => {
     const database = createDatabase()
-    database.pragma('user_version = 3')
+    database.pragma('user_version = 4')
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 3.*supported version 2/i)
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 4.*supported version 3/i)
 
-    expect(getUserVersion(database)).toBe(3)
+    expect(getUserVersion(database)).toBe(4)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -313,7 +348,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 2', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 3', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -323,9 +358,10 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(2)
-    expect(getUserVersion(database)).toBe(2)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(3)
+    expect(getUserVersion(database)).toBe(3)
     expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
+    expect(getColumnNames(database, 'pomodoro_sessions')).toContain('task_id')
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
@@ -334,17 +370,17 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 3')
+    seed.pragma('user_version = 4')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 3.*supported version 2/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 4.*supported version 3/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(3)
+    expect(getUserVersion(reopened)).toBe(4)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
@@ -364,9 +400,71 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(2)
+    expect(CURRENT_SCHEMA_VERSION).toBe(3)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 2')
+    expect(zipText).toContain('"schemaVersion": 3')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
+
+  it('restores task-attributed pomodoro sessions in dependency order and accepts old session rows', async () => {
+    const root = makeTempRoot()
+    const dbPath = path.join(root, 'minddiary.db')
+    const databaseModule = await loadRealDatabaseModule()
+
+    databaseModule.setCustomDbPath(dbPath)
+    databaseModule.initialize()
+    const database = databaseModule.getDb()
+    databases.push(database)
+
+    databaseModule.restoreBackupData({
+      subjects: [{ id: 1, name: 'Math', total_chapters: 0, completed_chapters: 0, color: '#0F766E' }],
+      entries: [{ id: 1, date: '2026-06-12', title: 'Today', content: 'notes', mood: null, word_count: 5 }],
+      study_tasks: [{
+        id: 7,
+        title: 'Linear algebra focus',
+        description: '',
+        type: 'focus',
+        subject_id: 1,
+        related_mistake_id: null,
+        related_entry_id: 1,
+        planned_date: '2026-06-12',
+        estimate_minutes: 25,
+        status: 'doing',
+        source: 'manual',
+      }],
+      pomodoro_sessions: [
+        {
+          id: 11,
+          subject_id: 1,
+          task_id: 7,
+          duration: 25,
+          date_key: '2026-06-12',
+          started_at: '2026-06-12 09:00:00',
+          completed_at: '2026-06-12 09:25:00',
+        },
+        {
+          id: 12,
+          subject_id: null,
+          duration: 15,
+          date_key: '2026-06-12',
+          started_at: '2026-06-12 10:00:00',
+          completed_at: '2026-06-12 10:15:00',
+        },
+      ],
+    })
+
+    expect(database.prepare(`
+      SELECT id, subject_id, task_id, duration, date_key
+      FROM pomodoro_sessions
+      ORDER BY id
+    `).all()).toEqual([
+      { id: 11, subject_id: 1, task_id: 7, duration: 25, date_key: '2026-06-12' },
+      { id: 12, subject_id: null, task_id: null, duration: 15, date_key: '2026-06-12' },
+    ])
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    expect(databaseModule.exportBackupData().pomodoro_sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 11, task_id: 7 }),
+      expect.objectContaining({ id: 12, task_id: null }),
+    ]))
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })

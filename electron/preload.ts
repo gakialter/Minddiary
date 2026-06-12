@@ -127,6 +127,7 @@ contextBridge.exposeInMainWorld('api', {
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),
         complete: (id: number) => ipcRenderer.invoke('tasks:complete', id),
         skip: (id: number) => ipcRenderer.invoke('tasks:skip', id),
+        startFocus: (id: number, date: string) => ipcRenderer.invoke('tasks:startFocus', id, date),
     },
 
     // Dashboard

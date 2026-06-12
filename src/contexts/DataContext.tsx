@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useMemo, useCallback, useRef, type MutableRefObject, type ReactNode } from 'react'
 import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
-import type { DiaryEntry, Tag, Mistake, Subject, StudyTask, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
+import type { DiaryEntry, Tag, Mistake, Subject, StudyTask, PomodoroSession, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
 import type {
     EntriesContextAPI, TagsContextAPI, MistakesContextAPI,
     SubjectsContextAPI, PomodoroContextAPI, TasksContextAPI, DashboardContextAPI,
@@ -58,6 +58,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const mistakesRef = useRef<Mistake[]>([])
     const subjectsRef = useRef<Subject[]>([])
     const tasksRef = useRef<StudyTask[]>([])
+    const pomodoroSessionsRef = useRef<PomodoroSession[]>([])
     const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
     const requestDataRefresh = useCallback(() => {
         setDataRefreshVersion(version => version + 1)
@@ -96,6 +97,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         load(STORAGE_KEYS.MISTAKES, mockMistakes, mistakesRef)
         load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
         load(STORAGE_KEYS.TASKS, [], tasksRef)
+        load(STORAGE_KEYS.POMODORO_SESSIONS, [], pomodoroSessionsRef)
         return { initialized: true, initErrors }
     })
     const { initialized, initErrors } = initState
@@ -109,10 +111,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         tags: createTagsApi(tagsRef, entriesRef, saveToLocal),
         mistakes: createMistakesApi(mistakesRef, subjectsRef, saveToLocal),
         subjects: createSubjectsApi(subjectsRef, saveToLocal),
-        pomodoro: createPomodoroApi(),
-        tasks: createTasksApi(tasksRef, saveToLocal),
+        pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
+        tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef),
         dashboard: createDashboardApi(),
-        todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef),
+        todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef, tasksRef, pomodoroSessionsRef),
         exportUtil: createExportApi(),
         notification: createNotificationApi(),
         ai: createAiApi(),
