@@ -138,9 +138,18 @@ describe('todayActionSuggestions parser and schema', () => {
     expect(parseTodayActionSuggestions('{"suggestions":{}}', context()).errors[0]).toContain('suggestions must be an array')
   })
 
-  it('marks extra fields, invalid type, invalid priority, and invalid durations', () => {
+  it('rejects unsupported top-level fields without returning creatable suggestions', () => {
     const result = parseTodayActionSuggestions(JSON.stringify({
       dangerous: true,
+      suggestions: validPayload().suggestions,
+    }), context())
+
+    expect(result.errors[0]).toContain('Unsupported top-level')
+    expect(result.suggestions).toEqual([])
+  })
+
+  it('marks extra fields, invalid type, invalid priority, and invalid durations', () => {
+    const result = parseTodayActionSuggestions(JSON.stringify({
       suggestions: [
         {
           title: 'Bad task',
@@ -153,7 +162,7 @@ describe('todayActionSuggestions parser and schema', () => {
       ],
     }), context())
 
-    expect(result.errors[0]).toContain('Unsupported top-level')
+    expect(result.errors).toEqual([])
     expect(result.suggestions[0]!.validationErrors).toEqual(expect.arrayContaining([
       'Unsupported suggestion fields: status',
       'type is invalid',
@@ -164,9 +173,9 @@ describe('todayActionSuggestions parser and schema', () => {
     expect(result.suggestions[0]!.selected).toBe(false)
   })
 
-  it('marks missing fields, overlong title/reason, and suggestion count overflow', () => {
+  it('marks missing fields and overlong title/reason', () => {
     const result = parseTodayActionSuggestions(JSON.stringify({
-      suggestions: Array.from({ length: 7 }, (_, index) => ({
+      suggestions: Array.from({ length: 2 }, (_, index) => ({
         title: index === 0 ? '' : 'x'.repeat(81),
         type: 'focus',
         estimate_minutes: 20,
@@ -175,11 +184,26 @@ describe('todayActionSuggestions parser and schema', () => {
       })),
     }), context())
 
-    expect(result.errors).toContain('suggestions must contain 6 items or fewer')
-    expect(result.suggestions).toHaveLength(6)
+    expect(result.errors).toEqual([])
+    expect(result.suggestions).toHaveLength(2)
     expect(result.suggestions[0]!.validationErrors).toContain('title is required')
     expect(result.suggestions[1]!.validationErrors).toContain('title must be 80 characters or fewer')
     expect(result.suggestions[1]!.validationErrors).toContain('reason must be 240 characters or fewer')
+  })
+
+  it('rejects suggestion count overflow without slicing to a creatable subset', () => {
+    const result = parseTodayActionSuggestions(JSON.stringify({
+      suggestions: Array.from({ length: 7 }, () => ({
+        title: 'Overflow task',
+        type: 'focus',
+        estimate_minutes: 20,
+        reason: 'too many suggestions',
+        priority: 'low',
+      })),
+    }), context())
+
+    expect(result.errors).toContain('suggestions must contain 6 items or fewer')
+    expect(result.suggestions).toEqual([])
   })
 
   it('validates subject, mistake, and entry allowlists', () => {

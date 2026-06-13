@@ -205,6 +205,7 @@ export default function TodayActionSuggestionDialog({
     suggestion.creationState !== 'created' &&
     suggestion.validationErrors.length === 0
   )).length
+  const hasFatalParseErrors = errors.length > 0
 
   return (
     <div
@@ -407,7 +408,7 @@ export default function TodayActionSuggestionDialog({
               type="button"
               className="button button-primary"
               data-testid="ai-plan-create-selected"
-              disabled={generating || creating || selectedValidCount === 0}
+              disabled={generating || creating || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
               {creating ? '创建中...' : '创建选中任务'}

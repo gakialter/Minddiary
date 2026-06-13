@@ -106,17 +106,24 @@ export default function ReviewTaskPickerDialog({
     setCreating(true)
     setError(null)
     let created = 0
-    try {
-      for (const mistake of selectableMistakes) {
-        if (!selectedIds.has(mistake.id)) continue
+    const createdTasks: StudyTask[] = []
+    const failedIds = new Set<number>()
+    const errors: string[] = []
+
+    for (const mistake of selectableMistakes) {
+      if (!selectedIds.has(mistake.id)) continue
+      try {
         const latestDuplicate = await tasksAPI.find({
           planned_date: date,
           type: 'review',
           status: [...ACTIVE_STATUSES],
           related_mistake_id: mistake.id,
         })
-        if (latestDuplicate.length > 0) continue
-        await tasksAPI.create({
+        if (latestDuplicate.length > 0) {
+          createdTasks.push(...latestDuplicate)
+          continue
+        }
+        const task = await tasksAPI.create({
           title: buildReviewTaskTitle(mistake),
           description: buildReviewTaskDescription(mistake),
           type: 'review',
@@ -127,16 +134,35 @@ export default function ReviewTaskPickerDialog({
           status: 'todo',
           source: 'dashboard',
         })
+        createdTasks.push(task)
         created += 1
+      } catch (createError) {
+        failedIds.add(mistake.id)
+        errors.push(createError instanceof Error ? createError.message : String(createError))
       }
-      setCreatedCount(created)
-      setSelectedIds(new Set())
-      await onCreated()
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : String(createError))
-    } finally {
-      setCreating(false)
     }
+
+    if (createdTasks.length > 0) {
+      setActiveTasks(current => [...current, ...createdTasks])
+    }
+    setCreatedCount(created)
+    setSelectedIds(failedIds)
+
+    if (created > 0) {
+      try {
+        await onCreated()
+      } catch (refreshError) {
+        errors.push(refreshError instanceof Error ? refreshError.message : String(refreshError))
+      }
+    }
+
+    if (errors.length > 0) {
+      const uniqueErrors = [...new Set(errors)]
+      setError(created > 0
+        ? `Created ${created} task(s), but some task creation failed: ${uniqueErrors.join('; ')}`
+        : `Task creation failed: ${uniqueErrors.join('; ')}`)
+    }
+    setCreating(false)
   }
 
   return (
@@ -252,6 +278,7 @@ export default function ReviewTaskPickerDialog({
           <button
             type="button"
             className="button button-secondary"
+            data-testid="review-task-select-all"
             disabled={creating || selectableMistakes.length === 0}
             onClick={selectAll}
           >
@@ -264,6 +291,7 @@ export default function ReviewTaskPickerDialog({
             <button
               type="button"
               className="button button-primary"
+              data-testid="review-task-create-selected"
               disabled={creating || selectedCreatableCount === 0}
               onClick={createSelected}
             >

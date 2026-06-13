@@ -141,6 +141,34 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
+  it('blocks task creation when AI response has fatal top-level schema errors', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        unsafe: true,
+        suggestions: [
+          {
+            title: '澶嶄範鍑芥暟鏋侀檺閿欓',
+            type: 'review',
+            estimate_minutes: 10,
+            reason: '浠婂ぉ鍒版湡锛屽厛澶勭悊钖勫急鐐广€?',
+            priority: 'high',
+            subject_ref: 'subject:1',
+            related_mistake_ref: 'mistake:12',
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByText(/Unsupported top-level fields/)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
   it('does not apply stale AI responses after the dialog is closed', async () => {
     const request = createDeferred<AIResponse>()
     mocks.aiChat.mockReturnValue(request.promise)

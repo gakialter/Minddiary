@@ -321,8 +321,9 @@ export function parseTodayActionSuggestions(
   const rawSuggestions = extracted.value.suggestions
   if (!Array.isArray(rawSuggestions)) return { suggestions: [], errors: [...errors, 'suggestions must be an array'] }
   if (rawSuggestions.length > 6) errors.push('suggestions must contain 6 items or fewer')
+  if (errors.length > 0) return { suggestions: [], errors }
 
-  const suggestions = rawSuggestions.slice(0, 6).map((raw, index) => (
+  const suggestions = rawSuggestions.map((raw, index) => (
     isRecord(raw)
       ? buildDraftFromRaw(raw, index, context)
       : {
