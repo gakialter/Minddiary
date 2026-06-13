@@ -26,6 +26,11 @@ export interface AIProvider {
   website?: string
 }
 
+const visionCapabilities: AIModelCapabilities = {
+  vision: true,
+  textAttachments: true,
+}
+
 export const AI_PROVIDERS: AIProvider[] = [
   {
     id: 'deepseek',
@@ -47,6 +52,8 @@ export const AI_PROVIDERS: AIProvider[] = [
     models: [
       { id: 'qwen3-max', name: 'Qwen3 Max', desc: '综合能力旗舰', tag: '推荐' },
       { id: 'qwen3-plus', name: 'Qwen3 Plus', desc: '均衡性能与成本' },
+      { id: 'qwen3-vl-plus', name: 'Qwen3-VL Plus', desc: '官方视觉理解模型，支持图片输入', capabilities: visionCapabilities },
+      { id: 'qwen3-vl-flash', name: 'Qwen3-VL Flash', desc: '官方快速视觉理解模型，支持图片输入', capabilities: visionCapabilities },
       { id: 'qwen3-turbo', name: 'Qwen3 Turbo', desc: '快速响应，高性价比', tag: '快' },
       { id: 'qwen-long', name: 'Qwen Long', desc: '超长上下文 10M Token', tag: '长文本' },
       { id: 'qwen-coder-next', name: 'Qwen Coder Next', desc: '代码专精', tag: '代码' },
@@ -70,7 +77,8 @@ export const AI_PROVIDERS: AIProvider[] = [
     website: 'https://platform.moonshot.cn',
     models: [
       { id: 'kimi-latest', name: 'Kimi Latest', desc: '跟随产品迭代的通用模型', tag: '推荐' },
-      { id: 'kimi-k2.6', name: 'Kimi K2.6', desc: '万亿参数 Agent 集群旗舰', tag: '新' },
+      { id: 'kimi-k2.6', name: 'Kimi K2.6', desc: 'Kimi 多模态模型，支持图片输入', tag: '新', capabilities: visionCapabilities },
+      { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', desc: 'Kimi 视觉编程模型，支持图片输入', capabilities: visionCapabilities },
     ],
   },
   {
@@ -91,6 +99,7 @@ export const AI_PROVIDERS: AIProvider[] = [
     models: [
       { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3 (硅基)', desc: '硅基流动代理，免费额度', tag: '免费' },
       { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B (硅基)', desc: '硅基流动代理' },
+      { id: 'Qwen/Qwen2-VL-72B-Instruct', name: 'Qwen2-VL 72B (硅基)', desc: 'SiliconFlow 文档示例视觉模型，支持图片输入', capabilities: visionCapabilities },
     ],
   },
   {

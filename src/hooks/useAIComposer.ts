@@ -24,6 +24,11 @@ export function useAIComposer() {
 
     useEffect(() => {
         attachmentsRef.current = attachments
+    }, [attachments])
+
+    const commitAttachments = useCallback((next: AIComposerAttachment[]) => {
+        attachmentsRef.current = next
+        setAttachments(next)
     }, [])
 
     useEffect(() => () => {
@@ -41,39 +46,41 @@ export function useAIComposer() {
     }, [])
 
     const addFiles = useCallback(async (files: File[]) => {
-        let currentAttachments = attachmentsRef.current
         for (const file of files) {
             const pending = createReadingAIComposerAttachment(file)
-            const existingBeforeFile = currentAttachments
-            currentAttachments = [...currentAttachments, pending]
-            attachmentsRef.current = currentAttachments
-            setAttachments(currentAttachments)
+            const existingBeforeFile = attachmentsRef.current
+            commitAttachments([...existingBeforeFile, pending])
 
             const result = await readAIComposerFile(file, existingBeforeFile, pending.id)
-            currentAttachments = currentAttachments.map(attachment => (
+            const currentAttachments = attachmentsRef.current
+            const stillExists = currentAttachments.some(attachment => attachment.id === pending.id)
+            if (!stillExists) {
+                revokeAttachmentPreview(result)
+                continue
+            }
+
+            const nextAttachments = currentAttachments.map(attachment => (
                 attachment.id === pending.id ? result : attachment
             ))
-            attachmentsRef.current = currentAttachments
-            setAttachments(currentAttachments)
+            commitAttachments(nextAttachments)
             if (result.status === 'error') setError(result.error || '附件读取失败。')
         }
-    }, [attachments])
+    }, [commitAttachments])
 
     const removeAttachment = useCallback((id: string) => {
-        setAttachments(current => {
-            const target = current.find(attachment => attachment.id === id)
-            if (target) revokeAttachmentPreview(target)
-            return current.filter(attachment => attachment.id !== id)
-        })
-    }, [])
+        const currentAttachments = attachmentsRef.current
+        const target = currentAttachments.find(attachment => attachment.id === id)
+        if (target) revokeAttachmentPreview(target)
+        commitAttachments(currentAttachments.filter(attachment => attachment.id !== id))
+    }, [commitAttachments])
 
     const clearComposer = useCallback(() => {
-        attachments.forEach(revokeAttachmentPreview)
+        attachmentsRef.current.forEach(revokeAttachmentPreview)
         setInput('')
         setContextKinds([])
-        setAttachments([])
+        commitAttachments([])
         setError(null)
-    }, [attachments])
+    }, [commitAttachments])
 
     const validationError = useMemo(() => getReadyAttachmentError(attachments), [attachments])
     const hasReadyAttachment = attachments.some(attachment => attachment.status === 'ready')
@@ -85,7 +92,6 @@ export function useAIComposer() {
         contextKinds,
         setContextKinds,
         attachments,
-        setAttachments,
         error: error || validationError,
         setError,
         applyQuickPrompt,
