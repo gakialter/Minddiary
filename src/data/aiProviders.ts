@@ -10,6 +10,12 @@ export interface AIModel {
   name: string
   desc: string
   tag?: '推荐' | '新' | '快' | '长文本' | '代码' | '免费'
+  capabilities?: AIModelCapabilities
+}
+
+export interface AIModelCapabilities {
+  vision: boolean
+  textAttachments: boolean
 }
 
 export interface AIProvider {
@@ -105,6 +111,28 @@ export function getProvider(providerId: string): AIProvider | undefined {
 /** Look up provider from a model id */
 export function getProviderByModel(modelId: string): AIProvider | undefined {
   return AI_PROVIDERS.find(p => p.models.some(m => m.id === modelId))
+}
+
+export function getModelById(modelId: string): AIModel | undefined {
+  return AI_PROVIDERS.flatMap(provider => provider.models).find(model => model.id === modelId)
+}
+
+export function getKnownModelCapabilities(modelId: string): AIModelCapabilities | null {
+  const model = getModelById(modelId)
+  if (!model) return null
+  return model.capabilities ?? { vision: false, textAttachments: true }
+}
+
+export function resolveAIModelCapabilities(
+  modelId: string,
+  customVisionEnabled: boolean | undefined,
+): AIModelCapabilities {
+  const knownCapabilities = getKnownModelCapabilities(modelId)
+  if (knownCapabilities) return knownCapabilities
+  return {
+    vision: customVisionEnabled === true,
+    textAttachments: true,
+  }
 }
 
 /** Tag color mapping (using semantic brand tokens to maintain low pressure) */

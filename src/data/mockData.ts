@@ -113,6 +113,7 @@ export const mockSettings: AppSettings = {
   aiApiKeyMasked: null,
   aiApiKeyPresent: false,
   aiModel: 'gpt-3.5-turbo',
+  aiVisionEnabled: false,
   pomodoroMinutes: 25,
   focusGuardEnabled: false,
   focusGuardIntervalSec: 5,

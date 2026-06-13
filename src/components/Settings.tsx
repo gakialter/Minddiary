@@ -46,6 +46,7 @@ function Settings() {
   const [aiKeyDirty, setAiKeyDirty] = useState(false)
   const [clearKeyRequested, setClearKeyRequested] = useState(false)
   const [aiModel, setAiModel] = useState('deepseek-v4-flash')
+  const [aiVisionEnabled, setAiVisionEnabled] = useState(false)
   const [autoSave, setAutoSave] = useState(true)
   const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
   const [autoBackup, setAutoBackup] = useState(false)
@@ -110,6 +111,7 @@ function Settings() {
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
       setAiModel((settings.aiModel as string) || 'deepseek-v4-flash')
+      setAiVisionEnabled(coerceBoolean(settings.aiVisionEnabled, false))
       setAutoSave(coerceBoolean(settings.autoSave, true))
       setPomodoroMinutes(parseInt(String(settings.pomodoroMinutes)) || 25)
       setAutoBackup(coerceBoolean(settings.autoBackup, false))
@@ -133,7 +135,7 @@ function Settings() {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, countdownEvents, aiEndpoint, aiModel, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
+  }, [examDate, countdownEvents, aiEndpoint, aiModel, aiVisionEnabled, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -149,19 +151,19 @@ function Settings() {
         diary.settings.updateBackup({ autoBackup, backupPath }),
       ])
       if (clearKeyRequested) {
-        await diary.settings.updateAI({ clearAiApiKey: true, aiEndpoint, aiModel })
+        await diary.settings.updateAI({ clearAiApiKey: true, aiEndpoint, aiModel, aiVisionEnabled })
         setClearKeyRequested(false)
         setAiApiKeyInput('')
         setAiApiKeyPresent(false)
         setAiApiKeyMasked(null)
       } else if (aiKeyDirty && aiApiKeyInput) {
-        await diary.settings.updateAI({ aiApiKey: aiApiKeyInput, aiEndpoint, aiModel })
+        await diary.settings.updateAI({ aiApiKey: aiApiKeyInput, aiEndpoint, aiModel, aiVisionEnabled })
         setAiApiKeyInput('')
         setAiApiKeyPresent(true)
         // Placeholder until next getAll() returns real mask from main process
         setAiApiKeyMasked('********')
       } else {
-        await diary.settings.updateAI({ aiEndpoint, aiModel })
+        await diary.settings.updateAI({ aiEndpoint, aiModel, aiVisionEnabled })
       }
       setAiKeyDirty(false)
       showToast('设置已保存', 'success')
@@ -390,6 +392,7 @@ function Settings() {
             aiKeyDirty={aiKeyDirty} setAiKeyDirty={setAiKeyDirty}
             clearKeyRequested={clearKeyRequested} setClearKeyRequested={setClearKeyRequested}
             aiModel={aiModel} setAiModel={setAiModel}
+            aiVisionEnabled={aiVisionEnabled} setAiVisionEnabled={setAiVisionEnabled}
         />
         <SettingsGeneral 
             examDate={examDate} setExamDate={setExamDate}
