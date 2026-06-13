@@ -15,6 +15,24 @@ interface AIDatabase {
 
 type FetchLike = typeof fetch
 
+export function resolveChatCompletionsUrl(endpoint: string): string {
+    const normalized = endpoint.trim().replace(/\/+$/, '')
+    const url = new URL(normalized)
+    const path = url.pathname.replace(/\/+$/, '')
+
+    if (/\/chat\/completions$/i.test(path)) {
+        return normalized
+    }
+
+    const alreadyVersioned =
+        /\/v\d+$/i.test(path) ||
+        /\/compatible-mode\/v\d+$/i.test(path)
+
+    return alreadyVersioned
+        ? `${normalized}/chat/completions`
+        : `${normalized}/v1/chat/completions`
+}
+
 export function createAiService(database: AIDatabase, fetchImpl: FetchLike = fetch) {
     const chat = async (messages: AIMessage[]): Promise<AIResponse> => {
         const safeMessages = validateAiRequestMessages(messages)
@@ -41,7 +59,7 @@ export function createAiService(database: AIDatabase, fetchImpl: FetchLike = fet
         const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS)
 
         try {
-            const response = await fetchImpl(`${endpoint}/v1/chat/completions`, {
+            const response = await fetchImpl(resolveChatCompletionsUrl(endpoint), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -106,4 +124,4 @@ async function summarize(content: string): Promise<AIResponse> {
     return createAiService(getDatabase()).summarize(content)
 }
 
-module.exports = { chat, summarize, createAiService }
+module.exports = { chat, summarize, createAiService, resolveChatCompletionsUrl }
