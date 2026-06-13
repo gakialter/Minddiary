@@ -8,6 +8,9 @@ MindDiary v1.11.0 在 v1.10.0 的“今日任务 → 专注 → 结算 → 复�
 - manual、active、break 复习共用同一提交协调器：先确认 SM-2 保存成功，再按精确关联结算任务。
 - 手动保存有效日记后，应用会提示关联并完成一个 `diary` task；自动保存和一句话专注复盘不会触发日记任务完成。
 - AI 今日行动建议使用专用上下文、严格 JSON parser、schema 校验、allowlist 关系引用和用户确认后逐条创建。
+- AI 助手五个快捷提示改为可编辑草稿 + 可移除上下文标签；点击快捷提示不再自动发送。
+- AI 助手支持本地 PNG/JPEG/WebP、TXT/MD/CSV/JSON/LOG 和文本型 PDF 附件；图片需要视觉模型能力，扫描 PDF 不做 OCR。
+- 附件只在用户点击发送后进入当前 provider 请求，不写入 SQLite、localStorage、聊天历史、自动备份或导出，也不使用 provider Files API。
 - 今日任务卡片展示 AI 建议来源、关联错题、关联日记 badge，并新增计划预计时长 / 实际任务专注时长对比。
 - Phase 0 修复了 browser fallback 删除关联清理、SM-2 假成功风险、entry patch update 和统一 word count 契约。
 
@@ -35,6 +38,14 @@ MindDiary v1.11.0 在 v1.10.0 的“今日任务 → 专注 → 结算 → 复�
 - 用户可以编辑标题、类型、科目、时长、理由，删除单条，选择部分建议。
 - 创建任务前重新校验上下文，逐条调用普通 `study_tasks` API，强制 `planned_date=today`、`status=todo`、`source=ai`。
 - browser fallback 明确显示 AI provider unsupported；不会把 API Key 或网络请求移到 renderer/browser。
+
+## AI 助手 composer
+
+- 五个快捷入口保留，但行为改为「填入草稿 → 显示上下文标签 → 用户编辑 → 用户主动发送」；上下文标签可移除、去重，并在发送时读取最新本地数据。
+- 可添加本地图片、文本文件和文本型 PDF：图片支持 PNG/JPEG/WebP，文本支持 TXT/MD/CSV/JSON/LOG，PDF 只提取文字且最多 50 页。
+- 图片请求使用 OpenAI 兼容 multipart chat message；预设模型默认按注册能力门控，自定义模型需要在设置中手动声明视觉能力。
+- 附件正文、base64、PDF 提取文本和本地路径只存在于当前 composer 内存中；历史记录仅保留文件名、类型和大小等元数据，重载后不能复用附件内容重新生成。
+- 不支持 OCR、Office 文件、音视频、压缩包、远程图片 URL、RAG、provider Files API、流式输出、多会话或 AI 自动写库。
 
 ## Dashboard 闭环指标
 

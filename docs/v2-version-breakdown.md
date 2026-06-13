@@ -55,7 +55,7 @@ Issue 状态：
 |---|---|---|---|
 | v1.9.9 | M0 护栏 | v2 前置工程护栏、迁移、AI 边界、错题/专注基础 | 已完成 |
 | v1.10.0 | M1 闭环 | 合并原 v1.9.10、v1.9.11、v1.9.12：任务绑定专注、结束结算、一句话复盘、Dashboard 闭环指标 | 已正式发布 |
-| v1.11.0 | M2/M3 联动 | 错题任务联动、日记保存后确认结算、AI 今日行动建议、用户确认后转任务 | PR 准备 |
+| v1.11.0 | M2/M3 联动 | 错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | PR 准备 |
 | v2.0.0 | 正式版 | 学习闭环系统发布收口 | 未开始 |
 
 ---
@@ -294,6 +294,8 @@ v1.11.0 把学习内容进一步接入今日任务，但仍保持 MindDiary 的�
 错题复习 → SM-2 成功 → 精确关联任务结算
 日记保存 → 有效内容 → 用户确认任务结算
 学习数据 → AI 建议 → 本地校验 → 用户确认创建任务
+快捷提示 → 可编辑草稿 → 可移除上下文 → 用户主动发送
+本地附件 → 本地校验/提取 → 用户主动发送 → provider
 ```
 
 ### 6.2 数据模型边界
@@ -327,11 +329,19 @@ AI 建议：
 - 结构化建议必须经过本地 JSON parser、schema validation、allowlist relation 校验和用户确认。
 - 用户确认后才通过普通 `study_tasks` API 逐条创建，强制 `source = ai`、`status = todo`、`planned_date = today`。
 
+AI 助手 composer：
+
+- 五个快捷入口只填入可编辑草稿并添加可移除上下文标签；点击快捷入口不触发 AI 请求或上下文预取。
+- 上下文在发送时读取最新本地数据，且进入最终 user message；附件和上下文不会拼进 system role 或历史 assistant role。
+- 支持 PNG/JPEG/WebP、TXT/MD/CSV/JSON/LOG 和文本型 PDF；图片使用 OpenAI 兼容 multipart message，并由模型视觉能力门控。
+- 附件正文、base64、PDF 提取文本和本地路径不进入 SQLite、localStorage、聊天历史、自动备份或导出。
+
 ### 6.4 非目标
 
 本阶段不做：
 
 - schema version 4、FSRS、OCR、图像遮挡、本地 RAG、Ollama 深度集成、云同步。
+- Office 文件、音视频、压缩包、远程图片 URL、provider Files API、流式输出或多会话 AI。
 - 大型任务历史归档页、独立大型今日执行页、大型 HomeDashboard 重构或大型项目管理模块。
 - AI 自动写库、自动建任务、自动完成/跳过/删除任务或后台持续运行。
 - v1.11.0 tag、GitHub Release 或正式发布 workflow。
