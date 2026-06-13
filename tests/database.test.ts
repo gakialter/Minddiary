@@ -541,6 +541,17 @@ vi.mock('better-sqlite3', () => {
             const row = state.mistakeRows.find(item => item.id === id)
             return row ? { mastered: row.mastered ?? 0 } : undefined
           }
+          if (sql.includes('FROM mistakes m LEFT JOIN subjects s') && sql.includes('WHERE m.id = ?')) {
+            const id = Number(params[0])
+            const row = state.mistakeRows.find(item => item.id === id)
+            if (!row) return undefined
+            const subject = state.subjectRows.find(item => item.id === row.subject_id)
+            return {
+              ...row,
+              subject_name: subject?.name ?? null,
+              subject_color: subject?.color ?? null,
+            }
+          }
           if (sql.includes('FROM mistakes m LEFT JOIN subjects s') && sql.includes('LIMIT 1 OFFSET ?')) {
             const subjectId = sql.includes('AND m.subject_id = ?') ? Number(params[1]) : null
             const offset = Number(params[params.length - 1])
@@ -1618,12 +1629,13 @@ describe('database mistake image cleanup', () => {
       },
     ]))
 
+    state.mistakeRows = [{ id: 3, image_path: null, answer_image_path: null, mastered: 0 }]
     expect(database.reviewMistake(3, {
       ease_factor: 2.4,
       review_interval: 5,
       next_review_date: '2026-06-11',
       review_count: 2,
-    })).toEqual({ success: true })
+    })).toEqual({ success: true, mistake: expect.objectContaining({ id: 3 }) })
     const reviewCall = state.preparedCalls.find(call => call.sql.includes('SET ease_factor = ?'))
     expect(reviewCall?.params).toEqual([2.4, 5, '2026-06-11', 2, 3])
 

@@ -1,11 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MistakeReviewModal from '../src/components/MistakeReviewModal'
-import type { Mistake } from '../src/types'
+import type { Mistake, StudyTask } from '../src/types'
 
 const mocks = vi.hoisted(() => ({
   getRandomDue: vi.fn(),
   review: vi.fn(),
+  tasksFind: vi.fn(),
+  tasksUpdate: vi.fn(),
   requestDataRefresh: vi.fn(),
   getLocalDateKey: vi.fn(() => '2026-06-07'),
   loggerError: vi.fn(),
@@ -13,6 +15,10 @@ const mocks = vi.hoisted(() => ({
     mistakes: {
       getRandomDue: ReturnType<typeof vi.fn>
       review: ReturnType<typeof vi.fn>
+    }
+    tasks: {
+      find: ReturnType<typeof vi.fn>
+      update: ReturnType<typeof vi.fn>
     }
     requestDataRefresh: ReturnType<typeof vi.fn>
   },
@@ -22,6 +28,10 @@ mocks.diary = {
   mistakes: {
     getRandomDue: mocks.getRandomDue,
     review: mocks.review,
+  },
+  tasks: {
+    find: mocks.tasksFind,
+    update: mocks.tasksUpdate,
   },
   requestDataRefresh: mocks.requestDataRefresh,
 }
@@ -66,10 +76,27 @@ const dueMistake: Mistake = {
   created_at: '2026-06-07T08:00:00Z',
 }
 
+const makeReviewTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
+  id: 101,
+  title: '复习错题 12',
+  description: '',
+  type: 'review',
+  subject_id: 2,
+  related_mistake_id: 12,
+  related_entry_id: null,
+  planned_date: '2026-06-07',
+  estimate_minutes: 10,
+  status: 'todo',
+  source: 'dashboard',
+  created_at: '2026-06-07T00:00:00.000Z',
+  updated_at: '2026-06-07T00:00:00.000Z',
+  ...overrides,
+})
+
 const createDeferredReview = () => {
-  let resolveReview!: (value: { success: boolean }) => void
+  let resolveReview!: (value: { success: boolean; mistake: Mistake }) => void
   let rejectReview!: (reason: unknown) => void
-  const promise = new Promise<{ success: boolean }>((resolve, reject) => {
+  const promise = new Promise<{ success: boolean; mistake: Mistake }>((resolve, reject) => {
     resolveReview = resolve
     rejectReview = reject
   })
@@ -79,7 +106,9 @@ const createDeferredReview = () => {
 
 beforeEach(() => {
   mocks.getRandomDue.mockResolvedValue(dueMistake)
-  mocks.review.mockResolvedValue({ success: true })
+  mocks.review.mockResolvedValue({ success: true, mistake: dueMistake })
+  mocks.tasksFind.mockResolvedValue([])
+  mocks.tasksUpdate.mockResolvedValue({ id: 1, status: 'done' })
   mocks.getLocalDateKey.mockReturnValue('2026-06-07')
   vi.clearAllMocks()
 })
@@ -148,6 +177,28 @@ describe('MistakeReviewModal', () => {
     expect(await screen.findByText('当前没有待复习错题')).toBeInTheDocument()
   })
 
+  it('completes one active linked review task after the review is saved', async () => {
+    mocks.tasksFind.mockResolvedValue([makeReviewTask()])
+    mocks.tasksUpdate.mockResolvedValue(makeReviewTask({ status: 'done' }))
+
+    render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
+
+    fireEvent.click(await screen.findByTestId('mistake-review-reveal-answer'))
+    fireEvent.click(screen.getByTestId('mistake-review-quality-4'))
+
+    await waitFor(() => {
+      expect(mocks.review).toHaveBeenCalledTimes(1)
+      expect(mocks.tasksFind).toHaveBeenCalledWith({
+        type: 'review',
+        planned_date: '2026-06-07',
+        status: ['todo', 'doing'],
+        related_mistake_id: 12,
+      })
+      expect(mocks.tasksUpdate).toHaveBeenCalledWith(101, { status: 'done' })
+    })
+    expect(screen.getByTestId('mistake-review-done')).toHaveTextContent('关联任务已完成')
+  })
+
   it('prevents duplicate submissions while a review request is in flight', async () => {
     const deferred = createDeferredReview()
     mocks.review.mockReturnValue(deferred.promise)
@@ -165,7 +216,7 @@ describe('MistakeReviewModal', () => {
     }
 
     await act(async () => {
-      deferred.resolveReview({ success: true })
+      deferred.resolveReview({ success: true, mistake: dueMistake })
       await deferred.promise
     })
 

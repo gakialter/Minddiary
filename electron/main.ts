@@ -25,6 +25,7 @@ import {
     validatePomodoroSessionPayload,
     validatePositiveIdPayload,
     validateStudyTaskCreatePayload,
+    validateStudyTaskQueryPayload,
     validateStudyTaskUpdatePayload,
 } from './ipcValidation';
 
@@ -603,6 +604,7 @@ ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => 
 
 // ==================== Study Tasks ====================
 ipcMain.handle('tasks:getByDate', (_: unknown, date: string) => db.getStudyTasksByDate(date));
+ipcMain.handle('tasks:find', (_: unknown, query: unknown) => db.findStudyTasks(validateStudyTaskQueryPayload(query)));
 ipcMain.handle('tasks:create', (_: unknown, task: unknown) => db.createStudyTask(validateStudyTaskCreatePayload(task)));
 ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
     return db.updateStudyTask(

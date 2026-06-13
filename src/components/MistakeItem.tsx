@@ -16,6 +16,7 @@ interface MistakeItemProps {
     handleEdit: (m: Mistake) => void
     handleDelete: (id: number) => void
     handleReview: (m: Mistake, quality: number) => void
+    reviewing?: boolean
     onPreviewImage: (image: PreviewImage) => void
 }
 
@@ -26,6 +27,7 @@ export function MistakeItem({
     handleEdit, 
     handleDelete, 
     handleReview,
+    reviewing = false,
     onPreviewImage,
 }: MistakeItemProps) {
     const [answerVisible, setAnswerVisible] = useState(false)
@@ -176,6 +178,7 @@ export function MistakeItem({
                         <button 
                             key={rq.quality}
                             className="button button-secondary"
+                            disabled={reviewing}
                             style={{ flex: 1, color: rq.color, borderColor: rq.color + '44' }}
                             onClick={() => handleReview(m, rq.quality)}
                         >

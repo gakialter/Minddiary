@@ -3,6 +3,7 @@ import { isDateKey } from '../../src/utils/dateKey';
 import type {
     NewStudyTask,
     StudyTask,
+    StudyTaskQuery,
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
@@ -98,6 +99,62 @@ export function createStudyTasksRepository(db: Database.Database) {
           t.created_at ASC,
           t.id ASC
     `).all(plannedDate) as StudyTask[];
+    }
+
+    function findStudyTasks(query: StudyTaskQuery): StudyTask[] {
+        const conditions: string[] = [];
+        const params: Array<string | number | null> = [];
+
+        if (query.planned_date !== undefined) {
+            conditions.push('t.planned_date = ?');
+            params.push(normalizeStudyTaskDate(query.planned_date));
+        }
+        if (query.type !== undefined) {
+            conditions.push('t.type = ?');
+            params.push(normalizeStudyTaskType(query.type));
+        }
+        if (query.status !== undefined) {
+            const statuses = Array.isArray(query.status) ? query.status : [query.status];
+            if (statuses.length === 0) {
+                return [];
+            }
+            statuses.forEach(status => normalizeStudyTaskStatus(status));
+            conditions.push(`t.status IN (${statuses.map(() => '?').join(', ')})`);
+            params.push(...statuses);
+        }
+        if (query.related_mistake_id !== undefined) {
+            if (query.related_mistake_id === null) {
+                conditions.push('t.related_mistake_id IS NULL');
+            } else {
+                conditions.push('t.related_mistake_id = ?');
+                params.push(normalizeStudyTaskNullableId(query.related_mistake_id));
+            }
+        }
+        if (query.related_entry_id !== undefined) {
+            if (query.related_entry_id === null) {
+                conditions.push('t.related_entry_id IS NULL');
+            } else {
+                conditions.push('t.related_entry_id = ?');
+                params.push(normalizeStudyTaskNullableId(query.related_entry_id));
+            }
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        return db.prepare(`
+        SELECT t.*
+        FROM study_tasks t
+        ${whereClause}
+        ORDER BY
+          CASE t.status
+            WHEN 'doing' THEN 0
+            WHEN 'todo' THEN 1
+            WHEN 'skipped' THEN 2
+            WHEN 'done' THEN 3
+            ELSE 4
+          END,
+          t.created_at ASC,
+          t.id ASC
+    `).all(...params) as StudyTask[];
     }
 
     function createStudyTask(data: NewStudyTask): StudyTask {
@@ -196,6 +253,7 @@ export function createStudyTasksRepository(db: Database.Database) {
 
     return {
         getStudyTasksByDate,
+        findStudyTasks,
         createStudyTask,
         updateStudyTask,
         deleteStudyTask,

@@ -15,13 +15,21 @@ import CommandPalette from './components/CommandPalette'
 import ExportModal from './components/ExportModal'
 import BreakReviewModal from './components/BreakReviewModal'
 import PomodoroAlert from './components/PomodoroAlert'
+import DiaryTaskSettlementPrompt from './components/DiaryTaskSettlementPrompt'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer, showToast } from './components/Toast'
 import { logger } from './utils/logger'
 import { getLocalDateKey } from './utils/dateKey'
+import {
+  findDiaryTaskSettlementCandidates,
+  getEffectiveDiaryContentLength,
+  type DiaryTaskSettlementCandidates,
+  type DiaryTaskSettlementResult,
+} from './utils/diaryTaskSettlement'
 import type { DiaryEntry, MoodId } from './types'
 import type { PendingDiaryInsert } from './components/Editor'
 import type { MistakeFilterIntent } from './components/MistakeBook'
+import type { DiarySaveOptions } from './hooks/useNavigation'
 
 const POMODORO_FULLSCREEN_NAVIGATION_MESSAGE = '请先退出番茄钟全屏模式再切换页面'
 
@@ -48,6 +56,12 @@ const buildFocusReflectionTemplate = (subjectName: string | null) => {
   return `## 本轮专注沉淀\n${subjectLine}- 学习内容：\n- 卡点：\n- 下一步：`
 }
 
+interface PendingDiarySettlement {
+  entry: DiaryEntry
+  candidates: DiaryTaskSettlementCandidates
+  key: string
+}
+
 function AppContent() {
   const diary = useDiary()
   const { isDarkMode } = diary
@@ -69,8 +83,10 @@ function AppContent() {
   const [showExport, setShowExport] = useState(false)
   const [showBreakReview, setShowBreakReview] = useState(false)
   const [pendingDiaryInsert, setPendingDiaryInsert] = useState<PendingDiaryInsert | null>(null)
+  const [pendingDiarySettlement, setPendingDiarySettlement] = useState<PendingDiarySettlement | null>(null)
   const [pendingMistakeFilter, setPendingMistakeFilter] = useState<MistakeFilterIntent | null>(null)
   const [isPomodoroFullscreenActive, setIsPomodoroFullscreenActive] = useState(false)
+  const dismissedDiarySettlementKeysRef = useRef(new Set<string>())
 
   // Register break-start handler with Pomodoro context
   const { alertState } = usePomodoroData()
@@ -118,6 +134,42 @@ function AppContent() {
   const handleMistakeFilterIntentApplied = useCallback(() => {
     setPendingMistakeFilter(null)
   }, [])
+
+  const buildDiarySettlementKey = useCallback((savedEntry: DiaryEntry, candidates: DiaryTaskSettlementCandidates) => (
+    [
+      savedEntry.id,
+      getEffectiveDiaryContentLength(savedEntry.content),
+      candidates.tasks.map(task => task.id).sort((a, b) => a - b).join(','),
+    ].join(':')
+  ), [])
+
+  const maybeOfferDiaryTaskSettlement = useCallback(async (savedEntry: DiaryEntry, options?: DiarySaveOptions) => {
+    if (options?.origin !== 'editor-manual') return
+    try {
+      const candidates = await findDiaryTaskSettlementCandidates({
+        entry: savedEntry,
+        tasksAPI: diary.tasks,
+      })
+      if (candidates.status === 'none') return
+      const key = buildDiarySettlementKey(savedEntry, candidates)
+      if (dismissedDiarySettlementKeysRef.current.has(key)) return
+      setPendingDiarySettlement({ entry: savedEntry, candidates, key })
+    } catch (error) {
+      logger.error('Failed to prepare diary task settlement:', error)
+    }
+  }, [buildDiarySettlementKey, diary.tasks])
+
+  const closeDiarySettlementPrompt = useCallback(() => {
+    setPendingDiarySettlement(current => {
+      if (current) dismissedDiarySettlementKeysRef.current.add(current.key)
+      return null
+    })
+  }, [])
+
+  const handleDiaryTaskSettled = useCallback(async (_result: DiaryTaskSettlementResult) => {
+    diary.requestDataRefresh()
+    showToast('日记已保存，任务已完成', 'success')
+  }, [diary])
 
   // ─── Global keyboard shortcuts (extracted hook) ───
   const keyBindings = useMemo(() => ({
@@ -190,7 +242,7 @@ function AppContent() {
   // be present but is deliberately handled via setEntryTags rather than being
   // sent to entries.create/update. When `tags` is absent (undefined), the
   // setEntryTags call is skipped — this is intentional.
-  const saveEntry = async (updated: Partial<DiaryEntry>) => {
+  const saveEntry = async (updated: Partial<DiaryEntry>, options?: DiarySaveOptions): Promise<DiaryEntry | null> => {
     try {
       const { tags, ...entryData } = updated
       const tagIds = Array.isArray(tags) ? tags : undefined
@@ -211,9 +263,12 @@ function AppContent() {
           await diary.tags.setEntryTags(saved.id, tagIds)
         }
         setEntry({ ...saved, tags: tagIds || saved.tags || [] })
+        await maybeOfferDiaryTaskSettlement(saved, options)
       }
+      return saved
     } catch (error) {
       logger.error('Failed to save entry:', error)
+      return null
     }
   }
 
@@ -336,6 +391,15 @@ function AppContent() {
         onWriteDiary={handleWriteFocusDiary}
         onAddMistake={handleAddFocusMistake}
       />
+      {pendingDiarySettlement && (
+        <DiaryTaskSettlementPrompt
+          entry={pendingDiarySettlement.entry}
+          candidates={pendingDiarySettlement.candidates}
+          tasksAPI={diary.tasks}
+          onClose={closeDiarySettlementPrompt}
+          onSettled={handleDiaryTaskSettled}
+        />
+      )}
     </Layout>
   )
 }

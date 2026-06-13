@@ -1,12 +1,14 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
 import { STORAGE_KEYS } from '../../data/mockData'
-import type { DiaryEntry, EntryFilters, NewEntry, SaveToLocalFn } from '../../types'
+import { calculateWordCount } from '../../utils/helpers'
+import type { DiaryEntry, EntryFilters, NewEntry, SaveToLocalFn, StudyTask } from '../../types'
 import type { EntriesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
 
 export const createEntriesApi = (
     entriesRef: MutableRefObject<DiaryEntry[]>,
-    saveToLocal: SaveToLocalFn
+    saveToLocal: SaveToLocalFn,
+    tasksRef?: MutableRefObject<StudyTask[]>
 ): EntriesContextAPI => ({
     getAll: async (filters: EntryFilters = {}) => {
         if (IS_ELECTRON) return window.api.entries.getAll(filters)
@@ -46,7 +48,7 @@ export const createEntriesApi = (
         const newEntry: DiaryEntry = {
             ...data,
             id: Math.max(0, ...entriesRef.current.map(e => e.id)) + 1,
-            word_count: data.content ? data.content.length : 0,
+            word_count: calculateWordCount(data.content),
             images: data.images || [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -58,11 +60,15 @@ export const createEntriesApi = (
     update: async (id: number, data: Partial<DiaryEntry>) => {
         if (IS_ELECTRON) return window.api.entries.update(id, data)
         
+        const existing = entriesRef.current.find(e => e.id === id)
+        if (!existing) {
+            throw new Error('Entry not found')
+        }
         const updatedEntry: DiaryEntry = {
-            ...(entriesRef.current.find(e => e.id === id)!),
+            ...existing,
             ...data,
             id,
-            word_count: data.content ? data.content.length : 0,
+            word_count: data.content !== undefined ? calculateWordCount(data.content) : existing.word_count,
             updated_at: new Date().toISOString(),
         }
         entriesRef.current = entriesRef.current.map(e => e.id === id ? updatedEntry : e)
@@ -76,6 +82,12 @@ export const createEntriesApi = (
         }
         entriesRef.current = entriesRef.current.filter(e => e.id !== id)
         saveToLocal(STORAGE_KEYS.ENTRIES, entriesRef.current)
+        if (tasksRef) {
+            tasksRef.current = tasksRef.current.map(task => (
+                task.related_entry_id === id ? { ...task, related_entry_id: null } : task
+            ))
+            saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
+        }
         return true
     },
 })

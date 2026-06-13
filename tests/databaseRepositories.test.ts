@@ -410,8 +410,53 @@ describe('database repositories', () => {
       mood: null,
       word_count: 8,
     }))
+
+    expect(repositories.entries.updateEntry(Number(first.id), {
+      title: 'Retitled only',
+    })).toEqual(expect.objectContaining({
+      id: first.id,
+      title: 'Retitled only',
+      content: 'two words',
+      mood: null,
+      word_count: 8,
+    }))
+    expect(repositories.entries.updateEntry(Number(first.id), {
+      content: 'three words now',
+    })).toEqual(expect.objectContaining({
+      id: first.id,
+      title: 'Retitled only',
+      content: 'three words now',
+      mood: null,
+      word_count: 13,
+    }))
     expect(repositories.entries.deleteEntry(Number(second.id))).toEqual({ success: true })
     expect(repositories.entries.getEntryById(Number(second.id))).toBeUndefined()
+  })
+
+  it('clears study task entry links through the Electron foreign key when entries are deleted', () => {
+    const entry = repositories.entries.createEntry({
+      date: '2026-06-06',
+      title: 'Linked',
+      content: 'valid diary body',
+      mood: 'happy',
+    })
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Write linked diary',
+      type: 'diary',
+      planned_date: '2026-06-06',
+      related_entry_id: Number(entry.id),
+      status: 'done',
+    })
+
+    expect(repositories.entries.deleteEntry(Number(entry.id))).toEqual({ success: true })
+
+    expect(repositories.studyTasks.findStudyTasks({ planned_date: '2026-06-06' })).toEqual([
+      expect.objectContaining({
+        id: task.id,
+        related_entry_id: null,
+        status: 'done',
+      }),
+    ])
   })
 
   it('creates, reads, batches, and removes attachments', () => {
@@ -1181,9 +1226,23 @@ describe('database repositories', () => {
 
   it('deletes mistakes and keeps missing ids successful', () => {
     const id = insertMistake()
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Review linked mistake',
+      type: 'review',
+      planned_date: '2026-06-06',
+      related_mistake_id: id,
+      status: 'done',
+    })
 
     expect(repositories.mistakes.deleteMistake(id)).toEqual({ success: true })
     expect(database.prepare('SELECT id FROM mistakes WHERE id=?').get(id)).toBeUndefined()
+    expect(repositories.studyTasks.findStudyTasks({ planned_date: '2026-06-06' })).toEqual([
+      expect.objectContaining({
+        id: task.id,
+        related_mistake_id: null,
+        status: 'done',
+      }),
+    ])
     expect(repositories.mistakes.deleteMistake(999)).toEqual({ success: true })
   })
 
@@ -1208,7 +1267,16 @@ describe('database repositories', () => {
       review_interval: 6,
       next_review_date: '2026-06-12',
       review_count: 4,
-    })).toEqual({ success: true })
+    })).toEqual({
+      success: true,
+      mistake: expect.objectContaining({
+        id,
+        ease_factor: 2.1,
+        review_interval: 6,
+        next_review_date: '2026-06-12',
+        review_count: 4,
+      }),
+    })
 
     expect(database.prepare(`
       SELECT ease_factor, review_interval, next_review_date, review_count
@@ -1219,6 +1287,12 @@ describe('database repositories', () => {
       next_review_date: '2026-06-12',
       review_count: 4,
     })
+    expect(() => repositories.mistakes.reviewMistake(999, {
+      ease_factor: 2.1,
+      review_interval: 6,
+      next_review_date: '2026-06-12',
+      review_count: 4,
+    })).toThrow('Mistake not found')
   })
 
   it('counts and selects due mistakes with count plus random offset semantics', () => {
@@ -1418,6 +1492,22 @@ describe('database repositories', () => {
       status: 'doing',
       source: 'dashboard',
     }))
+    expect(repositories.studyTasks.findStudyTasks({
+      planned_date: '2026-06-11',
+      type: 'review',
+      status: ['todo', 'doing'],
+      related_mistake_id: Number(mistake.lastInsertRowid),
+    })).toEqual([
+      expect.objectContaining({
+        id: created.id,
+        status: 'doing',
+        related_mistake_id: Number(mistake.lastInsertRowid),
+      }),
+    ])
+    expect(repositories.studyTasks.findStudyTasks({
+      planned_date: '2026-06-11',
+      related_entry_id: null,
+    })).toEqual([])
   })
 
   it('returns delete booleans and complete/skip delegated updates', () => {

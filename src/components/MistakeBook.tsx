@@ -4,8 +4,9 @@ import { showToast } from './Toast'
 import { ArrowRightLeft, BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
 import { logger } from '../utils/logger'
 import type { Mistake, Subject, MistakeFilters } from '../types'
-import { calculateNextReview, isDueForReview } from '../utils/spacedRepetition'
+import { isDueForReview } from '../utils/spacedRepetition'
 import { getLocalDateKey } from '../utils/dateKey'
+import { submitMistakeReview } from '../utils/mistakeReviewCoordinator'
 import { MistakeItem } from './MistakeItem'
 import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
@@ -79,6 +80,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [draggingRole, setDraggingRole] = useState<ImageRole | null>(null)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
     const [showManualReview, setShowManualReview] = useState(false)
+    const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
     const [editScrollRequest, setEditScrollRequest] = useState(0)
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -87,6 +89,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const formRef = useRef<HTMLDivElement>(null)
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
     const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
+    const reviewInFlightIdsRef = useRef<Set<number>>(new Set())
 
     const handleNotesValueChange = useCallback((newValue: string) => {
         setForm(f => ({ ...f, notes: newValue }))
@@ -335,21 +338,40 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     }
 
     const handleReview = async (m: Mistake, quality: number) => {
+        if (reviewInFlightIdsRef.current.has(m.id)) return
+        reviewInFlightIdsRef.current.add(m.id)
+        setReviewingMistakeIds(current => new Set(current).add(m.id))
         try {
-            const result = calculateNextReview(
+            const result = await submitMistakeReview({
+                mistake: m,
                 quality,
-                m.ease_factor || 2.5,
-                m.review_interval || 1,
-                m.review_count || 0
-            )
-            await diary.mistakes.review(m.id, result)
+                reviewDate: getLocalDateKey(),
+                mistakesAPI: diary.mistakes,
+                tasksAPI: diary.tasks,
+            })
             diary.requestDataRefresh()
             loadMistakes()
-            if (quality >= 3) showToast('复习成功，已安排下次复习', 'success')
-            else showToast('没关系，已重置学习进度', 'info')
+            if (result.taskSettlementStatus === 'completed') {
+                showToast('复习已保存，关联任务已完成', 'success')
+            } else if (result.taskSettlementStatus === 'failed') {
+                showToast('复习已保存，任务结算失败，可稍后重试', 'error')
+            } else if (result.taskSettlementStatus === 'conflict') {
+                showToast('复习已保存，存在多个关联任务，请稍后手动结算', 'info')
+            } else if (quality >= 3) {
+                showToast('复习成功，已安排下次复习', 'success')
+            } else {
+                showToast('没关系，已重置学习进度', 'info')
+            }
         } catch (e) {
             logger.error(e)
             showToast('复习记录失败', 'error')
+        } finally {
+            reviewInFlightIdsRef.current.delete(m.id)
+            setReviewingMistakeIds(current => {
+                const next = new Set(current)
+                next.delete(m.id)
+                return next
+            })
         }
     }
 
@@ -605,6 +627,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         handleEdit={handleEdit}
                         handleDelete={handleDelete}
                         handleReview={handleReview}
+                        reviewing={reviewingMistakeIds.has(m.id)}
                         onPreviewImage={setPreviewImage}
                     />
                 ))}

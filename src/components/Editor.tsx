@@ -41,7 +41,7 @@ export interface PendingDiaryInsert {
 
 interface EditorProps {
   entry: DiaryEntry | null
-  onSave: (data: { title: string; content: string; tags: number[] }) => Promise<void>
+  onSave: (data: { title: string; content: string; tags: number[] }, options?: { origin?: 'editor-auto' | 'editor-manual' }) => Promise<unknown>
   loading: boolean
   pendingInsert?: PendingDiaryInsert | null
   onPendingInsertApplied?: (id: number) => void
@@ -203,7 +203,10 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
     setSaving(true)
     isDirty.current = false
     try {
-      await onSave({ title, content, tags: selectedTagIds })
+      await onSave(
+        { title, content, tags: selectedTagIds },
+        { origin: isManual ? 'editor-manual' : 'editor-auto' },
+      )
       if (isManual) showToast('保存成功', 'success')
     } catch (err) {
       logger.error('Save failed:', err)

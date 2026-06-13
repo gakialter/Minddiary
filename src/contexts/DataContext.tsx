@@ -107,9 +107,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }, [])
 
     const apis = useMemo(() => ({
-        entries: createEntriesApi(entriesRef, saveToLocal),
+        entries: createEntriesApi(entriesRef, saveToLocal, tasksRef),
         tags: createTagsApi(tagsRef, entriesRef, saveToLocal),
-        mistakes: createMistakesApi(mistakesRef, subjectsRef, saveToLocal),
+        mistakes: createMistakesApi(mistakesRef, subjectsRef, tasksRef, saveToLocal),
         subjects: createSubjectsApi(subjectsRef, saveToLocal),
         pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
         tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef),

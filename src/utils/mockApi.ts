@@ -1,6 +1,7 @@
 // Mock API for browser development (when Electron APIs are not available)
 import type { ElectronAPI } from '../types/api'
 import { logger } from './logger'
+import { calculateWordCount } from './helpers'
 import { normalizeTag } from './tagStyle'
 
 const mockEntries: Record<string, unknown> = {}
@@ -27,8 +28,8 @@ const mockApi: ElectronAPI = {
         onStatusChange: () => () => {},
     },
     entries: {
-        create: async (entry) => ({ id: Date.now(), date: entry.date, title: entry.title || '', content: entry.content || '', mood: entry.mood || null, word_count: (entry.content || '').replace(/\s/g, '').length, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
-        update: async (id, entry) => ({ id, date: entry.date || '', title: entry.title || '', content: entry.content || '', mood: entry.mood || null, word_count: (entry.content || '').replace(/\s/g, '').length, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+        create: async (entry) => ({ id: Date.now(), date: entry.date, title: entry.title || '', content: entry.content || '', mood: entry.mood || null, word_count: calculateWordCount(entry.content), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+        update: async (id, entry) => ({ id, date: entry.date || '', title: entry.title || '', content: entry.content || '', mood: entry.mood || null, word_count: entry.content !== undefined ? calculateWordCount(entry.content) : 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
         delete: async () => {},
         getByDate: async (date) => (mockEntries[date] as ReturnType<ElectronAPI['entries']['getByDate']> extends Promise<infer T> ? T : never) || null,
         getById: async () => null,
@@ -79,6 +80,7 @@ const mockApi: ElectronAPI = {
     },
     tasks: {
         getByDate: async () => [],
+        find: async () => [],
         create: async (task) => {
             const now = new Date().toISOString()
             return {
@@ -165,7 +167,25 @@ const mockApi: ElectronAPI = {
         update: async () => {},
         delete: async () => {},
         toggleMastered: async () => ({ mastered: 1 }),
-        review: async () => ({ success: true }),
+        review: async (id, data) => ({
+            success: true,
+            mistake: {
+                id,
+                subject_id: null,
+                question: '',
+                answer: '',
+                notes: '',
+                mastered: false,
+                ease_factor: data.ease_factor,
+                review_interval: data.review_interval,
+                next_review_date: data.next_review_date,
+                review_count: data.review_count,
+                image_path: null,
+                answer_image_path: null,
+                created_at: '',
+                updated_at: new Date().toISOString(),
+            },
+        }),
         getDueCount: async () => 0,
         getRandomDue: async () => null,
     },

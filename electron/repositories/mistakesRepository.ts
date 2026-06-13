@@ -99,12 +99,23 @@ export function createMistakesRepository(db: Database.Database) {
     }
 
     function reviewMistake(id: number, { ease_factor, review_interval, next_review_date, review_count }: Partial<Mistake>) {
-        db.prepare(`
+        const result = db.prepare(`
         UPDATE mistakes
         SET ease_factor = ?, review_interval = ?, next_review_date = ?, review_count = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).run(ease_factor, review_interval, next_review_date, review_count, id);
-        return { success: true };
+        if (result.changes === 0) {
+            throw new Error('Mistake not found');
+        }
+        const mistake = db.prepare(`
+        SELECT m.*, s.name as subject_name, s.color as subject_color
+        FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id
+        WHERE m.id = ?
+    `).get(id) as Mistake | undefined;
+        if (!mistake) {
+            throw new Error('Mistake not found');
+        }
+        return { success: true, mistake };
     }
 
     function getDueForReviewCount(date: string) {

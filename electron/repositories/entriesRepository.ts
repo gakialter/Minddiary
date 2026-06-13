@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { calculateWordCount } from '../../src/utils/helpers';
 import type { DateMood, DiaryEntry, EntryFilters, NewEntry } from '../../src/types/index';
 
 export function createEntriesRepository(db: Database.Database) {
@@ -8,7 +9,7 @@ export function createEntriesRepository(db: Database.Database) {
 
     return {
         createEntry({ date, title, content, mood }: NewEntry) {
-            const wordCount = (content || '').replace(/\s/g, '').length;
+            const wordCount = calculateWordCount(content);
             const stmt = db.prepare(
                 'INSERT INTO entries (date, title, content, mood, word_count) VALUES (?, ?, ?, ?, ?)'
             );
@@ -17,11 +18,18 @@ export function createEntriesRepository(db: Database.Database) {
         },
 
         updateEntry(id: number, { title, content, mood }: Partial<NewEntry>) {
-            const wordCount = (content || '').replace(/\s/g, '').length;
+            const existing = getEntryById(id);
+            if (!existing) return undefined;
+            const nextTitle = title !== undefined ? title : existing.title;
+            const nextContent = content !== undefined ? content : existing.content;
+            const nextMood = mood !== undefined ? mood : existing.mood;
+            const wordCount = content !== undefined && content !== existing.content
+                ? calculateWordCount(content)
+                : existing.word_count;
             const stmt = db.prepare(
                 'UPDATE entries SET title=?, content=?, mood=?, word_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
             );
-            stmt.run(title || '', content || '', mood || null, wordCount, id);
+            stmt.run(nextTitle || '', nextContent || '', nextMood || null, wordCount, id);
             return getEntryById(id);
         },
 

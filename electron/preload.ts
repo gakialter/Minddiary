@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 import type { 
     NewEntry, EntryFilters, Tag, Subject, 
-    PomodoroSession, StudyTask, NewStudyTask, Mistake, MistakeFilters,
+    PomodoroSession, StudyTask, StudyTaskQuery, NewStudyTask, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
 
@@ -122,6 +122,7 @@ contextBridge.exposeInMainWorld('api', {
     // Study tasks
     tasks: {
         getByDate: (date: string) => ipcRenderer.invoke('tasks:getByDate', date),
+        find: (query: StudyTaskQuery) => ipcRenderer.invoke('tasks:find', query),
         create: (task: NewStudyTask) => ipcRenderer.invoke('tasks:create', task),
         update: (id: number, patch: Partial<StudyTask>) => ipcRenderer.invoke('tasks:update', id, patch),
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),

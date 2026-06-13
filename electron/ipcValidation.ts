@@ -6,6 +6,7 @@ import type {
     PomodoroSession,
     ReviewData,
     StudyTask,
+    StudyTaskQuery,
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
@@ -236,6 +237,36 @@ export function validateStudyTaskUpdatePayload(payload: unknown): Partial<StudyT
     const record = requireRecord(payload, 'tasks:update payload');
     validateTaskFields(record, false);
     return payload as Partial<StudyTask>;
+}
+
+export function validateStudyTaskQueryPayload(payload: unknown): StudyTaskQuery {
+    const record = requireRecord(payload, 'tasks:find payload');
+    const allowed = new Set([
+        'planned_date',
+        'type',
+        'status',
+        'related_mistake_id',
+        'related_entry_id',
+    ]);
+    Object.keys(record).forEach(key => {
+        if (!allowed.has(key)) {
+            throw new Error(`tasks:find payload contains unsupported field: ${key}`);
+        }
+    });
+    validateOptionalDateKey(record, 'planned_date', 'task planned_date');
+    validateOptionalEnum<StudyTaskType>(record, 'type', STUDY_TASK_TYPES, 'task type');
+    if (hasOwn(record, 'status') && record.status !== undefined) {
+        if (Array.isArray(record.status)) {
+            record.status.forEach((status, index) => {
+                requireEnum(status, STUDY_TASK_STATUSES, `task status[${index}]`);
+            });
+        } else {
+            requireEnum(record.status, STUDY_TASK_STATUSES, 'task status');
+        }
+    }
+    validateOptionalNullablePositiveInteger(record, 'related_mistake_id', 'task related_mistake_id');
+    validateOptionalNullablePositiveInteger(record, 'related_entry_id', 'task related_entry_id');
+    return payload as StudyTaskQuery;
 }
 
 export function validatePomodoroSessionPayload(payload: unknown): PomodoroSession {

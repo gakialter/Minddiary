@@ -5,6 +5,7 @@ import type {
     PomodoroSession,
     SaveToLocalFn,
     StudyTask,
+    StudyTaskQuery,
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
@@ -86,6 +87,26 @@ function sortTasks(tasks: StudyTask[]): StudyTask[] {
     })
 }
 
+function matchesQuery(task: StudyTask, query: StudyTaskQuery): boolean {
+    if (query.planned_date !== undefined && task.planned_date !== requireDateKey(query.planned_date)) return false
+    if (query.type !== undefined && task.type !== normalizeType(query.type)) return false
+    if (query.status !== undefined) {
+        const statuses = Array.isArray(query.status) ? query.status : [query.status]
+        if (statuses.length === 0) return false
+        statuses.forEach(status => normalizeStatus(status))
+        if (!statuses.includes(task.status)) return false
+    }
+    if (query.related_mistake_id !== undefined) {
+        const relatedMistakeId = normalizeNullableId(query.related_mistake_id)
+        if (task.related_mistake_id !== relatedMistakeId) return false
+    }
+    if (query.related_entry_id !== undefined) {
+        const relatedEntryId = normalizeNullableId(query.related_entry_id)
+        if (task.related_entry_id !== relatedEntryId) return false
+    }
+    return true
+}
+
 export const createTasksApi = (
     tasksRef: MutableRefObject<StudyTask[]>,
     saveToLocal: SaveToLocalFn,
@@ -95,6 +116,10 @@ export const createTasksApi = (
         if (IS_ELECTRON) return window.api.tasks.getByDate(date)
         requireDateKey(date)
         return sortTasks(tasksRef.current.filter(task => task.planned_date === date))
+    },
+    find: async (query: StudyTaskQuery) => {
+        if (IS_ELECTRON) return window.api.tasks.find(query)
+        return sortTasks(tasksRef.current.filter(task => matchesQuery(task, query)))
     },
     create: async (data: NewStudyTask) => {
         if (IS_ELECTRON) return window.api.tasks.create(data)
