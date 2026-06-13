@@ -6,6 +6,8 @@ import {
   AI_REQUEST_LIMITS,
   buildAiSummaryMessages,
   formatAiRequestValidationError,
+  getAiMessageTextContent,
+  hasImageContentParts,
   validateAiRequestMessages,
   validateAiSummaryInput,
 } from '../src/utils/aiRequestPolicy'
@@ -16,6 +18,11 @@ const validMessages = (): AIMessage[] => [
 ]
 
 const makeMessage = (role: AIMessage['role'], content: string = role): AIMessage => ({ role, content })
+
+const makeBase64 = (bytes: number): string => 'A'.repeat(Math.ceil(bytes / 3) * 4)
+const makeImageDataUrl = (bytes = 8, mimeType = 'image/png'): string => (
+  `data:${mimeType};base64,${makeBase64(bytes)}`
+)
 
 describe('AI request policy', () => {
   it('rejects non-array chat payloads', () => {
@@ -149,9 +156,10 @@ describe('AI request policy', () => {
   })
 
   it('accepts total content exactly at the total limit', () => {
+    const halfTotalLimit = AI_REQUEST_LIMITS.maxTotalContent / 2
     const messages = [
-      makeMessage('system', 's'.repeat(AI_REQUEST_LIMITS.maxMessageContent)),
-      makeMessage('user', 'u'.repeat(AI_REQUEST_LIMITS.maxMessageContent)),
+      makeMessage('system', 's'.repeat(halfTotalLimit)),
+      makeMessage('user', 'u'.repeat(halfTotalLimit)),
     ]
 
     expect(validateAiRequestMessages(messages)).toEqual(messages)
@@ -210,6 +218,185 @@ describe('AI request policy', () => {
     ]
 
     expect(validateAiRequestMessages(messages)).toEqual(messages)
+  })
+
+  it('accepts valid multipart content only on the final user message', () => {
+    const messages: AIMessage[] = [
+      makeMessage('system', 'system prompt'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this image' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(), detail: 'auto' } },
+        ],
+      },
+    ]
+
+    expect(validateAiRequestMessages(messages)).toEqual(messages)
+    expect(hasImageContentParts(messages)).toBe(true)
+    expect(getAiMessageTextContent(messages[1]!)).toBe('describe this image')
+  })
+
+  it('rejects multipart content on system, assistant, or non-final user messages', () => {
+    const parts = [{ type: 'text', text: 'multipart text' }]
+
+    expect(() => validateAiRequestMessages([
+      { role: 'system', content: parts },
+      makeMessage('user', 'hello'),
+    ])).toThrow('Only the final user message may use content parts')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system', 'system'),
+      { role: 'assistant', content: parts },
+      makeMessage('user', 'hello'),
+    ])).toThrow('Only the final user message may use content parts')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system', 'system'),
+      { role: 'user', content: parts },
+      makeMessage('user', 'hello'),
+    ])).toThrow('Only the final user message may use content parts')
+  })
+
+  it('rejects malformed multipart content', () => {
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      { role: 'user', content: [] },
+    ])).toThrow('content parts are required')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      { role: 'user', content: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] },
+    ])).toThrow('may contain only one text part')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      { role: 'user', content: [{ type: 'file', file: {} }] },
+    ])).toThrow('unsupported type')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      { role: 'user', content: [{ type: 'text', text: 'hello', cache_control: {} }] },
+    ])).toThrow('unsupported fields')
+  })
+
+  it('rejects unsupported image URL shapes and details', () => {
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'image' },
+          { type: 'image_url', image_url: { url: 'https://example.com/image.png' } },
+        ],
+      },
+    ])).toThrow('base64 data URL')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'image' },
+          { type: 'image_url', image_url: { url: 'file:///tmp/image.png' } },
+        ],
+      },
+    ])).toThrow('base64 data URL')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'image' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(8, 'image/gif') } },
+        ],
+      },
+    ])).toThrow('PNG, JPEG, or WebP')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'image' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(), detail: 'medium' } },
+        ],
+      },
+    ])).toThrow('image detail must be auto, low, or high')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'image' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(), name: 'photo.png' } },
+        ],
+      },
+    ])).toThrow('unsupported fields')
+  })
+
+  it('enforces image count, single-image size, and total image size limits', () => {
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'too many images' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl() } },
+          { type: 'image_url', image_url: { url: makeImageDataUrl() } },
+          { type: 'image_url', image_url: { url: makeImageDataUrl() } },
+          { type: 'image_url', image_url: { url: makeImageDataUrl() } },
+        ],
+      },
+    ])).toThrow('at most 3 images')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'too large' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(AI_REQUEST_LIMITS.maxImageBytes + 1) } },
+        ],
+      },
+    ])).toThrow('at most 5242880 bytes')
+
+    expect(() => validateAiRequestMessages([
+      makeMessage('system'),
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'too large together' },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(4 * 1024 * 1024) } },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(4 * 1024 * 1024) } },
+          { type: 'image_url', image_url: { url: makeImageDataUrl(4 * 1024 * 1024) } },
+        ],
+      },
+    ])).toThrow('total at most 10485760 bytes')
+  })
+
+  it('does not include base64 data in formatted validation errors', () => {
+    const base64 = makeBase64(AI_REQUEST_LIMITS.maxImageBytes + 1)
+    let formatted = ''
+    try {
+      validateAiRequestMessages([
+        makeMessage('system'),
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'too large' },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } },
+          ],
+        },
+      ])
+    } catch (error) {
+      formatted = formatAiRequestValidationError(error)
+    }
+
+    expect(formatted).not.toContain(base64.slice(0, 24))
+    expect(formatted).toContain('5MB')
   })
 
   it('keeps the existing Editor system-plus-user structure valid', () => {

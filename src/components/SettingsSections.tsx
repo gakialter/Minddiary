@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2, Monitor } from 'lucide-react'
-import { AI_PROVIDERS, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
+import { AI_PROVIDERS, getKnownModelCapabilities, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
 import type { ActiveAppInfo, CountdownEvent, FocusWhitelistItem } from '../types'
@@ -24,6 +24,7 @@ interface SettingsAIProps {
   aiKeyDirty: boolean; setAiKeyDirty: (v: boolean) => void
   clearKeyRequested: boolean; setClearKeyRequested: (v: boolean) => void
   aiModel: string; setAiModel: (v: string) => void
+  aiVisionEnabled: boolean; setAiVisionEnabled: (v: boolean) => void
 }
 
 interface SettingsBackupProps {
@@ -474,7 +475,8 @@ export function SettingsAI({
     aiApiKeyInput, setAiApiKeyInput,
     aiKeyDirty, setAiKeyDirty,
     clearKeyRequested, setClearKeyRequested,
-    aiModel, setAiModel
+    aiModel, setAiModel,
+    aiVisionEnabled, setAiVisionEnabled
 }: SettingsAIProps) {
     // Determine the active provider from the current model or endpoint
     const detectedProvider = useMemo(() => {
@@ -530,6 +532,7 @@ export function SettingsAI({
     // Current model display
     const currentModelObj = activeProvider.models.find(m => m.id === aiModel)
     const currentModelDisplay = currentModelObj?.name || aiModel || '未选择'
+    const currentCapabilities = getKnownModelCapabilities(aiModel)
 
     return (
         <div style={{ ...sectionStyle, gridColumn: '1 / -1' }}>
@@ -765,6 +768,35 @@ export function SettingsAI({
                         )}
                       </div>
                     )}
+                </div>
+
+                {/* ── Vision capability ── */}
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-light)',
+                }}>
+                  {activeProviderId === 'custom' ? (
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={aiVisionEnabled}
+                        onChange={event => setAiVisionEnabled(event.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>此模型支持图片输入</span>
+                        <span className="text-xs text-muted">
+                          仅在你确认当前自定义 OpenAI-compatible 模型支持图片时开启。关闭时，图片附件不会被发送。
+                        </span>
+                      </span>
+                    </label>
+                  ) : (
+                    <div className="text-xs text-muted">
+                      当前预设模型：{currentCapabilities?.vision ? '支持图片输入' : '未声明图片输入能力'}。图片发送由模型能力边界控制。
+                    </div>
+                  )}
                 </div>
 
                 <div className="text-xs text-muted" style={{

@@ -312,7 +312,7 @@ ipcMain.handle('tags:getEntryTagsBatch', (_: unknown, entryIds: number[]) => db.
 // Only these keys may be read via settings:get. Unknown keys are rejected.
 const SETTINGS_READ_WHITELIST: ReadonlySet<string> = new Set([
     'theme', 'examDate', 'dailyGoal', 'autoSave', 'notifications',
-    'aiEndpoint', 'aiModel', 'pomodoroMinutes',
+    'aiEndpoint', 'aiModel', 'aiVisionEnabled', 'pomodoroMinutes',
     'autoBackup', 'backupPath', 'pomodoroSound', 'pomodoroAlert',
     'countdownEvents', 'focusGuardEnabled', 'focusGuardIntervalSec', 'focusWhitelist',
 ]);
@@ -325,7 +325,7 @@ const GENERAL_PATCH_SCHEMA: Record<string, string> = {
     focusGuardEnabled: 'boolean', focusGuardIntervalSec: 'number', focusWhitelist: 'object',
 };
 const AI_PATCH_SCHEMA: Record<string, string> = {
-    aiEndpoint: 'string', aiModel: 'string',
+    aiEndpoint: 'string', aiModel: 'string', aiVisionEnabled: 'boolean',
     aiApiKey: 'string', clearAiApiKey: 'boolean',
 };
 const BACKUP_PATCH_SCHEMA: Record<string, string> = {
@@ -545,6 +545,7 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
 ipcMain.handle('settings:updateAI', (_: unknown, rawPatch: unknown) => {
     const patch = sanitizePatch<{
         aiEndpoint?: string; aiModel?: string;
+        aiVisionEnabled?: boolean;
         aiApiKey?: string; clearAiApiKey?: boolean;
     }>(rawPatch, AI_PATCH_SCHEMA);
     if (patch.aiApiKey !== undefined && patch.clearAiApiKey) {
@@ -561,6 +562,7 @@ ipcMain.handle('settings:updateAI', (_: unknown, rawPatch: unknown) => {
         }
         if (patch.aiEndpoint !== undefined) db.setSetting('aiEndpoint', patch.aiEndpoint);
         if (patch.aiModel !== undefined) db.setSetting('aiModel', patch.aiModel);
+        if (patch.aiVisionEnabled !== undefined) db.setSetting('aiVisionEnabled', String(patch.aiVisionEnabled));
     });
     txn();
     return { success: true };

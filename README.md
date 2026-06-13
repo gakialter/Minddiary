@@ -108,6 +108,10 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 ### AI 助教
 
 - 小研 AI 支持自由对话、总结今日日记、错题规律分析、考考我、心理按摩和制定复习冲刺计划。
+- AI 助手快捷入口会先填入可编辑草稿，并显示可移除的上下文标签；点击快捷入口不会自动发送，用户确认后才会请求 AI。
+- AI 助手输入框支持本地 PNG/JPEG/WebP 图片、TXT/MD/CSV/JSON/LOG 文本文件和文本型 PDF；扫描 PDF 不做 OCR。
+- 图片会以 OpenAI 兼容 multipart chat message 发送，只有声明支持视觉能力的模型可以发送图片；自定义模型需要在设置中手动确认图片能力。
+- 附件只在点击发送后传给当前配置的 AI provider；MindDiary 不会把附件正文、base64、提取文本或本地路径写入 SQLite、localStorage、聊天历史、备份或导出，也不使用 provider Files API。
 - 今日决策页提供「AI 规划今日行动」入口：AI 只生成候选建议，本地严格解析和校验后，用户可编辑、删除、选择部分建议并确认创建为普通今日任务。
 - AI 今日行动建议强制 `source=ai`、`status=todo`、`planned_date=today`；AI 不会直接写库、自动创建、完成、跳过或删除任务。
 - 设置页提供 6 个预设供应商入口（DeepSeek、通义千问、智谱 GLM、Kimi、豆包、SiliconFlow）和自定义模型配置。
@@ -205,6 +209,7 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 - **单题错题任务联动**：今日决策页从到期错题创建独立 review task；SM-2 保存成功后只结算精确关联的 active 任务。
 - **日记任务确认结算**：手动保存有效日记后，可确认把同日或精确关联的 diary task 关联到真实 entry 并完成；自动保存和专注复盘不会自动完成任务。
 - **AI 今日行动建议**：AI 只生成候选；本地 parser/schema/allowlist 校验后，用户可编辑、删除、部分选择并确认创建普通任务。
+- **AI 助手 composer**：五个快捷提示改为可编辑草稿 + 可移除上下文标签；支持本地图片、文本文件和文本型 PDF 附件，图片经过视觉模型能力门控，附件内容不持久化。
 - **基础契约修复**：entry patch update 不清空未提交字段，SM-2 review 不返回假成功，browser fallback 删除错题/日记后清理任务 relation id。
 - **轻量反馈**：今日任务卡片展示 AI 建议、关联错题、关联日记 badge，并显示计划预计时长 / 实际任务专注时长。
 - **数据模型边界**：SQLite schema version 仍为 3；不新增表、migration、集合错题任务、`focus_reviews` 或 AI suggestion 持久化。

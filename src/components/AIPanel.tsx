@@ -1,75 +1,106 @@
-import { useState, useEffect, useRef } from 'react'
-import MarkdownRenderer from './common/MarkdownRenderer'
-import {
-    SYSTEM_PROMPT,
-    sanitizeUserInput,
-    buildDiarySummaryPrompt,
-    buildMistakeAnalysisPrompt,
-    buildMentalMassagePrompt,
-    buildSprintPlanPrompt,
-    buildQuizMePrompt,
-} from '../utils/promptTemplates'
-import { useDiary } from '../contexts/DiaryContext'
+import { useMemo, useRef, useState, useEffect } from 'react'
+import type { ReactElement } from 'react'
+import { Bot, Coffee, GraduationCap, PenLine, Search, Target, Trash2 } from 'lucide-react'
+import AIComposer from './ai/AIComposer'
+import AIMessageBubble, { type AIChatMessage } from './ai/AIMessageBubble'
+import AIQuickPromptMenu from './ai/AIQuickPromptMenu'
+import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import { showToast } from './Toast'
-import { Bot, Trash2, Sparkles, PenLine, Search, Coffee, Target, GraduationCap, X } from 'lucide-react'
-import type { DiaryEntry, AIMessage } from '../types'
+import { useAIComposer } from '../hooks/useAIComposer'
+import { useDiary } from '../contexts/DiaryContext'
+import {
+    AI_QUICK_PROMPT_TEMPLATES,
+    type AIQuickPromptViewModel,
+} from '../utils/aiQuickPrompts'
+import { buildAIContextSections, type AIContextSection } from '../utils/aiContextBuilder'
+import { attachmentToMeta, revokeAttachmentPreview, type AIComposerAttachment } from '../utils/aiAttachmentPolicy'
+import { buildAIConversation } from '../utils/aiConversationBuilder'
+import { resolveAIModelCapabilities } from '../data/aiProviders'
+import type { AIMessage, DiaryEntry } from '../types'
 
 interface AIPanelProps {
     entry: DiaryEntry | null
 }
 
-interface ChatMessage {
-    role: 'user' | 'assistant'
-    content: string
-    id: number
-}
-
 const AI_CHAT_HISTORY_STORAGE_KEY = 'minddiary.ai.chatHistory'
 
-const isChatMessage = (value: unknown): value is ChatMessage => {
+const isAttachmentMeta = (value: unknown) => {
     if (!value || typeof value !== 'object') return false
-    const message = value as Partial<ChatMessage>
+    const attachment = value as Record<string, unknown>
+    return (
+        (attachment.kind === 'image' || attachment.kind === 'text-file' || attachment.kind === 'pdf') &&
+        typeof attachment.name === 'string' &&
+        typeof attachment.mimeType === 'string' &&
+        typeof attachment.size === 'number'
+    )
+}
+
+const isChatMessage = (value: unknown): value is AIChatMessage => {
+    if (!value || typeof value !== 'object') return false
+    const message = value as Partial<AIChatMessage>
     return (
         (message.role === 'user' || message.role === 'assistant') &&
         typeof message.content === 'string' &&
         typeof message.id === 'number' &&
-        Number.isFinite(message.id)
+        Number.isFinite(message.id) &&
+        (message.contextLabels === undefined || (
+            Array.isArray(message.contextLabels) &&
+            message.contextLabels.every(label => typeof label === 'string')
+        )) &&
+        (message.attachments === undefined || (
+            Array.isArray(message.attachments) &&
+            message.attachments.every(isAttachmentMeta)
+        ))
     )
 }
 
-const loadCachedMessages = (): ChatMessage[] => {
+const loadCachedMessages = (): AIChatMessage[] => {
     try {
         const raw = localStorage.getItem(AI_CHAT_HISTORY_STORAGE_KEY)
         if (!raw) return []
         const parsed: unknown = JSON.parse(raw)
         if (!Array.isArray(parsed)) return []
-        return parsed.filter(isChatMessage)
+        return parsed.filter(isChatMessage).map(message => ({
+            ...message,
+            attachments: message.attachments?.map(attachment => ({ ...attachment, reusable: false })),
+        }))
     } catch {
+        localStorage.removeItem(AI_CHAT_HISTORY_STORAGE_KEY)
         return []
     }
 }
 
-const saveCachedMessages = (messages: ChatMessage[]) => {
+const saveCachedMessages = (messages: AIChatMessage[]) => {
     try {
         if (messages.length === 0) {
             localStorage.removeItem(AI_CHAT_HISTORY_STORAGE_KEY)
             return
         }
-        localStorage.setItem(AI_CHAT_HISTORY_STORAGE_KEY, JSON.stringify(messages))
+        const safeMessages = messages.map(message => ({
+            role: message.role,
+            content: message.content,
+            id: message.id,
+            ...(message.contextLabels?.length ? { contextLabels: message.contextLabels } : {}),
+            ...(message.attachments?.length ? {
+                attachments: message.attachments.map(attachment => ({
+                    kind: attachment.kind,
+                    name: attachment.name,
+                    mimeType: attachment.mimeType,
+                    size: attachment.size,
+                    reusable: false,
+                })),
+            } : {}),
+        }))
+        localStorage.setItem(AI_CHAT_HISTORY_STORAGE_KEY, JSON.stringify(safeMessages))
     } catch {
         // Storage failures should not break the AI assistant UI.
     }
 }
 
-const toSafeHistoryMessage = (message: ChatMessage): AIMessage => ({
-    role: message.role,
-    content: sanitizeUserInput(message.content),
-})
-
-interface QuickPrompt {
-    icon: React.ReactElement
-    label: string
-    action: () => void
+interface LastRequestSnapshot {
+    requestMessages: AIMessage[]
+    assistantMessageId: number
+    attachments: AIComposerAttachment[]
 }
 
 interface EntryRequestContext {
@@ -90,17 +121,33 @@ const isSameEntryRequestContext = (a: EntryRequestContext, b: EntryRequestContex
     a.entryContent === b.entryContent
 )
 
+const iconByPromptId: Record<string, ReactElement> = {
+    'daily-summary': <PenLine size={18} />,
+    'mistake-patterns': <Search size={18} />,
+    'quiz-me': <GraduationCap size={18} />,
+    'mental-massage': <Coffee size={18} />,
+    'sprint-plan': <Target size={18} />,
+}
+
 export default function AIPanel({ entry }: AIPanelProps) {
-    const { settingsData, ai: aiAPI, mistakes: mistakesAPI } = useDiary()
-    const [messages, setMessages] = useState<ChatMessage[]>(() => loadCachedMessages())
-    const [input, setInput] = useState('')
+    const {
+        settingsData,
+        ai: aiAPI,
+        entries,
+        mistakes,
+        subjects,
+        tasks,
+        pomodoro,
+    } = useDiary()
+    const composer = useAIComposer()
+    const [messages, setMessages] = useState<AIChatMessage[]>(() => loadCachedMessages())
     const [loading, setLoading] = useState(false)
+    const [preview, setPreview] = useState<PreviewImage | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    // Generation counter: incremented on each new request or cancel.
-    // sendMessage captures its value at call time; if it changes before the
-    // response arrives, the response is discarded (soft cancellation).
     const generationRef = useRef(0)
     const activeGenerationRef = useRef<number | null>(null)
+    const entrySensitiveGenerationRef = useRef<number | null>(null)
+    const lastRequestRef = useRef<LastRequestSnapshot | null>(null)
     const entryRequestContextRef = useRef(getEntryRequestContext(entry))
 
     useEffect(() => {
@@ -110,6 +157,44 @@ export default function AIPanel({ entry }: AIPanelProps) {
     useEffect(() => {
         saveCachedMessages(messages)
     }, [messages])
+
+    useEffect(() => () => {
+        lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
+    }, [])
+
+    useEffect(() => {
+        const nextContext = getEntryRequestContext(entry)
+        if (!isSameEntryRequestContext(entryRequestContextRef.current, nextContext)) {
+            entryRequestContextRef.current = nextContext
+            if (
+                activeGenerationRef.current !== null &&
+                entrySensitiveGenerationRef.current === activeGenerationRef.current
+            ) {
+                invalidateRequest()
+            }
+        }
+    }, [entry?.id, entry?.date, entry?.content])
+
+    const modelCapabilities = useMemo(() => (
+        resolveAIModelCapabilities(settingsData.aiModel, settingsData.aiVisionEnabled)
+    ), [settingsData.aiModel, settingsData.aiVisionEnabled])
+
+    const hasImageAttachment = composer.attachments.some(attachment => attachment.kind === 'image')
+    const modelError = hasImageAttachment && !modelCapabilities.vision
+        ? '当前模型未声明支持图片输入，请切换视觉模型或在自定义模型设置中确认图片能力。'
+        : null
+    const composerError = composer.error || modelError
+    const canSend = composer.canSendContent && !loading && !composerError
+
+    const quickPrompts: AIQuickPromptViewModel[] = useMemo(() => (
+        AI_QUICK_PROMPT_TEMPLATES.map(template => ({
+            ...template,
+            icon: iconByPromptId[template.id],
+            disabledReason: template.id === 'daily-summary' && !entry?.content?.trim()
+                ? '当前日记为空，无法附加今日日记上下文。'
+                : undefined,
+        }))
+    ), [entry?.content])
 
     const beginRequest = () => {
         const generation = ++generationRef.current
@@ -127,29 +212,20 @@ export default function AIPanel({ entry }: AIPanelProps) {
     )
 
     const invalidateRequest = (updateLoading = true) => {
-        generationRef.current++
+        generationRef.current += 1
         activeGenerationRef.current = null
+        entrySensitiveGenerationRef.current = null
         if (updateLoading) setLoading(false)
     }
 
-    useEffect(() => {
-        const nextContext = getEntryRequestContext(entry)
-        if (!isSameEntryRequestContext(entryRequestContextRef.current, nextContext)) {
-            entryRequestContextRef.current = nextContext
-            invalidateRequest()
-        }
-    }, [entry?.id, entry?.date, entry?.content])
-
-    useEffect(() => () => {
-        invalidateRequest(false)
-    }, [])
-
-    const appendMessage = (role: 'user' | 'assistant', content: string) => {
-        setMessages(prev => [...prev, { role, content, id: Date.now() + Math.random() }])
-    }
-
     const clearMessages = () => {
+        const confirmed = messages.length > 0
+            ? window.confirm?.('确认清空 AI 聊天历史吗？附件内容不会保留，清空后无法恢复。')
+            : true
+        if (confirmed === false) return
         invalidateRequest()
+        lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
+        lastRequestRef.current = null
         setMessages([])
     }
 
@@ -157,44 +233,122 @@ export default function AIPanel({ entry }: AIPanelProps) {
         invalidateRequest()
     }
 
-    const sendMessage = async (textOverride: string | null = null, activeGeneration?: number) => {
-        const raw = textOverride ?? input
-        if (!raw.trim()) {
-            if (activeGeneration !== undefined && isCurrentRequest(activeGeneration)) {
-                activeGenerationRef.current = null
-                setLoading(false)
-            }
+    const copyMessage = async (content: string) => {
+        try {
+            await navigator.clipboard.writeText(content)
+            showToast('已复制', 'success')
+        } catch {
+            showToast('复制失败', 'error')
+        }
+    }
+
+    const sendMessage = async (inputOverride?: string) => {
+        if (loading || hasActiveRequest()) return
+        const readyAttachments = composer.attachments.filter(attachment => attachment.status === 'ready')
+        const userInput = inputOverride ?? composer.input
+        const hasSendableContent = (
+            userInput.trim().length > 0 ||
+            composer.contextKinds.length > 0 ||
+            readyAttachments.length > 0
+        )
+        if (!hasSendableContent || composer.error) return
+        if (modelError) {
+            composer.setError(modelError)
             return
         }
-        if (activeGeneration === undefined && (loading || hasActiveRequest())) return
 
-        const generation = activeGeneration ?? beginRequest()
-        if (!isCurrentRequest(generation)) return
-
-        const textToUse = sanitizeUserInput(raw)
-
-        appendMessage('user', raw)
-        if (!textOverride) setInput('')
-
+        const generation = beginRequest()
+        entrySensitiveGenerationRef.current = composer.contextKinds.includes('current-diary') ? generation : null
         try {
-            const chatMessages: AIMessage[] = [
-                { role: 'system', content: SYSTEM_PROMPT },
-                ...messages.slice(-6).map(toSafeHistoryMessage),
-                { role: 'user' as const, content: textToUse }
-            ]
-            const result = await aiAPI.chat(chatMessages)
+            const contextSections: AIContextSection[] = await buildAIContextSections(composer.contextKinds, {
+                entry,
+                settingsData,
+                entries,
+                mistakes,
+                subjects,
+                tasks,
+                pomodoro,
+            })
+            if (!isCurrentRequest(generation)) return
+
+            const conversation = buildAIConversation({
+                history: messages,
+                userInput,
+                selectedContextKinds: composer.contextKinds,
+                contextSections,
+                attachments: readyAttachments,
+            })
+            const result = await aiAPI.chat(conversation.messages)
             if (!isCurrentRequest(generation)) return
             if (result.error) {
-                appendMessage('assistant', `${result.error}`)
+                composer.setError(result.error)
                 showToast(result.error.split('\n')[0]!, 'error')
-            } else {
-                appendMessage('assistant', result.content || '')
+                return
             }
-        } catch (e: unknown) {
+
+            const userMessageId = Date.now() + Math.random()
+            const assistantMessageId = Date.now() + Math.random() + 1
+            const nextMessages: AIChatMessage[] = [
+                ...messages,
+                {
+                    role: 'user',
+                    content: conversation.visibleUserText,
+                    id: userMessageId,
+                    contextLabels: conversation.contextLabels,
+                    attachments: readyAttachments.map(attachmentToMeta),
+                },
+                {
+                    role: 'assistant',
+                    content: result.content || '',
+                    id: assistantMessageId,
+                },
+            ]
+            lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
+            lastRequestRef.current = {
+                requestMessages: conversation.messages,
+                assistantMessageId,
+                attachments: readyAttachments,
+            }
+            setMessages(nextMessages)
+            composer.clearComposer()
+        } catch (error) {
             if (!isCurrentRequest(generation)) return
-            const msg = `网络异常: ${e instanceof Error ? e.message : String(e)}`
-            appendMessage('assistant', msg)
-            showToast('AI 请求失败，请检查网络', 'error')
+            const message = error instanceof Error ? error.message : String(error)
+            composer.setError(message)
+            showToast(message.split('\n')[0] || 'AI 请求失败', 'error')
+        } finally {
+            if (isCurrentRequest(generation)) {
+                activeGenerationRef.current = null
+                entrySensitiveGenerationRef.current = null
+                setLoading(false)
+            }
+        }
+    }
+
+    const regenerateLastAnswer = async () => {
+        const snapshot = lastRequestRef.current
+        if (!snapshot || loading || hasActiveRequest()) return
+        const hasLostAttachment = snapshot.attachments.some(attachment => (
+            attachment.kind === 'image' ? !attachment.dataUrl : !attachment.extractedText
+        ))
+        if (hasLostAttachment) {
+            showToast('附件内容未持久化，无法重新生成带附件的回复。', 'error')
+            return
+        }
+
+        const generation = beginRequest()
+        try {
+            const result = await aiAPI.chat(snapshot.requestMessages)
+            if (!isCurrentRequest(generation)) return
+            if (result.error) {
+                showToast(result.error.split('\n')[0]!, 'error')
+                return
+            }
+            setMessages(current => current.map(message => (
+                message.id === snapshot.assistantMessageId
+                    ? { ...message, content: result.content || '' }
+                    : message
+            )))
         } finally {
             if (isCurrentRequest(generation)) {
                 activeGenerationRef.current = null
@@ -203,63 +357,16 @@ export default function AIPanel({ entry }: AIPanelProps) {
         }
     }
 
-    const summarizeEntry = async () => {
-        if (!entry?.content) {
-            appendMessage('assistant', '左侧编辑器还没有内容哦，今天写点什么再让我总结吧！')
-            return
-        }
-        sendMessage(buildDiarySummaryPrompt(entry.content, entry.date))
-    }
-
-    const analyzeMistakes = async () => {
-        if (loading || hasActiveRequest()) return
-        const generation = beginRequest()
-        try {
-            const mistakesResponse = await mistakesAPI.getAll({})
-            if (!isCurrentRequest(generation)) return
-            await sendMessage(buildMistakeAnalysisPrompt(mistakesResponse?.data || []), generation)
-        } catch {
-            if (!isCurrentRequest(generation)) return
-            await sendMessage(buildMistakeAnalysisPrompt([]), generation)
-        }
-    }
-
-    const quizMe = async () => {
-        if (loading || hasActiveRequest()) return
-        const generation = beginRequest()
-        try {
-            const mistakesResponse = await mistakesAPI.getAll({ mastered: false })
-            if (!isCurrentRequest(generation)) return
-            await sendMessage(buildQuizMePrompt(mistakesResponse?.data || [], 2), generation)
-        } catch {
-            if (!isCurrentRequest(generation)) return
-            await sendMessage(buildQuizMePrompt([], 2), generation)
-        }
-    }
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            sendMessage()
-        }
-    }
-
-    const quickPrompts: QuickPrompt[] = [
-        { icon: <PenLine size={20} />, label: '总结今日日记', action: summarizeEntry },
-        { icon: <Search size={20} />, label: '错题规律分析', action: analyzeMistakes },
-        { icon: <GraduationCap size={20} />, label: '考考我', action: quizMe },
-        { icon: <Coffee size={20} />, label: '心理按摩', action: () => sendMessage(buildMentalMassagePrompt()) },
-        { icon: <Target size={20} />, label: '制定复习冲刺', action: () => sendMessage(buildSprintPlanPrompt(30)) },
-    ]
-
-    // MarkdownRenderer handles rendering via react-markdown + remark-gfm
     return (
         <div style={{
-            height: '100%', display: 'flex', flexDirection: 'column',
-            maxWidth: 800, margin: '0 auto', width: '100%',
-            position: 'relative'
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            maxWidth: 800,
+            margin: '0 auto',
+            width: '100%',
+            position: 'relative',
         }}>
-            {/* Header */}
             <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', background: 'transparent', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="flex items-center gap-sm">
                     <div style={{ width: 36, height: 36, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', color: 'var(--accent)' }}>
@@ -275,140 +382,90 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 </button>
             </div>
 
-            {/* Chat Area */}
             <div style={{
-                flex: 1, padding: 'var(--space-lg) var(--space-xl)', overflowY: 'auto',
-                display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)'
+                flex: 1,
+                padding: 'var(--space-lg) var(--space-xl)',
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-xl)',
             }}>
                 {messages.length === 0 && (
                     <div className="empty-state" style={{ height: '100%', animation: 'page-fade-in 0.5s ease-out' }}>
                         <div style={{
-                            width: 80, height: 80, borderRadius: 24,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-md)',
+                            width: 80,
+                            height: 80,
+                            borderRadius: 24,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginBottom: 'var(--space-md)',
                             background: 'var(--bg-tertiary)',
                             color: 'var(--accent)',
-                            boxShadow: 'inset 0 4px 10px rgba(255,255,255,0.6), var(--shadow-sm)'
+                            boxShadow: 'inset 0 4px 10px rgba(255,255,255,0.6), var(--shadow-sm)',
                         }}>
                             <Bot size={40} />
                         </div>
                         <h3 style={{ fontSize: 20, marginBottom: 'var(--space-sm)' }}>我是你的专属考研智囊</h3>
-                        <p className="text-muted" style={{ maxWidth: 300, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
-                            我可以直接读取你的日记、错题与学习进度，为你提供定制化的复习策略和情绪价值。
+                        <p className="text-muted" style={{ maxWidth: 320, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
+                            快捷提示会先进入草稿，你可以编辑请求、移除上下文，再主动发送给 AI。
                         </p>
-
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-md)', justifyContent: 'center', width: '100%', maxWidth: 640 }}>
-                            {quickPrompts.map((p, i) => (
-                                <button key={i} className="flex items-center gap-2 cursor-pointer whitespace-nowrap"
-                                    style={{ padding: '8px 16px', borderRadius: 9999, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', transition: 'all 0.2s' }}
-                                    onClick={p.action}
-                                    onMouseEnter={e => Object.assign(e.currentTarget.style, { background: 'var(--bg-tertiary)', color: 'var(--text-primary)', borderColor: 'transparent', transform: 'translateY(-1px)' })}
-                                    onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'transparent', color: 'var(--text-secondary)', borderColor: 'var(--border)', transform: 'translateY(0)' })}
-                                >
-                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8 }}>{p.icon}</span>
-                                    <span style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                        <AIQuickPromptMenu prompts={quickPrompts} onSelect={composer.applyQuickPrompt} />
                     </div>
                 )}
 
-                {/* Message Bubbles */}
-                {messages.map((msg) => (
-                    <div key={msg.id} style={{
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                        animation: 'page-fade-in 0.3s cubic-bezier(0.2, 0, 0, 1)'
-                    }}>
-                        <div style={{
-                            maxWidth: '85%',
-                            padding: '12px 16px',
-                            borderRadius: 16,
-                            borderTopRightRadius: msg.role === 'user' ? 4 : 16,
-                            borderTopLeftRadius: msg.role === 'assistant' ? 4 : 16,
-                            background: msg.role === 'user' ? 'var(--accent)' : 'var(--bg-tertiary)',
-                            color: msg.role === 'user' ? 'white' : 'var(--text-primary)',
-                            boxShadow: msg.role === 'user' ? '0 4px 12px rgba(15, 118, 110, 0.2)' : 'none',
-                            fontSize: 15, lineHeight: 1.6
-                        }}>
-                            {msg.role === 'user' ? (
-                                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-                            ) : (
-                                <MarkdownRenderer className="ai-message-content">{msg.content}</MarkdownRenderer>
-                            )}
-                        </div>
-                        <span className="text-muted" style={{ fontSize: 11, marginTop: 4, margin: '4px 8px 0 8px' }}>
-                            {msg.role === 'user' ? '我' : '小研 AI'}
-                        </span>
-                    </div>
+                {messages.map(message => (
+                    <AIMessageBubble
+                        key={message.id}
+                        message={message}
+                        onCopy={copyMessage}
+                        onRegenerate={
+                            message.role === 'assistant' && lastRequestRef.current?.assistantMessageId === message.id
+                                ? regenerateLastAnswer
+                                : undefined
+                        }
+                    />
                 ))}
 
-                {/* Loading State */}
                 {loading && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-sm)', animation: 'page-fade-in 0.3s ease-in' }}>
                         <div style={{
-                            padding: '16px 20px', borderRadius: 16, borderTopLeftRadius: 4,
+                            padding: '16px 20px',
+                            borderRadius: 16,
+                            borderTopLeftRadius: 4,
                             background: 'var(--bg-tertiary)',
-                            display: 'flex', gap: 6, alignItems: 'center'
+                            display: 'flex',
+                            gap: 6,
+                            alignItems: 'center',
                         }}>
                             <div className="typing-dot" style={{ animationDelay: '0s' }}></div>
                             <div className="typing-dot" style={{ animationDelay: '0.2s' }}></div>
                             <div className="typing-dot" style={{ animationDelay: '0.4s' }}></div>
                         </div>
-                        <button
-                            className="button button-secondary"
-                            style={{ padding: '4px 12px', fontSize: 12 }}
-                            onClick={cancelRequest}
-                        >
-                            <X size={14} /> 取消请求
-                        </button>
                     </div>
                 )}
                 <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
 
-            {/* Input Footer */}
-            <div style={{
-                padding: 'var(--space-md) var(--space-xl)',
-                background: 'transparent',
-                zIndex: 10
-            }}>
-                <div style={{
-                    display: 'flex', alignItems: 'flex-end', gap: 'var(--space-sm)',
-                    background: 'var(--bg-secondary)', padding: '8px',
-                    borderRadius: 24, border: '1px solid var(--border-light)',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.04)'
-                }}>
-                    <textarea
-                        className="input"
-                        style={{
-                            flex: 1, resize: 'none', border: 'none', background: 'transparent',
-                            boxShadow: 'none', padding: '8px 12px', minHeight: 40, maxHeight: 120,
-                            lineHeight: 1.5
-                        }}
-                        placeholder="向小研提问... (Enter 发送)"
-                        value={input} onChange={e => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown} rows={1}
-                    />
-                    <button
-                        className="button button-primary"
-                        style={{
-                            width: 40, height: 40, borderRadius: 20, padding: 0, flexShrink: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            opacity: (!input.trim() || loading) ? 0.5 : 1
-                        }}
-                        onClick={() => sendMessage()}
-                        disabled={loading || !input.trim()}
-                    >
-                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                        </svg>
-                    </button>
-                </div>
-                <div style={{ textAlign: 'center', marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                    AI 可能会产生不准确的学习建议，请结合自身实际情况采纳。
-                </div>
-            </div>
+            <AIComposer
+                input={composer.input}
+                onInputChange={composer.setInput}
+                contextKinds={composer.contextKinds}
+                attachments={composer.attachments}
+                prompts={messages.length > 0 ? quickPrompts : []}
+                loading={loading}
+                error={composerError}
+                canSend={Boolean(canSend)}
+                onPromptSelect={composer.applyQuickPrompt}
+                onRemoveContext={composer.removeContextKind}
+                onAddFiles={files => { void composer.addFiles(files) }}
+                onRemoveAttachment={composer.removeAttachment}
+                onPreviewAttachment={setPreview}
+                onSend={sendMessage}
+                onCancel={cancelRequest}
+            />
+
+            <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
 
             <style>{`
                 .typing-dot {
@@ -419,7 +476,6 @@ export default function AIPanel({ entry }: AIPanelProps) {
                     0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
                     40% { transform: scale(1); opacity: 1; }
                 }
-                /* markdown-body styles now live in MarkdownRenderer component */
             `}</style>
         </div>
     )

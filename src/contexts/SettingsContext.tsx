@@ -113,6 +113,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 const next = { ...prev }
                 if (patch.aiEndpoint !== undefined) next.aiEndpoint = patch.aiEndpoint
                 if (patch.aiModel !== undefined) next.aiModel = patch.aiModel
+                if (patch.aiVisionEnabled !== undefined) next.aiVisionEnabled = patch.aiVisionEnabled
                 if (patch.aiApiKey !== undefined) {
                     next.aiApiKeyPresent = true
                     next.aiApiKeyMasked = '********'

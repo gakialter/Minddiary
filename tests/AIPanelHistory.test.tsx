@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App'
 import AIPanel from '../src/components/AIPanel'
 import type { AIMessage, AIResponse, DiaryEntry } from '../src/types'
+import { AI_CONTEXT_LABELS, AI_QUICK_PROMPT_TEMPLATES } from '../src/utils/aiQuickPrompts'
 
 const CHAT_HISTORY_KEY = 'minddiary.ai.chatHistory'
 
@@ -123,6 +124,7 @@ describe('AI chat history cache', () => {
     localStorage.clear()
     localStorage.setItem('started', 'true')
     vi.clearAllMocks()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.entries.getByDate.mockResolvedValue(null)
     mocks.entries.create.mockResolvedValue(null)
     mocks.entries.update.mockResolvedValue(null)
@@ -289,16 +291,21 @@ describe('AI chat history cache', () => {
     expect(screen.queryByText('first stale reply')).not.toBeInTheDocument()
   })
 
-  it('does not start chat from a stale quick-action prefetch after clearing history', async () => {
+  it('fills quick-prompt drafts and context without starting chat or prefetching context', async () => {
     const mistakesRequest = createDeferred<{ data: [] }>()
     mocks.mistakesGetAll.mockReturnValueOnce(mistakesRequest.promise)
+    const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'mistake-patterns')!
 
     render(<AIPanel entry={null} />)
 
     fireEvent.click(screen.getByRole('button', { name: /错题规律分析|閿欓/ }))
 
+    expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
+    expect(screen.getByText(AI_CONTEXT_LABELS['mistake-patterns'])).toBeInTheDocument()
+    expect(mocks.aiChat).not.toHaveBeenCalled()
+
     await waitFor(() => {
-      expect(mocks.mistakesGetAll).toHaveBeenCalledTimes(1)
+      expect(mocks.mistakesGetAll).not.toHaveBeenCalled()
     })
 
     fireEvent.click(screen.getByRole('button', { name: /娓呯┖|清空/ }))
@@ -338,10 +345,12 @@ describe('AI chat history cache', () => {
   it('ignores chat responses after the active entry context changes', async () => {
     const request = createDeferred<AIResponse>()
     mocks.aiChat.mockReturnValueOnce(request.promise)
+    const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'daily-summary')!
 
     const { rerender } = render(<AIPanel entry={makeEntry({ content: 'Original content' })} />)
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Context-bound question' } })
+    fireEvent.click(screen.getByRole('button', { name: prompt.label }))
+    expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
 
     await waitFor(() => {

@@ -215,6 +215,7 @@ export interface AppSettings {
   notifications: boolean
   aiEndpoint: string
   aiModel: string
+  aiVisionEnabled?: boolean
   pomodoroMinutes: number
   focusGuardEnabled: boolean
   focusGuardIntervalSec: number
@@ -227,9 +228,24 @@ export interface AppSettings {
 }
 
 // ─── AI ─────────────────────────────────────────────────────────────────────
+export interface AITextContentPart {
+  type: 'text'
+  text: string
+}
+
+export interface AIImageContentPart {
+  type: 'image_url'
+  image_url: {
+    url: string
+    detail?: 'auto' | 'low' | 'high'
+  }
+}
+
+export type AIContentPart = AITextContentPart | AIImageContentPart
+
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | AIContentPart[]
 }
 
 export interface AISettings {

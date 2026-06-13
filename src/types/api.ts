@@ -56,6 +56,7 @@ export interface UpdateGeneralPatch {
 
 export interface UpdateAIPatch {
   aiEndpoint?: string; aiModel?: string
+  aiVisionEnabled?: boolean
   aiApiKey?: string; clearAiApiKey?: boolean
 }
 
@@ -79,6 +80,7 @@ export interface SanitizedSettings {
   countdownEvents?: CountdownEvent[]
   autoSave?: string; notifications?: string
   aiEndpoint?: string; aiModel?: string
+  aiVisionEnabled?: boolean | string
   pomodoroMinutes?: string
   autoBackup?: string; backupPath?: string
   pomodoroSound?: string; pomodoroAlert?: string

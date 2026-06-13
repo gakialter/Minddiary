@@ -4,7 +4,7 @@
 
 正式基线：`v1.10.0`，`main` / release commit at `5298acf36bca0cfd6d443397057e6607c64136fe`
 
-状态：v1.10.0 已正式发布，Release 为 latest；v1.11.0「学习内容与今日任务闭环」实现完成，等待 PR 审查与合并。
+状态：v1.10.0 已正式发布，Release 为 latest；v1.11.0「学习内容与今日任务闭环」已扩展包含 AI 助手 composer 最终升级，等待 PR 审查与合并。
 
 ## 1. 已完成基线
 
@@ -86,6 +86,9 @@ v1.11.0 在不新增 schema version、不新增表、不改变自动 ZIP 备份�
 - 单题错题任务联动：只有明确 `related_mistake_id` 的 `review` 任务可在 SM-2 成功后自动结算。
 - 日记任务结算：有效日记保存后，由用户确认关联 `related_entry_id` 并完成 `diary` 任务。
 - AI 今日行动建议：AI 只生成结构化候选，本地严格解析和校验，用户编辑/选择/确认后通过普通 `study_tasks` API 创建。
+- AI 助手 composer：快捷提示先进入可编辑草稿，受控上下文以可移除标签呈现，并在用户主动发送时读取最新数据。
+- 本地附件：支持 PNG/JPEG/WebP、TXT/MD/CSV/JSON/LOG 和文本型 PDF；图片需要视觉模型能力，自定义模型需要手动声明。
+- 附件隐私：附件正文、base64、PDF 提取文本和本地路径不进入 SQLite、localStorage、聊天历史、自动备份或导出，不使用 provider Files API。
 - 轻量反馈：展示 AI 来源、错题/日记关联和预计时间与实际任务专注时间的克制反馈。
 
 本阶段继续保持 `CURRENT_SCHEMA_VERSION = 3`，复用 `study_tasks.related_mistake_id`、`study_tasks.related_entry_id`、`study_tasks.source`、`study_tasks.status` 和 `planned_date`。
@@ -100,6 +103,7 @@ AI 边界保持不变：
 
 - 集合错题任务成员表、`focus_reviews`、schema version 4、FSRS、OCR、本地 RAG、云同步。
 - 大型任务管理、独立大型今日执行页、大型 HomeDashboard 重构或设计系统重构。
+- Office 文件、音视频、压缩包、远程图片 URL、provider Files API、流式输出或多会话 AI。
 - AI 自动创建、完成、跳过、删除任务或自动调整用户计划。
 
 ## 5. v2.0 后续方向

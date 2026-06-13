@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('api', {
         }) => ipcRenderer.invoke('settings:updateGeneral', patch),
         updateAI: (patch: {
             aiEndpoint?: string; aiModel?: string;
+            aiVisionEnabled?: boolean;
             aiApiKey?: string; clearAiApiKey?: boolean;
         }) => ipcRenderer.invoke('settings:updateAI', patch),
         updateBackup: (patch: {
