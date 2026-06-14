@@ -57,6 +57,11 @@ MindDiary v1.11.0 继续完善「学习内容 → 今日任务 → 专注 → �
 - 删除科目时会删除该科目的详细章节；错题、专注记录和任务仍按现有逻辑解除科目归属，不会被删除。
 - Electron 与 browser fallback 在章节 CRUD、批量转换、排序、完成状态、汇总同步、备份恢复和删除科目语义上保持一致。
 
+## Windows 安装包说明
+
+- 如果本次 Windows 资产未配置代码签名证书，安装包可能显示 Unknown Publisher 或触发 Windows SmartScreen 提醒。
+- 若发布环境提供 `CSC_LINK` 和 `CSC_KEY_PASSWORD`，Windows Setup 和 Portable 资产必须通过 Authenticode 签名验证。
+
 ## 本版不包含
 
 - 不包含无限层级章节树、章节权重、截止日期、甘特图、看板、多人协作或云同步。

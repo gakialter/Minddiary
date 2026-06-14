@@ -163,8 +163,9 @@ npm run build:mac    # macOS
 
 - 自动更新使用 `package.json` 中通过 `build.publish` 配置的 GitHub release feed。
 - 本地构建时，Windows 代码签名是可选的。未签名的安装包可能会触发 Windows SmartScreen 警告。
-- 基于 tag 的公开 Windows 发布必须在发布环境中提供 `CSC_LINK` 和 `CSC_KEY_PASSWORD`。
-- `npm run build` 必须在没有签名 secrets 的情况下继续工作；只有在存在证书变量时，才启用发布签名。
+- 基于 tag 的公开 Windows 发布在同时提供 `CSC_LINK` 和 `CSC_KEY_PASSWORD` 时必须完成有效签名；只配置其中一个会直接失败。
+- 没有签名 secrets 时，Release workflow 允许生成 unsigned Windows 资产，并在 workflow summary 和 Release Notes 中明确提示 Unknown Publisher / SmartScreen 风险。
+- `npm run build` 必须在没有签名 secrets 的情况下继续工作；只有在存在完整证书变量时，才启用并强制验证发布签名。
 - 有关签名验证、更新元数据检查和 SmartScreen 的指导，请参见 [Release Checklist](./docs/release-checklist.md)。
 
 ### 自动备份与恢复范围

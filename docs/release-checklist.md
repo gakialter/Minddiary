@@ -25,17 +25,21 @@ The Windows release workflow passes these secrets to `electron-builder`:
 
 Do not print these values in logs. Do not commit certificate files, p12/pfx files, private keys, or passwords.
 
-The tag-based public release workflow requires both secrets. If either secret is missing, the Windows build job fails before packaging and writes the signing status to the GitHub step summary.
+The tag-based public release workflow supports both signed and unsigned Windows releases:
+
+- If both secrets are configured, Windows signing is required and unsigned or invalid signatures fail the workflow.
+- If only one secret is configured, the workflow fails before packaging because the signing configuration is incomplete.
+- If neither secret is configured, the workflow continues with unsigned Windows artifacts and writes an Unknown Publisher / SmartScreen warning to the GitHub step summary and release notes.
 
 ## Windows Signing Verification
 
 After `electron-builder` packages the Windows artifacts, CI runs:
 
 ```powershell
-./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$true
+./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$env:WINDOWS_REQUIRE_SIGNED
 ```
 
-The script checks every Windows `.exe` artifact with `Get-AuthenticodeSignature`. For public tag releases, the NSIS setup installer matching `*Setup*.exe` and the portable `.exe` must both have a `Valid` Authenticode signature before artifacts are uploaded.
+The script checks every Windows `.exe` artifact with `Get-AuthenticodeSignature`. When signing secrets are configured, the NSIS setup installer matching `*Setup*.exe` and the portable `.exe` must both have a `Valid` Authenticode signature before artifacts are uploaded.
 
 For local unsigned validation, run:
 
@@ -43,7 +47,7 @@ For local unsigned validation, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$false
 ```
 
-When `RequireSigned` is false, the script reports the signature status and warns that unsigned installers can show Unknown Publisher and SmartScreen warnings. Public tag releases always run with `RequireSigned:$true`.
+When `RequireSigned` is false, the script reports the signature status and warns that unsigned installers can show Unknown Publisher and SmartScreen warnings. This is allowed only when both signing secrets are absent.
 
 ## Update Metadata Verification
 
@@ -105,6 +109,6 @@ For final release verification, inspect the published GitHub Release assets, `la
 
 ## Unsigned Installer and SmartScreen Behavior
 
-Unsigned Windows installers can show Unknown Publisher and Windows SmartScreen warnings. Unsigned packages should be treated as internal testing artifacts only and should not be used for public distribution.
+Unsigned Windows installers can show Unknown Publisher and Windows SmartScreen warnings. MindDiary can publish unsigned Windows artifacts when no code signing certificate is available, but the release body and workflow summary must call out that limitation clearly.
 
 Code signing proves the installer publisher identity and helps Windows verify that the artifact has not been modified after signing. It does not guarantee immediate SmartScreen trust. A new certificate can still need reputation to accumulate before SmartScreen warnings disappear.
