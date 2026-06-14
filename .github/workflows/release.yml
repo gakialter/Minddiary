@@ -39,18 +39,27 @@ jobs:
             throw "RELEASE_NOTES.md title '$releaseNotesTitle' does not match # MindDiary $expectedTag"
           }
 
-      - name: Check Windows signing secrets
+      - name: Check Windows signing configuration
         shell: pwsh
         env:
-          WINDOWS_SIGNING_CONFIGURED: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+          HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+          HAS_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD != '' }}
         run: |
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "### Windows signing preflight"
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
-          if ($env:WINDOWS_SIGNING_CONFIGURED -ne 'true') {
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: false"
-            throw "CSC_LINK and CSC_KEY_PASSWORD are required for public Windows release signing."
-          } else {
+
+          if ($env:HAS_CSC_LINK -eq 'true' -and $env:HAS_CSC_KEY_PASSWORD -eq 'true') {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: true"
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "WINDOWS_REQUIRE_SIGNED=true"
+          } elseif ($env:HAS_CSC_LINK -eq 'false' -and $env:HAS_CSC_KEY_PASSWORD -eq 'false') {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: false"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "> Windows artifacts will be unsigned. Users can see Unknown Publisher and SmartScreen warnings."
+            Write-Host "::warning::Windows signing secrets are not configured. Continuing with unsigned Windows artifacts."
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "WINDOWS_REQUIRE_SIGNED=false"
+          } else {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: partial"
+            throw "CSC_LINK and CSC_KEY_PASSWORD must be configured together, or both omitted for an unsigned Windows release."
           }
 
       - name: Build Electron
@@ -70,7 +79,9 @@ jobs:
 
       - name: Verify Windows signing
         shell: pwsh
-        run: ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$true
+        run: |
+          $requireSigned = [System.Convert]::ToBoolean($env:WINDOWS_REQUIRE_SIGNED)
+          ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$requireSigned
 
       - name: Verify Windows update metadata
         run: npx tsx scripts/verify-release-metadata.ts --platform win --release-dir release --package package.json
