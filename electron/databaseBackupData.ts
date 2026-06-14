@@ -6,6 +6,7 @@ export type DatabaseBackupRow = Record<string, DatabaseBackupValue>;
 export interface NormalizedBackupDatabaseData {
     settings: DatabaseBackupRow[];
     subjects: DatabaseBackupRow[];
+    subject_chapters: DatabaseBackupRow[];
     tags: DatabaseBackupRow[];
     entries: DatabaseBackupRow[];
     entry_tags: DatabaseBackupRow[];
@@ -27,6 +28,11 @@ export const DATABASE_BACKUP_TABLES = [
         key: 'subjects',
         table: 'subjects',
         columns: ['id', 'name', 'total_chapters', 'completed_chapters', 'color'],
+    },
+    {
+        key: 'subject_chapters',
+        table: 'subject_chapters',
+        columns: ['id', 'subject_id', 'title', 'notes', 'completed', 'sort_order', 'created_at', 'updated_at'],
     },
     {
         key: 'tags',
@@ -202,6 +208,7 @@ export function normalizeBackupDatabaseData(raw: Record<string, unknown>): Norma
     return {
         settings: normalizeSettings(raw.settings),
         subjects: normalizeTableRows(raw.subjects, 'subjects'),
+        subject_chapters: normalizeTableRows(raw.subject_chapters, 'subject_chapters'),
         tags: normalizeTableRows(raw.tags, 'tags'),
         entries: normalizeTableRows(raw.entries, 'entries'),
         entry_tags: normalizeTableRows(raw.entry_tags, 'entry_tags'),

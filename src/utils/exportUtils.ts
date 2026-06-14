@@ -1,7 +1,8 @@
 /**
  * exportUtils.ts — Markdown, JSON, and PDF export for MindDiary
  */
-import type { DiaryEntry, MoodId } from '../types'
+import type { DiaryEntry, MoodId, SubjectChapter } from '../types'
+import { normalizeChapterNotes, normalizeChapterTitle } from './subjectChapters'
 
 // App version — read from package.json so exports always reflect the current version
 const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
@@ -86,7 +87,47 @@ export function generateMarkdown(entries: EntryWithTags[] | null | undefined): s
 interface ExportData {
     entries?: DiaryEntry[]
     subjects?: unknown[]
+    subject_chapters?: SubjectChapter[]
     mistakes?: unknown[]
+}
+
+export interface ImportJsonSnapshot {
+    entries: DiaryEntry[]
+    subjects: Array<Record<string, unknown>>
+    subject_chapters: SubjectChapter[]
+    mistakes: Array<Record<string, unknown>>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readArray(value: unknown, label: string): unknown[] {
+    if (value === undefined) return []
+    if (!Array.isArray(value)) {
+        throw new Error(`${label} must be an array`)
+    }
+    return value
+}
+
+function normalizeImportedChapter(value: unknown, index: number): SubjectChapter {
+    if (!isRecord(value)) {
+        throw new Error(`subject_chapters[${index}] must be an object`)
+    }
+    const id = Number(value.id)
+    const subjectId = Number(value.subject_id)
+    if (!Number.isInteger(id) || id <= 0) throw new Error(`subject_chapters[${index}].id must be a positive integer`)
+    if (!Number.isInteger(subjectId) || subjectId <= 0) throw new Error(`subject_chapters[${index}].subject_id must be a positive integer`)
+    return {
+        id,
+        subject_id: subjectId,
+        title: normalizeChapterTitle(value.title),
+        notes: normalizeChapterNotes(value.notes),
+        completed: value.completed === true || value.completed === 1,
+        sort_order: Number.isInteger(value.sort_order) ? Number(value.sort_order) : index,
+        created_at: typeof value.created_at === 'string' ? value.created_at : new Date().toISOString(),
+        updated_at: typeof value.updated_at === 'string' ? value.updated_at : new Date().toISOString(),
+    }
 }
 
 /**
@@ -102,14 +143,41 @@ export function generateJSON(data: ExportData): string {
             counts: {
                 entries: data.entries?.length ?? 0,
                 subjects: data.subjects?.length ?? 0,
+                subject_chapters: data.subject_chapters?.length ?? 0,
                 mistakes: data.mistakes?.length ?? 0,
             },
         },
         entries: data.entries ?? [],
         subjects: data.subjects ?? [],
+        subject_chapters: data.subject_chapters ?? [],
         mistakes: data.mistakes ?? [],
     }
     return JSON.stringify(payload, null, 2)
+}
+
+export function parseMindDiaryJsonSnapshot(json: string): ImportJsonSnapshot {
+    const parsed = JSON.parse(json) as unknown
+    if (!isRecord(parsed)) {
+        throw new Error('JSON snapshot must be an object')
+    }
+    const subjects = readArray(parsed.subjects, 'subjects').filter(isRecord)
+    const subjectIds = new Set(
+        subjects
+            .map(subject => Number(subject.id))
+            .filter(id => Number.isInteger(id) && id > 0),
+    )
+    const chapters = readArray(parsed.subject_chapters, 'subject_chapters').map(normalizeImportedChapter)
+    for (const chapter of chapters) {
+        if (!subjectIds.has(chapter.subject_id)) {
+            throw new Error(`subject_chapters references missing subject_id ${chapter.subject_id}`)
+        }
+    }
+    return {
+        entries: readArray(parsed.entries, 'entries').filter(isRecord) as unknown as DiaryEntry[],
+        subjects,
+        subject_chapters: chapters,
+        mistakes: readArray(parsed.mistakes, 'mistakes').filter(isRecord),
+    }
 }
 
 // ─────────────────────────────────────────────

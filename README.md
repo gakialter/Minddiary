@@ -99,7 +99,9 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 - 专注分布支持今日、近 7 天、近 30 天、单日和自定义起止日期范围；倒计时和正计时记录会进入同一统计。
 - 日历月视图专注标记：30m+ / 60m+ / 120m+ 三级色彩指示，与日记心情共存，悬浮 tooltip 展示专注时长
 - 多关键日期倒计时支持考研、报名、假期、截止日期和自定义节点。
-- 「科目进度」支持创建科目、设置章节总量、更新完成章节，并汇总今日投入、未清错题和已掌握错题；删除科目不会删除关联错题、专注记录或学习任务，历史数据会保留并解除科目归属。
+- 「科目进度」支持创建科目、汇总模式章节进度和详细章节管理；详细章节可单条添加、批量粘贴、勾选完成、筛选、重命名、编辑说明、排序和删除，并同步更新科目进度与备考大盘。
+- 旧科目继续兼容汇总模式；首次添加详细章节时会通过确认流程把原有完成数转换为详细章节进度。
+- 删除科目不会删除关联错题、专注记录或学习任务，历史数据会保留并解除科目归属；该科目的详细章节会随科目删除。
 - 今日行动队列：在今日决策页创建、完成、跳过或删除今日任务，并可从到期错题、缺少日记和 AI 今日行动建议生成候选任务。
 - 今日错题任务使用轻量选择器，每道错题创建一个独立 review task；同一天同一错题已有 active task 时不会重复创建。
 - 今日闭环指标：展示计划预计时长 / 实际任务专注时长、今日任务完成率、任务专注覆盖率、任务专注分钟和未闭环任务提示；`skipped` 不进入完成率分母。
@@ -124,7 +126,7 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 数据库使用显式 schema version 和安全 migration；v1.11.0 继续保持 schema version 3，复用 `study_tasks.related_mistake_id`、`related_entry_id` 和 `source=ai`，不新增表或 migration。
+- 数据库使用显式 schema version 和安全 migration；v1.11.0 升级到 schema version 4，新增 `subject_chapters` 保存详细章节，并继续兼容旧科目的汇总进度。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
@@ -168,6 +170,7 @@ npm run build:mac    # macOS
 ### 自动备份与恢复范围
 
 - 静默自动备份是 zip 格式的灾难恢复包，包含 `manifest.json`、`database.json` 以及托管的媒体目录，如 `attachments/` 和 `mistake_images/`。
+- schema 4 自动备份包含详细章节；旧 schema 3 备份没有章节表时仍会恢复为原有汇总模式。
 - 可在桌面设置界面执行自动备份 ZIP 的恢复操作，该操作会覆盖当前的数据库、附件和错题图片。
 - 在恢复之前，如果需要内置恢复事务之外的额外回滚点，请手动备份当前的 app data 目录。
 - 恢复操作仅接受由 MindDiary 生成的、具有受支持的 `backupFormatVersion` 且非未来 `schemaVersion` 的自动备份 ZIP 文件。
@@ -204,15 +207,16 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
-<summary>v1.11.0 — 学习内容与今日任务闭环 (2026-06-12)</summary>
+<summary>v1.11.0 — 学习内容与今日任务闭环 (2026-06-14)</summary>
 
+- **详细章节进度**：科目可进入详细章节模式，支持单条和批量添加、完成状态、筛选、编辑、排序和删除；旧汇总科目继续兼容。
 - **单题错题任务联动**：今日决策页从到期错题创建独立 review task；SM-2 保存成功后只结算精确关联的 active 任务。
 - **日记任务确认结算**：手动保存有效日记后，可确认把同日或精确关联的 diary task 关联到真实 entry 并完成；自动保存和专注复盘不会自动完成任务。
 - **AI 今日行动建议**：AI 只生成候选；本地 parser/schema/allowlist 校验后，用户可编辑、删除、部分选择并确认创建普通任务。
 - **AI 助手 composer**：五个快捷提示改为可编辑草稿 + 可移除上下文标签；支持本地图片、文本文件和文本型 PDF 附件，图片经过视觉模型能力门控，附件内容不持久化。
 - **基础契约修复**：entry patch update 不清空未提交字段，SM-2 review 不返回假成功，browser fallback 删除错题/日记后清理任务 relation id。
 - **轻量反馈**：今日任务卡片展示 AI 建议、关联错题、关联日记 badge，并显示计划预计时长 / 实际任务专注时长。
-- **数据模型边界**：SQLite schema version 仍为 3；不新增表、migration、集合错题任务、`focus_reviews` 或 AI suggestion 持久化。
+- **数据模型与备份**：SQLite schema version 升级为 4，新增 `subject_chapters`，自动 ZIP 备份恢复和 JSON 导入导出包含详细章节。
 
 </details>
 
@@ -226,7 +230,7 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 - **Dashboard 闭环指标**：今日任务完成率、任务专注覆盖率、任务专注分钟和未闭环提示进入今日决策页。
 - **备份恢复**：自动 ZIP 备份导出 `task_id`；恢复顺序调整为先 `study_tasks` 后 `pomodoro_sessions`，旧备份无 `task_id` 仍可恢复。
 - **browser fallback**：localStorage 模式同步支持 task_id 存储、任务删除置空、任务启动状态、复盘和 Dashboard 指标。
-- **本版本边界**：不包含错题任务回写、AI 今日行动建议、AI 建任务、`focus_reviews` 新表、大型 UI 重构、tag 或 GitHub Release。
+- **本版本边界**：不包含错题任务回写、AI 今日行动建议、AI 建任务、`focus_reviews` 新表或大型 UI 重构。
 
 </details>
 

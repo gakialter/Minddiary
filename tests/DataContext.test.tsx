@@ -1,8 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mockEntries, mockMistakes, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
-import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake, StudyTask } from '../src/types'
+import { mockEntries, mockMistakes, mockSubjectChapters, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
+import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake, StudyTask, SubjectChapter } from '../src/types'
 import type { ElectronAPI } from '../src/types/api'
 
 const mocks = vi.hoisted(() => ({
@@ -82,6 +82,44 @@ const createWindowApiMock = (): ElectronAPI => ({
     create: vi.fn().mockResolvedValue({ id: 1, name: 'subject', color: '#000000' }),
     update: vi.fn().mockResolvedValue({ id: 1, name: 'subject', color: '#000000' }),
     delete: vi.fn().mockResolvedValue(undefined),
+  },
+  subjectChapters: {
+    getBySubject: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({
+      id: 1,
+      subject_id: 1,
+      title: 'chapter',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
+    bulkCreate: vi.fn().mockResolvedValue([]),
+    convertFromSummary: vi.fn().mockResolvedValue([]),
+    patch: vi.fn().mockResolvedValue({
+      id: 1,
+      subject_id: 1,
+      title: 'chapter',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
+    toggleCompleted: vi.fn().mockResolvedValue({
+      id: 1,
+      subject_id: 1,
+      title: 'chapter',
+      notes: '',
+      completed: true,
+      sort_order: 0,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
+    reorder: vi.fn().mockResolvedValue([]),
+    delete: vi.fn().mockResolvedValue({ success: true }),
+    clearDetailedChapters: vi.fn().mockResolvedValue({ id: 1, name: 'subject', color: '#000000' }),
   },
   pomodoro: {
     addSession: vi.fn().mockResolvedValue({ id: 1 }),
@@ -202,6 +240,7 @@ const seedEmptyBrowserStorage = () => {
   localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
   localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
   localStorage.setItem(STORAGE_KEYS.SUBJECTS, '[]')
+  localStorage.setItem(STORAGE_KEYS.SUBJECT_CHAPTERS, '[]')
   localStorage.setItem(STORAGE_KEYS.TASKS, '[]')
   localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, '[]')
 }
@@ -264,12 +303,14 @@ describe('DataContext', () => {
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TAGS)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS)
+    expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECT_CHAPTERS)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS)
     expect(getItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.POMODORO_SESSIONS)
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.ENTRIES, JSON.stringify(mockEntries))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TAGS, JSON.stringify(mockTags))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.MISTAKES, JSON.stringify(mockMistakes))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECTS, JSON.stringify(mockSubjects))
+    expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECT_CHAPTERS, JSON.stringify(mockSubjectChapters))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS, JSON.stringify([]))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.POMODORO_SESSIONS, JSON.stringify([]))
   })
@@ -304,6 +345,19 @@ describe('DataContext', () => {
       await result.current.tags.getEntryTagsBatch([7, 8])
       await result.current.mistakes.getAll({ mastered: false })
       await result.current.subjects.getAll()
+      await result.current.subjectChapters.getBySubject(1)
+      await result.current.subjectChapters.create({ subject_id: 1, title: 'chapter' })
+      await result.current.subjectChapters.bulkCreate({ subject_id: 1, chapters: [{ title: 'chapter 2' }] })
+      await result.current.subjectChapters.convertFromSummary({
+        subject_id: 1,
+        chapters: [{ title: 'chapter 1' }],
+        markCompletedCount: 1,
+      })
+      await result.current.subjectChapters.patch(1, { notes: 'updated' })
+      await result.current.subjectChapters.toggleCompleted(1, true)
+      await result.current.subjectChapters.reorder(1, [1])
+      await result.current.subjectChapters.delete(1)
+      await result.current.subjectChapters.clearDetailedChapters(1)
       await result.current.pomodoro.getStats('2026-05-05')
       await result.current.pomodoro.getStatsRange('2026-05-01', '2026-05-05')
       await result.current.tasks.getByDate('2026-05-05')
@@ -338,6 +392,19 @@ describe('DataContext', () => {
     expect(window.api.tags.getEntryTagsBatch).toHaveBeenCalledWith([7, 8])
     expect(window.api.mistakes.getAll).toHaveBeenCalledWith({ mastered: false })
     expect(window.api.subjects.getAll).toHaveBeenCalledTimes(1)
+    expect(window.api.subjectChapters.getBySubject).toHaveBeenCalledWith(1)
+    expect(window.api.subjectChapters.create).toHaveBeenCalledWith({ subject_id: 1, title: 'chapter' })
+    expect(window.api.subjectChapters.bulkCreate).toHaveBeenCalledWith({ subject_id: 1, chapters: [{ title: 'chapter 2' }] })
+    expect(window.api.subjectChapters.convertFromSummary).toHaveBeenCalledWith({
+      subject_id: 1,
+      chapters: [{ title: 'chapter 1' }],
+      markCompletedCount: 1,
+    })
+    expect(window.api.subjectChapters.patch).toHaveBeenCalledWith(1, { notes: 'updated' })
+    expect(window.api.subjectChapters.toggleCompleted).toHaveBeenCalledWith(1, true)
+    expect(window.api.subjectChapters.reorder).toHaveBeenCalledWith(1, [1])
+    expect(window.api.subjectChapters.delete).toHaveBeenCalledWith(1)
+    expect(window.api.subjectChapters.clearDetailedChapters).toHaveBeenCalledWith(1)
     expect(window.api.pomodoro.getStats).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.pomodoro.getStatsRange).toHaveBeenCalledWith('2026-05-01', '2026-05-05')
     expect(window.api.tasks.getByDate).toHaveBeenCalledWith('2026-05-05')
@@ -417,6 +484,163 @@ describe('DataContext', () => {
     expect(allEntries[0]).toEqual(createdEntry)
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.ENTRIES) || '[]')).toEqual([
       expect.objectContaining({ id: createdEntry!.id, title: 'retitled', content: 'A B\nC', word_count: 3 }),
+    ])
+  })
+
+  it('keeps browser fallback subject chapters and subject summaries consistent', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, '[]')
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([
+      { id: 1, name: 'Math', total_chapters: 5, completed_chapters: 3, color: '#0F766E' },
+      { id: 2, name: 'Physics', total_chapters: 4, completed_chapters: 3, color: '#854D0E' },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECT_CHAPTERS, '[]')
+    localStorage.setItem(STORAGE_KEYS.TASKS, '[]')
+    localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, '[]')
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.subjectChapters.convertFromSummary({
+      subject_id: 2,
+      markCompletedCount: 3,
+      chapters: [{ title: '力学' }, { title: '电磁学' }],
+    })).rejects.toThrow('Cannot mark more chapters complete')
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECT_CHAPTERS) || '[]')).toEqual([])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 2, total_chapters: 4, completed_chapters: 3 }),
+    ]))
+
+    await expect(result.current.subjectChapters.clearDetailedChapters(2)).resolves.toEqual(expect.objectContaining({
+      id: 2,
+      total_chapters: 4,
+      completed_chapters: 3,
+    }))
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 2, total_chapters: 4, completed_chapters: 3 }),
+    ]))
+
+    const converted = await result.current.subjectChapters.convertFromSummary({
+      subject_id: 1,
+      markCompletedCount: 2,
+      chapters: [
+        { title: '第一章 函数' },
+        { title: '第二章 导数' },
+        { title: '第三章 积分' },
+      ],
+    })
+    expect(converted.map(chapter => ({ title: chapter.title, completed: chapter.completed }))).toEqual([
+      { title: '第一章 函数', completed: true },
+      { title: '第二章 导数', completed: true },
+      { title: '第三章 积分', completed: false },
+    ])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 1, total_chapters: 3, completed_chapters: 2 }),
+    ]))
+
+    const fourth = await result.current.subjectChapters.create({
+      subject_id: 1,
+      title: '第四章 多元函数微积分',
+      notes: '重点',
+    })
+    const patched = await result.current.subjectChapters.patch(fourth.id, { notes: '新增说明' })
+    expect(patched).toEqual(expect.objectContaining({ title: '第四章 多元函数微积分', notes: '新增说明', completed: false }))
+    await result.current.subjectChapters.toggleCompleted(fourth.id, true)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 1, total_chapters: 4, completed_chapters: 3 }),
+    ]))
+
+    const reordered = await result.current.subjectChapters.reorder(1, [
+      fourth.id,
+      converted[2]!.id,
+      converted[1]!.id,
+      converted[0]!.id,
+    ])
+    expect(reordered.map(chapter => chapter.title)).toEqual([
+      '第四章 多元函数微积分',
+      '第三章 积分',
+      '第二章 导数',
+      '第一章 函数',
+    ])
+    await expect(result.current.subjectChapters.reorder(1, [fourth.id])).rejects.toThrow('chapterIds must include each subject chapter exactly once')
+
+    await result.current.subjectChapters.delete(converted[2]!.id)
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 1, total_chapters: 3, completed_chapters: 3 }),
+    ]))
+    await result.current.subjectChapters.clearDetailedChapters(1)
+    expect(await result.current.subjectChapters.getBySubject(1)).toEqual([])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 1, total_chapters: 3, completed_chapters: 3 }),
+    ]))
+  })
+
+  it('removes browser fallback chapters when deleting a subject while unlinking history rows', async () => {
+    mocks.isElectron = false
+    const chapter: SubjectChapter = {
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: true,
+      sort_order: 0,
+      created_at: '2026-06-13T00:00:00.000Z',
+      updated_at: '2026-06-13T00:00:00.000Z',
+    }
+    const mistake: Mistake = {
+      ...mockMistakes[0]!,
+      id: 10,
+      subject_id: 1,
+    }
+    const linkedTask: StudyTask = {
+      id: 11,
+      title: 'Subject task',
+      description: '',
+      type: 'custom',
+      subject_id: 1,
+      related_mistake_id: null,
+      related_entry_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
+    localStorage.setItem(STORAGE_KEYS.TAGS, '[]')
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify([mistake]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([
+      { id: 1, name: 'Math', total_chapters: 1, completed_chapters: 1, color: '#0F766E' },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECT_CHAPTERS, JSON.stringify([chapter]))
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify([linkedTask]))
+    localStorage.setItem(STORAGE_KEYS.POMODORO_SESSIONS, JSON.stringify([
+      { id: 12, subject_id: 1, task_id: 11, duration: 25, date_key: '2026-05-31' },
+    ]))
+
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await result.current.subjects.delete(1)
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECTS) || '[]')).toEqual([])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SUBJECT_CHAPTERS) || '[]')).toEqual([])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MISTAKES) || '[]')).toEqual([
+      expect.objectContaining({ id: 10, subject_id: null }),
+    ])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([
+      expect.objectContaining({ id: 11, subject_id: null }),
+    ])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.POMODORO_SESSIONS) || '[]')).toEqual([
+      expect.objectContaining({ id: 12, subject_id: null }),
     ])
   })
 

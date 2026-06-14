@@ -8,8 +8,14 @@ import {
   validateDateKeyPayload,
   validateEntryCreatePayload,
   validateEntryUpdatePayload,
+  validateBulkSubjectChaptersPayload,
+  validateConvertSubjectChaptersPayload,
   validateMistakeReviewPayload,
   validatePomodoroSessionPayload,
+  validateSubjectChapterCompletedPayload,
+  validateSubjectChapterPatchPayload,
+  validateSubjectChapterReorderPayload,
+  validateCreateSubjectChapterPayload,
   validateStudyTaskCreatePayload,
   validateStudyTaskQueryPayload,
 } from '../electron/ipcValidation'
@@ -137,6 +143,44 @@ describe('IPC runtime payload validation', () => {
     }
 
     expect(validatePomodoroSessionPayload(session)).toBe(session)
+  })
+
+  it('validates subject chapter create, bulk, conversion, patch, toggle, and reorder payloads', () => {
+    const create = { subject_id: 1, title: '第一章 函数', notes: '重点', completed: false }
+    expect(validateCreateSubjectChapterPayload(create)).toBe(create)
+    expect(() => validateCreateSubjectChapterPayload({ ...create, subject_id: 0 })).toThrow('chapter subject_id must be a positive integer')
+    expect(() => validateCreateSubjectChapterPayload({ ...create, title: 'x'.repeat(IPC_VALIDATION_LIMITS.chapterTitle + 1) })).toThrow('chapter title is too long')
+
+    const bulk = {
+      subject_id: 1,
+      chapters: [
+        { title: '第一章 函数' },
+        { title: '第二章 导数', notes: '重点', completed: true },
+      ],
+    }
+    expect(validateBulkSubjectChaptersPayload(bulk)).toBe(bulk)
+    expect(() => validateBulkSubjectChaptersPayload({ subject_id: 1, chapters: [] })).toThrow('chapters must contain at least one chapter')
+    expect(() => validateBulkSubjectChaptersPayload({
+      subject_id: 1,
+      chapters: new Array(IPC_VALIDATION_LIMITS.chapterBatch + 1).fill({ title: 'x' }),
+    })).toThrow('chapters cannot contain more than')
+
+    const conversion = { ...bulk, markCompletedCount: 1 }
+    expect(validateConvertSubjectChaptersPayload(conversion)).toBe(conversion)
+    expect(() => validateConvertSubjectChaptersPayload({ ...conversion, markCompletedCount: -1 })).toThrow('markCompletedCount must be a non-negative integer')
+
+    expect(validateSubjectChapterPatchPayload({ title: '新标题', notes: '', completed: true })).toEqual({ title: '新标题', notes: '', completed: true })
+    expect(validateSubjectChapterPatchPayload({})).toEqual({})
+    expect(() => validateSubjectChapterPatchPayload({ sort_order: 1 })).toThrow('unsupported field')
+    expect(() => validateSubjectChapterPatchPayload({ notes: 'x'.repeat(IPC_VALIDATION_LIMITS.chapterNotes + 1) })).toThrow('chapter notes is too long')
+
+    expect(validateSubjectChapterCompletedPayload(true)).toBe(true)
+    expect(validateSubjectChapterCompletedPayload(undefined)).toBeUndefined()
+    expect(() => validateSubjectChapterCompletedPayload('true')).toThrow('chapter completed must be a boolean')
+
+    expect(validateSubjectChapterReorderPayload([2, 1])).toEqual([2, 1])
+    expect(() => validateSubjectChapterReorderPayload([1, 1])).toThrow('chapterIds must not contain duplicate ids')
+    expect(() => validateSubjectChapterReorderPayload([])).toThrow('chapterIds must be a non-empty array')
   })
 
   it('rejects invalid mistake review ids and raw quality payloads', () => {

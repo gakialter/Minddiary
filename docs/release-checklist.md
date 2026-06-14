@@ -5,7 +5,8 @@ This checklist covers the Windows public release path, signing verification, upd
 ## Before Pushing a Release Tag
 
 - Confirm `package.json` has the intended version.
-- Confirm `RELEASE_NOTES.md` has the release notes for that version.
+- Confirm the pushed tag is exactly `v${package.json.version}`.
+- Confirm `RELEASE_NOTES.md` has the release notes for that version and starts with `# MindDiary v${package.json.version}`.
 - Run local validation:
   - `npm.cmd run typecheck`
   - `npm.cmd test -- --run`
@@ -34,7 +35,7 @@ After `electron-builder` packages the Windows artifacts, CI runs:
 ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$true
 ```
 
-The script checks Windows `.exe` artifacts with `Get-AuthenticodeSignature`. For public tag releases, the NSIS setup installer matching `*Setup*.exe` must have a `Valid` Authenticode signature before artifacts are uploaded.
+The script checks every Windows `.exe` artifact with `Get-AuthenticodeSignature`. For public tag releases, the NSIS setup installer matching `*Setup*.exe` and the portable `.exe` must both have a `Valid` Authenticode signature before artifacts are uploaded.
 
 For local unsigned validation, run:
 
@@ -42,7 +43,7 @@ For local unsigned validation, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$false
 ```
 
-When `RequireSigned` is false, the script reports the signature status and warns that unsigned installers can show Unknown Publisher and SmartScreen warnings. Portable `.exe` artifacts are reported in the same summary; the setup installer is the required public-release signing gate.
+When `RequireSigned` is false, the script reports the signature status and warns that unsigned installers can show Unknown Publisher and SmartScreen warnings. Public tag releases always run with `RequireSigned:$true`.
 
 ## Update Metadata Verification
 
@@ -62,13 +63,23 @@ The check requires `release/latest.yml` and validates:
 
 `latest.yml.version` must match `package.json.version`. `latest.yml.path` and each listed file path must resolve to an existing release asset inside the release directory, and each listed file must have a non-empty `sha512`.
 
-The check also finds packaged `app-update.yml` files under the release output, such as `win-unpacked/resources/app-update.yml`, and verifies that they contain:
+CI also verifies macOS update metadata before uploading artifacts:
+
+```bash
+npx tsx scripts/verify-release-metadata.ts --platform mac --release-dir release --package package.json
+```
+
+The macOS check requires `release/latest-mac.yml`, validates `version`, `files`, `path`, `sha512`, and `releaseDate`, requires the update `path` to point to a `.zip`, and verifies that `.dmg`, `.zip`, and `.blockmap` artifacts exist and are non-empty.
+
+Both checks find packaged `app-update.yml` files under the release output, such as `win-unpacked/resources/app-update.yml` or `mac-arm64/MindDiary.app/Contents/Resources/app-update.yml`, and verify that they contain:
 
 - `provider: github`
 - `owner: gakialter`
 - `repo: Minddiary`
 
 These values must match `package.json` `build.publish`. The in-app update check depends on this packaged `app-update.yml` to know which GitHub Release feed to query.
+
+The publish job only runs after both Windows and macOS build jobs succeed. It creates a non-draft, non-prerelease latest release and fails if any configured asset glob does not match.
 
 ## GitHub Release Update Smoke Test
 
@@ -78,14 +89,19 @@ Do not rely on CI to download and install older app versions end to end. Use thi
 2. Let the release workflow create the GitHub Release.
 3. Confirm the Release assets include:
    - `MindDiary-Setup-<version>.exe`
+   - `MindDiary-Portable-<version>.exe`
    - `MindDiary-Setup-<version>.exe.blockmap`
    - `latest.yml`
+   - macOS `.dmg`
+   - macOS `.zip`
+   - macOS `.blockmap`
+   - `latest-mac.yml`
 4. Install a lower-version MindDiary build.
 5. Start the app or click the in-app update check.
 6. Confirm updater status transitions through checking and update available.
 7. Confirm the update downloads, reaches downloaded state, and installs after restart.
 
-For final release verification, inspect the published GitHub Release assets and `latest.yml` contents, not only the local `release/` directory.
+For final release verification, inspect the published GitHub Release assets, `latest.yml`, and `latest-mac.yml` contents, not only the local `release/` directory.
 
 ## Unsigned Installer and SmartScreen Behavior
 

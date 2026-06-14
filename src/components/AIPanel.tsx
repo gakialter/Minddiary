@@ -136,6 +136,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
         entries,
         mistakes,
         subjects,
+        subjectChapters,
         tasks,
         pomodoro,
     } = useDiary()
@@ -266,6 +267,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 entries,
                 mistakes,
                 subjects,
+                subjectChapters,
                 tasks,
                 pomodoro,
             })

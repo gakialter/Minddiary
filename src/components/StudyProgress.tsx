@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, PlusCircle, Target, Trash2 } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { logger } from '../utils/logger'
 import { getLocalDateKey } from '../utils/dateKey'
-import { Rocket, Target, Pencil, Trash2, Library, PlusCircle, Sparkles } from 'lucide-react'
-import type { Subject, Mistake, PomodoroStat } from '../types'
+import { calculateChapterStats } from '../utils/subjectChapters'
+import SubjectChapterPanel from './SubjectChapterPanel'
+import type { Mistake, PomodoroStat, Subject, SubjectChapter } from '../types'
 
 interface SubjectForm {
     name: string
@@ -17,360 +19,501 @@ interface SubjectMetric extends Subject {
     studyTime: number
     mistakeCount: number
     masteredCount: number
+    hasDetailedChapters: boolean
+    nextIncompleteChapter: string | null
+}
+
+const COLORS = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
+
+function getProgressPercent(completed: number, total: number): number {
+    return total > 0 ? Math.round((Math.min(completed, total) / total) * 100) : 0
 }
 
 export default function StudyProgress() {
-    const { subjects: subjectsAPI, pomodoro: pomodoroAPI, mistakes: mistakesAPI } = useDiary()
+    const {
+        subjects: subjectsAPI,
+        subjectChapters: subjectChaptersAPI,
+        pomodoro: pomodoroAPI,
+        mistakes: mistakesAPI,
+    } = useDiary()
     const [subjects, setSubjects] = useState<Subject[]>([])
+    const [chaptersBySubject, setChaptersBySubject] = useState<Record<number, SubjectChapter[]>>({})
     const [pomodoroStats, setPomodoroStats] = useState<PomodoroStat[]>([])
     const [mistakes, setMistakes] = useState<Mistake[]>([])
     const [loading, setLoading] = useState(true)
+    const [savingSubject, setSavingSubject] = useState(false)
+    const [subjectActionPending, setSubjectActionPending] = useState<string | null>(null)
+    const [expandedSubjectId, setExpandedSubjectId] = useState<number | null>(null)
 
-    // Form states
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
     const [form, setForm] = useState<SubjectForm>({ name: '', total_chapters: '', color: '#0F766E' })
 
-    useEffect(() => {
-        loadAllData()
-    }, [])
-
-    const loadAllData = async () => {
+    const loadAllData = useCallback(async () => {
         setLoading(true)
         try {
             const [subjData, pStats, mistData] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
                 pomodoroAPI.getStats(getLocalDateKey()).catch(() => [] as PomodoroStat[]),
-                mistakesAPI.getAll({}).catch(() => ({ data: [] } as any))
+                mistakesAPI.getAll({}).catch(() => ({ data: [] })),
             ])
-            setSubjects((subjData || []) as Subject[])
-            setPomodoroStats((pStats || []) as PomodoroStat[])
-            const mistArray = mistData && 'data' in mistData ? mistData.data : mistData;
-            setMistakes((mistArray || []) as Mistake[])
-        } catch (e) {
-            logger.error(e)
+            const normalizedSubjects = subjData || []
+            const chapterPairs = await Promise.all(
+                normalizedSubjects.map(async subject => [
+                    subject.id,
+                    await subjectChaptersAPI.getBySubject(subject.id).catch(() => [] as SubjectChapter[]),
+                ] as const),
+            )
+            setSubjects(normalizedSubjects)
+            setChaptersBySubject(Object.fromEntries(chapterPairs))
+            setPomodoroStats(pStats || [])
+            setMistakes((mistData && 'data' in mistData ? mistData.data : []) as Mistake[])
+        } catch (error) {
+            logger.error(error)
+            showToast('加载科目进度失败', 'error')
         } finally {
             setLoading(false)
         }
-    }
+    }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI])
+
+    useEffect(() => {
+        void loadAllData()
+    }, [loadAllData])
 
     const { totalChapters, totalCompleted, overallProgress, subjectMetrics } = useMemo(() => {
-        // Index mistakes by subject_id
         const mistakeIndex = new Map<number | null, { total: number; mastered: number }>()
-        for (const m of mistakes) {
-            const bucket = mistakeIndex.get(m.subject_id) ?? { total: 0, mastered: 0 }
-            bucket.total++
-            if (m.mastered) bucket.mastered++
-            mistakeIndex.set(m.subject_id, bucket)
+        for (const mistake of mistakes) {
+            const bucket = mistakeIndex.get(mistake.subject_id) ?? { total: 0, mastered: 0 }
+            bucket.total += 1
+            if (mistake.mastered) bucket.mastered += 1
+            mistakeIndex.set(mistake.subject_id, bucket)
         }
 
-        // Index pomodoro time by subject name
         const pomodoroIndex = new Map<string, number>(
             pomodoroStats
-                .filter((p): p is typeof p & { subject_name: string } => typeof p.subject_name === 'string')
-                .map(p => [p.subject_name, p.total_minutes]),
+                .filter((stat): stat is typeof stat & { subject_name: string } => typeof stat.subject_name === 'string')
+                .map(stat => [stat.subject_name, stat.total_minutes]),
         )
 
-        let chTotal = 0
-        let chCompleted = 0
+        let chapterTotal = 0
+        let chapterCompleted = 0
+        const metrics: SubjectMetric[] = subjects.map(subject => {
+            const chapters = chaptersBySubject[subject.id] || []
+            const chapterStats = calculateChapterStats(chapters)
+            const total = subject.total_chapters || 0
+            const completed = Math.min(subject.completed_chapters || 0, total)
+            chapterTotal += total
+            chapterCompleted += completed
 
-        const metrics: SubjectMetric[] = subjects.map(sub => {
-            const t = sub.total_chapters || 0
-            const c = Math.min(sub.completed_chapters || 0, t)
-            chTotal += t
-            chCompleted += c
-
-            const { total: mistakeCount = 0, mastered: masteredCount = 0 } =
-                mistakeIndex.get(sub.id) ?? {}
-            const pTime = pomodoroIndex.get(sub.name) ?? 0
-
+            const { total: mistakeCount = 0, mastered: masteredCount = 0 } = mistakeIndex.get(subject.id) ?? {}
             return {
-                ...sub,
-                pct: t > 0 ? Math.round((c / t) * 100) : 0,
-                studyTime: pTime,
+                ...subject,
+                pct: getProgressPercent(completed, total),
+                studyTime: pomodoroIndex.get(subject.name) ?? 0,
                 mistakeCount,
-                masteredCount
+                masteredCount,
+                hasDetailedChapters: chapters.length > 0,
+                nextIncompleteChapter: chapterStats.nextIncomplete?.title ?? null,
             }
         })
 
         return {
-            totalChapters: chTotal,
-            totalCompleted: chCompleted,
-            overallProgress: chTotal > 0 ? (chCompleted / chTotal * 100).toFixed(1) : '0',
-            subjectMetrics: metrics
+            totalChapters: chapterTotal,
+            totalCompleted: chapterCompleted,
+            overallProgress: chapterTotal > 0 ? (chapterCompleted / chapterTotal * 100).toFixed(1) : '0',
+            subjectMetrics: metrics,
         }
-    }, [subjects, pomodoroStats, mistakes])
+    }, [chaptersBySubject, mistakes, pomodoroStats, subjects])
 
-    // --- Actions ---
+    const resetForm = () => {
+        setForm({ name: '', total_chapters: '', color: '#0F766E' })
+        setShowForm(false)
+        setEditingId(null)
+    }
+
     const handleSubmit = async () => {
-        if (!form.name.trim()) return
+        if (!form.name.trim() || savingSubject) return
+        setSavingSubject(true)
         try {
-            if (editingId) {
-                const subject = subjects.find(s => s.id === editingId)
+            const existing = editingId ? subjects.find(subject => subject.id === editingId) : null
+            const hasDetailedChapters = editingId ? (chaptersBySubject[editingId]?.length || 0) > 0 : false
+            const total = Math.max(0, parseInt(form.total_chapters, 10) || 0)
+            if (editingId && existing) {
                 await subjectsAPI.update(editingId, {
-                    name: form.name,
-                    total_chapters: parseInt(form.total_chapters) || 0,
-                    completed_chapters: subject?.completed_chapters || 0,
-                    color: form.color
+                    name: form.name.trim(),
+                    total_chapters: hasDetailedChapters ? existing.total_chapters || 0 : total,
+                    completed_chapters: hasDetailedChapters
+                        ? existing.completed_chapters || 0
+                        : Math.min(existing.completed_chapters || 0, total),
+                    color: form.color,
                 })
             } else {
                 await subjectsAPI.create({
-                    name: form.name,
-                    total_chapters: parseInt(form.total_chapters) || 0,
-                    color: form.color
+                    name: form.name.trim(),
+                    total_chapters: total,
+                    color: form.color,
                 })
             }
-            setForm({ name: '', total_chapters: '', color: '#0F766E' })
-            setShowForm(false)
-            setEditingId(null)
-            loadAllData()
+            resetForm()
+            await loadAllData()
             showToast(editingId ? '科目已更新' : '已添加新科目', 'success')
-        } catch (e) {
-            logger.error(e)
-            showToast('保存失败', 'error')
+        } catch (error) {
+            logger.error(error)
+            showToast('保存科目失败', 'error')
+        } finally {
+            setSavingSubject(false)
         }
     }
 
     const handleEdit = (subject: SubjectMetric) => {
         setEditingId(subject.id)
-        setForm({ name: subject.name, total_chapters: (subject.total_chapters || 0).toString(), color: subject.color })
+        setForm({
+            name: subject.name,
+            total_chapters: (subject.total_chapters || 0).toString(),
+            color: subject.color || '#0F766E',
+        })
         setShowForm(true)
     }
 
     const handleDelete = async (id: number) => {
-        if (!window.confirm('确定要删除这个科目吗？关联的错题、专注记录和任务会保留，但将不再归属任何科目。')) return;
+        if (subjectActionPending) return
+        if (!window.confirm('确定删除这个科目吗？关联的错题、专注记录和任务会保留，但不再归属任何科目；详细章节会一起删除。')) return
+        setSubjectActionPending(`delete-${id}`)
         try {
             await subjectsAPI.delete(id)
-            loadAllData()
+            if (expandedSubjectId === id) setExpandedSubjectId(null)
+            await loadAllData()
             showToast('科目已删除', 'success')
-        } catch (e) {
-            logger.error(e)
-            showToast('删除失败', 'error')
+        } catch (error) {
+            logger.error(error)
+            showToast('删除科目失败', 'error')
+        } finally {
+            setSubjectActionPending(null)
         }
     }
 
-    const updateProgress = async (subject: SubjectMetric, delta: number) => {
-        const newCompleted = Math.max(0, Math.min(subject.total_chapters || 0, (subject.completed_chapters || 0) + delta))
+    const updateSummaryProgress = async (subject: SubjectMetric, delta: number) => {
+        if (subjectActionPending) return
+        const total = subject.total_chapters || 0
+        const nextCompleted = Math.max(0, Math.min(total, (subject.completed_chapters || 0) + delta))
+        setSubjectActionPending(`summary-${subject.id}`)
         try {
             await subjectsAPI.update(subject.id, {
-                ...subject,
-                completed_chapters: newCompleted
+                name: subject.name,
+                total_chapters: total,
+                completed_chapters: nextCompleted,
+                color: subject.color,
             })
-            // Optimistic update
-            setSubjects(prev => prev.map(s => s.id === subject.id ? { ...s, completed_chapters: newCompleted } : s));
-        } catch (e) { logger.error(e) }
+            setSubjects(previous => previous.map(item => (
+                item.id === subject.id ? { ...item, completed_chapters: nextCompleted } : item
+            )))
+        } catch (error) {
+            logger.error(error)
+            showToast('更新汇总进度失败', 'error')
+            await loadAllData()
+        } finally {
+            setSubjectActionPending(null)
+        }
     }
 
-    // Zen Forest Palette
-    const COLORS = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
-
     return (
-        <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-            {/* Overall Header Banner */}
-            <div className="card" style={{
-                padding: 'var(--space-xl)', marginBottom: 'var(--space-2xl)',
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-light)'
-            }}>
-                <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-                    <div className="flex items-center gap-md">
+        <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
+            <div
+                className="card"
+                style={{
+                    padding: 'var(--space-xl)',
+                    marginBottom: 'var(--space-2xl)',
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-light)',
+                }}
+            >
+                <div className="flex items-center justify-between gap-md flex-wrap" style={{ marginBottom: 'var(--space-md)' }}>
+                    <div className="flex items-center gap-md flex-wrap">
                         <div className="flex items-center gap-sm">
-                            <div style={{ padding: 8, borderRadius: 12, background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div
+                                style={{
+                                    padding: 8,
+                                    borderRadius: 8,
+                                    background: 'var(--accent)',
+                                    color: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}
+                            >
                                 <Target size={18} />
                             </div>
                             <span className="font-semibold text-lg">备考大盘</span>
                         </div>
-                        <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>{overallProgress}%</span>
+                        <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+                            {overallProgress}%
+                        </span>
                     </div>
-                    
+
                     {!showForm && (
-                        <button className="button button-primary" style={{ borderRadius: 20 }} onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', total_chapters: '', color: '#0F766E' }) }}>
-                            + 新增科目池
+                        <button
+                            className="button button-primary"
+                            style={{ borderRadius: 20 }}
+                            onClick={() => {
+                                setShowForm(true)
+                                setEditingId(null)
+                                setForm({ name: '', total_chapters: '', color: '#0F766E' })
+                            }}
+                        >
+                            <PlusCircle size={16} /> 新增科目
                         </button>
                     )}
                 </div>
 
-                <div style={{ height: 12, background: 'var(--bg-primary)', borderRadius: 6, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' }}>
-                    <div style={{
-                        height: '100%', width: `${overallProgress}%`,
-                        background: 'var(--accent)',
-                        borderRadius: 6, transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)'
-                    }} />
+                <div style={{ height: 12, background: 'var(--bg-primary)', borderRadius: 6, overflow: 'hidden' }}>
+                    <div
+                        style={{
+                            height: '100%',
+                            width: `${overallProgress}%`,
+                            background: 'var(--accent)',
+                            borderRadius: 6,
+                            transition: 'width var(--duration-slow) var(--ease-out)',
+                        }}
+                    />
                 </div>
 
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center justify-between mt-4 gap-sm flex-wrap">
                     <div className="text-sm">
-                        <span className="text-muted">已攻克 </span>
+                        <span className="text-muted">已完成 </span>
                         <span className="font-semibold">{totalCompleted}</span>
-                        <span className="text-muted"> / {totalChapters} 核心章节</span>
+                        <span className="text-muted"> / {totalChapters} 个章节</span>
                     </div>
-                    {Number(overallProgress) >= 100 && totalChapters > 0 ? (
-                        <div className="text-xs font-semibold" style={{ color: 'var(--success)', background: 'var(--success-light)', padding: '4px 10px', borderRadius: 12 }}>
-                            目标达成！
+                    {Number(overallProgress) >= 100 && totalChapters > 0 && (
+                        <div className="text-xs font-semibold" style={{ color: 'var(--success)', background: 'var(--accent-light)', padding: '4px 10px', borderRadius: 12 }}>
+                            全部完成
                         </div>
-                    ) : null}
+                    )}
                 </div>
             </div>
 
-            {/* Add/Edit Form */}
             {showForm && (
-                <div className="card" style={{ padding: 'var(--space-xl)', marginBottom: 'var(--space-xl)', animation: 'page-fade-in 0.3s ease-out' }}>
-                    <h3 style={{ marginBottom: 'var(--space-lg)', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {editingId ? <><Pencil size={18} /> 编辑科目</> : <><Sparkles size={18} /> 创建新科目</>}
+                <div className="card" style={{ padding: 'var(--space-xl)', marginBottom: 'var(--space-xl)' }}>
+                    <h3 className="font-bold text-lg" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {editingId ? <><Pencil size={18} /> 编辑科目</> : <><BookOpen size={18} /> 创建科目</>}
                     </h3>
                     <div className="flex flex-col gap-md">
-                        <div className="flex gap-md w-full">
-                            <div style={{ flex: 2 }}>
+                        <div className="flex gap-md w-full flex-wrap">
+                            <div style={{ flex: '2 1 260px' }}>
                                 <label className="text-xs font-bold text-muted uppercase mb-1 block">科目名称</label>
-                                <input className="input w-full" placeholder="例如：考研政治、英语一" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} autoFocus />
+                                <input
+                                    className="input w-full"
+                                    placeholder="例如：考研数学、英语一"
+                                    value={form.name}
+                                    onChange={event => setForm({ ...form, name: event.target.value })}
+                                    autoFocus
+                                />
                             </div>
-                            <div style={{ flex: 1 }}>
-                                <label className="text-xs font-bold text-muted uppercase mb-1 block">总章节数</label>
-                                <input className="input w-full" type="number" placeholder="例如：50" value={form.total_chapters} onChange={e => setForm({ ...form, total_chapters: e.target.value })} />
+                            <div style={{ flex: '1 1 160px' }}>
+                                <label className="text-xs font-bold text-muted uppercase mb-1 block">汇总章节数</label>
+                                <input
+                                    className="input w-full"
+                                    type="number"
+                                    min={0}
+                                    placeholder="可先填 0"
+                                    value={form.total_chapters}
+                                    onChange={event => setForm({ ...form, total_chapters: event.target.value })}
+                                    disabled={editingId !== null && (chaptersBySubject[editingId]?.length || 0) > 0}
+                                />
                             </div>
                         </div>
 
                         <div>
-                            <label className="text-xs font-bold text-muted uppercase mb-2 block">代表色 (用于图表与标签)</label>
+                            <label className="text-xs font-bold text-muted uppercase mb-2 block">代表色</label>
                             <div className="flex items-center gap-md flex-wrap">
-                                {COLORS.map(c => (
+                                {COLORS.map(color => (
                                     <button
-                                        key={c} onClick={() => setForm({ ...form, color: c })}
+                                        key={color}
+                                        onClick={() => setForm({ ...form, color })}
                                         style={{
-                                            width: 32, height: 32, borderRadius: '50%', background: c, border: 'none', cursor: 'pointer',
-                                            outline: form.color === c ? `3px solid ${c}40` : 'none',
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: '50%',
+                                            background: color,
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            outline: form.color === color ? `3px solid ${color}40` : 'none',
                                             outlineOffset: 2,
-                                            boxShadow: form.color === c ? 'var(--shadow-md)' : 'none',
-                                            transform: form.color === c ? 'scale(1.1)' : 'scale(1)',
-                                            transition: 'all 0.2s'
                                         }}
-                                        title={c}
+                                        title={`选择颜色 ${color}`}
+                                        aria-label={`选择颜色 ${color}`}
                                     />
                                 ))}
                             </div>
                         </div>
 
                         <div className="flex gap-sm mt-2 justify-end">
-                            <button className="button button-secondary" onClick={() => { setShowForm(false); setEditingId(null) }}>
+                            <button className="button button-secondary" onClick={resetForm} disabled={savingSubject}>
                                 取消
                             </button>
-                            <button className="button button-primary" onClick={handleSubmit} disabled={!form.name.trim() || !form.total_chapters}>
-                                {editingId ? '保存更改' : '创建科目'}
+                            <button className="button button-primary" onClick={handleSubmit} disabled={!form.name.trim() || savingSubject}>
+                                {savingSubject ? '保存中...' : editingId ? '保存更改' : '创建科目'}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Subjects Grid */}
-            <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 'var(--space-xl)'
-            }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: 'var(--space-xl)' }}>
                 {loading ? (
-                    Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="card" style={{ padding: 'var(--space-lg)', minHeight: 200, opacity: 0.5 }}>
-                            <div className="skeleton-line" style={{ width: '40%', height: 24, marginBottom: 20 }} />
+                    Array.from({ length: 4 }).map((_, index) => (
+                        <div key={index} className="card" style={{ padding: 'var(--space-lg)', minHeight: 200, opacity: 0.55 }}>
+                            <div className="skeleton-line" style={{ width: '45%', height: 24, marginBottom: 20 }} />
                             <div className="skeleton-line" style={{ width: '100%', height: 8, borderRadius: 4, marginBottom: 30 }} />
-                            <div className="flex justify-between">
-                                <div className="skeleton-line" style={{ width: '20%', height: 16 }} />
-                                <div className="skeleton-line" style={{ width: '30%', height: 24, borderRadius: 12 }} />
-                            </div>
+                            <div className="skeleton-line" style={{ width: '70%', height: 16 }} />
                         </div>
                     ))
                 ) : (
                     subjectMetrics.map(subject => {
-                        const displayColor = subject.color || '#0F766E';
+                        const displayColor = subject.color || '#0F766E'
+                        const expanded = expandedSubjectId === subject.id
                         return (
-                        <div key={subject.id} className="card progress-card" style={{
-                            padding: 'var(--space-xl)',
-                            position: 'relative', overflow: 'hidden',
-                            borderTop: `4px solid ${displayColor}`
-                        }}>
-                            {/* Glass background decoration */}
-                            <div style={{
-                                position: 'absolute', top: -50, right: -50, width: 100, height: 100,
-                                borderRadius: '50%', background: displayColor, opacity: 0.05, filter: 'blur(20px)'
-                            }} />
-
-                            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-                                <div className="flex items-center gap-sm">
-                                    <h3 className="font-bold text-lg">{subject.name}</h3>
+                            <div
+                                key={subject.id}
+                                data-testid={`subject-card-${subject.id}`}
+                                className="card progress-card"
+                                style={{
+                                    padding: 'var(--space-xl)',
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                    borderTop: `4px solid ${displayColor}`,
+                                }}
+                            >
+                                <div className="flex items-center justify-between gap-sm" style={{ marginBottom: 'var(--space-md)' }}>
+                                    <h3 className="font-bold text-lg" style={{ overflowWrap: 'anywhere' }}>{subject.name}</h3>
+                                    <div className="flex gap-xs" style={{ opacity: 0.72 }}>
+                                        <button
+                                            className="icon-button"
+                                            onClick={() => handleEdit(subject)}
+                                            title="编辑科目"
+                                            aria-label={`编辑科目：${subject.name}`}
+                                            disabled={!!subjectActionPending}
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
+                                        <button
+                                            className="icon-button"
+                                            onClick={() => void handleDelete(subject.id)}
+                                            title="删除科目"
+                                            aria-label={`删除科目：${subject.name}`}
+                                            disabled={!!subjectActionPending}
+                                            style={{ color: 'var(--danger)' }}
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex gap-xs" style={{ opacity: 0.6 }}>
+
+                                <div className="flex items-end justify-between gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
+                                    <div className="text-3xl font-extrabold" style={{ color: displayColor, fontVariantNumeric: 'tabular-nums' }}>
+                                        {subject.pct}%
+                                    </div>
+                                    <div className="text-sm text-muted font-medium mb-1">
+                                        {subject.completed_chapters || 0} / {subject.total_chapters || 0} 章节
+                                    </div>
+                                </div>
+
+                                <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', marginBottom: 'var(--space-lg)' }}>
+                                    <div
+                                        style={{
+                                            height: '100%',
+                                            width: `${subject.pct}%`,
+                                            background: displayColor,
+                                            borderRadius: 4,
+                                            transition: 'width var(--duration-slow) var(--ease-out)',
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="text-sm" style={{ minHeight: 22, marginBottom: 'var(--space-md)' }}>
+                                    {subject.hasDetailedChapters ? (
+                                        subject.nextIncompleteChapter ? (
+                                            <span className="text-secondary">下一章节：<span className="font-semibold">{subject.nextIncompleteChapter}</span></span>
+                                        ) : (
+                                            <span className="text-success font-semibold">全部章节已完成</span>
+                                        )
+                                    ) : (
+                                        <span className="text-muted">汇总模式：可继续用 +/- 更新，或展开添加详细章节。</span>
+                                    )}
+                                </div>
+
+                                <div className="flex justify-between items-center text-sm mb-4" style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 8, border: '1px solid var(--border-light)' }}>
+                                    <div className="flex flex-col items-center flex-1">
+                                        <span className="text-muted text-xs mb-1">今日专注</span>
+                                        <span className="font-semibold">{subject.studyTime} m</span>
+                                    </div>
+                                    <div className="flex flex-col items-center flex-1" style={{ borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
+                                        <span className="text-muted text-xs mb-1">未清错题</span>
+                                        <span className="font-semibold text-danger">{subject.mistakeCount - subject.masteredCount}</span>
+                                    </div>
+                                    <div className="flex flex-col items-center flex-1">
+                                        <span className="text-muted text-xs mb-1">已掌握</span>
+                                        <span className="font-semibold text-success">{subject.masteredCount}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-sm pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                                    {!subject.hasDetailedChapters ? (
+                                        <div className="flex gap-sm">
+                                            <button
+                                                className="button button-secondary flex items-center justify-center p-0"
+                                                style={{ width: 32, height: 32, borderRadius: '50%' }}
+                                                onClick={() => void updateSummaryProgress(subject, -1)}
+                                                disabled={!!subjectActionPending || (subject.completed_chapters || 0) <= 0}
+                                                title="汇总进度减一"
+                                            >
+                                                -
+                                            </button>
+                                            <button
+                                                className="button button-primary flex items-center justify-center p-0"
+                                                style={{ width: 32, height: 32, borderRadius: '50%', background: displayColor }}
+                                                onClick={() => void updateSummaryProgress(subject, 1)}
+                                                disabled={!!subjectActionPending || (subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
+                                                title="汇总进度加一"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <span className="text-xs text-muted">详细章节自动汇总进度</span>
+                                    )}
                                     <button
-                                        className="icon-button"
-                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
-                                        onClick={() => handleEdit({...subject, color: displayColor})}
-                                        title="编辑科目"
-                                    ><Pencil size={14} /></button>
-                                    <button
-                                        className="icon-button"
-                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6 }}
-                                        onClick={() => handleDelete(subject.id)}
-                                        title="删除科目"
-                                        onMouseEnter={e => e.currentTarget.style.color = 'var(--color-state-danger)'}
-                                        onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
-                                    ><Trash2 size={14} /></button>
+                                        className="button button-secondary"
+                                        style={{ borderRadius: 20 }}
+                                        onClick={() => setExpandedSubjectId(expanded ? null : subject.id)}
+                                        aria-expanded={expanded}
+                                        title={expanded ? '收起章节管理' : '管理章节'}
+                                        data-testid={`manage-chapters-${subject.id}`}
+                                    >
+                                        {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                                        {expanded ? '收起' : '管理章节'}
+                                    </button>
                                 </div>
-                            </div>
 
-                            <div className="flex items-end justify-between" style={{ marginBottom: 'var(--space-sm)' }}>
-                                <div className="text-3xl font-extrabold" style={{ color: displayColor, fontVariantNumeric: 'tabular-nums' }}>
-                                    {subject.pct}%
-                                </div>
-                                <div className="text-sm text-muted font-medium mb-1">
-                                    {subject.completed_chapters || 0} / {subject.total_chapters} Pts
-                                </div>
+                                {expanded && (
+                                    <SubjectChapterPanel
+                                        subject={subject}
+                                        chapters={chaptersBySubject[subject.id] || []}
+                                        color={displayColor}
+                                        api={subjectChaptersAPI}
+                                        onRefresh={loadAllData}
+                                    />
+                                )}
                             </div>
-
-                            <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', marginBottom: 'var(--space-lg)' }}>
-                                <div style={{
-                                    height: '100%', width: `${subject.pct}%`,
-                                    background: displayColor, borderRadius: 4, transition: 'width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)'
-                                }} />
-                            </div>
-
-                            {/* Stats Metrics */}
-                            <div className="flex justify-between items-center text-sm mb-4 bg-tertiary rounded p-2" style={{ background: 'var(--bg-secondary)', borderRadius: 8 }}>
-                                <div className="flex flex-col items-center flex-1">
-                                    <span className="text-muted text-xs mb-1">今日投入</span>
-                                    <span className="font-semibold">{subject.studyTime} m</span>
-                                </div>
-                                <div className="flex flex-col items-center flex-1" style={{ borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
-                                    <span className="text-muted text-xs mb-1">未清错题</span>
-                                    <span className="font-semibold text-danger">{subject.mistakeCount - subject.masteredCount}</span>
-                                </div>
-                                <div className="flex flex-col items-center flex-1">
-                                    <span className="text-muted text-xs mb-1">已掌握</span>
-                                    <span className="font-semibold text-success">{subject.masteredCount}</span>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                                <span className="text-xs text-muted font-medium uppercase tracking-wider">更新进度</span>
-                                <div className="flex gap-sm">
-                                    <button className="button button-secondary flex items-center justify-center p-0"
-                                        style={{ width: 32, height: 32, borderRadius: '50%' }}
-                                        onClick={() => updateProgress(subject, -1)}
-                                        disabled={(subject.completed_chapters || 0) <= 0}
-                                    >−</button>
-                                    <button className="button button-primary flex items-center justify-center p-0"
-                                        style={{ width: 32, height: 32, borderRadius: '50%', background: displayColor, boxShadow: `0 2px 8px ${displayColor}40` }}
-                                        onClick={() => updateProgress(subject, 1)}
-                                        disabled={(subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
-                                    >+</button>
-                                </div>
-                            </div>
-                        </div>
-                    )})
+                        )
+                    })
                 )}
 
                 {!loading && subjectMetrics.length === 0 && !showForm && (
-                    <div className="empty-state" style={{ gridColumn: '1 / -1', padding: 'var(--space-3xl)' }}>
-                        <Library size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2, color: 'var(--text-secondary)' }} />
-                        <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>尚未建立复习轨迹</h3>
-                        <p className="text-muted" style={{ maxWidth: 400, margin: '0 auto', lineHeight: 1.6 }}>
-                            添加您要报考的科目，拆分章节任务。我们将会结合番茄钟与错题本数据，为您生成精准的能力雷达。
+                    <div className="empty-state" style={{ gridColumn: '1 / -1', padding: 'var(--space-2xl)' }}>
+                        <Library size={52} style={{ marginBottom: 'var(--space)', opacity: 0.25, color: 'var(--text-secondary)' }} />
+                        <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>还没有科目</h3>
+                        <p className="text-muted" style={{ maxWidth: 420, margin: '0 auto', lineHeight: 1.7 }}>
+                            先创建科目，再添加详细章节或使用汇总进度记录备考进展。
                         </p>
                     </div>
                 )}
@@ -378,17 +521,33 @@ export default function StudyProgress() {
 
             <style>{`
                 .progress-card {
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    transition: box-shadow var(--duration-normal) var(--ease-out), transform var(--duration-normal) var(--ease-out);
                 }
                 .progress-card:hover {
-                    transform: translateY(-4px);
-                    box-shadow: var(--shadow-xl);
+                    transform: translateY(-2px);
+                    box-shadow: var(--shadow-lg);
                 }
                 .icon-button {
-                    background: transparent; border: none; cursor: pointer; opacity: 0.6; transition: all 0.2s;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 6px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: transparent;
+                    border: none;
+                    color: inherit;
+                    cursor: pointer;
+                    opacity: 0.75;
+                    transition: opacity var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
                 }
-                .icon-button:hover {
-                    opacity: 1; transform: scale(1.1);
+                .icon-button:hover:not(:disabled) {
+                    opacity: 1;
+                    background: var(--bg-tertiary);
+                }
+                .icon-button:disabled {
+                    cursor: not-allowed;
+                    opacity: 0.35;
                 }
             `}</style>
         </div>

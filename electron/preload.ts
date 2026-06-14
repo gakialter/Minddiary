@@ -1,7 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 import type { 
-    NewEntry, EntryFilters, Tag, Subject, 
+    NewEntry, EntryFilters, Tag, Subject, CreateSubjectChapterInput,
+    BulkSubjectChaptersInput, ConvertSubjectChaptersInput, SubjectChapterPatch,
     PomodoroSession, StudyTask, StudyTaskQuery, NewStudyTask, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
@@ -109,6 +110,18 @@ contextBridge.exposeInMainWorld('api', {
         create: (subject: Partial<Subject>) => ipcRenderer.invoke('subjects:create', subject),
         update: (id: number, subject: Partial<Subject>) => ipcRenderer.invoke('subjects:update', id, subject),
         delete: (id: number) => ipcRenderer.invoke('subjects:delete', id),
+    },
+
+    subjectChapters: {
+        getBySubject: (subjectId: number) => ipcRenderer.invoke('subjectChapters:getBySubject', subjectId),
+        create: (chapter: CreateSubjectChapterInput) => ipcRenderer.invoke('subjectChapters:create', chapter),
+        bulkCreate: (input: BulkSubjectChaptersInput) => ipcRenderer.invoke('subjectChapters:bulkCreate', input),
+        convertFromSummary: (input: ConvertSubjectChaptersInput) => ipcRenderer.invoke('subjectChapters:convertFromSummary', input),
+        patch: (id: number, patch: SubjectChapterPatch) => ipcRenderer.invoke('subjectChapters:patch', id, patch),
+        toggleCompleted: (id: number, completed?: boolean) => ipcRenderer.invoke('subjectChapters:toggleCompleted', id, completed),
+        reorder: (subjectId: number, chapterIds: number[]) => ipcRenderer.invoke('subjectChapters:reorder', subjectId, chapterIds),
+        delete: (id: number) => ipcRenderer.invoke('subjectChapters:delete', id),
+        clearDetailedChapters: (subjectId: number) => ipcRenderer.invoke('subjectChapters:clearDetailed', subjectId),
     },
 
     // Pomodoro

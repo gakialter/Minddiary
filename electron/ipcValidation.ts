@@ -1,5 +1,8 @@
 import type {
     AIMessage,
+    BulkSubjectChaptersInput,
+    ConvertSubjectChaptersInput,
+    CreateSubjectChapterInput,
     MoodId,
     NewEntry,
     NewStudyTask,
@@ -10,6 +13,7 @@ import type {
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
+    SubjectChapterPatch,
 } from '../src/types';
 import {
     AI_REQUEST_LIMITS,
@@ -27,6 +31,9 @@ export const IPC_VALIDATION_LIMITS = {
     entryImagePath: 2_000,
     taskTitle: 200,
     taskDescription: 5_000,
+    chapterTitle: 120,
+    chapterNotes: 1_000,
+    chapterBatch: 200,
     dateTime: 64,
 } as const;
 
@@ -211,6 +218,28 @@ function validateEntryFields(record: Record<string, unknown>, requireCreateField
     validateOptionalStringArray(record, 'images', 'entry images', IPC_VALIDATION_LIMITS.entryImagePath);
 }
 
+function validateChapterDraft(record: Record<string, unknown>, label: string): void {
+    const title = requireString(record.title, `${label} title`, IPC_VALIDATION_LIMITS.chapterTitle);
+    if (!title.trim()) throw new Error(`${label} title is required`);
+    validateOptionalString(record, 'notes', `${label} notes`, IPC_VALIDATION_LIMITS.chapterNotes);
+    if (hasOwn(record, 'completed') && record.completed !== undefined && typeof record.completed !== 'boolean') {
+        throw new Error(`${label} completed must be a boolean`);
+    }
+}
+
+function validateChapterDraftArray(value: unknown, label: string): void {
+    if (!Array.isArray(value)) {
+        throw new Error(`${label} must be an array`);
+    }
+    if (value.length === 0) {
+        throw new Error(`${label} must contain at least one chapter`);
+    }
+    if (value.length > IPC_VALIDATION_LIMITS.chapterBatch) {
+        throw new Error(`${label} cannot contain more than ${IPC_VALIDATION_LIMITS.chapterBatch} chapters`);
+    }
+    value.forEach((item, index) => validateChapterDraft(requireRecord(item, `${label}[${index}]`), `${label}[${index}]`));
+}
+
 export function validatePositiveIdPayload(value: unknown, label: string): number {
     return requirePositiveInteger(value, label);
 }
@@ -278,6 +307,69 @@ export function validatePomodoroSessionPayload(payload: unknown): PomodoroSessio
     validateOptionalString(record, 'started_at', 'pomodoro started_at', IPC_VALIDATION_LIMITS.dateTime);
     validateOptionalString(record, 'completed_at', 'pomodoro completed_at', IPC_VALIDATION_LIMITS.dateTime);
     return payload as PomodoroSession;
+}
+
+export function validateCreateSubjectChapterPayload(payload: unknown): CreateSubjectChapterInput {
+    const record = requireRecord(payload, 'subjectChapters:create payload');
+    requirePositiveInteger(record.subject_id, 'chapter subject_id');
+    validateChapterDraft(record, 'chapter');
+    return payload as CreateSubjectChapterInput;
+}
+
+export function validateBulkSubjectChaptersPayload(payload: unknown): BulkSubjectChaptersInput {
+    const record = requireRecord(payload, 'subjectChapters:bulkCreate payload');
+    requirePositiveInteger(record.subject_id, 'chapter subject_id');
+    validateChapterDraftArray(record.chapters, 'chapters');
+    return payload as BulkSubjectChaptersInput;
+}
+
+export function validateConvertSubjectChaptersPayload(payload: unknown): ConvertSubjectChaptersInput {
+    const record = requireRecord(payload, 'subjectChapters:convertFromSummary payload');
+    requirePositiveInteger(record.subject_id, 'chapter subject_id');
+    validateChapterDraftArray(record.chapters, 'chapters');
+    requireNonNegativeInteger(record.markCompletedCount, 'markCompletedCount');
+    return payload as ConvertSubjectChaptersInput;
+}
+
+export function validateSubjectChapterPatchPayload(payload: unknown): SubjectChapterPatch {
+    const record = requireRecord(payload, 'subjectChapters:patch payload');
+    const allowed = new Set(['title', 'notes', 'completed']);
+    Object.keys(record).forEach(key => {
+        if (!allowed.has(key)) {
+            throw new Error(`subjectChapters:patch payload contains unsupported field: ${key}`);
+        }
+    });
+    if (hasOwn(record, 'title')) {
+        const title = requireString(record.title, 'chapter title', IPC_VALIDATION_LIMITS.chapterTitle);
+        if (!title.trim()) throw new Error('chapter title is required');
+    }
+    validateOptionalString(record, 'notes', 'chapter notes', IPC_VALIDATION_LIMITS.chapterNotes);
+    if (hasOwn(record, 'completed') && record.completed !== undefined && typeof record.completed !== 'boolean') {
+        throw new Error('chapter completed must be a boolean');
+    }
+    return payload as SubjectChapterPatch;
+}
+
+export function validateSubjectChapterCompletedPayload(payload: unknown): boolean | undefined {
+    if (payload === undefined) return undefined;
+    if (typeof payload !== 'boolean') {
+        throw new Error('chapter completed must be a boolean');
+    }
+    return payload;
+}
+
+export function validateSubjectChapterReorderPayload(payload: unknown): number[] {
+    if (!Array.isArray(payload)) {
+        throw new Error('chapterIds must be an array');
+    }
+    if (payload.length === 0) {
+        throw new Error('chapterIds must be a non-empty array');
+    }
+    const chapterIds = payload.map((value, index) => requirePositiveInteger(value, `chapterIds[${index}]`));
+    if (new Set(chapterIds).size !== chapterIds.length) {
+        throw new Error('chapterIds must not contain duplicate ids');
+    }
+    return chapterIds;
 }
 
 export function validateMistakeReviewPayload(idPayload: unknown, dataPayload: unknown): { id: number; data: ReviewData } {

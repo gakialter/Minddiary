@@ -1,5 +1,5 @@
 // Mock 数据 - 用于前端开发和测试
-import type { DiaryEntry, Tag, AppSettings, Subject, Mistake, MoodId, StorageKeys } from '../types'
+import type { DiaryEntry, Tag, AppSettings, Subject, SubjectChapter, Mistake, MoodId, StorageKeys } from '../types'
 
 export const mockTags: Tag[] = [
   { id: 1, name: '政治', color: '#C65A3A' },
@@ -123,10 +123,53 @@ export const mockSettings: AppSettings = {
 }
 
 export const mockSubjects: Subject[] = [
-  { id: 1, name: '政治', color: '#C65A3A', order: 1 },
-  { id: 2, name: '英语', color: '#0F766E', order: 2 },
-  { id: 3, name: '数学', color: '#0D655E', order: 3 },
-  { id: 4, name: '专业课', color: '#2F8F6B', order: 4 },
+  { id: 1, name: '政治', color: '#C65A3A', total_chapters: 4, completed_chapters: 1, order: 1 },
+  { id: 2, name: '英语', color: '#0F766E', total_chapters: 0, completed_chapters: 0, order: 2 },
+  { id: 3, name: '数学', color: '#0D655E', total_chapters: 0, completed_chapters: 0, order: 3 },
+  { id: 4, name: '专业课', color: '#2F8F6B', total_chapters: 0, completed_chapters: 0, order: 4 },
+]
+
+export const mockSubjectChapters: SubjectChapter[] = [
+  {
+    id: 1,
+    subject_id: 1,
+    title: '第一章 马克思主义基本原理',
+    notes: '',
+    completed: true,
+    sort_order: 0,
+    created_at: '2024-03-06T09:00:00Z',
+    updated_at: '2024-03-06T09:00:00Z',
+  },
+  {
+    id: 2,
+    subject_id: 1,
+    title: '第二章 唯物论',
+    notes: '',
+    completed: false,
+    sort_order: 1,
+    created_at: '2024-03-06T09:00:00Z',
+    updated_at: '2024-03-06T09:00:00Z',
+  },
+  {
+    id: 3,
+    subject_id: 1,
+    title: '第三章 辩证法',
+    notes: '',
+    completed: false,
+    sort_order: 2,
+    created_at: '2024-03-06T09:00:00Z',
+    updated_at: '2024-03-06T09:00:00Z',
+  },
+  {
+    id: 4,
+    subject_id: 1,
+    title: '第四章 实践论',
+    notes: '',
+    completed: false,
+    sort_order: 3,
+    created_at: '2024-03-06T09:00:00Z',
+    updated_at: '2024-03-06T09:00:00Z',
+  },
 ]
 
 export const mockMistakes: Mistake[] = [
@@ -178,6 +221,7 @@ export const STORAGE_KEYS: StorageKeys = {
   SETTINGS: 'mindiary_settings',
   MISTAKES: 'mindiary_mistakes',
   SUBJECTS: 'mindiary_subjects',
+  SUBJECT_CHAPTERS: 'mindiary_subject_chapters',
   TASKS: 'mindiary_study_tasks',
   POMODORO_SESSIONS: 'mindiary_pomodoro_sessions',
 }

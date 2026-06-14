@@ -5,11 +5,13 @@ import type {
     PomodoroRangeEntry,
     StudyTask,
     Subject,
+    SubjectChapter,
 } from '../types'
 import type {
     EntriesContextAPI,
     MistakesContextAPI,
     PomodoroContextAPI,
+    SubjectChaptersContextAPI,
     SubjectsContextAPI,
     TasksContextAPI,
 } from '../types/api'
@@ -29,6 +31,7 @@ export interface AIContextBuildDeps {
     entries: EntriesContextAPI
     mistakes: MistakesContextAPI
     subjects: SubjectsContextAPI
+    subjectChapters?: SubjectChaptersContextAPI
     tasks: TasksContextAPI
     pomodoro: PomodoroContextAPI
 }
@@ -41,6 +44,7 @@ const CONTEXT_LIMITS = {
     mistakeNotesChars: 180,
     recentReflectionDays: 7,
     recentEntryChars: 600,
+    subjectChapterPreviewCount: 3,
 } as const
 
 function getLocalDateKey(date = new Date()): string {
@@ -67,13 +71,38 @@ function summarizeMistake(mistake: Mistake, index: number): string {
     ].filter(Boolean).join('\n')
 }
 
-function formatSubjects(subjects: Subject[]): string {
+function formatSubjectChapterSummary(chapters: SubjectChapter[]): string {
+    if (chapters.length === 0) return ''
+    const ordered = [...chapters].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    const completed = ordered.filter(chapter => chapter.completed).length
+    const open = ordered.filter(chapter => !chapter.completed)
+    const next = open[0]?.title
+    const preview = open.slice(0, CONTEXT_LIMITS.subjectChapterPreviewCount).map(chapter => sanitizeUserInput(chapter.title)).join('；')
+    return [
+        `详细章节 ${completed}/${ordered.length}`,
+        next ? `下一章节：${sanitizeUserInput(next)}` : '全部章节已完成',
+        preview && open.length > 1 ? `近期未完成：${preview}` : '',
+    ].filter(Boolean).join('，')
+}
+
+async function formatSubjects(subjects: Subject[], subjectChapters?: SubjectChaptersContextAPI): Promise<string> {
     if (subjects.length === 0) return '暂无科目数据。'
+    const chapterSummaries = new Map<number, string>()
+    if (subjectChapters) {
+        await Promise.all(subjects.map(async subject => {
+            try {
+                chapterSummaries.set(subject.id, formatSubjectChapterSummary(await subjectChapters.getBySubject(subject.id)))
+            } catch {
+                chapterSummaries.set(subject.id, '')
+            }
+        }))
+    }
     return subjects.map(subject => {
         const progress = typeof subject.total_chapters === 'number' && subject.total_chapters > 0
             ? `，章节进度 ${subject.completed_chapters || 0}/${subject.total_chapters}`
             : ''
-        return `- ${sanitizeUserInput(subject.name)}${progress}`
+        const chapterSummary = chapterSummaries.get(subject.id)
+        return `- ${sanitizeUserInput(subject.name)}${progress}${chapterSummary ? `，${chapterSummary}` : ''}`
     }).join('\n')
 }
 
@@ -140,7 +169,7 @@ async function buildStudyOverviewContext(deps: AIContextBuildDeps): Promise<AICo
     const content = [
         `日期：${today}`,
         '科目进度：',
-        formatSubjects(subjects || []),
+        await formatSubjects(subjects || [], deps.subjectChapters),
         '今日任务：',
         formatTasks(tasks || []),
         formatPomodoro(range || []),

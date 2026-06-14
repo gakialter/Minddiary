@@ -34,7 +34,7 @@ describe('auto backup package', () => {
       backupPath,
       userDataPath,
       appVersion: '1.9.3',
-      schemaVersion: 3,
+      schemaVersion: 4,
       now: new Date('2026-05-20T01:02:03.004Z'),
       keep: 7,
       logger: { warn: vi.fn(), error: vi.fn() },
@@ -42,6 +42,16 @@ describe('auto backup package', () => {
         entries: [],
         tags: [],
         subjects: [],
+        subject_chapters: [
+          {
+            id: 1,
+            subject_id: 1,
+            title: '第一章 函数',
+            notes: '',
+            completed: 1,
+            sort_order: 0,
+          },
+        ],
         mistakes: [],
         pomodoro: [],
         settings: {
@@ -63,7 +73,9 @@ describe('auto backup package', () => {
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
     expect(zipText).toContain('"appVersion": "1.9.3"')
     expect(zipText).toContain('"createdAt": "2026-05-20T01:02:03.004Z"')
-    expect(zipText).toContain('"schemaVersion": 3')
+    expect(zipText).toContain('"schemaVersion": 4')
+    expect(zipText).toContain('subject_chapters')
+    expect(zipText).toContain('第一章 函数')
     expect(zipText).not.toContain('sk-secret-key')
     expect(zipText).not.toContain('aiApiKey')
   })
@@ -98,7 +110,7 @@ describe('auto backup package', () => {
       backupPath,
       userDataPath: path.join(root, 'userData'),
       appVersion: '1.9.3',
-      schemaVersion: 3,
+      schemaVersion: 4,
       now: new Date('2026-05-20T01:02:03.004Z'),
       keep: 7,
       logger: { warn: vi.fn(), error: vi.fn() },
