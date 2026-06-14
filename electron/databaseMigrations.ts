@@ -6,7 +6,7 @@ import {
     TAG_VARIANTS,
 } from '../src/utils/tagStyle';
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export type DatabaseMigration = {
     version: number;
@@ -183,6 +183,20 @@ function createCurrentSchema(database: Database.Database): void {
       color TEXT DEFAULT '#0F766E'
     );
 
+    CREATE TABLE IF NOT EXISTS subject_chapters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      completed INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_subject_chapters_subject_id ON subject_chapters(subject_id);
+    CREATE INDEX IF NOT EXISTS idx_subject_chapters_subject_order ON subject_chapters(subject_id, sort_order);
+
     CREATE TABLE IF NOT EXISTS pomodoro_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER REFERENCES subjects(id),
@@ -325,6 +339,24 @@ function migrateToSchemaVersion3(database: Database.Database): void {
     database.exec('CREATE INDEX IF NOT EXISTS idx_pomodoro_task_id ON pomodoro_sessions(task_id)');
 }
 
+function migrateToSchemaVersion4(database: Database.Database): void {
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS subject_chapters (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          notes TEXT NOT NULL DEFAULT '',
+          completed INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_subject_chapters_subject_id ON subject_chapters(subject_id);
+        CREATE INDEX IF NOT EXISTS idx_subject_chapters_subject_order ON subject_chapters(subject_id, sort_order);
+    `);
+}
+
 export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     {
         version: 1,
@@ -340,6 +372,11 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
         version: 3,
         name: 'add-pomodoro-task-attribution',
         up: migrateToSchemaVersion3,
+    },
+    {
+        version: 4,
+        name: 'add-subject-chapters',
+        up: migrateToSchemaVersion4,
     },
 ] as const;
 

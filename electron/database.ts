@@ -19,6 +19,7 @@ import { createDatabaseRepositories, type DatabaseRepositories } from './reposit
 import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
+    BulkSubjectChaptersInput, ConvertSubjectChaptersInput, CreateSubjectChapterInput, SubjectChapterPatch,
     PomodoroSession, PomodoroStat, StudyTask, NewStudyTask, StudyTaskQuery,
     Mistake, MistakeFilters,
     DiaryTemplate, TodayDashboardData, DateMood, Attachment
@@ -193,6 +194,42 @@ function updateSubject(id: number, subject: Partial<Subject>) {
 
 function deleteSubject(id: number) {
     return getRepositories().subjects.deleteSubject(id);
+}
+
+function getSubjectChapters(subjectId: number) {
+    return getRepositories().subjectChapters.getBySubject(subjectId);
+}
+
+function createSubjectChapter(chapter: CreateSubjectChapterInput) {
+    return getRepositories().subjectChapters.createChapter(chapter);
+}
+
+function bulkCreateSubjectChapters(input: BulkSubjectChaptersInput) {
+    return getRepositories().subjectChapters.bulkCreateChapters(input);
+}
+
+function convertSubjectToDetailedChapters(input: ConvertSubjectChaptersInput) {
+    return getRepositories().subjectChapters.convertSubjectToDetailedChapters(input);
+}
+
+function patchSubjectChapter(id: number, patch: SubjectChapterPatch) {
+    return getRepositories().subjectChapters.patchChapter(id, patch);
+}
+
+function toggleSubjectChapterCompleted(id: number, completed?: boolean) {
+    return getRepositories().subjectChapters.toggleChapterCompleted(id, completed);
+}
+
+function reorderSubjectChapters(subjectId: number, chapterIds: number[]) {
+    return getRepositories().subjectChapters.reorderChapters(subjectId, chapterIds);
+}
+
+function deleteSubjectChapter(id: number) {
+    return getRepositories().subjectChapters.deleteChapter(id);
+}
+
+function clearDetailedSubjectChapters(subjectId: number) {
+    return getRepositories().subjectChapters.clearDetailedChapters(subjectId);
 }
 
 // ==================== Pomodoro ====================
@@ -687,6 +724,8 @@ module.exports = {
     getSetting, setSetting, getAllSettings,
     addAttachment, getAttachmentsByEntry, getAttachmentsByEntries, getAttachmentById, removeAttachment,
     getAllSubjects, createSubject, updateSubject, deleteSubject,
+    getSubjectChapters, createSubjectChapter, bulkCreateSubjectChapters, convertSubjectToDetailedChapters,
+    patchSubjectChapter, toggleSubjectChapterCompleted, reorderSubjectChapters, deleteSubjectChapter, clearDetailedSubjectChapters,
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
     getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,

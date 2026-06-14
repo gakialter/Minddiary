@@ -76,7 +76,7 @@ Add-StepSummaryLine ""
 Add-StepSummaryLine "| Artifact | Authenticode status | Subject |"
 Add-StepSummaryLine "| --- | --- | --- |"
 
-$invalidSetupInstallers = @()
+$invalidExeFiles = @()
 
 foreach ($file in $exeFiles) {
     $signature = Get-AuthenticodeSignature -FilePath $file.FullName
@@ -89,15 +89,14 @@ foreach ($file in $exeFiles) {
     Add-StepSummaryLine "| $($file.Name) | $($signature.Status) | $subject |"
     Write-Host "$($file.Name): Authenticode status $($signature.Status)"
 
-    $isSetupInstaller = $setupInstallers.FullName -contains $file.FullName
-    if ($isSetupInstaller -and $signature.Status -ne "Valid") {
-        $invalidSetupInstallers += $file.FullName
+    if ($signature.Status -ne "Valid") {
+        $invalidExeFiles += $file.FullName
     }
 }
 
-if ($requireSignedFlag -and $invalidSetupInstallers.Count -gt 0) {
-    $joined = $invalidSetupInstallers -join ", "
-    throw "Windows signing is required, but the setup installer signature is not valid: $joined"
+if ($requireSignedFlag -and $invalidExeFiles.Count -gt 0) {
+    $joined = $invalidExeFiles -join ", "
+    throw "Windows signing is required, but one or more Windows EXE signatures are not valid: $joined"
 }
 
 if (-not $requireSignedFlag) {
@@ -109,5 +108,5 @@ if (-not $requireSignedFlag) {
 
 if ($requireSignedFlag) {
     Add-StepSummaryLine ""
-    Add-StepSummaryLine "Windows setup installer signature is valid."
+    Add-StepSummaryLine "All Windows EXE signatures are valid."
 }

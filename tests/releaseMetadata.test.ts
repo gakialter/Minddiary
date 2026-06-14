@@ -52,6 +52,38 @@ function writeAppUpdateYml(releaseDir: string, owner = 'gakialter', repo = 'Mind
   ].join('\n'))
 }
 
+function writeMacLatestYml(releaseDir: string, body?: string): void {
+  fs.writeFileSync(path.join(releaseDir, 'MindDiary-1.9.3-arm64.dmg'), 'dmg')
+  fs.writeFileSync(path.join(releaseDir, 'MindDiary-1.9.3-arm64-mac.zip'), 'zip')
+  fs.writeFileSync(path.join(releaseDir, 'MindDiary-1.9.3-arm64-mac.zip.blockmap'), 'blockmap')
+  fs.writeFileSync(path.join(releaseDir, 'latest-mac.yml'), body ?? [
+    'version: 1.9.3',
+    'files:',
+    '  - url: MindDiary-1.9.3-arm64-mac.zip',
+    '    sha512: ziphash',
+    '    size: 3',
+    '  - url: MindDiary-1.9.3-arm64.dmg',
+    '    sha512: dmghash',
+    '    size: 3',
+    'path: MindDiary-1.9.3-arm64-mac.zip',
+    'sha512: ziphash',
+    'releaseDate: 2026-05-21T00:00:00.000Z',
+    '',
+  ].join('\n'))
+}
+
+function writeMacAppUpdateYml(releaseDir: string, owner = 'gakialter', repo = 'Minddiary'): void {
+  const resourcesDir = path.join(releaseDir, 'mac-arm64', 'MindDiary.app', 'Contents', 'Resources')
+  fs.mkdirSync(resourcesDir, { recursive: true })
+  fs.writeFileSync(path.join(resourcesDir, 'app-update.yml'), [
+    'provider: github',
+    `owner: ${owner}`,
+    `repo: ${repo}`,
+    'updaterCacheDirName: minddiary-updater',
+    '',
+  ].join('\n'))
+}
+
 describe('release metadata verification', () => {
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
@@ -145,5 +177,70 @@ describe('release metadata verification', () => {
       packageJsonPath: packagePath,
       releaseDir,
     })).toThrow(/owner other-owner does not match package\.json publish owner gakialter/)
+  })
+
+  it('accepts valid macOS latest-mac.yml, assets, and packaged app-update.yml metadata', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeMacLatestYml(releaseDir)
+    writeMacAppUpdateYml(releaseDir)
+
+    expect(verifyReleaseMetadata({
+      platform: 'mac',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toEqual({
+      latestPath: path.join(releaseDir, 'latest-mac.yml'),
+      installerPath: path.join(releaseDir, 'MindDiary-1.9.3-arm64-mac.zip'),
+      packageVersion: '1.9.3',
+      publishOwner: 'gakialter',
+      publishRepo: 'Minddiary',
+      appUpdatePaths: [
+        path.join(releaseDir, 'mac-arm64', 'MindDiary.app', 'Contents', 'Resources', 'app-update.yml'),
+      ],
+    })
+  })
+
+  it('rejects macOS metadata when required release assets are missing', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeMacLatestYml(releaseDir)
+    writeMacAppUpdateYml(releaseDir)
+    fs.rmSync(path.join(releaseDir, 'MindDiary-1.9.3-arm64-mac.zip.blockmap'))
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'mac',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/Missing macOS \.blockmap artifact/)
+  })
+
+  it('rejects macOS latest-mac.yml when the update path is not a zip artifact', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeMacLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-1.9.3-arm64.dmg',
+      '    sha512: dmghash',
+      '    size: 3',
+      'path: MindDiary-1.9.3-arm64.dmg',
+      'sha512: dmghash',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeMacAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'mac',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest-mac\.yml path must point to a macOS \.zip update artifact/)
   })
 })

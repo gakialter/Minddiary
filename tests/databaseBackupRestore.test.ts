@@ -73,6 +73,40 @@ describe('database backup data normalization', () => {
     expect(DATABASE_BACKUP_TABLES.some(item => item.table === 'study_tasks')).toBe(true)
   })
 
+  it('normalizes subject chapters and restores them immediately after subjects', () => {
+    const chapter = {
+      id: 2,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '重点',
+      completed: 1,
+      sort_order: 0,
+      created_at: '2026-06-13 08:00:00',
+      updated_at: '2026-06-13 08:00:00',
+    }
+    const subjectsIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'subjects')
+    const chaptersIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'subject_chapters')
+    const mistakesIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'mistakes')
+    const chaptersTable = DATABASE_BACKUP_TABLES[chaptersIndex]
+
+    expect(subjectsIndex).toBeGreaterThanOrEqual(0)
+    expect(chaptersIndex).toBeGreaterThan(subjectsIndex)
+    expect(mistakesIndex).toBeGreaterThan(chaptersIndex)
+    expect(chaptersTable?.columns).toEqual([
+      'id',
+      'subject_id',
+      'title',
+      'notes',
+      'completed',
+      'sort_order',
+      'created_at',
+      'updated_at',
+    ])
+
+    expect(normalizeBackupDatabaseData({ subject_chapters: [chapter] }).subject_chapters).toEqual([chapter])
+    expect(normalizeBackupDatabaseData({ subjects: [] }).subject_chapters).toEqual([])
+  })
+
   it('exports pomodoro task attribution after study tasks for dependency-safe restore', () => {
     const taskIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'study_tasks')
     const pomodoroIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'pomodoro_sessions')

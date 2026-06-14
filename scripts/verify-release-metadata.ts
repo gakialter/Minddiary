@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-type ReleasePlatform = 'win'
+type ReleasePlatform = 'win' | 'mac'
 
 type PackagePublishEntry = {
   provider?: unknown
@@ -184,7 +184,28 @@ function resolveReleaseAsset(releaseDir: string, assetPath: string, context: str
     throw new ReleaseMetadataError(`${context} points to missing asset: ${assetPath}`)
   }
 
+  const stat = fs.statSync(resolved)
+  if (!stat.isFile() || stat.size === 0) {
+    throw new ReleaseMetadataError(`${context} points to an empty or non-file asset: ${assetPath}`)
+  }
+
   return resolved
+}
+
+function findFilesByExtension(root: string, extension: string): string[] {
+  if (!fs.existsSync(root)) return []
+
+  const matches: string[] = []
+  const entries = fs.readdirSync(root, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      matches.push(...findFilesByExtension(fullPath, extension))
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(extension)) {
+      matches.push(fullPath)
+    }
+  }
+  return matches.sort()
 }
 
 function findNamedFiles(root: string, filename: string): string[] {
@@ -203,42 +224,76 @@ function findNamedFiles(root: string, filename: string): string[] {
   return matches.sort()
 }
 
+function getLatestFilename(platform: ReleasePlatform): string {
+  return platform === 'mac' ? 'latest-mac.yml' : 'latest.yml'
+}
+
+function validateRequiredMacArtifacts(releaseDir: string): void {
+  const requiredExtensions = ['.dmg', '.zip', '.blockmap']
+
+  requiredExtensions.forEach(extension => {
+    const matches = findFilesByExtension(releaseDir, extension)
+    if (matches.length === 0) {
+      throw new ReleaseMetadataError(`Missing macOS ${extension} artifact under release directory`)
+    }
+
+    matches.forEach(filepath => {
+      const stat = fs.statSync(filepath)
+      if (!stat.isFile() || stat.size === 0) {
+        throw new ReleaseMetadataError(`macOS ${extension} artifact is empty: ${path.relative(releaseDir, filepath)}`)
+      }
+    })
+  })
+}
+
 function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, packageVersion: string, platform: ReleasePlatform): string {
-  const latestVersion = getRequiredString(latest, 'version', 'latest.yml')
+  const latestFilename = getLatestFilename(platform)
+  const latestVersion = getRequiredString(latest, 'version', latestFilename)
   if (latestVersion !== packageVersion) {
-    throw new ReleaseMetadataError(`latest.yml version ${latestVersion} does not match package.json version ${packageVersion}`)
+    throw new ReleaseMetadataError(`${latestFilename} version ${latestVersion} does not match package.json version ${packageVersion}`)
   }
 
   const files = latest.files
   if (!Array.isArray(files) || files.length === 0) {
-    throw new ReleaseMetadataError('Missing latest.yml files')
+    throw new ReleaseMetadataError(`Missing ${latestFilename} files`)
   }
 
-  const latestPathValue = getRequiredString(latest, 'path', 'latest.yml')
-  const latestSha512 = getRequiredString(latest, 'sha512', 'latest.yml')
-  getRequiredString(latest, 'releaseDate', 'latest.yml')
+  const latestPathValue = getRequiredString(latest, 'path', latestFilename)
+  const latestSha512 = getRequiredString(latest, 'sha512', latestFilename)
+  const releaseDate = getRequiredString(latest, 'releaseDate', latestFilename)
 
   if (latestSha512.length === 0) {
-    throw new ReleaseMetadataError('Missing latest.yml sha512')
+    throw new ReleaseMetadataError(`Missing ${latestFilename} sha512`)
   }
 
-  const installerPath = resolveReleaseAsset(releaseDir, latestPathValue, 'latest.yml path')
+  if (Number.isNaN(Date.parse(releaseDate))) {
+    throw new ReleaseMetadataError(`${latestFilename} releaseDate is not a valid date: ${releaseDate}`)
+  }
+
+  const installerPath = resolveReleaseAsset(releaseDir, latestPathValue, `${latestFilename} path`)
   if (platform === 'win' && path.extname(installerPath).toLowerCase() !== '.exe') {
-    throw new ReleaseMetadataError(`latest.yml path must point to a Windows .exe installer: ${latestPathValue}`)
+    throw new ReleaseMetadataError(`${latestFilename} path must point to a Windows .exe installer: ${latestPathValue}`)
+  }
+  if (platform === 'mac' && path.extname(installerPath).toLowerCase() !== '.zip') {
+    throw new ReleaseMetadataError(`${latestFilename} path must point to a macOS .zip update artifact: ${latestPathValue}`)
   }
 
   files.forEach((fileEntry, index) => {
     if (!isRecord(fileEntry)) {
-      throw new ReleaseMetadataError(`latest.yml files[${index}] must be an object`)
+      throw new ReleaseMetadataError(`${latestFilename} files[${index}] must be an object`)
     }
 
     const filePath = getOptionalString(fileEntry, 'url') ?? getOptionalString(fileEntry, 'path')
     if (!filePath) {
-      throw new ReleaseMetadataError(`Missing latest.yml files[${index}].url`)
+      throw new ReleaseMetadataError(`Missing ${latestFilename} files[${index}].url`)
     }
-    getRequiredString(fileEntry, 'sha512', `latest.yml files[${index}]`)
-    resolveReleaseAsset(releaseDir, filePath, `latest.yml files[${index}].url`)
+    getRequiredString(fileEntry, 'sha512', `${latestFilename} files[${index}]`)
+    resolveReleaseAsset(releaseDir, filePath, `${latestFilename} files[${index}].url`)
   })
+
+  if (platform === 'mac') {
+    validateRequiredMacArtifacts(releaseDir)
+  }
 
   return installerPath
 }
@@ -264,10 +319,11 @@ export function verifyReleaseMetadata(options: VerifyReleaseMetadataOptions): Re
   const platform = options.platform ?? 'win'
   const releaseDir = path.resolve(options.releaseDir)
   const packageJsonPath = path.resolve(options.packageJsonPath)
-  const latestPath = path.join(releaseDir, 'latest.yml')
+  const latestFilename = getLatestFilename(platform)
+  const latestPath = path.join(releaseDir, latestFilename)
 
   if (!fs.existsSync(latestPath)) {
-    throw new ReleaseMetadataError(`Missing latest.yml at ${latestPath}`)
+    throw new ReleaseMetadataError(`Missing ${latestFilename} at ${latestPath}`)
   }
 
   const packageMetadata = getPackageMetadata(packageJsonPath)
@@ -317,8 +373,8 @@ function parseArgs(argv: string[]): VerifyReleaseMetadataOptions {
       index += 1
     } else if (arg === '--platform') {
       const value = argv[index + 1]
-      if (value !== 'win') {
-        throw new ReleaseMetadataError('--platform currently supports only "win"')
+      if (value !== 'win' && value !== 'mac') {
+        throw new ReleaseMetadataError('--platform must be "win" or "mac"')
       }
       options.platform = value
       index += 1
@@ -340,8 +396,8 @@ if (isCliEntrypoint()) {
   try {
     const summary = verifyReleaseMetadata(parseArgs(process.argv.slice(2)))
     console.log(`Release metadata verified for ${summary.packageVersion}`)
-    console.log(`Installer: ${summary.installerPath}`)
-    console.log(`latest.yml: ${summary.latestPath}`)
+    console.log(`Primary update asset: ${summary.installerPath}`)
+    console.log(`Latest metadata: ${summary.latestPath}`)
     console.log(`app-update.yml files: ${summary.appUpdatePaths.join(', ')}`)
     console.log(`Publish target: ${summary.publishOwner}/${summary.publishRepo}`)
   } catch (error) {

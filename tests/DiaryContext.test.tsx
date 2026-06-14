@@ -99,6 +99,17 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
     update: vi.fn(),
     delete: vi.fn(),
   },
+  subjectChapters: {
+    getBySubject: vi.fn(),
+    create: vi.fn(),
+    bulkCreate: vi.fn(),
+    convertFromSummary: vi.fn(),
+    patch: vi.fn(),
+    toggleCompleted: vi.fn(),
+    reorder: vi.fn(),
+    delete: vi.fn(),
+    clearDetailedChapters: vi.fn(),
+  },
   pomodoro: {
     getStats: vi.fn(),
     getStatsRange: vi.fn(),

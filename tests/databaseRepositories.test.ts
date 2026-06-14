@@ -62,6 +62,20 @@ describe('database repositories', () => {
         color TEXT DEFAULT '#0F766E'
       );
 
+      CREATE TABLE subject_chapters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        completed INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_subject_chapters_subject_id ON subject_chapters(subject_id);
+      CREATE INDEX idx_subject_chapters_subject_order ON subject_chapters(subject_id, sort_order);
+
       CREATE TABLE pomodoro_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         subject_id INTEGER REFERENCES subjects(id),
@@ -566,6 +580,205 @@ describe('database repositories', () => {
 
     expect(repositories.subjects.deleteSubject(2)).toEqual({ success: true })
     expect(repositories.subjects.getAllSubjects().map(subject => subject.name)).toEqual(['Advanced Math'])
+  })
+
+  it('creates, patches, toggles, reorders, and deletes detailed subject chapters with synced summaries', () => {
+    const subject = repositories.subjects.createSubject({
+      name: 'Math',
+      total_chapters: 8,
+      completed_chapters: 3,
+      color: '#0F766E',
+    })
+    const subjectId = Number(subject.id)
+
+    const first = repositories.subjectChapters.createChapter({
+      subject_id: subjectId,
+      title: '  第一章   函数  ',
+      notes: '  limits  ',
+      completed: true,
+    })
+    const second = repositories.subjectChapters.createChapter({
+      subject_id: subjectId,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+    })
+    const bulk = repositories.subjectChapters.bulkCreateChapters({
+      subject_id: subjectId,
+      chapters: [
+        { title: '第二章 导数' },
+        { title: '第三章 积分', completed: true },
+        { title: '第二章 导数' },
+      ],
+    })
+
+    expect(first).toEqual(expect.objectContaining({
+      subject_id: subjectId,
+      title: '第一章 函数',
+      notes: 'limits',
+      completed: true,
+      sort_order: 0,
+    }))
+    expect(second.title).toBe('第一章 函数')
+    expect(bulk.map(chapter => chapter.title)).toEqual(['第二章 导数', '第三章 积分'])
+    expect(repositories.subjectChapters.getBySubject(subjectId).map(chapter => chapter.title)).toEqual([
+      '第一章 函数',
+      '第一章 函数',
+      '第二章 导数',
+      '第三章 积分',
+    ])
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(subjectId)).toEqual({
+      total_chapters: 4,
+      completed_chapters: 2,
+    })
+
+    const patched = repositories.subjectChapters.patchChapter(second.id, { notes: 'keep title' })
+    expect(patched).toEqual(expect.objectContaining({
+      title: '第一章 函数',
+      notes: 'keep title',
+      completed: false,
+    }))
+    expect(repositories.subjectChapters.toggleChapterCompleted(second.id, true)).toEqual(expect.objectContaining({ completed: true }))
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(subjectId)).toEqual({
+      total_chapters: 4,
+      completed_chapters: 3,
+    })
+
+    const ordered = repositories.subjectChapters.reorderChapters(subjectId, [
+      bulk[1]!.id,
+      bulk[0]!.id,
+      second.id,
+      first.id,
+    ])
+    expect(ordered.map(chapter => chapter.title)).toEqual([
+      '第三章 积分',
+      '第二章 导数',
+      '第一章 函数',
+      '第一章 函数',
+    ])
+    expect(() => repositories.subjectChapters.reorderChapters(subjectId, [first.id])).toThrow('chapterIds must include each subject chapter exactly once')
+
+    expect(repositories.subjectChapters.deleteChapter(bulk[0]!.id)).toEqual({ success: true })
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(subjectId)).toEqual({
+      total_chapters: 3,
+      completed_chapters: 3,
+    })
+  })
+
+  it('converts legacy summary subjects transactionally and preserves summary when exiting detailed mode', () => {
+    const summarySubject = repositories.subjects.createSubject({
+      name: 'Legacy Math',
+      total_chapters: 5,
+      completed_chapters: 2,
+      color: '#0F766E',
+    })
+    const summarySubjectId = Number(summarySubject.id)
+    database.prepare('UPDATE subjects SET completed_chapters = 2 WHERE id = ?').run(summarySubjectId)
+
+    expect(repositories.subjectChapters.clearDetailedChapters(summarySubjectId)).toEqual(expect.objectContaining({
+      id: summarySubjectId,
+      total_chapters: 5,
+      completed_chapters: 2,
+    }))
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(summarySubjectId)).toEqual({
+      total_chapters: 5,
+      completed_chapters: 2,
+    })
+
+    const converted = repositories.subjectChapters.convertSubjectToDetailedChapters({
+      subject_id: summarySubjectId,
+      markCompletedCount: 2,
+      chapters: [
+        { title: '第一章 函数' },
+        { title: '第二章 导数' },
+        { title: '第三章 积分' },
+      ],
+    })
+
+    expect(converted.map(chapter => ({ title: chapter.title, completed: chapter.completed }))).toEqual([
+      { title: '第一章 函数', completed: true },
+      { title: '第二章 导数', completed: true },
+      { title: '第三章 积分', completed: false },
+    ])
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(summarySubjectId)).toEqual({
+      total_chapters: 3,
+      completed_chapters: 2,
+    })
+    expect(() => repositories.subjectChapters.convertSubjectToDetailedChapters({
+      subject_id: summarySubjectId,
+      markCompletedCount: 0,
+      chapters: [{ title: 'Already detailed' }],
+    })).toThrow('Subject already has detailed chapters')
+
+    const cleared = repositories.subjectChapters.clearDetailedChapters(summarySubjectId)
+    expect(cleared).toEqual(expect.objectContaining({
+      id: summarySubjectId,
+      total_chapters: 3,
+      completed_chapters: 2,
+    }))
+    expect(repositories.subjectChapters.getBySubject(summarySubjectId)).toEqual([])
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(summarySubjectId)).toEqual({
+      total_chapters: 3,
+      completed_chapters: 2,
+    })
+  })
+
+  it('rolls back detailed chapter conversion failures without changing legacy summary progress', () => {
+    const subject = repositories.subjects.createSubject({
+      name: 'Physics',
+      total_chapters: 4,
+      color: '#0F766E',
+    })
+    const subjectId = Number(subject.id)
+    database.prepare('UPDATE subjects SET completed_chapters = 3 WHERE id = ?').run(subjectId)
+    database.exec(`
+      CREATE TRIGGER fail_subject_chapter_insert
+      BEFORE INSERT ON subject_chapters
+      WHEN NEW.title = 'Boom'
+      BEGIN
+        SELECT RAISE(ABORT, 'chapter insert failed');
+      END;
+    `)
+
+    expect(() => repositories.subjectChapters.convertSubjectToDetailedChapters({
+      subject_id: subjectId,
+      markCompletedCount: 1,
+      chapters: [{ title: 'First' }, { title: 'Boom' }],
+    })).toThrow('chapter insert failed')
+
+    expect(repositories.subjectChapters.getBySubject(subjectId)).toEqual([])
+    expect(database.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?').get(subjectId)).toEqual({
+      total_chapters: 4,
+      completed_chapters: 3,
+    })
+  })
+
+  it('cascades detailed chapters on subject deletion while preserving related history rows', () => {
+    const subject = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const subjectId = Number(subject.id)
+    const chapter = repositories.subjectChapters.createChapter({
+      subject_id: subjectId,
+      title: '第一章 函数',
+      completed: true,
+    })
+    const mistakeId = insertMistake({ subject_id: subjectId, question: 'Math question' })
+    const pomodoroId = Number(database.prepare(`
+      INSERT INTO pomodoro_sessions (subject_id, duration, date_key, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(subjectId, 25, '2026-06-07', '2026-06-07 09:00:00', '2026-06-07 09:25:00').lastInsertRowid)
+    const task = repositories.studyTasks.createStudyTask({
+      title: 'Math task',
+      subject_id: subjectId,
+      planned_date: '2026-06-07',
+    })
+
+    expect(repositories.subjects.deleteSubject(subjectId)).toEqual({ success: true })
+
+    expect(database.prepare('SELECT id FROM subject_chapters WHERE id = ?').get(chapter.id)).toBeUndefined()
+    expect(database.prepare('SELECT subject_id FROM mistakes WHERE id = ?').get(mistakeId)).toEqual({ subject_id: null })
+    expect(database.prepare('SELECT subject_id FROM pomodoro_sessions WHERE id = ?').get(pomodoroId)).toEqual({ subject_id: null })
+    expect(database.prepare('SELECT subject_id FROM study_tasks WHERE id = ?').get(task.id)).toEqual({ subject_id: null })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
   it('deletes subjects by clearing related history subject ids without deleting history', () => {

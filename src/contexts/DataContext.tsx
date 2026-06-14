@@ -1,10 +1,10 @@
 import { createContext, useContext, useState, useMemo, useCallback, useRef, type MutableRefObject, type ReactNode } from 'react'
-import { mockEntries, mockTags, mockMistakes, mockSubjects, STORAGE_KEYS } from '../data/mockData'
+import { mockEntries, mockTags, mockMistakes, mockSubjects, mockSubjectChapters, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
-import type { DiaryEntry, Tag, Mistake, Subject, StudyTask, PomodoroSession, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
+import type { DiaryEntry, Tag, Mistake, Subject, SubjectChapter, StudyTask, PomodoroSession, EntryFilters, MistakeFilters, DateMood, DiaryTemplate } from '../types'
 import type {
     EntriesContextAPI, TagsContextAPI, MistakesContextAPI,
-    SubjectsContextAPI, PomodoroContextAPI, TasksContextAPI, DashboardContextAPI,
+    SubjectsContextAPI, SubjectChaptersContextAPI, PomodoroContextAPI, TasksContextAPI, DashboardContextAPI,
     TodayDashboardContextAPI,
     ExportContextAPI, NotificationContextAPI, AIContextAPI, AttachmentsContextAPI,
     TemplatesContextAPI,
@@ -14,6 +14,7 @@ import { createEntriesApi } from './api/entriesApi'
 import { createTagsApi } from './api/tagsApi'
 import { createMistakesApi } from './api/mistakesApi'
 import { createSubjectsApi } from './api/subjectsApi'
+import { createSubjectChaptersApi } from './api/subjectChaptersApi'
 import { createPomodoroApi } from './api/pomodoroApi'
 import { createTasksApi } from './api/tasksApi'
 import { createDashboardApi } from './api/dashboardApi'
@@ -33,6 +34,7 @@ interface DataContextValue {
     tags: TagsContextAPI
     mistakes: MistakesContextAPI
     subjects: SubjectsContextAPI
+    subjectChapters: SubjectChaptersContextAPI
     pomodoro: PomodoroContextAPI
     tasks: TasksContextAPI
     dashboard: DashboardContextAPI
@@ -57,6 +59,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const tagsRef = useRef<Tag[]>([])
     const mistakesRef = useRef<Mistake[]>([])
     const subjectsRef = useRef<Subject[]>([])
+    const subjectChaptersRef = useRef<SubjectChapter[]>([])
     const tasksRef = useRef<StudyTask[]>([])
     const pomodoroSessionsRef = useRef<PomodoroSession[]>([])
     const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
@@ -96,6 +99,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         load(STORAGE_KEYS.TAGS, mockTags, tagsRef)
         load(STORAGE_KEYS.MISTAKES, mockMistakes, mistakesRef)
         load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
+        load(STORAGE_KEYS.SUBJECT_CHAPTERS, mockSubjectChapters, subjectChaptersRef)
         load(STORAGE_KEYS.TASKS, [], tasksRef)
         load(STORAGE_KEYS.POMODORO_SESSIONS, [], pomodoroSessionsRef)
         return { initialized: true, initErrors }
@@ -110,7 +114,13 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         entries: createEntriesApi(entriesRef, saveToLocal, tasksRef),
         tags: createTagsApi(tagsRef, entriesRef, saveToLocal),
         mistakes: createMistakesApi(mistakesRef, subjectsRef, tasksRef, saveToLocal),
-        subjects: createSubjectsApi(subjectsRef, saveToLocal),
+        subjects: createSubjectsApi(subjectsRef, saveToLocal, {
+            mistakesRef,
+            tasksRef,
+            pomodoroSessionsRef,
+            subjectChaptersRef,
+        }),
+        subjectChapters: createSubjectChaptersApi(subjectsRef, subjectChaptersRef, saveToLocal),
         pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
         tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef),
         dashboard: createDashboardApi(),

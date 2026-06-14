@@ -1,6 +1,7 @@
 import type {
   DiaryEntry, NewEntry, EntryFilters, DateMood,
-  Tag, Subject, Mistake, MistakeFilters,
+  Tag, Subject, SubjectChapter, CreateSubjectChapterInput, BulkSubjectChaptersInput,
+  ConvertSubjectChaptersInput, SubjectChapterPatch, Mistake, MistakeFilters,
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   StudyTask, NewStudyTask, StudyTaskQuery,
@@ -117,6 +118,18 @@ export interface ElectronSubjectsAPI {
   delete: (id: number) => Promise<void>
 }
 
+export interface ElectronSubjectChaptersAPI {
+  getBySubject: (subjectId: number) => Promise<SubjectChapter[]>
+  create: (chapter: CreateSubjectChapterInput) => Promise<SubjectChapter>
+  bulkCreate: (input: BulkSubjectChaptersInput) => Promise<SubjectChapter[]>
+  convertFromSummary: (input: ConvertSubjectChaptersInput) => Promise<SubjectChapter[]>
+  patch: (id: number, patch: SubjectChapterPatch) => Promise<SubjectChapter>
+  toggleCompleted: (id: number, completed?: boolean) => Promise<SubjectChapter>
+  reorder: (subjectId: number, chapterIds: number[]) => Promise<SubjectChapter[]>
+  delete: (id: number) => Promise<{ success: boolean }>
+  clearDetailedChapters: (subjectId: number) => Promise<Subject>
+}
+
 export interface ElectronPomodoroAPI {
   addSession: (session: Pick<PomodoroSession, 'subject_id' | 'task_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => Promise<{ id: number; date_key?: string; started_at?: string | null; completed_at?: string }>
   getStats: (date: string) => Promise<PomodoroStat[]>
@@ -229,6 +242,7 @@ export interface ElectronAPI {
   settings: ElectronSettingsAPI
   attachments: ElectronAttachmentsAPI
   subjects: ElectronSubjectsAPI
+  subjectChapters: ElectronSubjectChaptersAPI
   pomodoro: ElectronPomodoroAPI
   tasks: ElectronTasksAPI
   dashboard: ElectronDashboardAPI
@@ -282,6 +296,18 @@ export interface SubjectsContextAPI {
   create: (data: Partial<Subject>) => Promise<Subject>
   update: (id: number, data: Partial<Subject>) => Promise<Partial<Subject>>
   delete: (id: number) => Promise<boolean>
+}
+
+export interface SubjectChaptersContextAPI {
+  getBySubject: (subjectId: number) => Promise<SubjectChapter[]>
+  create: (data: CreateSubjectChapterInput) => Promise<SubjectChapter>
+  bulkCreate: (input: BulkSubjectChaptersInput) => Promise<SubjectChapter[]>
+  convertFromSummary: (input: ConvertSubjectChaptersInput) => Promise<SubjectChapter[]>
+  patch: (id: number, patch: SubjectChapterPatch) => Promise<SubjectChapter>
+  toggleCompleted: (id: number, completed?: boolean) => Promise<SubjectChapter>
+  reorder: (subjectId: number, chapterIds: number[]) => Promise<SubjectChapter[]>
+  delete: (id: number) => Promise<boolean>
+  clearDetailedChapters: (subjectId: number) => Promise<Subject>
 }
 
 export interface PomodoroContextAPI {
@@ -368,6 +394,7 @@ export interface DiaryContextValue {
   tags: TagsContextAPI
   mistakes: MistakesContextAPI
   subjects: SubjectsContextAPI
+  subjectChapters: SubjectChaptersContextAPI
   pomodoro: PomodoroContextAPI
   tasks: TasksContextAPI
   dashboard: DashboardContextAPI

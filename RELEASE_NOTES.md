@@ -1,80 +1,64 @@
 # MindDiary v1.11.0
 
-MindDiary v1.11.0 在 v1.10.0 的“今日任务 → 专注 → 结算 → 复盘 → Dashboard”基础上，继续打通学习内容闭环：错题复习可以精确结算单题任务，手动保存有效日记后可以确认完成日记任务，AI 可以生成经过本地校验的今日行动建议，并在用户确认后转为普通今日任务。
+MindDiary v1.11.0 继续完善「学习内容 → 今日任务 → 专注 → 复盘」闭环。本版新增详细章节进度，让科目不只记录总章节数，还能管理真实章节；同时保留任务与专注联动、错题和日记任务结算、AI 今日行动建议、AI 助手 composer、附件隐私和 provider URL 兼容等改进。
 
-## 本版亮点
+## 详细章节进度
 
-- 今日决策页的“生成今日错题复习任务”改为轻量选择器：每条到期错题创建一个独立 `review` task，并写入 `related_mistake_id`。
-- manual、active、break 复习共用同一提交协调器：先确认 SM-2 保存成功，再按精确关联结算任务。
-- 手动保存有效日记后，应用会提示关联并完成一个 `diary` task；自动保存和一句话专注复盘不会触发日记任务完成。
-- AI 今日行动建议使用专用上下文、严格 JSON parser、schema 校验、allowlist 关系引用和用户确认后逐条创建。
-- AI 助手五个快捷提示改为可编辑草稿 + 可移除上下文标签；点击快捷提示不再自动发送。
-- AI 助手支持本地 PNG/JPEG/WebP、TXT/MD/CSV/JSON/LOG 和文本型 PDF 附件；图片需要视觉模型能力，扫描 PDF 不做 OCR。
-- 附件只在用户点击发送后进入当前 provider 请求，不写入 SQLite、localStorage、聊天历史、自动备份或导出，也不使用 provider Files API。
-- 今日任务卡片展示 AI 建议来源、关联错题、关联日记 badge，并新增计划预计时长 / 实际任务专注时长对比。
-- Phase 0 修复了 browser fallback 删除关联清理、SM-2 假成功风险、entry patch update 和统一 word count 契约。
+- 科目进度支持详细章节列表，可单条添加，也可一行一个章节批量粘贴教材目录。
+- 章节可勾选完成、筛选全部 / 未完成 / 已完成，并显示下一未完成章节。
+- 支持重命名章节、编辑轻量说明、上移 / 下移排序和删除章节。
+- 科目卡片继续保持概览：进度百分比、已完成 / 总章节、下一未完成章节、今日专注时间和错题概况。
+- 旧科目不会被自动生成占位章节；没有详细章节的科目继续使用原有汇总模式。
+- 当用户首次添加详细章节时，会进入转换确认流程，可选择按原完成数标记前 N 个章节完成，或把新章节全部设为未完成。
+- 清空全部详细章节时，会明确保留当前详细进度为汇总进度，并回到汇总模式。
 
-## 错题复习任务联动
+## 任务与专注闭环
 
-- 可自动结算的错题复习任务必须是单题任务：`type=review`、`related_mistake_id=<错题 ID>`、`planned_date=<复习日期>`、`status=todo/doing`。
-- 无 `related_mistake_id` 的旧 review task 会保留为手动任务，不通过标题、描述或科目猜测关系。
-- 评分成功后，0 个匹配任务只保存 SM-2；1 个匹配任务自动置为 `done`；多个 active 匹配会显示冲突反馈并让用户选择一个任务。
-- 任务更新失败时，已保存的 SM-2 不回滚，用户可只重试任务结算，不会重复评分。
+- 今日任务可以绑定专注记录，专注结算后同步任务状态和 Dashboard 指标。
+- 倒计时专注支持提前保存有效专注时长，暂停时间不计入最终时长。
+- 一句话复盘可把本轮任务、科目、时长和复盘结果追加到今日日记。
+- 今日任务卡片展示 AI 建议来源、关联错题、关联日记 badge，并显示计划预计时长 / 实际任务专注时长对比。
+
+## 错题任务联动
+
+- 今日决策页的「生成今日错题复习任务」会为每条到期错题创建独立 review task，并写入 `related_mistake_id`。
+- manual、active、break 复习共用同一提交协调器：先确认 SM-2 保存成功，再结算精确关联任务。
+- 无 `related_mistake_id` 的旧 review task 保留为手动任务，不通过标题、描述或科目猜测关系。
 - 同一天同一错题已有 active review task 时，选择器会提示已存在并避免重复创建。
 
 ## 日记任务联动
 
-- 手动保存日记后，如果正文达到有效内容门槛，会查找精确关联的 active `diary` task；没有精确关联时，再查找同日未关联的 active `diary` task。
-- 有效内容门槛集中定义为至少 20 个有效非空白字符，并复用统一字数计算口径。
-- 只有用户确认后才会把任务更新为 `related_entry_id=<entry ID>` 且 `status=done`。
-- 多个候选任务时显示轻量选择器；任务失败时日记保存仍保持成功，并可只重试任务结算。
+- 手动保存有效日记后，可确认关联并完成同日或精确关联的 diary task。
 - 自动保存、MoodPicker、图片上传前创建 entry、标签保存和专注复盘追加不会触发日记任务结算。
+- 任务更新失败时，日记保存结果仍保留，用户可以只重试任务结算。
 
 ## AI 今日行动建议
 
-- AI 入口位于今日行动队列附近，使用独立 dialog，不扩张成大型任务管理界面。
-- AI 只接收裁剪后的本地上下文：日期、可用时间、今日 active task、科目 allowlist、到期错题 allowlist 和今日日记引用。
-- AI 返回内容必须通过严格 parser 和 schema 校验；支持纯 JSON、单层 code fence、前后少量说明文字；多个 JSON 对象、不完整 JSON、非法字段和非法引用都会被拒绝或标记。
-- 用户可以编辑标题、类型、科目、时长、理由，删除单条，选择部分建议。
-- 创建任务前重新校验上下文，逐条调用普通 `study_tasks` API，强制 `planned_date=today`、`status=todo`、`source=ai`。
-- browser fallback 明确显示 AI provider unsupported；不会把 API Key 或网络请求移到 renderer/browser。
+- 今日决策页提供「AI 规划今日行动」入口，AI 只生成候选建议。
+- 本地严格解析和校验 AI 输出；用户可以编辑标题、类型、科目、时长、理由，删除单条或只选择部分建议。
+- 创建任务前会重新校验上下文，并通过普通 `study_tasks` API 创建 `source=ai`、`status=todo`、`planned_date=today` 的任务。
+- AI 不会直接写库、自动创建任务、自动完成任务、跳过任务或删除任务。
 
-## AI 助手 composer
+## AI 助手 composer 与附件隐私
 
-- 五个快捷入口保留，但行为改为「填入草稿 → 显示上下文标签 → 用户编辑 → 用户主动发送」；上下文标签可移除、去重，并在发送时读取最新本地数据。
-- 可添加本地图片、文本文件和文本型 PDF：图片支持 PNG/JPEG/WebP，文本支持 TXT/MD/CSV/JSON/LOG，PDF 只提取文字且最多 50 页。
-- 图片请求使用 OpenAI 兼容 multipart chat message；预设模型默认按注册能力门控，自定义模型需要在设置中手动声明视觉能力。
-- 附件正文、base64、PDF 提取文本和本地路径只存在于当前 composer 内存中；历史记录仅保留文件名、类型和大小等元数据，重载后不能复用附件内容重新生成。
-- 不支持 OCR、Office 文件、音视频、压缩包、远程图片 URL、RAG、provider Files API、流式输出、多会话或 AI 自动写库。
+- 五个快捷入口改为「填入草稿 → 显示上下文标签 → 用户编辑 → 用户主动发送」，上下文标签可移除、去重，并在发送时读取最新本地数据。
+- 支持本地 PNG/JPEG/WebP 图片、TXT/MD/CSV/JSON/LOG 文本文件和文本型 PDF 附件；扫描 PDF 不做 OCR。
+- 图片请求使用 OpenAI 兼容 multipart chat message；自定义模型需要在设置中手动声明视觉能力。
+- 附件正文、base64、PDF 提取文本和本地路径只存在于当前 composer 内存中；历史记录仅保留文件名、类型和大小等元数据。
+- DeepSeek、通义千问、智谱 GLM、Kimi、豆包、SiliconFlow 和自定义 OpenAI 兼容 provider URL 继续保持兼容。
 
-## Dashboard 闭环指标
+## 数据模型、备份与兼容性
 
-- 今日任务完成率：`done / (todo + doing + done)`，`skipped` 不进入分母。
-- 今日任务专注覆盖率：今天至少拥有一条有效 task_id 专注记录的任务数 / 今日有效任务数。
-- 今日任务实际专注时长：今天归因到今日任务的 pomodoro session duration 总和。
-- 今日计划预计时长 / 实际任务专注时长：用于低压比较计划投入和实际专注。
-- 未闭环提示会指出进行中但无专注记录、已有专注但未完成的任务。
-- 无今日任务时显示空状态，不出现 NaN 或除零。
+- SQLite schema version 升级为 4，新增 `subject_chapters` 表保存详细章节。
+- schema 0、1、2、3 的旧数据库可直接升级到 schema 4；旧科目的 `total_chapters` 和 `completed_chapters` 会保持原值。
+- 详细章节模式下，章节表是进度事实来源；每次创建、删除、排序或完成切换都会同步更新科目汇总字段。
+- 自动 ZIP 备份和恢复包含 `subject_chapters`，旧 schema 3 备份没有章节数据时仍可恢复为汇总模式。
+- JSON 导出和导入包含详细章节，并在导入时重新映射 subject id，避免悬空章节。
+- 删除科目时会删除该科目的详细章节；错题、专注记录和任务仍按现有逻辑解除科目归属，不会被删除。
+- Electron 与 browser fallback 在章节 CRUD、批量转换、排序、完成状态、汇总同步、备份恢复和删除科目语义上保持一致。
 
-## 数据模型与备份
+## 本版不包含
 
-- SQLite schema version 仍为 3。
-- 不新增表、不新增 migration、不新增 `focus_reviews`、不新增 AI suggestion 持久化表。
-- 继续复用 `study_tasks.related_mistake_id`、`related_entry_id`、`type`、`source`、`planned_date` 和 `status`。
-- 自动 ZIP 备份格式不变；v1.10.0 的 `pomodoro_sessions.task_id` 备份与恢复顺序继续保留。
-- browser fallback 删除错题或日记后，会把相关任务的 relation id 置空，并保持任务状态不回退。
-
-## 兼容性
-
-- v1.10.0 用户升级后，旧无关联 review task 继续作为手动任务存在，不会被错误自动完成。
-- 旧 diary task 没有 `related_entry_id` 时，用户手动保存有效日记后可以确认关联。
-- AI 建议不会持久保存草稿；关闭 dialog 前已成功创建的任务不会因重试而重复创建。
-- Electron 与 browser fallback 在任务查询、relation 清理、entry patch update、SM-2 成功契约和最终 task create/update 方面保持一致。
-
-## 明确不做
-
-- 不做集合错题任务、集合成员表或批量静默完成。
-- 不做 schema version 4、`focus_reviews`、FSRS、OCR、本地 RAG、云同步或大型项目管理模块。
-- 不让 AI 直接写数据库、自动创建任务、自动完成/跳过/删除任务或后台持续运行。
-- 不创建 v1.11.0 tag，不创建 GitHub Release，不触发正式发布。
-- 不修改 v1.10.0 tag 或 v1.10.0 Release。
+- 不包含无限层级章节树、章节权重、截止日期、甘特图、看板、多人协作或云同步。
+- 不包含 OCR、本地 RAG、向量数据库、FSRS、AI 自动写数据库或 AI 自动完成章节。
+- 不包含大型 Dashboard 重构、移动端、课程市场或排行榜。

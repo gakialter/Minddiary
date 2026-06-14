@@ -55,7 +55,7 @@ Issue 状态：
 |---|---|---|---|
 | v1.9.9 | M0 护栏 | v2 前置工程护栏、迁移、AI 边界、错题/专注基础 | 已完成 |
 | v1.10.0 | M1 闭环 | 合并原 v1.9.10、v1.9.11、v1.9.12：任务绑定专注、结束结算、一句话复盘、Dashboard 闭环指标 | 已正式发布 |
-| v1.11.0 | M2/M3 联动 | 错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | PR 准备 |
+| v1.11.0 | M2/M3 联动 | 详细章节进度、错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | 发布候选 |
 | v2.0.0 | 正式版 | 学习闭环系统发布收口 | 未开始 |
 
 ---
@@ -260,8 +260,6 @@ ON pomodoro_sessions(task_id);
 - 大型 Pomodoro UI 重构。
 - 新设计系统。
 - v2.0 发布。
-- v1.10.0 tag。
-- GitHub Release。
 
 ---
 
@@ -275,22 +273,21 @@ ON pomodoro_sessions(task_id);
 - `docs/USER_GUIDE.md` 增加完整操作流程。
 - `docs/v2-roadmap.md` 和 `docs/v2-version-breakdown.md` 标记本阶段完成。
 
-发布边界：
+发布结果：
 
-- 不创建 tag。
-- 不创建 GitHub Release。
-- 不触发正式发布。
-- 不修改 release workflow，除非发现独立且真实的阻塞 bug；若发现应停止混入本 PR 并报告。
+- v1.10.0 已完成正式 tag 与 GitHub Release。
+- Release workflow 发布 v1.10.0 资产后，v1.10.0 保持为当前 latest，直到 v1.11.0 正式发布。
 
 ---
 
-## 6. v1.11.0：学习内容与今日任务闭环（PR 准备）
+## 6. v1.11.0：学习内容与今日任务闭环（发布候选）
 
 ### 6.1 版本目标
 
-v1.11.0 把学习内容进一步接入今日任务，但仍保持 MindDiary 的低压、克制体验；当前实现已进入 PR 准备状态：
+v1.11.0 把学习内容进一步接入今日任务，并把科目进度升级为详细章节管理，同时保持 MindDiary 的低压、克制体验：
 
 ```text
+科目进度 → 详细章节 → 勾选完成 → 大盘同步
 错题复习 → SM-2 成功 → 精确关联任务结算
 日记保存 → 有效内容 → 用户确认任务结算
 学习数据 → AI 建议 → 本地校验 → 用户确认创建任务
@@ -300,16 +297,27 @@ v1.11.0 把学习内容进一步接入今日任务，但仍保持 MindDiary 的�
 
 ### 6.2 数据模型边界
 
-本阶段默认不新增 schema version、不新增表、不新增 migration：
+本阶段升级到 schema version 4，并新增规范化章节表：
 
-- `CURRENT_SCHEMA_VERSION` 继续为 3。
+- `CURRENT_SCHEMA_VERSION = 4`。
+- 新增 `subject_chapters`，字段包含 `subject_id`、`title`、`notes`、`completed`、`sort_order`、`created_at`、`updated_at`。
+- schema 0、1、2、3 均可升级到 schema 4，旧科目 `total_chapters` / `completed_chapters` 保持原值。
+- 没有详细章节的旧科目继续使用汇总模式，不自动生成占位章节。
+- 首次添加详细章节时由用户确认转换方式；详细章节模式下，章节表是进度事实来源，并同步 subjects 汇总字段。
+- 自动 ZIP backup / restore 和 JSON 导出导入包含详细章节；旧备份缺少章节表时仍可恢复。
 - 复用 `study_tasks.related_mistake_id` 表达单题 review 任务。
 - 复用 `study_tasks.related_entry_id` 表达 diary 任务与真实日记关联。
 - 复用 `study_tasks.source = ai` 标记经用户确认创建的 AI 建议任务。
 - 不新增集合任务成员表、`focus_reviews`、AI suggestion 持久化表或 `completion_source` 字段。
-- 自动 ZIP backup 格式和 restore 依赖顺序保持不变，除非验证发现必须修复的兼容问题。
 
 ### 6.3 产品与安全边界
+
+详细章节进度：
+
+- 科目卡片保持概览，只展示进度、已完成 / 总章节、下一未完成章节、今日专注和错题概况。
+- 章节管理位于轻量展开区域，支持单条添加、一行一个章节批量粘贴、完成状态、筛选、重命名、notes、上移 / 下移和删除。
+- 输入会 trim 并限制长度；同一次批量输入的重复行会明确反馈。
+- 清空全部详细章节时，明确保留当前详细进度为汇总进度并回到汇总模式。
 
 错题任务：
 
@@ -340,11 +348,11 @@ AI 助手 composer：
 
 本阶段不做：
 
-- schema version 4、FSRS、OCR、图像遮挡、本地 RAG、Ollama 深度集成、云同步。
+- FSRS、OCR、图像遮挡、本地 RAG、Ollama 深度集成、云同步。
 - Office 文件、音视频、压缩包、远程图片 URL、provider Files API、流式输出或多会话 AI。
 - 大型任务历史归档页、独立大型今日执行页、大型 HomeDashboard 重构或大型项目管理模块。
 - AI 自动写库、自动建任务、自动完成/跳过/删除任务或后台持续运行。
-- v1.11.0 tag、GitHub Release 或正式发布 workflow。
+- AI 自动完成章节、章节权重、截止日期、甘特图、看板或多级章节树。
 
 ## 7. v2 后续预留
 

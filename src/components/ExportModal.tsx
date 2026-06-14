@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { CheckCircle, XCircle, Check } from 'lucide-react'
-import { generateMarkdown, generateJSON, generatePdfHtml } from '../utils/exportUtils'
+import { useRef, useState } from 'react'
+import { CheckCircle, XCircle, Check, Upload } from 'lucide-react'
+import { generateMarkdown, generateJSON, generatePdfHtml, parseMindDiaryJsonSnapshot } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
@@ -47,10 +47,11 @@ interface ExportModalProps {
 }
 
 export default function ExportModal({ onClose }: ExportModalProps) {
-    const { entries: entriesAPI, subjects: subjectsAPI, mistakes: mistakesAPI, exportUtil } = useDiary()
+    const { entries: entriesAPI, subjects: subjectsAPI, subjectChapters: subjectChaptersAPI, mistakes: mistakesAPI, exportUtil } = useDiary()
     const [selectedFormat, setSelectedFormat] = useState('pdf')
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const [message, setMessage] = useState('')
+    const importInputRef = useRef<HTMLInputElement | null>(null)
 
     const handleExport = async () => {
         setStatus('loading')
@@ -63,6 +64,9 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                 subjectsAPI.getAll(),
                 mistakesAPI.getAll({}).then(res => res?.data || []),
             ])
+            const subjectChapters = (await Promise.all(
+                subjects.map(subject => subjectChaptersAPI.getBySubject(subject.id).catch(() => [])),
+            )).flat()
 
             if (!entries?.length) {
                 setStatus('error')
@@ -91,7 +95,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                 await exportUtil.writeFile(savePath, md)
 
             } else if (selectedFormat === 'json') {
-                const json = generateJSON({ entries, subjects, mistakes })
+                const json = generateJSON({ entries, subjects, subject_chapters: subjectChapters, mistakes })
                 await exportUtil.writeFile(savePath, json)
 
             } else if (selectedFormat === 'pdf') {
@@ -105,6 +109,106 @@ export default function ExportModal({ onClose }: ExportModalProps) {
             logger.error('Export failed:', err)
             setStatus('error')
             setMessage(`导出失败：${err instanceof Error ? err.message : String(err)}`)
+        }
+    }
+
+    const handleImportFile = async (file: File | null | undefined) => {
+        if (!file) return
+        setStatus('loading')
+        setMessage('')
+        try {
+            const snapshot = parseMindDiaryJsonSnapshot(await file.text())
+            if (
+                snapshot.entries.length === 0 &&
+                snapshot.subjects.length === 0 &&
+                snapshot.mistakes.length === 0 &&
+                snapshot.subject_chapters.length === 0
+            ) {
+                throw new Error('JSON 快照中没有可导入的数据。')
+            }
+
+            const subjectIdMap = new Map<number, number>()
+            for (const subject of snapshot.subjects) {
+                const oldId = Number(subject.id)
+                const name = typeof subject.name === 'string' ? subject.name : 'Imported subject'
+                const totalChapters = Math.max(0, Number.isInteger(subject.total_chapters) ? Number(subject.total_chapters) : 0)
+                const completedChapters = Math.min(
+                    totalChapters,
+                    Math.max(0, Number.isInteger(subject.completed_chapters) ? Number(subject.completed_chapters) : 0),
+                )
+                const color = typeof subject.color === 'string' ? subject.color : '#0F766E'
+                const created = await subjectsAPI.create({
+                    name,
+                    color,
+                    total_chapters: totalChapters,
+                })
+                await subjectsAPI.update(created.id, {
+                    name,
+                    color,
+                    total_chapters: totalChapters,
+                    completed_chapters: completedChapters,
+                })
+                if (Number.isInteger(oldId) && oldId > 0) subjectIdMap.set(oldId, created.id)
+            }
+
+            const chaptersBySubject = new Map<number, typeof snapshot.subject_chapters>()
+            for (const chapter of snapshot.subject_chapters) {
+                const newSubjectId = subjectIdMap.get(chapter.subject_id)
+                if (!newSubjectId) {
+                    throw new Error(`章节引用的科目不存在：${chapter.subject_id}`)
+                }
+                const existing = chaptersBySubject.get(newSubjectId) ?? []
+                existing.push(chapter)
+                chaptersBySubject.set(newSubjectId, existing)
+            }
+            for (const [subjectId, chapters] of chaptersBySubject.entries()) {
+                await subjectChaptersAPI.bulkCreate({
+                    subject_id: subjectId,
+                    chapters: chapters
+                        .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+                        .map(chapter => ({
+                            title: chapter.title,
+                            notes: chapter.notes,
+                            completed: chapter.completed,
+                        })),
+                })
+            }
+
+            for (const entry of snapshot.entries) {
+                if (!entry.date || typeof entry.content !== 'string') continue
+                await entriesAPI.create({
+                    date: entry.date,
+                    title: entry.title || '',
+                    content: entry.content,
+                    mood: entry.mood || null,
+                    tags: entry.tags,
+                    images: entry.images,
+                })
+            }
+
+            for (const mistake of snapshot.mistakes) {
+                const oldSubjectId = Number(mistake.subject_id)
+                const created = await mistakesAPI.create({
+                    subject_id: subjectIdMap.get(oldSubjectId) ?? null,
+                    question: typeof mistake.question === 'string' ? mistake.question : '',
+                    answer: typeof mistake.answer === 'string' ? mistake.answer : '',
+                    notes: typeof mistake.notes === 'string' ? mistake.notes : '',
+                    image_path: typeof mistake.image_path === 'string' ? mistake.image_path : null,
+                    answer_image_path: typeof mistake.answer_image_path === 'string' ? mistake.answer_image_path : null,
+                })
+                if (mistake.mastered === true || mistake.mastered === 1) {
+                    await mistakesAPI.update(created.id, { mastered: true })
+                }
+            }
+
+            setStatus('success')
+            setMessage(`导入完成：${snapshot.subjects.length} 个科目、${snapshot.subject_chapters.length} 个章节、${snapshot.entries.length} 篇日记、${snapshot.mistakes.length} 条错题。`)
+        } catch (err: unknown) {
+            logger.error('Import failed:', err)
+            setStatus('error')
+            setMessage(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+            if (importInputRef.current) importInputRef.current.value = ''
         }
     }
 
@@ -237,6 +341,22 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                                 导出中…
                             </span>
                             : '导出文件'}
+                    </button>
+                    <input
+                        ref={importInputRef}
+                        type="file"
+                        accept="application/json,.json"
+                        style={{ display: 'none' }}
+                        onChange={event => { void handleImportFile(event.target.files?.[0]) }}
+                    />
+                    <button
+                        className="button button-secondary"
+                        style={{ borderRadius: 12 }}
+                        onClick={() => importInputRef.current?.click()}
+                        disabled={status === 'loading'}
+                        title="导入 MindDiary JSON 快照"
+                    >
+                        <Upload size={15} /> 导入 JSON
                     </button>
                 </div>
             </div>

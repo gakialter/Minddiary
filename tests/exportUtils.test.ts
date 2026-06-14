@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { generateJSON, generateMarkdown, generatePdfHtml } from '../src/utils/exportUtils'
+import { generateJSON, generateMarkdown, generatePdfHtml, parseMindDiaryJsonSnapshot } from '../src/utils/exportUtils'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -16,11 +16,13 @@ interface ExportPayload {
     counts: {
       entries: number
       subjects: number
+      subject_chapters: number
       mistakes: number
     }
   }
   entries: unknown[]
   subjects: unknown[]
+  subject_chapters: unknown[]
   mistakes: unknown[]
 }
 
@@ -121,18 +123,20 @@ describe('generateJSON', () => {
     expect(payload._meta.app).toBe('MindDiary')
     expect(payload._meta.version).toBe('1.0.0')
     expect(payload._meta.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(payload._meta.counts).toEqual({ entries: 1, subjects: 1, mistakes: 1 })
+    expect(payload._meta.counts).toEqual({ entries: 1, subjects: 1, subject_chapters: 0, mistakes: 1 })
     expect(payload.entries).toEqual(entries)
     expect(payload.subjects).toEqual(subjects)
+    expect(payload.subject_chapters).toEqual([])
     expect(payload.mistakes).toEqual(mistakes)
   })
 
   it('uses empty arrays and zero counts when data sections are missing', () => {
     const payload = parseExport(generateJSON({}))
 
-    expect(payload._meta.counts).toEqual({ entries: 0, subjects: 0, mistakes: 0 })
+    expect(payload._meta.counts).toEqual({ entries: 0, subjects: 0, subject_chapters: 0, mistakes: 0 })
     expect(payload.entries).toEqual([])
     expect(payload.subjects).toEqual([])
+    expect(payload.subject_chapters).toEqual([])
     expect(payload.mistakes).toEqual([])
   })
 
@@ -141,13 +145,66 @@ describe('generateJSON', () => {
       generateJSON({
         entries: [makeEntry({ id: 1 }), makeEntry({ id: 2 })] as any,
         subjects: [{ id: 1 }, { id: 2 }, { id: 3 }] as any[],
+        subject_chapters: [{ id: 1, subject_id: 1, title: 'A' }, { id: 2, subject_id: 2, title: 'B' }] as any[],
         mistakes: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] as any[],
       }),
     )
 
     expect(payload._meta.counts.entries).toBe(payload.entries.length)
     expect(payload._meta.counts.subjects).toBe(payload.subjects.length)
+    expect(payload._meta.counts.subject_chapters).toBe(payload.subject_chapters.length)
     expect(payload._meta.counts.mistakes).toBe(payload.mistakes.length)
+  })
+})
+
+describe('parseMindDiaryJsonSnapshot', () => {
+  it('accepts old JSON exports without subject chapters', () => {
+    const snapshot = parseMindDiaryJsonSnapshot(JSON.stringify({
+      entries: [makeEntry()],
+      subjects: [{ id: 1, name: 'Math', total_chapters: 5, completed_chapters: 2, color: '#0f766e' }],
+      mistakes: [],
+    }))
+
+    expect(snapshot.subject_chapters).toEqual([])
+    expect(snapshot.subjects).toHaveLength(1)
+  })
+
+  it('accepts subject chapters that reference imported subjects', () => {
+    const snapshot = parseMindDiaryJsonSnapshot(JSON.stringify({
+      entries: [],
+      subjects: [{ id: 10, name: 'Math', total_chapters: 2, completed_chapters: 1, color: '#0f766e' }],
+      subject_chapters: [
+        {
+          id: 20,
+          subject_id: 10,
+          title: '  第一章 函数  ',
+          notes: '  重点  ',
+          completed: 1,
+          sort_order: 0,
+        },
+      ],
+      mistakes: [],
+    }))
+
+    expect(snapshot.subject_chapters).toEqual([
+      expect.objectContaining({
+        id: 20,
+        subject_id: 10,
+        title: '第一章 函数',
+        notes: '重点',
+        completed: true,
+        sort_order: 0,
+      }),
+    ])
+  })
+
+  it('rejects subject chapters that point at missing imported subjects', () => {
+    expect(() => parseMindDiaryJsonSnapshot(JSON.stringify({
+      entries: [],
+      subjects: [{ id: 10, name: 'Math' }],
+      subject_chapters: [{ id: 20, subject_id: 99, title: 'Dangling' }],
+      mistakes: [],
+    }))).toThrow('subject_chapters references missing subject_id 99')
   })
 })
 

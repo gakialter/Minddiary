@@ -161,7 +161,7 @@ async function expectRejectedWithoutMutation(zip: Buffer, expectedMessage: RegEx
   await expect(restoreAutoBackupFromZip({
     zipPath,
     userDataPath,
-    currentSchemaVersion: 3,
+    currentSchemaVersion: 4,
     restoreDatabase,
     logger: { warn: vi.fn(), error: vi.fn() },
     tempRootParent: root,
@@ -194,7 +194,7 @@ describe('automatic backup ZIP restore', () => {
     const result = await restoreAutoBackupFromZip({
       zipPath,
       userDataPath,
-      currentSchemaVersion: 3,
+      currentSchemaVersion: 4,
       restoreDatabase: async (data) => {
         restoredData = data
       },
@@ -290,7 +290,7 @@ describe('automatic backup ZIP restore', () => {
     await expect(restoreAutoBackupFromZip({
       zipPath,
       userDataPath,
-      currentSchemaVersion: 3,
+      currentSchemaVersion: 4,
       restoreDatabase: async () => {
         throw new Error('database failed')
       },

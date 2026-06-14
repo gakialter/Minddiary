@@ -25,6 +25,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify release tag and notes version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $expectedTag = "v$packageVersion"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag $env:GITHUB_REF_NAME does not match package.json version $expectedTag"
+          }
+
+          $releaseNotesTitle = Get-Content -LiteralPath RELEASE_NOTES.md -TotalCount 1
+          if ($releaseNotesTitle -ne "# MindDiary $expectedTag") {
+            throw "RELEASE_NOTES.md title '$releaseNotesTitle' does not match # MindDiary $expectedTag"
+          }
+
       - name: Check Windows signing secrets
         shell: pwsh
         env:
@@ -33,11 +47,8 @@ jobs:
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "### Windows signing preflight"
           Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
           if ($env:WINDOWS_SIGNING_CONFIGURED -ne 'true') {
-            $message = "CSC_LINK and CSC_KEY_PASSWORD are not configured. Building unsigned Windows release."
-            Write-Host "::warning::$message"
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: false"
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Windows artifacts will be unsigned. Users may see Unknown Publisher / Windows SmartScreen warnings."
+            throw "CSC_LINK and CSC_KEY_PASSWORD are required for public Windows release signing."
           } else {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "Signing secrets configured: true"
           }
@@ -59,9 +70,7 @@ jobs:
 
       - name: Verify Windows signing
         shell: pwsh
-        env:
-          WINDOWS_SIGNING_CONFIGURED: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
-        run: ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:($env:WINDOWS_SIGNING_CONFIGURED -eq 'true')
+        run: ./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$true
 
       - name: Verify Windows update metadata
         run: npx tsx scripts/verify-release-metadata.ts --platform win --release-dir release --package package.json
@@ -92,6 +101,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify release tag and notes version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          if [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package.json version $EXPECTED_TAG" >&2
+            exit 1
+          fi
+
+          RELEASE_NOTES_TITLE="$(head -n 1 RELEASE_NOTES.md)"
+          if [ "$RELEASE_NOTES_TITLE" != "# MindDiary $EXPECTED_TAG" ]; then
+            echo "RELEASE_NOTES.md title '$RELEASE_NOTES_TITLE' does not match # MindDiary $EXPECTED_TAG" >&2
+            exit 1
+          fi
+
       - name: Build Electron
         run: npm run build:electron
 
@@ -103,6 +127,9 @@ jobs:
 
       - name: Package macOS arm64 build
         run: npx electron-builder --mac --arm64 --publish never
+
+      - name: Verify macOS update metadata
+        run: npx tsx scripts/verify-release-metadata.ts --platform mac --release-dir release --package package.json
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -126,6 +153,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify release tag and notes version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          if [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package.json version $EXPECTED_TAG" >&2
+            exit 1
+          fi
+
+          RELEASE_NOTES_TITLE="$(head -n 1 RELEASE_NOTES.md)"
+          if [ "$RELEASE_NOTES_TITLE" != "# MindDiary $EXPECTED_TAG" ]; then
+            echo "RELEASE_NOTES.md title '$RELEASE_NOTES_TITLE' does not match # MindDiary $EXPECTED_TAG" >&2
+            exit 1
+          fi
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -135,6 +182,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
           body_path: RELEASE_NOTES.md
           files: |
             release-artifacts/**/*.exe

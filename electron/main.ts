@@ -18,12 +18,18 @@ import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './upda
 import {
     validateAiMessagesPayload,
     validateAiSummaryPayload,
+    validateBulkSubjectChaptersPayload,
+    validateConvertSubjectChaptersPayload,
+    validateCreateSubjectChapterPayload,
     validateDateKeyPayload,
     validateEntryCreatePayload,
     validateEntryUpdatePayload,
     validateMistakeReviewPayload,
     validatePomodoroSessionPayload,
     validatePositiveIdPayload,
+    validateSubjectChapterCompletedPayload,
+    validateSubjectChapterPatchPayload,
+    validateSubjectChapterReorderPayload,
     validateStudyTaskCreatePayload,
     validateStudyTaskQueryPayload,
     validateStudyTaskUpdatePayload,
@@ -594,6 +600,44 @@ ipcMain.handle('subjects:getAll', () => db.getAllSubjects());
 ipcMain.handle('subjects:create', (_: unknown, subject: Partial<Subject>) => db.createSubject(subject));
 ipcMain.handle('subjects:update', (_: unknown, id: number, subject: Partial<Subject>) => db.updateSubject(id, subject));
 ipcMain.handle('subjects:delete', (_: unknown, id: number) => db.deleteSubject(id));
+
+// ==================== Subject Chapters ====================
+ipcMain.handle('subjectChapters:getBySubject', (_: unknown, subjectId: unknown) => {
+    return db.getSubjectChapters(validatePositiveIdPayload(subjectId, 'subject id'));
+});
+ipcMain.handle('subjectChapters:create', (_: unknown, chapter: unknown) => {
+    return db.createSubjectChapter(validateCreateSubjectChapterPayload(chapter));
+});
+ipcMain.handle('subjectChapters:bulkCreate', (_: unknown, input: unknown) => {
+    return db.bulkCreateSubjectChapters(validateBulkSubjectChaptersPayload(input));
+});
+ipcMain.handle('subjectChapters:convertFromSummary', (_: unknown, input: unknown) => {
+    return db.convertSubjectToDetailedChapters(validateConvertSubjectChaptersPayload(input));
+});
+ipcMain.handle('subjectChapters:patch', (_: unknown, id: unknown, patch: unknown) => {
+    return db.patchSubjectChapter(
+        validatePositiveIdPayload(id, 'chapter id'),
+        validateSubjectChapterPatchPayload(patch),
+    );
+});
+ipcMain.handle('subjectChapters:toggleCompleted', (_: unknown, id: unknown, completed: unknown) => {
+    return db.toggleSubjectChapterCompleted(
+        validatePositiveIdPayload(id, 'chapter id'),
+        validateSubjectChapterCompletedPayload(completed),
+    );
+});
+ipcMain.handle('subjectChapters:reorder', (_: unknown, subjectId: unknown, chapterIds: unknown) => {
+    return db.reorderSubjectChapters(
+        validatePositiveIdPayload(subjectId, 'subject id'),
+        validateSubjectChapterReorderPayload(chapterIds),
+    );
+});
+ipcMain.handle('subjectChapters:delete', (_: unknown, id: unknown) => {
+    return db.deleteSubjectChapter(validatePositiveIdPayload(id, 'chapter id'));
+});
+ipcMain.handle('subjectChapters:clearDetailed', (_: unknown, subjectId: unknown) => {
+    return db.clearDetailedSubjectChapters(validatePositiveIdPayload(subjectId, 'subject id'));
+});
 
 // ==================== Pomodoro ====================
 ipcMain.handle('pomodoro:addSession', (_: unknown, session: unknown) => {

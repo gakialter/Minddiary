@@ -4,6 +4,7 @@ import { createEntriesRepository } from './entriesRepository';
 import { createMistakesRepository } from './mistakesRepository';
 import { createPomodoroRepository } from './pomodoroRepository';
 import { createSettingsRepository } from './settingsRepository';
+import { createSubjectChaptersRepository } from './subjectChaptersRepository';
 import { createSubjectsRepository } from './subjectsRepository';
 import { createStudyTasksRepository } from './studyTasksRepository';
 import { createTagsRepository } from './tagsRepository';
@@ -16,6 +17,7 @@ export function createDatabaseRepositories(db: Database.Database) {
         mistakes: createMistakesRepository(db),
         pomodoro: createPomodoroRepository(db),
         settings: createSettingsRepository(db),
+        subjectChapters: createSubjectChaptersRepository(db),
         subjects: createSubjectsRepository(db),
         studyTasks: createStudyTasksRepository(db),
         tags: createTagsRepository(db),

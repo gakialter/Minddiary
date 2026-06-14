@@ -63,6 +63,38 @@ export interface Subject {
   order?: number
 }
 
+export interface SubjectChapter {
+  id: number
+  subject_id: number
+  title: string
+  notes: string
+  completed: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SubjectChapterDraft {
+  title: string
+  notes?: string
+  completed?: boolean
+}
+
+export interface CreateSubjectChapterInput extends SubjectChapterDraft {
+  subject_id: number
+}
+
+export interface BulkSubjectChaptersInput {
+  subject_id: number
+  chapters: SubjectChapterDraft[]
+}
+
+export interface ConvertSubjectChaptersInput extends BulkSubjectChaptersInput {
+  markCompletedCount: number
+}
+
+export type SubjectChapterPatch = Partial<Pick<SubjectChapter, 'title' | 'notes' | 'completed'>>
+
 // --- Study Tasks ------------------------------------------------------------
 export type StudyTaskType = 'review' | 'focus' | 'diary' | 'mistake' | 'custom'
 export type StudyTaskStatus = 'todo' | 'doing' | 'done' | 'skipped'
@@ -299,6 +331,7 @@ export interface StorageKeys {
   SETTINGS: string
   MISTAKES: string
   SUBJECTS: string
+  SUBJECT_CHAPTERS: string
   TASKS: string
   POMODORO_SESSIONS: string
 }
