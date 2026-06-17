@@ -2,24 +2,18 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  getTodayStr: vi.fn(() => '2026-05-04'),
+  currentDateKey: '2026-05-04',
 }))
 
-vi.mock('../src/utils/helpers', async importOriginal => {
-  const actual = await importOriginal<typeof import('../src/utils/helpers')>()
+vi.mock('../src/contexts/LocalDateContext', () => ({
+  useCurrentLocalDateKey: () => mocks.currentDateKey,
+}))
 
-  return {
-    ...actual,
-    getTodayStr: mocks.getTodayStr,
-  }
-})
-
-import { getTodayStr } from '../src/utils/helpers'
 import { VIEW_CONFIG, useNavigation } from '../src/hooks/useNavigation'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(getTodayStr).mockReturnValue('2026-05-04')
+  mocks.currentDateKey = '2026-05-04'
 })
 
 describe('VIEW_CONFIG', () => {
@@ -51,9 +45,10 @@ describe('useNavigation', () => {
 
     expect(result.current.activeView).toBe('home')
     expect(result.current.selectedDate).toBe('2026-05-04')
+    expect(result.current.currentDateKey).toBe('2026-05-04')
+    expect(result.current.isFollowingToday).toBe(true)
     expect(result.current.viewTitle).toBe(VIEW_CONFIG.home?.title)
     expect(result.current.viewTitle).not.toBe('')
-    expect(getTodayStr).toHaveBeenCalledTimes(1)
   })
 
   it('updates active view and selected date independently', () => {
@@ -72,6 +67,7 @@ describe('useNavigation', () => {
 
     expect(result.current.selectedDate).toBe('2026-05-05')
     expect(result.current.activeView).toBe('settings')
+    expect(result.current.isFollowingToday).toBe(false)
   })
 
   it('changeDate updates selected date and switches to editor', () => {
@@ -84,5 +80,51 @@ describe('useNavigation', () => {
     expect(result.current.selectedDate).toBe('2026-05-10')
     expect(result.current.activeView).toBe('editor')
     expect(result.current.viewTitle).toBe(VIEW_CONFIG.editor?.title)
+    expect(result.current.isFollowingToday).toBe(false)
+  })
+
+  it('rolls selected date forward only while following today', () => {
+    const { result, rerender } = renderHook(() => useNavigation())
+
+    mocks.currentDateKey = '2026-05-05'
+    rerender()
+
+    expect(result.current.selectedDate).toBe('2026-05-05')
+    expect(result.current.isFollowingToday).toBe(true)
+
+    act(() => {
+      result.current.changeDate('2026-05-01')
+    })
+
+    mocks.currentDateKey = '2026-05-06'
+    rerender()
+
+    expect(result.current.selectedDate).toBe('2026-05-01')
+    expect(result.current.isFollowingToday).toBe(false)
+
+    act(() => {
+      result.current.returnToToday()
+    })
+
+    expect(result.current.selectedDate).toBe('2026-05-06')
+    expect(result.current.isFollowingToday).toBe(true)
+  })
+
+  it('defers automatic today rollover while auto-follow is disabled', () => {
+    const { result, rerender } = renderHook(
+      ({ canAutoFollowToday }) => useNavigation({ canAutoFollowToday }),
+      { initialProps: { canAutoFollowToday: false } },
+    )
+
+    mocks.currentDateKey = '2026-05-05'
+    rerender({ canAutoFollowToday: false })
+
+    expect(result.current.selectedDate).toBe('2026-05-04')
+    expect(result.current.isFollowingToday).toBe(true)
+
+    rerender({ canAutoFollowToday: true })
+
+    expect(result.current.selectedDate).toBe('2026-05-05')
+    expect(result.current.isFollowingToday).toBe(true)
   })
 })

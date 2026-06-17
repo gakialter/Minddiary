@@ -45,6 +45,7 @@ interface EditorProps {
   loading: boolean
   pendingInsert?: PendingDiaryInsert | null
   onPendingInsertApplied?: (id: number) => void
+  onDirtyChange?: (isDirty: boolean) => void
 }
 
 interface SummaryRequestContext {
@@ -65,7 +66,7 @@ const isSameSummaryRequestContext = (a: SummaryRequestContext, b: SummaryRequest
   a.content === b.content
 )
 
-function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied }: EditorProps) {
+function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -88,6 +89,11 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
   const summaryGenerationRef = useRef(0)
   const activeSummaryGenerationRef = useRef<number | null>(null)
   const summaryRequestContextRef = useRef(getSummaryRequestContext(entry, content))
+
+  const setDirtyState = useCallback((dirty: boolean) => {
+    isDirty.current = dirty
+    onDirtyChange?.(dirty)
+  }, [onDirtyChange])
 
   const beginSummaryRequest = () => {
     const generation = ++summaryGenerationRef.current
@@ -152,16 +158,16 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
       setContent(entry.content || '')
       setSelectedTagIds(entry.tags || [])
       setWordCount(calculateWordCount(entry.content || ''))
-      isDirty.current = false
+      setDirtyState(false)
     } else if (!entry) {
       entryRef.current = null
       setTitle('')
       setContent('')
       setSelectedTagIds([])
       setWordCount(0)
-      isDirty.current = false
+      setDirtyState(false)
     }
-  }, [entry])
+  }, [entry, setDirtyState])
 
   useEffect(() => {
     const nextContext = getSummaryRequestContext(entry, content)
@@ -191,29 +197,32 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
         setWordCount(calculateWordCount(next))
         return next
       })
-      isDirty.current = true
+      setDirtyState(true)
       textareaRef.current?.focus()
     }
 
     onPendingInsertApplied?.(pendingInsert.id)
-  }, [entry, onPendingInsertApplied, pendingInsert])
+  }, [entry, onPendingInsertApplied, pendingInsert, setDirtyState])
 
   const handleSave = useCallback(async (isManual = false) => {
     if (!entry) return
     setSaving(true)
-    isDirty.current = false
     try {
-      await onSave(
+      const saved = await onSave(
         { title, content, tags: selectedTagIds },
         { origin: isManual ? 'editor-manual' : 'editor-auto' },
       )
+      if (saved === null) {
+        throw new Error('Save returned null')
+      }
+      setDirtyState(false)
       if (isManual) showToast('保存成功', 'success')
     } catch (err) {
       logger.error('Save failed:', err)
       showToast('保存失败', 'error')
     }
     setSaving(false)
-  }, [entry, title, content, selectedTagIds, onSave])
+  }, [entry, title, content, selectedTagIds, onSave, setDirtyState])
 
   const handleAiSummary = useCallback(async () => {
     if (!content.trim()) {
@@ -282,22 +291,22 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(e.target.value)
-    isDirty.current = true
+    setDirtyState(true)
   }
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setContent(val)
     setWordCount(calculateWordCount(val))
-    isDirty.current = true
+    setDirtyState(true)
   }
 
   // Callback for FormatToolbar: update content when a format is applied
   const handleFormatChange = useCallback((newValue: string) => {
     setContent(newValue)
     setWordCount(calculateWordCount(newValue))
-    isDirty.current = true
-  }, [])
+    setDirtyState(true)
+  }, [setDirtyState])
 
   const formatActions = useTextFormat(textareaRef, handleFormatChange)
 
@@ -305,13 +314,13 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
     setSelectedTagIds(prev =>
       prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
     )
-    isDirty.current = true
+    setDirtyState(true)
   }
 
   const handleClearTags = () => {
     if (selectedTagIds.length === 0) return
     setSelectedTagIds([])
-    isDirty.current = true
+    setDirtyState(true)
   }
 
   // Ctrl+S manual save
@@ -328,7 +337,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied 
 
   const handleTemplateInsert = (templateContent: string) => {
     setContent(templateContent)
-    isDirty.current = true
+    setDirtyState(true)
   }
 
   return (

@@ -28,6 +28,10 @@ vi.mock('../src/hooks/useTodayStats', () => ({
   useTodayStats: () => mockHookState,
 }))
 
+vi.mock('../src/contexts/LocalDateContext', () => ({
+  useCurrentLocalDateKey: () => '2026-05-31',
+}))
+
 const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
 
 const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({

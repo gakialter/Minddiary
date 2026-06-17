@@ -42,6 +42,7 @@ import {
   usePomodoroData,
   usePomodoroTimer,
 } from '../src/contexts/PomodoroContext'
+import { LocalDateProvider } from '../src/contexts/LocalDateContext'
 import { useDiary } from '../src/contexts/DiaryContext'
 
 vi.useFakeTimers()
@@ -162,7 +163,9 @@ const settingsData = (overrides: Partial<AppSettings> = {}): AppSettings => ({
 })
 
 const wrapper = ({ children }: { children: ReactNode }) => (
-  <PomodoroProvider>{children}</PomodoroProvider>
+  <LocalDateProvider>
+    <PomodoroProvider>{children}</PomodoroProvider>
+  </LocalDateProvider>
 )
 
 const usePomodoroValues = () => ({
@@ -1678,11 +1681,11 @@ describe('PomodoroContext', () => {
     expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
   })
 
-  it('creates today diary for a bound focus review when the user confirms', async () => {
+  it('asks inside the settlement UI before creating a diary for a bound focus review', async () => {
     vi.setSystemTime(new Date(2026, 4, 5, 10, 0, 0))
     const task = makeStudyTask()
     const doingTask = makeStudyTask({ status: 'doing' })
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const confirmSpy = vi.spyOn(window, 'confirm')
     mocks.tasksGetByDate.mockResolvedValue([task])
     mocks.tasksStartFocus.mockResolvedValue(doingTask)
     mocks.entriesGetByDate.mockResolvedValue(null)
@@ -1707,18 +1710,75 @@ describe('PomodoroContext', () => {
         })
       })
 
-      expect(settled).toBe(true)
-      expect(confirmSpy).toHaveBeenCalled()
+      expect(settled).toBe(false)
+      expect(confirmSpy).not.toHaveBeenCalled()
       expect(mocks.tasksComplete).not.toHaveBeenCalled()
+      expect(mocks.entriesCreate).not.toHaveBeenCalled()
+      expect(result.current.data.alertState.pendingReviewEntryCreation).toEqual({
+        reviewText: 'Kept momentum for tomorrow.',
+      })
+
+      let resolved = false
+      await act(async () => {
+        resolved = await result.current.actions.resolveFocusReviewEntryCreation(true)
+      })
+
+      expect(resolved).toBe(true)
       expect(mocks.entriesCreate).toHaveBeenCalledWith({
         date: '2026-05-05',
         title: '专注复盘',
         content: expect.stringContaining('- 结果：Kept momentum for tomorrow.'),
         mood: null,
       })
+      expect(result.current.data.alertState.visible).toBe(false)
     } finally {
       confirmSpy.mockRestore()
     }
+  })
+
+  it('lets the user cancel diary creation after task settlement without losing the saved session', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 10, 30, 0))
+    const task = makeStudyTask()
+    const doingTask = makeStudyTask({ status: 'doing' })
+    const doneTask = makeStudyTask({ status: 'done' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.tasksComplete.mockResolvedValue(doneTask)
+    mocks.entriesGetByDate.mockResolvedValue(null)
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+
+    await act(async () => {
+      await result.current.actions.finishCountdownFocusSession()
+    })
+    await flushAsyncWork()
+
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: true,
+        reviewText: 'Keep the session but skip diary creation.',
+      })
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    expect(result.current.data.alertState.pendingReviewEntryCreation).toEqual({
+      reviewText: 'Keep the session but skip diary creation.',
+    })
+
+    let resolved = false
+    await act(async () => {
+      resolved = await result.current.actions.resolveFocusReviewEntryCreation(false)
+    })
+
+    expect(resolved).toBe(true)
+    expect(mocks.entriesCreate).not.toHaveBeenCalled()
+    expect(mocks.entriesUpdate).not.toHaveBeenCalled()
+    expect(result.current.data.alertState.visible).toBe(false)
   })
 
   it('does not write a diary block for an empty bound focus review', async () => {

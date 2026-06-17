@@ -7,7 +7,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
-import { getTodayStr } from '../utils/helpers'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { logger } from '../utils/logger'
 import type { TodayDashboardData } from '../types'
 
@@ -36,6 +36,7 @@ const EMPTY_STATE: TodayDashboardData = {
 
 export function useTodayStats() {
   const { todayDashboard, dataRefreshVersion } = useDiary()
+  const currentDateKey = useCurrentLocalDateKey()
   const [data, setData] = useState<TodayDashboardData>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -46,7 +47,7 @@ export function useTodayStats() {
     setLoading(true)
     setError(null)
     try {
-      const result = await todayDashboard.getData(getTodayStr())
+      const result = await todayDashboard.getData(currentDateKey)
       if (requestId !== requestIdRef.current) return
       setData(result)
     } catch (err) {
@@ -58,11 +59,11 @@ export function useTodayStats() {
         setLoading(false)
       }
     }
-  }, [todayDashboard])
+  }, [currentDateKey, todayDashboard])
 
   useEffect(() => {
     refresh()
   }, [refresh, dataRefreshVersion])
 
-  return { data, loading, error, refresh }
+  return { data, loading, error, refresh, currentDateKey }
 }
