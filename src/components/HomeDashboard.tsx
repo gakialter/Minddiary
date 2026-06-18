@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTodayStats } from '../hooks/useTodayStats'
 import { useDiary } from '../contexts/DiaryContext'
 import { useDashboardMasterState } from '../hooks/useDashboardMasterState'
-import { getLocalDateKey } from '../utils/dateKey'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { CommanderHero } from './dashboard/CommanderHero'
 import { TrustMetric } from './dashboard/TrustMetric'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
@@ -38,7 +38,7 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
-  const todayDate = getLocalDateKey()
+  const todayDate = useCurrentLocalDateKey()
 
   const config = useDashboardMasterState(data)
 

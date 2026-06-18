@@ -918,6 +918,35 @@ describe('DataContext', () => {
     }))
   })
 
+  it('keeps fallback todo tasks in the unclosed dashboard metrics even without focus', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await result.current.tasks.create({
+      title: 'Read algebra notes',
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+    })
+
+    await expect(result.current.todayDashboard.getData('2026-05-31')).resolves.toEqual(expect.objectContaining({
+      taskFocusToday: expect.objectContaining({
+        effectiveTaskCount: 1,
+        completedTaskCount: 0,
+        completionRate: 0,
+        focusedTaskCount: 0,
+        focusCoverageRate: 0,
+        openWithoutFocusCount: 1,
+        focusedOpenTaskCount: 0,
+        unclosedTaskTitles: ['Read algebra notes'],
+      }),
+    }))
+  })
+
   it('rejects fallback focus start for missing, completed, skipped, or non-today tasks', async () => {
     mocks.isElectron = false
     seedEmptyBrowserStorage()

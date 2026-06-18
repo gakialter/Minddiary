@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { useDiary } from './DiaryContext'
+import { useCurrentLocalDateKey } from './LocalDateContext'
 import { coerceBoolean } from '../utils/helpers'
-import { getDelayUntilNextLocalDate, getLocalDateKey, toLocalDateTimeString } from '../utils/dateKey'
+import { getLocalDateKey, toLocalDateTimeString } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import type { StudyTask, Subject, PomodoroStat } from '../types'
 
@@ -47,6 +48,7 @@ interface PomodoroDataValue {
     taskSettlement: FocusTaskSettlement | null
     settlementError: string | null
     isSettlingTask: boolean
+    pendingReviewEntryCreation: PendingReviewEntryCreation | null
   }
   isSavingInterruptedFocus: boolean
   todayTasks: StudyTask[]
@@ -64,6 +66,7 @@ interface PomodoroActionsValue {
   resetTimer: () => void
   loadTodayTasks: (dateKey?: string) => Promise<void>
   settleFocusTask: (options: FocusTaskSettlementOptions) => Promise<boolean>
+  resolveFocusReviewEntryCreation: (createEntry: boolean) => Promise<boolean>
   getCountdownFocusSettlementPreview: () => CountdownFocusSettlementPreview | null
   finishCountdownFocusSession: (preview?: CountdownFocusSettlementPreview) => Promise<boolean>
   finishStopwatchSession: () => Promise<boolean>
@@ -115,6 +118,10 @@ interface FocusTaskSettlement {
 
 interface FocusTaskSettlementOptions {
   completeTask: boolean
+  reviewText: string
+}
+
+interface PendingReviewEntryCreation {
   reviewText: string
 }
 
@@ -344,6 +351,7 @@ const MODES: Record<string, PomodoroMode> = {
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
   const diary = useDiary()
+  const currentDateKey = useCurrentLocalDateKey()
   const {
     settingsData,
     subjects: subjectsAPI,
@@ -387,7 +395,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [taskError, setTaskError] = useState<string | null>(null)
   const [todayStats, setTodayStats] = useState<PomodoroStat[]>([])
   const [todayTotal, setTodayTotal] = useState(0)
-  const [todayDateKey, setTodayDateKey] = useState(() => getLocalDateKey())
+  const [todayDateKey, setTodayDateKey] = useState(currentDateKey)
   const todayDateKeyRef = useRef(todayDateKey)
   const sessionStartedAtRef = useRef<Date | null>(null)
   const selectedTaskIdRef = useRef<number | null>(null)
@@ -406,10 +414,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     taskSettlement: null as FocusTaskSettlement | null,
     settlementError: null as string | null,
     isSettlingTask: false,
+    pendingReviewEntryCreation: null as PendingReviewEntryCreation | null,
   })
   const [isSavingInterruptedFocus, setIsSavingInterruptedFocus] = useState(false)
 
-  const dismissAlert = useCallback(() => setAlertState(s => ({ ...s, visible: false })), [])
+  const dismissAlert = useCallback(() => setAlertState(s => ({
+    ...s,
+    visible: false,
+    settlementError: null,
+    isSettlingTask: false,
+    pendingReviewEntryCreation: null,
+  })), [])
 
   const getSubjectName = useCallback((subjectId: number | null) => {
     if (subjectId === null) return null
@@ -535,7 +550,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     } catch (e) { logger.error(e) }
   }, [subjectsAPI])
 
-  const loadTodayStats = useCallback(async (dateKey = getLocalDateKey()) => {
+  const loadTodayStats = useCallback(async (dateKey = currentDateKey) => {
     setTodayDateKey(dateKey)
     todayDateKeyRef.current = dateKey
     try {
@@ -544,9 +559,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const total = await pomodoroAPI.getDailyTotal(dateKey)
       setTodayTotal(total || 0)
     } catch (e) { logger.error(e) }
-  }, [pomodoroAPI])
+  }, [currentDateKey, pomodoroAPI])
 
-  const loadTodayTasks = useCallback(async (dateKey = getLocalDateKey()) => {
+  const loadTodayTasks = useCallback(async (dateKey = currentDateKey) => {
     setTaskError(null)
     try {
       const tasks = await tasksAPI.getByDate(dateKey)
@@ -568,7 +583,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       logger.error(error)
       setTaskError(error instanceof Error ? error.message : String(error))
     }
-  }, [setActiveTaskSnapshot, tasksAPI])
+  }, [currentDateKey, setActiveTaskSnapshot, tasksAPI])
 
   const setSelectedSubject = useCallback<React.Dispatch<React.SetStateAction<number | null>>>((nextSubjectAction) => {
     manualSubjectOverrideRef.current = true
@@ -602,37 +617,22 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadSubjects()
-    loadTodayStats()
-    loadTodayTasks()
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
-  }, [loadSubjects, loadTodayStats, loadTodayTasks])
+  }, [loadSubjects])
+
+  useEffect(() => {
+    setTodayStats([])
+    setTodayTotal(0)
+    todayDateKeyRef.current = currentDateKey
+    void loadTodayStats(currentDateKey)
+    void loadTodayTasks(currentDateKey)
+  }, [currentDateKey, loadTodayStats, loadTodayTasks])
 
   useEffect(() => {
     void loadTodayTasks(todayDateKeyRef.current)
   }, [dataRefreshVersion, loadTodayTasks])
-
-  useEffect(() => {
-    let timeout: number
-    const scheduleRolloverCheck = () => {
-      timeout = window.setTimeout(() => {
-        const nextDateKey = getLocalDateKey()
-        const previousDateKey = todayDateKeyRef.current
-        if (nextDateKey !== previousDateKey) {
-          setTodayStats([])
-          setTodayTotal(0)
-          todayDateKeyRef.current = nextDateKey
-          void loadTodayStats(nextDateKey)
-          void loadTodayTasks(nextDateKey)
-        }
-        scheduleRolloverCheck()
-      }, getDelayUntilNextLocalDate())
-    }
-
-    scheduleRolloverCheck()
-    return () => window.clearTimeout(timeout)
-  }, [loadTodayStats, loadTodayTasks])
 
   const clearActiveSessionState = useCallback(() => {
     activeSessionRef.current = false
@@ -708,10 +708,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const appendFocusReviewToTodayEntry = useCallback(async (
     settlement: FocusTaskSettlement,
     reviewText: string,
-  ) => {
+    options: { createEntryIfMissing?: boolean } = {},
+  ): Promise<'skipped' | 'written' | 'needs-entry-confirmation'> => {
     const trimmedReview = reviewText.trim()
-    if (!trimmedReview) return
-    if (reviewSettlementKeysRef.current.has(settlement.settlementKey)) return
+    if (!trimmedReview) return 'skipped'
+    if (reviewSettlementKeysRef.current.has(settlement.settlementKey)) return 'skipped'
 
     const completedAt = new Date(settlement.completedAt.replace(' ', 'T'))
     const timeLabel = Number.isNaN(completedAt.getTime())
@@ -735,25 +736,32 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         ? `${existing.content.trimEnd()}\n\n${reviewBlock}`
         : reviewBlock
       await entriesAPI.update(existing.id, { content })
-    } else {
-      const confirmed = window.confirm('今天还没有日记。是否创建今日日记并写入本次专注复盘？')
-      if (!confirmed) return
+    } else if (options.createEntryIfMissing) {
       await entriesAPI.create({
         date: reviewDateKey,
         title: '专注复盘',
         content: reviewBlock,
         mood: null,
       })
+    } else {
+      return 'needs-entry-confirmation'
     }
 
     reviewSettlementKeysRef.current.add(settlement.settlementKey)
     requestDataRefresh()
+    return 'written'
   }, [entriesAPI, requestDataRefresh])
 
   const settleFocusTask = useCallback(async ({ completeTask, reviewText }: FocusTaskSettlementOptions) => {
     const settlement = alertState.taskSettlement
     if (!settlement) {
-      setAlertState(current => ({ ...current, visible: false, settlementError: null, isSettlingTask: false }))
+      setAlertState(current => ({
+        ...current,
+        visible: false,
+        settlementError: null,
+        isSettlingTask: false,
+        pendingReviewEntryCreation: null,
+      }))
       return true
     }
 
@@ -772,6 +780,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           taskSettlement: null,
           settlementError: '绑定任务已不存在，专注记录已保留。可直接关闭本次结算。',
           isSettlingTask: false,
+          pendingReviewEntryCreation: null,
         }))
         void loadTodayTasks(todayDateKeyRef.current)
         requestDataRefresh()
@@ -790,6 +799,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
               taskSettlement: null,
               settlementError: '绑定任务已不存在，专注记录已保留。可直接关闭本次结算。',
               isSettlingTask: false,
+              pendingReviewEntryCreation: null,
             }))
             void loadTodayTasks(todayDateKeyRef.current)
             requestDataRefresh()
@@ -807,10 +817,27 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      await appendFocusReviewToTodayEntry(settlement, reviewText)
+      const reviewResult = await appendFocusReviewToTodayEntry(settlement, reviewText)
+      if (reviewResult === 'needs-entry-confirmation') {
+        void loadTodayTasks(todayDateKeyRef.current)
+        requestDataRefresh()
+        setAlertState(current => ({
+          ...current,
+          pendingReviewEntryCreation: { reviewText },
+          settlementError: null,
+          isSettlingTask: false,
+        }))
+        return false
+      }
       void loadTodayTasks(todayDateKeyRef.current)
       requestDataRefresh()
-      setAlertState(current => ({ ...current, visible: false, settlementError: null, isSettlingTask: false }))
+      setAlertState(current => ({
+        ...current,
+        visible: false,
+        settlementError: null,
+        isSettlingTask: false,
+        pendingReviewEntryCreation: null,
+      }))
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -823,6 +850,52 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     loadTodayTasks,
     requestDataRefresh,
     tasksAPI,
+  ])
+
+  const resolveFocusReviewEntryCreation = useCallback(async (createEntry: boolean) => {
+    const settlement = alertState.taskSettlement
+    const pendingReviewEntryCreation = alertState.pendingReviewEntryCreation
+    if (!settlement || !pendingReviewEntryCreation) {
+      setAlertState(current => ({
+        ...current,
+        visible: false,
+        settlementError: null,
+        isSettlingTask: false,
+        pendingReviewEntryCreation: null,
+      }))
+      return true
+    }
+
+    setAlertState(current => ({ ...current, settlementError: null, isSettlingTask: true }))
+    try {
+      if (createEntry) {
+        await appendFocusReviewToTodayEntry(
+          settlement,
+          pendingReviewEntryCreation.reviewText,
+          { createEntryIfMissing: true },
+        )
+      }
+      void loadTodayTasks(todayDateKeyRef.current)
+      requestDataRefresh()
+      setAlertState(current => ({
+        ...current,
+        visible: false,
+        settlementError: null,
+        isSettlingTask: false,
+        pendingReviewEntryCreation: null,
+      }))
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAlertState(current => ({ ...current, settlementError: message, isSettlingTask: false }))
+      return false
+    }
+  }, [
+    alertState.pendingReviewEntryCreation,
+    alertState.taskSettlement,
+    appendFocusReviewToTodayEntry,
+    loadTodayTasks,
+    requestDataRefresh,
   ])
 
   // Phase-complete handler
@@ -909,6 +982,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             taskSettlement,
             settlementError: null,
             isSettlingTask: false,
+            pendingReviewEntryCreation: null,
           })
         }
         await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
@@ -920,7 +994,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       setIdleMode(dynamicModes.SHORT_BREAK!)
     } else {
       if (coerceBoolean(settingsData?.pomodoroAlert, true)) {
-        const alertDateKey = getLocalDateKey()
+        const alertDateKey = currentDateKey
         const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
         setAlertState({
           visible: true,
@@ -933,6 +1007,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           taskSettlement: null,
           settlementError: null,
           isSettlingTask: false,
+          pendingReviewEntryCreation: null,
         })
       }
       await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
@@ -945,6 +1020,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     mode,
     selectedSubject,
     todayTotal,
+    currentDateKey,
     settingsData,
     notificationAPI,
     dynamicModes,
@@ -1335,6 +1411,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             taskSettlement,
             settlementError: null,
             isSettlingTask: false,
+            pendingReviewEntryCreation: null,
           })
         } catch (error) {
           logger.warn('Failed to show interrupted focus alert:', error)
@@ -1419,6 +1496,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           taskSettlement,
           settlementError: null,
           isSettlingTask: false,
+          pendingReviewEntryCreation: null,
         })
       }
       await notificationAPI.show('正计时已保存', '本次专注已记录到学习统计。').catch(() => { })
@@ -1483,10 +1561,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, isSavingInterruptedFocus, todayTasks, selectedTaskId, selectedTask, taskError])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
-    setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
+    setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
     loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart,
-  }), [setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
+  }), [setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>

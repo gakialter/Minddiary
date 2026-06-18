@@ -252,6 +252,65 @@ describe('Editor AI summary request', () => {
   })
 })
 
+describe('Editor dirty tracking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tagsGetAll.mockResolvedValue(tags)
+    mocks.getDailyTotal.mockResolvedValue(0)
+    mocks.templatesGetAll.mockResolvedValue([])
+    mocks.aiChat.mockResolvedValue({ content: '' })
+  })
+
+  it('reports clean only after a successful save', async () => {
+    const onSave = vi.fn().mockResolvedValue(entry)
+    const onDirtyChange = vi.fn()
+    render(<Editor entry={entry} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
+
+    const contentInput = await screen.findByTestId('diary-content-input')
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenCalledWith(false)
+    })
+
+    fireEvent.change(contentInput, { target: { value: 'Changed body' } })
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    })
+
+    fireEvent.keyDown(window, { key: 's', code: 'KeyS', ctrlKey: true })
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        {
+          title: 'Entry title',
+          content: 'Changed body',
+          tags: [1],
+        },
+        { origin: 'editor-manual' },
+      )
+      expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    })
+  })
+
+  it('keeps dirty state when save resolves null', async () => {
+    const onSave = vi.fn().mockResolvedValue(null)
+    const onDirtyChange = vi.fn()
+    render(<Editor entry={entry} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
+
+    const contentInput = await screen.findByTestId('diary-content-input')
+    fireEvent.change(contentInput, { target: { value: 'Unsaved body' } })
+    await waitFor(() => {
+      expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    })
+
+    fireEvent.keyDown(window, { key: 's', code: 'KeyS', ctrlKey: true })
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1)
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+  })
+})
+
 describe('Editor focus reflection insertion', () => {
   beforeEach(() => {
     vi.clearAllMocks()

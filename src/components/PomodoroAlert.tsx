@@ -18,7 +18,9 @@ interface PomodoroAlertProps {
   } | null
   settlementError?: string | null
   isSettlingTask?: boolean
+  pendingReviewEntryCreation?: { reviewText: string } | null
   onSettleTask?: (options: { completeTask: boolean; reviewText: string }) => Promise<boolean> | boolean
+  onResolveReviewEntryCreation?: (createEntry: boolean) => Promise<boolean> | boolean
   onWriteDiary?: () => void
   onAddMistake?: () => void
 }
@@ -34,7 +36,9 @@ export default function PomodoroAlert({
   taskSettlement = null,
   settlementError = null,
   isSettlingTask = false,
+  pendingReviewEntryCreation = null,
   onSettleTask,
+  onResolveReviewEntryCreation,
   onWriteDiary,
   onAddMistake,
 }: PomodoroAlertProps) {
@@ -168,57 +172,101 @@ export default function PomodoroAlert({
                 {taskSettlement.subjectName || '未选择科目'} · {taskSettlement.status} · {taskSettlement.duration} 分钟
               </div>
             </div>
-            <textarea
-              className="input w-full"
-              data-testid="pomodoro-focus-review-input"
-              value={reviewText}
-              onChange={event => setReviewText(event.target.value)}
-              placeholder="一句话复盘（可选）"
-              rows={3}
-              disabled={isSettlingTask}
-              style={{ resize: 'vertical', minHeight: 76 }}
-            />
+            {pendingReviewEntryCreation ? (
+              <div
+                data-testid="pomodoro-review-entry-prompt"
+                className="flex flex-col gap-sm"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-tertiary)',
+                  padding: 'var(--space-md)',
+                }}
+              >
+                <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  本次专注对应日期还没有日记
+                </div>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                  专注和任务结算已保存。是否创建对应日期的日记并写入这条复盘？
+                </p>
+                <button
+                  type="button"
+                  className="button button-primary w-full"
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-review-create-entry"
+                  onClick={() => { void onResolveReviewEntryCreation?.(true) }}
+                  style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
+                >
+                  {isSettlingTask ? '写入中...' : '创建日记并写入复盘'}
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary w-full"
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-review-skip-entry"
+                  onClick={() => { void onResolveReviewEntryCreation?.(false) }}
+                  style={{ height: 38, borderRadius: 19, fontSize: 13 }}
+                >
+                  不创建日记，完成结算
+                </button>
+              </div>
+            ) : (
+              <textarea
+                className="input w-full"
+                data-testid="pomodoro-focus-review-input"
+                value={reviewText}
+                onChange={event => setReviewText(event.target.value)}
+                placeholder="一句话复盘（可选）"
+                rows={3}
+                disabled={isSettlingTask}
+                style={{ resize: 'vertical', minHeight: 76 }}
+              />
+            )}
             {settlementError && (
               <div data-testid="pomodoro-settlement-error" className="text-sm" style={{ color: 'var(--danger)' }}>
                 {settlementError}
               </div>
             )}
-            <button
-              className="button button-primary w-full"
-              onClick={() => { void onSettleTask?.({ completeTask: true, reviewText }) }}
-              disabled={isSettlingTask}
-              data-testid="pomodoro-settle-complete"
-              style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
-            >
-              {isSettlingTask ? '保存中...' : '标记任务完成'}
-            </button>
-            <button
-              className="button button-secondary w-full"
-              onClick={() => { void onSettleTask?.({ completeTask: false, reviewText }) }}
-              disabled={isSettlingTask}
-              data-testid="pomodoro-settle-continue"
-              style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
-            >
-              保持任务进行中
-            </button>
-            <button
-              className="button w-full"
-              onClick={() => { void onSettleTask?.({ completeTask: false, reviewText: '' }) }}
-              disabled={isSettlingTask}
-              data-testid="pomodoro-settle-skip-review"
-              style={{ height: 38, borderRadius: 19, fontSize: 13 }}
-            >
-              跳过复盘，仅保存专注记录
-            </button>
-            <button
-              className="button button-secondary w-full"
-              onClick={onAddMistake}
-              disabled={isSettlingTask}
-              data-testid="pomodoro-alert-add-mistake"
-              style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
-            >
-              添加错题
-            </button>
+            {!pendingReviewEntryCreation && (
+              <>
+                <button
+                  className="button button-primary w-full"
+                  onClick={() => { void onSettleTask?.({ completeTask: true, reviewText }) }}
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-settle-complete"
+                  style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
+                >
+                  {isSettlingTask ? '保存中...' : '标记任务完成'}
+                </button>
+                <button
+                  className="button button-secondary w-full"
+                  onClick={() => { void onSettleTask?.({ completeTask: false, reviewText }) }}
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-settle-continue"
+                  style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
+                >
+                  保持任务进行中
+                </button>
+                <button
+                  className="button w-full"
+                  onClick={() => { void onSettleTask?.({ completeTask: false, reviewText: '' }) }}
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-settle-skip-review"
+                  style={{ height: 38, borderRadius: 19, fontSize: 13 }}
+                >
+                  跳过复盘，仅保存专注记录
+                </button>
+                <button
+                  className="button button-secondary w-full"
+                  onClick={onAddMistake}
+                  disabled={isSettlingTask}
+                  data-testid="pomodoro-alert-add-mistake"
+                  style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
+                >
+                  添加错题
+                </button>
+              </>
+            )}
           </div>
         )}
         {showSettlementActions && isWorkComplete && !taskSettlement && (

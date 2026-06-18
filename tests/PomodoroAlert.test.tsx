@@ -109,4 +109,43 @@ describe('PomodoroAlert', () => {
     })
     expect(screen.queryByTestId('pomodoro-alert-write-diary')).not.toBeInTheDocument()
   })
+
+  it('renders in-app diary creation choices while review creation is pending', () => {
+    const onResolveReviewEntryCreation = vi.fn().mockResolvedValue(true)
+    render(
+      <PomodoroAlert
+        visible
+        isWorkComplete
+        duration={25}
+        todayTotal={50}
+        showSettlementActions
+        taskSettlement={{
+          id: 7,
+          title: 'Finish algebra',
+          subjectName: 'Math',
+          status: 'done',
+          duration: 25,
+        }}
+        pendingReviewEntryCreation={{ reviewText: 'Reflection text' }}
+        onClose={vi.fn()}
+        onResolveReviewEntryCreation={onResolveReviewEntryCreation}
+        onAddMistake={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('pomodoro-review-entry-prompt')).toHaveTextContent(
+      '本次专注对应日期还没有日记',
+    )
+    expect(screen.getByTestId('pomodoro-review-entry-prompt')).toHaveTextContent(
+      '专注和任务结算已保存。是否创建对应日期的日记并写入这条复盘？',
+    )
+    expect(screen.queryByTestId('pomodoro-focus-review-input')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pomodoro-settle-complete')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('pomodoro-review-create-entry'))
+    expect(onResolveReviewEntryCreation).toHaveBeenCalledWith(true)
+
+    fireEvent.click(screen.getByTestId('pomodoro-review-skip-entry'))
+    expect(onResolveReviewEntryCreation).toHaveBeenCalledWith(false)
+  })
 })

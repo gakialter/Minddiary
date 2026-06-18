@@ -5,7 +5,7 @@ import type { TodayDashboardData } from '../src/types'
 const mocks = vi.hoisted(() => ({
   getData: vi.fn(),
   loggerError: vi.fn(),
-  getTodayStr: vi.fn(() => '2026-05-04'),
+  currentDateKey: '2026-05-04',
   dataRefreshVersion: 0,
   todayDashboard: undefined as unknown as { getData: ReturnType<typeof vi.fn> },
 }))
@@ -27,17 +27,11 @@ vi.mock('../src/utils/logger', () => ({
   },
 }))
 
-vi.mock('../src/utils/helpers', async importOriginal => {
-  const actual = await importOriginal<typeof import('../src/utils/helpers')>()
-
-  return {
-    ...actual,
-    getTodayStr: mocks.getTodayStr,
-  }
-})
+vi.mock('../src/contexts/LocalDateContext', () => ({
+  useCurrentLocalDateKey: () => mocks.currentDateKey,
+}))
 
 import { useDiary } from '../src/contexts/DiaryContext'
-import { getTodayStr } from '../src/utils/helpers'
 import { logger } from '../src/utils/logger'
 import { useTodayStats } from '../src/hooks/useTodayStats'
 
@@ -114,7 +108,7 @@ const deferred = <T,>() => {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.dataRefreshVersion = 0
-  vi.mocked(getTodayStr).mockReturnValue('2026-05-04')
+  mocks.currentDateKey = '2026-05-04'
   vi.mocked(useDiary).mockReturnValue({
     todayDashboard: mocks.todayDashboard,
     dataRefreshVersion: mocks.dataRefreshVersion,
@@ -144,7 +138,7 @@ describe('useTodayStats', () => {
     expect(result.current.error).toBeNull()
     expect(result.current.data).toEqual(FULL_DATA)
     expect(getData).toHaveBeenCalledTimes(1)
-    expect(getTodayStr).toHaveBeenCalledTimes(1)
+    expect(result.current.currentDateKey).toBe('2026-05-04')
   })
 
   it('keeps empty data and stores the error message when loading fails', async () => {
@@ -212,5 +206,25 @@ describe('useTodayStats', () => {
       expect(result.current.data).toEqual(UPDATED_DATA)
     })
     expect(getData).toHaveBeenCalledTimes(2)
+  })
+
+  it('reloads against the new current date when local date rolls over', async () => {
+    const getData = vi.mocked(mocks.getData)
+    getData.mockResolvedValueOnce(FULL_DATA)
+
+    const { result, rerender } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(FULL_DATA)
+    })
+
+    mocks.currentDateKey = '2026-05-05'
+    getData.mockResolvedValueOnce(UPDATED_DATA)
+    rerender()
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(UPDATED_DATA)
+    })
+    expect(getData).toHaveBeenLastCalledWith('2026-05-05')
   })
 })

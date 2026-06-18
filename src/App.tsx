@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Download, Frown, RotateCcw } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
+import { LocalDateProvider, useCurrentLocalDateKey } from './contexts/LocalDateContext'
 import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation'
 import { useGlobalKeyboard } from './hooks/useGlobalKeyboard'
 import Layout from './components/Layout'
@@ -19,7 +20,6 @@ import DiaryTaskSettlementPrompt from './components/DiaryTaskSettlementPrompt'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer, showToast } from './components/Toast'
 import { logger } from './utils/logger'
-import { getLocalDateKey } from './utils/dateKey'
 import {
   findDiaryTaskSettlementCandidates,
   getEffectiveDiaryContentLength,
@@ -65,13 +65,14 @@ interface PendingDiarySettlement {
 function AppContent() {
   const diary = useDiary()
   const { isDarkMode } = diary
+  const [isEditorDirty, setIsEditorDirty] = useState(false)
 
   // ─── Navigation (extracted hook) ───
   const {
     activeView, setActiveView,
     selectedDate, setSelectedDate,
     changeDate, viewTitle,
-  } = useNavigation()
+  } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
   // ─── Local UI state ───
   const [entry, setEntry] = useState<DiaryEntry | null>(null)
@@ -87,10 +88,11 @@ function AppContent() {
   const [pendingMistakeFilter, setPendingMistakeFilter] = useState<MistakeFilterIntent | null>(null)
   const [isPomodoroFullscreenActive, setIsPomodoroFullscreenActive] = useState(false)
   const dismissedDiarySettlementKeysRef = useRef(new Set<string>())
+  const currentDateKey = useCurrentLocalDateKey()
 
   // Register break-start handler with Pomodoro context
   const { alertState } = usePomodoroData()
-  const { setOnBreakStart, dismissAlert, settleFocusTask } = usePomodoroActions()
+  const { setOnBreakStart, dismissAlert, settleFocusTask, resolveFocusReviewEntryCreation } = usePomodoroActions()
 
   useEffect(() => {
     setOnBreakStart(() => setShowBreakReview(true))
@@ -108,15 +110,14 @@ function AppContent() {
 
   const handleWriteFocusDiary = useCallback(() => {
     if (!navigateToView('editor')) return
-    const today = getLocalDateKey()
     setPendingDiaryInsert({
       id: Date.now(),
-      date: today,
+      date: currentDateKey,
       content: buildFocusReflectionTemplate(alertState.subjectName),
     })
-    setSelectedDate(today)
+    setSelectedDate(currentDateKey)
     dismissAlert()
-  }, [alertState.subjectName, dismissAlert, navigateToView, setSelectedDate])
+  }, [alertState.subjectName, currentDateKey, dismissAlert, navigateToView, setSelectedDate])
 
   const handleAddFocusMistake = useCallback(() => {
     if (!navigateToView('mistakes')) return
@@ -302,6 +303,7 @@ function AppContent() {
       ensureEntryId,
       pendingDiaryInsert,
       onPendingDiaryInsertApplied: handlePendingDiaryInsertApplied,
+      onEditorDirtyChange: setIsEditorDirty,
       mistakeFilterIntent: pendingMistakeFilter,
       onMistakeFilterIntent: handleMistakeFilterIntent,
       onMistakeFilterIntentApplied: handleMistakeFilterIntentApplied,
@@ -387,7 +389,9 @@ function AppContent() {
         taskSettlement={alertState.taskSettlement}
         settlementError={alertState.settlementError}
         isSettlingTask={alertState.isSettlingTask}
+        pendingReviewEntryCreation={alertState.pendingReviewEntryCreation}
         onSettleTask={settleFocusTask}
+        onResolveReviewEntryCreation={resolveFocusReviewEntryCreation}
         onWriteDiary={handleWriteFocusDiary}
         onAddMistake={handleAddFocusMistake}
       />
@@ -408,9 +412,11 @@ function App() {
   return (
     <ErrorBoundary>
       <DiaryProvider>
-        <PomodoroProvider>
-          <AppContent />
-        </PomodoroProvider>
+        <LocalDateProvider>
+          <PomodoroProvider>
+            <AppContent />
+          </PomodoroProvider>
+        </LocalDateProvider>
       </DiaryProvider>
     </ErrorBoundary>
   )

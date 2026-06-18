@@ -1,5 +1,5 @@
-import { useState, useCallback, type ReactNode } from 'react'
-import { getTodayStr } from '../utils/helpers'
+import { useState, useCallback, useEffect, type ReactNode } from 'react'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { Home, PenLine, CalendarDays, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot } from 'lucide-react'
 import type { DiaryEntry } from '../types'
 
@@ -35,6 +35,7 @@ interface ViewRenderProps {
   ensureEntryId: () => Promise<number | null>
   pendingDiaryInsert?: PendingDiaryInsert | null
   onPendingDiaryInsertApplied?: (id: number) => void
+  onEditorDirtyChange?: (isDirty: boolean) => void
   mistakeFilterIntent?: MistakeFilterIntent | null
   onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
   onMistakeFilterIntentApplied?: () => void
@@ -74,6 +75,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
             loading={props.loading}
             pendingInsert={props.pendingDiaryInsert}
             onPendingInsertApplied={props.onPendingDiaryInsertApplied}
+            onDirtyChange={props.onEditorDirtyChange}
           />
         </div>
         <div style={{
@@ -143,14 +145,37 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
 /**
  * useNavigation — manages active view state and date-based navigation.
  */
-export function useNavigation() {
+interface UseNavigationOptions {
+  canAutoFollowToday?: boolean
+}
+
+export function useNavigation({ canAutoFollowToday = true }: UseNavigationOptions = {}) {
+  const currentDateKey = useCurrentLocalDateKey()
   const [activeView, setActiveView] = useState('home')
-  const [selectedDate, setSelectedDate] = useState(getTodayStr())
+  const [selectedDate, setSelectedDateState] = useState(currentDateKey)
+  const [isFollowingToday, setIsFollowingToday] = useState(true)
+
+  useEffect(() => {
+    if (isFollowingToday && canAutoFollowToday) {
+      setSelectedDateState(currentDateKey)
+    }
+  }, [canAutoFollowToday, currentDateKey, isFollowingToday])
+
+  const setSelectedDate = useCallback((date: string) => {
+    setSelectedDateState(date)
+    setIsFollowingToday(date === currentDateKey)
+  }, [currentDateKey])
 
   const changeDate = useCallback((date: string) => {
-    setSelectedDate(date)
+    setSelectedDateState(date)
+    setIsFollowingToday(date === currentDateKey)
     setActiveView('editor')
-  }, [])
+  }, [currentDateKey])
+
+  const returnToToday = useCallback(() => {
+    setIsFollowingToday(true)
+    setSelectedDateState(currentDateKey)
+  }, [currentDateKey])
 
   const viewTitle = VIEW_CONFIG[activeView]?.title || ''
 
@@ -160,6 +185,9 @@ export function useNavigation() {
     selectedDate,
     setSelectedDate,
     changeDate,
+    currentDateKey,
+    isFollowingToday,
+    returnToToday,
     viewTitle,
   }
 }

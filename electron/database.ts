@@ -4,6 +4,7 @@ import { app, safeStorage as ss } from 'electron';
 import { logger } from './logger';
 import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
 import { getLocalDateKey } from '../src/utils/dateKey';
+import { calculateTaskFocusMetrics } from '../src/utils/taskFocusMetrics';
 import {
     DATABASE_BACKUP_TABLES,
     normalizeBackupDatabaseData,
@@ -400,19 +401,7 @@ function getTodayDashboard(date: string): TodayDashboardData {
             WHERE p.date_key = ? AND t.planned_date = ?
             GROUP BY p.task_id
         `).all(date, date) as Array<{ task_id: number; total_minutes: number }>;
-        const focusedMinutesByTask = new Map(taskFocusRows.map(row => [row.task_id, row.total_minutes]));
-        const effectiveTasks = taskRows.filter(task => task.status !== 'skipped');
-        const completedTaskCount = effectiveTasks.filter(task => task.status === 'done').length;
-        const focusedTaskCount = effectiveTasks.filter(task => (focusedMinutesByTask.get(task.id) ?? 0) > 0).length;
-        const openWithoutFocusTasks = effectiveTasks.filter(task => task.status === 'doing' && !(focusedMinutesByTask.get(task.id) ?? 0));
-        const focusedOpenTasks = effectiveTasks.filter(task => task.status !== 'done' && (focusedMinutesByTask.get(task.id) ?? 0) > 0);
-        const focusedMinutes = taskFocusRows.reduce((total, row) => total + row.total_minutes, 0);
-        const completionRate = effectiveTasks.length > 0
-            ? Math.round((completedTaskCount / effectiveTasks.length) * 100)
-            : 0;
-        const focusCoverageRate = effectiveTasks.length > 0
-            ? Math.round((focusedTaskCount / effectiveTasks.length) * 100)
-            : 0;
+        const taskFocusToday = calculateTaskFocusMetrics(taskRows, taskFocusRows);
 
         const streak = getStudyStreak();
 
@@ -432,21 +421,7 @@ function getTodayDashboard(date: string): TodayDashboardData {
                 lockedKnowledgeGrowth: lockedRow.count,
                 focusConversionRate: conversionRate
             },
-            taskFocusToday: {
-                effectiveTaskCount: effectiveTasks.length,
-                completedTaskCount,
-                completionRate,
-                focusedTaskCount,
-                focusCoverageRate,
-                focusedMinutes,
-                skippedTaskCount: taskRows.filter(task => task.status === 'skipped').length,
-                openWithoutFocusCount: openWithoutFocusTasks.length,
-                focusedOpenTaskCount: focusedOpenTasks.length,
-                unclosedTaskTitles: [...openWithoutFocusTasks, ...focusedOpenTasks]
-                    .filter((task, index, tasks) => tasks.findIndex(candidate => candidate.id === task.id) === index)
-                    .slice(0, 3)
-                    .map(task => task.title),
-            },
+            taskFocusToday,
             streakDays: streak
         };
     });

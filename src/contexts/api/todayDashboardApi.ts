@@ -1,4 +1,5 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
+import { calculateTaskFocusMetrics } from '../../utils/taskFocusMetrics'
 import type { DiaryEntry, Mistake, PomodoroSession, StudyTask } from '../../types'
 import type { TodayDashboardContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
@@ -34,16 +35,10 @@ export const createTodayDashboardApi = (
                 (focusedMinutesByTask.get(session.task_id) ?? 0) + (Number(session.duration) || 0),
             )
         }
-        const effectiveTasks = taskRows.filter(task => task.status !== 'skipped')
-        const completedTaskCount = effectiveTasks.filter(task => task.status === 'done').length
-        const focusedTaskCount = effectiveTasks.filter(task => (focusedMinutesByTask.get(task.id) ?? 0) > 0).length
-        const openWithoutFocusTasks = effectiveTasks.filter(task => task.status === 'doing' && !(focusedMinutesByTask.get(task.id) ?? 0))
-        const focusedOpenTasks = effectiveTasks.filter(task => task.status !== 'done' && (focusedMinutesByTask.get(task.id) ?? 0) > 0)
-        const focusedMinutes = taskFocusRows.reduce((total, session) => total + (Number(session.duration) || 0), 0)
-        const unclosedTaskTitles = [...openWithoutFocusTasks, ...focusedOpenTasks]
-            .filter((task, index, tasks) => tasks.findIndex(candidate => candidate.id === task.id) === index)
-            .slice(0, 3)
-            .map(task => task.title)
+        const taskFocusToday = calculateTaskFocusMetrics(
+            taskRows,
+            Array.from(focusedMinutesByTask.entries()).map(([task_id, total_minutes]) => ({ task_id, total_minutes })),
+        )
         return {
             todayEntry: todayEntry ? {
                 id: todayEntry.id,
@@ -60,18 +55,7 @@ export const createTodayDashboardApi = (
                 lockedKnowledgeGrowth: 0,
                 focusConversionRate
             },
-            taskFocusToday: {
-                effectiveTaskCount: effectiveTasks.length,
-                completedTaskCount,
-                completionRate: effectiveTasks.length > 0 ? Math.round((completedTaskCount / effectiveTasks.length) * 100) : 0,
-                focusedTaskCount,
-                focusCoverageRate: effectiveTasks.length > 0 ? Math.round((focusedTaskCount / effectiveTasks.length) * 100) : 0,
-                focusedMinutes,
-                skippedTaskCount: taskRows.filter(task => task.status === 'skipped').length,
-                openWithoutFocusCount: openWithoutFocusTasks.length,
-                focusedOpenTaskCount: focusedOpenTasks.length,
-                unclosedTaskTitles,
-            },
+            taskFocusToday,
             streakDays: 0
         }
     }
