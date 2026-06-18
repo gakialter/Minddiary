@@ -133,7 +133,12 @@ describe('PomodoroAlert', () => {
       />,
     )
 
-    expect(screen.getByTestId('pomodoro-review-entry-prompt')).toHaveTextContent('今天还没有日记')
+    expect(screen.getByTestId('pomodoro-review-entry-prompt')).toHaveTextContent(
+      '本次专注对应日期还没有日记',
+    )
+    expect(screen.getByTestId('pomodoro-review-entry-prompt')).toHaveTextContent(
+      '专注和任务结算已保存。是否创建对应日期的日记并写入这条复盘？',
+    )
     expect(screen.queryByTestId('pomodoro-focus-review-input')).not.toBeInTheDocument()
     expect(screen.queryByTestId('pomodoro-settle-complete')).not.toBeInTheDocument()
 

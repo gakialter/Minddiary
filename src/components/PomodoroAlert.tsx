@@ -184,10 +184,10 @@ export default function PomodoroAlert({
                 }}
               >
                 <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                  今天还没有日记
+                  本次专注对应日期还没有日记
                 </div>
                 <p className="text-sm" style={{ color: 'var(--text-secondary)', margin: 0 }}>
-                  专注和任务结算已保存。是否创建当日日记并写入这条复盘？
+                  专注和任务结算已保存。是否创建对应日期的日记并写入这条复盘？
                 </p>
                 <button
                   type="button"
