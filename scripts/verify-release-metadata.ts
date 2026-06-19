@@ -271,12 +271,21 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
   }
 
   const installerPath = resolveReleaseAsset(releaseDir, latestPathValue, `${latestFilename} path`)
-  if (platform === 'win' && path.extname(installerPath).toLowerCase() !== '.exe') {
-    throw new ReleaseMetadataError(`${latestFilename} path must point to a Windows .exe installer: ${latestPathValue}`)
+  const expectedPrimaryAsset = platform === 'win'
+    ? `MindDiary-Setup-${packageVersion}.exe`
+    : `MindDiary-${packageVersion}-arm64-mac.zip`
+  if (latestPathValue !== expectedPrimaryAsset) {
+    throw new ReleaseMetadataError(
+      `${latestFilename} path must point to the root release asset ${expectedPrimaryAsset}: ${latestPathValue}`,
+    )
   }
-  if (platform === 'mac' && path.extname(installerPath).toLowerCase() !== '.zip') {
-    throw new ReleaseMetadataError(`${latestFilename} path must point to a macOS .zip update artifact: ${latestPathValue}`)
-  }
+
+  const allowedMetadataAssets = platform === 'win'
+    ? new Set([expectedPrimaryAsset])
+    : new Set([
+        expectedPrimaryAsset,
+        `MindDiary-${packageVersion}-arm64.dmg`,
+      ])
 
   files.forEach((fileEntry, index) => {
     if (!isRecord(fileEntry)) {
@@ -286,6 +295,11 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
     const filePath = getOptionalString(fileEntry, 'url') ?? getOptionalString(fileEntry, 'path')
     if (!filePath) {
       throw new ReleaseMetadataError(`Missing ${latestFilename} files[${index}].url`)
+    }
+    if (!allowedMetadataAssets.has(filePath)) {
+      throw new ReleaseMetadataError(
+        `${latestFilename} files[${index}].url must point to an allowlisted root release asset: ${filePath}`,
+      )
     }
     getRequiredString(fileEntry, 'sha512', `${latestFilename} files[${index}]`)
     resolveReleaseAsset(releaseDir, filePath, `${latestFilename} files[${index}].url`)

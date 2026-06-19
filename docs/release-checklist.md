@@ -1,114 +1,111 @@
 # MindDiary Release Checklist
 
-This checklist covers the Windows public release path, signing verification, update metadata verification, and manual updater smoke testing for GitHub Releases.
+This checklist separates CI build acceptance from manual installer acceptance for GitHub Releases. It applies to v1.11.2 and later; it does not authorize modifying assets on an existing Release.
 
 ## Before Pushing a Release Tag
 
-- Confirm `package.json` has the intended version.
+- Confirm `package.json` and root `package-lock.json` have the intended version.
 - Confirm the pushed tag is exactly `v${package.json.version}`.
-- Confirm `RELEASE_NOTES.md` has the release notes for that version and starts with `# MindDiary v${package.json.version}`.
-- Run local validation:
+- Confirm `RELEASE_NOTES.md` starts with `# MindDiary v${package.json.version}`.
+- Confirm `CURRENT_SCHEMA_VERSION` matches the release plan. v1.11.2 remains schema 4 and has no migration.
+- Run the required local gate:
   - `npm.cmd run typecheck`
   - `npm.cmd test -- --run`
   - `npm.cmd run build`
-  - `npm.cmd run build:win` or a release workflow dry run from a non-public test branch/tag
-- Confirm no certificate files, private keys, passwords, or generated signing artifacts are committed.
+- Confirm `release/`, `dist/`, `electron-dist/`, logs, screenshots, test databases, certificates, private keys, and generated signing files are not staged.
 
-## GitHub Secrets
+## Release Asset Manifest
 
-The Windows release workflow passes these secrets to `electron-builder`:
+The workflow must stage only these root-level public assets for the package version:
 
-- `CSC_LINK`
-- `CSC_KEY_PASSWORD`
+- `MindDiary-Setup-<version>.exe`
+- `MindDiary-Portable-<version>.exe`
+- `MindDiary-Setup-<version>.exe.blockmap`
+- `MindDiary-<version>-arm64.dmg`
+- `MindDiary-<version>-arm64-mac.zip`
+- `MindDiary-<version>-arm64.dmg.blockmap`
+- `MindDiary-<version>-arm64-mac.zip.blockmap`
+- `latest.yml`
+- `latest-mac.yml`
 
-`CSC_LINK` must use a format supported by `electron-builder`, such as a p12/pfx certificate file encoded for CI use or a secure URL that `electron-builder` can consume. `CSC_KEY_PASSWORD` must be the matching certificate password.
+The following are packaging internals and must never be uploaded as standalone GitHub Release assets:
 
-Do not print these values in logs. Do not commit certificate files, p12/pfx files, private keys, or passwords.
+- `MindDiary.exe`
+- `elevate.exe`
+- anything under `win-unpacked/**`
+- anything inside `mac*/**/*.app/**`
+- any other unpacked directory or app bundle content
 
-The tag-based public release workflow supports both signed and unsigned Windows releases:
-
-- If both secrets are configured, Windows signing is required and unsigned or invalid signatures fail the workflow.
-- If only one secret is configured, the workflow fails before packaging because the signing configuration is incomplete.
-- If neither secret is configured, the workflow continues with unsigned Windows artifacts and writes an Unknown Publisher / SmartScreen warning to the GitHub step summary and release notes.
-
-## Windows Signing Verification
-
-After `electron-builder` packages the Windows artifacts, CI runs:
-
-```powershell
-./scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$env:WINDOWS_REQUIRE_SIGNED
-```
-
-The script checks every Windows `.exe` artifact with `Get-AuthenticodeSignature`. When signing secrets are configured, the NSIS setup installer matching `*Setup*.exe` and the portable `.exe` must both have a `Valid` Authenticode signature before artifacts are uploaded.
-
-For local unsigned validation, run:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-signing.ps1 -ReleaseDir release -RequireSigned:$false
-```
-
-When `RequireSigned` is false, the script reports the signature status and warns that unsigned installers can show Unknown Publisher and SmartScreen warnings. This is allowed only when both signing secrets are absent.
+`scripts/prepare-release-assets.mjs` owns the shared allowlist. Build jobs copy only those names from `release/` to an empty staging directory. The publish job validates the combined downloaded manifest before `softprops/action-gh-release` sees it. Upload and publish globs must remain root-level and non-recursive.
 
 ## Update Metadata Verification
 
-CI verifies Windows update metadata before uploading artifacts:
+CI runs:
 
 ```bash
 npx tsx scripts/verify-release-metadata.ts --platform win --release-dir release --package package.json
-```
-
-The check requires `release/latest.yml` and validates:
-
-- `version`
-- `files`
-- `path`
-- `sha512`
-- `releaseDate`
-
-`latest.yml.version` must match `package.json.version`. `latest.yml.path` and each listed file path must resolve to an existing release asset inside the release directory, and each listed file must have a non-empty `sha512`.
-
-CI also verifies macOS update metadata before uploading artifacts:
-
-```bash
 npx tsx scripts/verify-release-metadata.ts --platform mac --release-dir release --package package.json
 ```
 
-The macOS check requires `release/latest-mac.yml`, validates `version`, `files`, `path`, `sha512`, and `releaseDate`, requires the update `path` to point to a `.zip`, and verifies that `.dmg`, `.zip`, and `.blockmap` artifacts exist and are non-empty.
+The checks require:
 
-Both checks find packaged `app-update.yml` files under the release output, such as `win-unpacked/resources/app-update.yml` or `mac-arm64/MindDiary.app/Contents/Resources/app-update.yml`, and verify that they contain:
+- `version` equals `package.json.version`.
+- `path` points to the versioned root Windows Setup asset or root macOS update ZIP, never an unpacked directory.
+- every metadata file entry points to an allowlisted root installer, DMG, or ZIP.
+- top-level and file-entry `sha512` values are present.
+- `releaseDate` is present and parseable.
+- packaged `app-update.yml` targets GitHub owner `gakialter` and repository `Minddiary`.
 
-- `provider: github`
-- `owner: gakialter`
-- `repo: Minddiary`
+## Signing Boundaries
 
-These values must match `package.json` `build.publish`. The in-app update check depends on this packaged `app-update.yml` to know which GitHub Release feed to query.
+The Windows release workflow passes `CSC_LINK` and `CSC_KEY_PASSWORD` to `electron-builder`:
 
-The publish job only runs after both Windows and macOS build jobs succeed. It creates a non-draft, non-prerelease latest release and fails if any configured asset glob does not match.
+- Both present: Setup and Portable must pass Authenticode verification.
+- Only one present: fail before packaging.
+- Both absent: unsigned Windows assets are allowed, but the workflow summary and Release Notes must state the Unknown Publisher / Windows SmartScreen risk.
 
-## GitHub Release Update Smoke Test
+Do not print or commit signing secrets or certificate files. Code signing identifies the publisher; it does not guarantee immediate SmartScreen reputation.
 
-Do not rely on CI to download and install older app versions end to end. Use this manual prerelease flow for updater verification:
+macOS builds currently use an ad-hoc signature and are not Apple-notarized. Do not describe them as notarized. A successful CI build does not prove Gatekeeper acceptance on a separate Mac.
 
-1. Create a prerelease tag for the candidate build.
-2. Let the release workflow create the GitHub Release.
-3. Confirm the Release assets include:
-   - `MindDiary-Setup-<version>.exe`
-   - `MindDiary-Portable-<version>.exe`
-   - `MindDiary-Setup-<version>.exe.blockmap`
-   - `latest.yml`
-   - macOS `.dmg`
-   - macOS `.zip`
-   - macOS `.blockmap`
-   - `latest-mac.yml`
-4. Install a lower-version MindDiary build.
-5. Start the app or click the in-app update check.
-6. Confirm updater status transitions through checking and update available.
-7. Confirm the update downloads, reaches downloaded state, and installs after restart.
+## CI Build Acceptance
 
-For final release verification, inspect the published GitHub Release assets, `latest.yml`, and `latest-mac.yml` contents, not only the local `release/` directory.
+CI acceptance proves only that:
 
-## Unsigned Installer and SmartScreen Behavior
+- typecheck, unit/integration tests, and build complete;
+- Windows and macOS packages are produced;
+- configured Windows signing policy is enforced;
+- update metadata and the exact Release asset manifest pass validation;
+- the publish job receives only allowlisted root assets.
 
-Unsigned Windows installers can show Unknown Publisher and Windows SmartScreen warnings. MindDiary can publish unsigned Windows artifacts when no code signing certificate is available, but the release body and workflow summary must call out that limitation clearly.
+CI does not install the Windows Setup package, launch Portable on a clean Windows host, mount the DMG on a user Mac, or evaluate macOS Gatekeeper/notarization behavior.
 
-Code signing proves the installer publisher identity and helps Windows verify that the artifact has not been modified after signing. It does not guarantee immediate SmartScreen trust. A new certificate can still need reputation to accumulate before SmartScreen warnings disappear.
+## Manual Install Smoke Tests
+
+Run these during release acceptance after candidate artifacts exist. Record OS version, architecture, asset name, result, and any warning shown.
+
+1. Windows Setup — manual acceptance
+   - Download `MindDiary-Setup-<version>.exe` from the candidate Release.
+   - Install on a clean or disposable Windows profile.
+   - Confirm expected Unknown Publisher / SmartScreen behavior when unsigned.
+   - Launch the installed app and confirm the main window loads.
+2. Windows Portable — manual acceptance
+   - Download `MindDiary-Portable-<version>.exe`.
+   - Launch without installation and confirm the main window loads.
+3. macOS DMG — manual acceptance
+   - Download and mount `MindDiary-<version>-arm64.dmg` on Apple silicon.
+   - Copy/launch the app and record the ad-hoc, non-notarized Gatekeeper boundary exactly.
+4. macOS ZIP — manual acceptance
+   - Download and extract `MindDiary-<version>-arm64-mac.zip` on Apple silicon.
+   - Launch the extracted app and record the ad-hoc, non-notarized Gatekeeper boundary exactly.
+
+These are manual release gates, not claims made by CI. Do not publish if an expected artifact is missing, an unexpected internal asset appears, metadata points to an unpacked path, or a basic launch boundary fails without an understood release note.
+
+## Final Published Release Verification
+
+- Verify the tag and Release target the intended commit.
+- Verify the Release body matches `RELEASE_NOTES.md`.
+- Verify the published asset names exactly match the allowlist above.
+- Download and inspect `latest.yml` and `latest-mac.yml`, not only local build output.
+- Verify the intended Release is marked latest.
+- Do not edit earlier tags or replace assets on earlier Releases to correct a future-only workflow issue.

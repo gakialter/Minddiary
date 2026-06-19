@@ -126,7 +126,7 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 数据库使用显式 schema version 和安全 migration；v1.11.1 仍使用 schema version 4，继续兼容 v1.11.0 的 `subject_chapters` 和旧科目汇总进度。
+- 数据库使用显式 schema version 和安全 migration；v1.11.1 正式版与 v1.11.2 发布卫生补丁仍使用 schema version 4，继续兼容 v1.11.0 的 `subject_chapters` 和旧科目汇总进度。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
@@ -166,6 +166,8 @@ npm run build:mac    # macOS
 - 基于 tag 的公开 Windows 发布在同时提供 `CSC_LINK` 和 `CSC_KEY_PASSWORD` 时必须完成有效签名；只配置其中一个会直接失败。
 - 没有签名 secrets 时，Release workflow 允许生成 unsigned Windows 资产，并在 workflow summary 和 Release Notes 中明确提示 Unknown Publisher / SmartScreen 风险。
 - `npm run build` 必须在没有签名 secrets 的情况下继续工作；只有在存在完整证书变量时，才启用并强制验证发布签名。
+- Release workflow 只上传根目录正式资产：Windows Setup、Portable 与 blockmap，macOS DMG、ZIP 与 blockmap，以及 `latest.yml` / `latest-mac.yml`；`MindDiary.exe`、`elevate.exe` 和 unpacked/app bundle 内部文件不得作为独立 Release 资产上传。
+- macOS 资产仍为 ad-hoc signature，未完成 Apple notarization；DMG / ZIP 基本启动属于发布阶段人工验收，不等同于 CI 构建通过。
 - 有关签名验证、更新元数据检查和 SmartScreen 的指导，请参见 [Release Checklist](./docs/release-checklist.md)。
 
 ### 自动备份与恢复范围
@@ -208,6 +210,17 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
+<summary>v1.11.2 — 发布卫生与文档同步（准备中）</summary>
+
+- **Release asset allowlist**：未来 Release 只上传 Setup、Portable、DMG、macOS ZIP、对应 blockmap 与 latest metadata；禁止 unpacked 内部 `MindDiary.exe` / `elevate.exe`。
+- **Manifest 验证**：测试锁定允许资产、禁止资产、版本化文件名，以及 `latest.yml` / `latest-mac.yml` 的 version、path、sha512 与 releaseDate 基本结构。
+- **Actions runtime**：将声明 Node 20 的 workflow Action 升级到最小 Node 24 稳定 major；项目构建 Node 版本仍为 22。
+- **发布边界**：SQLite schema 仍为 4，无 migration、无备份格式变化；不修改 v1.11.1 已发布资产。
+- **人工验收**：Windows Setup、Windows Portable、macOS DMG、macOS ZIP 的安装/启动烟雾测试留在发布验收阶段，不由 CI 构建结果替代。
+
+</details>
+
+<details>
 <summary>v1.11.1 — 日期与学习闭环一致性热修复 (2026-06-17)</summary>
 
 - **统一当前本地日期**：今日决策、默认日记、今日任务和 Pomodoro 今日统计共用同一 current date source，并在本地午夜、窗口恢复可见或重新聚焦时校验刷新。
@@ -254,7 +267,7 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 - **题目 / 答案图片角色**：错题图片拆分为题目图片与答案图片，答案图片在查看答案后显示，已有图片可在两个角色之间移动。
 - **中断专注保存**：work / custom 倒计时至少有效专注 1 分钟后，可在普通页面或 Zen 模式提前结束并保存，暂停时间不计入。
 - **科目删除保留历史**：删除科目只解除错题、专注记录和学习任务的科目归属，不删除这些历史记录。
-- **SQLite schema version**：当前 schema version 为 2，自动升级旧数据库并验证历史 migration、备份恢复和 foreign key 兼容。
+- **SQLite schema version**：v1.9.9 当时的 schema version 为 2；该版本自动升级旧数据库并验证历史 migration、备份恢复和 foreign key 兼容。
 - **AI 请求防护**：复用历史会清理，chat 请求增加 role、数量、长度边界，并防止旧响应覆盖当前内容。
 - **database repository 重构**：拆分 settings、subjects、templates、entries、attachments、tags、pomodoro、study tasks 和 mistakes 数据访问层，公开 API 保持兼容。
 - **本版本边界**：不包含 Pomodoro task binding、`pomodoro_sessions.task_id`、AI 自动建任务、Dashboard 任务闭环或 v2.0 产品闭环。

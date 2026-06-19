@@ -10,7 +10,20 @@ function readRepoFile(relativePath: string): string {
 
 describe('release workflow Windows signing policy', () => {
   const workflow = readRepoFile('.github/workflows/release.yml')
+  const ciWorkflow = readRepoFile('.github/workflows/ci.yml')
   const releaseNotes = readRepoFile('RELEASE_NOTES.md')
+
+  it('uses Node 24 action majors without changing the project Node version', () => {
+    expect(workflow).toContain('actions/checkout@v5')
+    expect(workflow).toContain('actions/setup-node@v5')
+    expect(workflow).toContain('actions/upload-artifact@v6')
+    expect(workflow).toContain('actions/download-artifact@v7')
+    expect(workflow).toContain('softprops/action-gh-release@v3')
+    expect(ciWorkflow).toContain('actions/checkout@v5')
+    expect(ciWorkflow).toContain('actions/setup-node@v5')
+    expect(`${workflow}\n${ciWorkflow}`).not.toMatch(/@(v4|v2)\b/)
+    expect(workflow).toContain('node-version: 22')
+  })
 
   it('requires valid Windows signatures when both signing secrets are configured', () => {
     expect(workflow).toContain("HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}")

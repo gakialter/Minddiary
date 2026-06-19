@@ -1,10 +1,10 @@
 # MindDiary v2.0 学习闭环增强路线图
 
-审查日期：2026-06-12
+审查日期：2026-06-19
 
-正式基线：`v1.10.0`，`main` / release commit at `5298acf36bca0cfd6d443397057e6607c64136fe`
+正式基线：`v1.11.1`，`main` / release commit at `bc305cfe1464c713e3253c19dce0a8d8acc063b6`
 
-状态：v1.10.0 已正式发布，Release 为 latest；v1.11.0「学习内容与今日任务闭环」已扩展包含详细章节进度、AI 助手 composer 和发布工作流加固。
+状态：v1.11.1 已正式发布并保持为 latest；v1.11.2 是独立的发布卫生与文档同步补丁；v1.12.0 才进入章节与今日任务闭环方向。
 
 ## 1. 已完成基线
 
@@ -79,7 +79,7 @@ v1.10.0 的用户流程：
 - Zen 模式展示当前任务、科目、模式和进度，但不增加密集操作。
 - floating widget 只在空间合适时显示简短任务标题，不做大型重构。
 
-## 4. v1.11.0 学习内容与今日任务闭环（发布候选）
+## 4. v1.11.0 学习内容与今日任务闭环（已完成）
 
 v1.11.0 把已有学习内容安全接入今日任务闭环，并把科目进度升级为可管理详细章节的轻量学习进度工具：
 
@@ -116,9 +116,23 @@ AI 边界保持不变：
 - Office 文件、音视频、压缩包、远程图片 URL、provider Files API、流式输出或多会话 AI。
 - AI 自动创建、完成、跳过、删除任务、自动调整用户计划或自动完成章节。
 
-## 5. v2.0 后续方向
+## 5. v1.11.2 发布卫生与文档同步
 
-v1.11.0 之后，v2 后续优先级建议：
+v1.11.2 只处理发布可靠性，不新增产品能力：
+
+- 收紧 Release asset allowlist，禁止上传 `MindDiary.exe`、`elevate.exe` 和 unpacked/app bundle 内部产物。
+- 验证正式资产、版本化命名、`latest.yml` / `latest-mac.yml` 的 version、path、sha512 和 releaseDate。
+- 将声明 Node 20 runtime 的 workflow Action 升级到最小 Node 24 稳定 major。
+- 同步 README、路线图、版本拆分和 release checklist，并明确 CI 与人工安装烟雾测试边界。
+- SQLite schema 保持 4；无 migration、无 backup / restore 格式变化；不修改 v1.11.1 已发布资产。
+
+## 6. v1.12.0 章节与今日任务闭环方向
+
+v1.12.0 才评估把详细章节安全接入今日任务。若需要持久化 chapter-task 关系，可能升级到 schema version 5；必须独立设计 migration、旧库兼容、备份恢复和回滚风险，不在 v1.11.2 中预做。
+
+## 7. v2.0 后续方向
+
+v1.12.0 之后，v2 后续优先级建议：
 
 1. 观察单题 review / diary / AI 建议转任务的真实使用反馈。
 2. 评估是否需要任务历史归档或更独立的今日执行页。
