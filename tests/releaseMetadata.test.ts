@@ -142,6 +142,31 @@ describe('release metadata verification', () => {
     })).toThrow(/version 1\.9\.3 does not match package\.json version 1\.9\.4/)
   })
 
+  it('rejects latest.yml when path points into an unpacked directory', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(path.join(releaseDir, 'win-unpacked'), { recursive: true })
+    const packagePath = writePackageJson(root)
+    fs.writeFileSync(path.join(releaseDir, 'win-unpacked', 'MindDiary.exe'), 'internal app')
+    fs.writeFileSync(path.join(releaseDir, 'latest.yml'), [
+      'version: 1.9.3',
+      'files:',
+      '  - url: win-unpacked/MindDiary.exe',
+      '    sha512: abc123',
+      'path: win-unpacked/MindDiary.exe',
+      'sha512: abc123',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/path must point to the root release asset MindDiary-Setup-1\.9\.3\.exe/)
+  })
+
   it('rejects latest.yml when required path, sha512, or files metadata is missing', () => {
     const root = makeTempRoot()
     const releaseDir = path.join(root, 'release')
@@ -241,6 +266,6 @@ describe('release metadata verification', () => {
       platform: 'mac',
       packageJsonPath: packagePath,
       releaseDir,
-    })).toThrow(/latest-mac\.yml path must point to a macOS \.zip update artifact/)
+    })).toThrow(/path must point to the root release asset MindDiary-1\.9\.3-arm64-mac\.zip/)
   })
 })

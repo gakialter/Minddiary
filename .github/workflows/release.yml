@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: 'npm'
@@ -86,14 +86,14 @@ jobs:
       - name: Verify Windows update metadata
         run: npx tsx scripts/verify-release-metadata.ts --platform win --release-dir release --package package.json
 
+      - name: Stage Windows release assets
+        run: node scripts/prepare-release-assets.mjs --platform win --source release --output release-upload --package package.json
+
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-release
-          path: |
-            release/**/*.exe
-            release/**/*.exe.blockmap
-            release/latest.yml
+          path: release-upload/*
           if-no-files-found: error
 
   build-mac:
@@ -101,10 +101,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: 'npm'
@@ -142,15 +142,14 @@ jobs:
       - name: Verify macOS update metadata
         run: npx tsx scripts/verify-release-metadata.ts --platform mac --release-dir release --package package.json
 
+      - name: Stage macOS release assets
+        run: node scripts/prepare-release-assets.mjs --platform mac --source release --output release-upload --package package.json
+
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mac-release
-          path: |
-            release/**/*.dmg
-            release/**/*.zip
-            release/**/*.blockmap
-            release/latest-mac.yml
+          path: release-upload/*
           if-no-files-found: error
 
   publish:
@@ -162,10 +161,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -185,26 +184,22 @@ jobs:
           fi
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Verify release asset manifest
+        run: node scripts/prepare-release-assets.mjs --platform all --source release-artifacts --package package.json
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           prerelease: false
           make_latest: true
           fail_on_unmatched_files: true
           body_path: RELEASE_NOTES.md
-          files: |
-            release-artifacts/**/*.exe
-            release-artifacts/**/*.exe.blockmap
-            release-artifacts/latest.yml
-            release-artifacts/**/*.dmg
-            release-artifacts/**/*.zip
-            release-artifacts/**/*.blockmap
-            release-artifacts/latest-mac.yml
+          files: release-artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

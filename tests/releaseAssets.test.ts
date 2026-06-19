@@ -1,0 +1,107 @@
+// @vitest-environment node
+
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  getExpectedReleaseAssetNames,
+  stageReleaseAssets,
+  validateReleaseAssetManifest,
+  verifyReleaseAssetDirectory,
+} from '../scripts/prepare-release-assets.mjs'
+
+const version = '1.11.2'
+const tempRoots: string[] = []
+
+function makeTempRoot(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-release-assets-'))
+  tempRoots.push(root)
+  return root
+}
+
+describe('release asset allowlist', () => {
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('defines the exact public assets for Windows and macOS', () => {
+    expect(getExpectedReleaseAssetNames(version, 'all')).toEqual([
+      'MindDiary-Setup-1.11.2.exe',
+      'MindDiary-Portable-1.11.2.exe',
+      'MindDiary-Setup-1.11.2.exe.blockmap',
+      'latest.yml',
+      'MindDiary-1.11.2-arm64.dmg',
+      'MindDiary-1.11.2-arm64-mac.zip',
+      'MindDiary-1.11.2-arm64.dmg.blockmap',
+      'MindDiary-1.11.2-arm64-mac.zip.blockmap',
+      'latest-mac.yml',
+    ])
+  })
+
+  it.each([
+    'MindDiary.exe',
+    'elevate.exe',
+    'win-unpacked/MindDiary.exe',
+    'win-unpacked/resources/elevate.exe',
+    'mac-arm64/MindDiary.app/Contents/MacOS/MindDiary',
+  ])('rejects internal or unpacked asset %s', forbiddenAsset => {
+    expect(() => validateReleaseAssetManifest([
+      ...getExpectedReleaseAssetNames(version, 'all'),
+      forbiddenAsset,
+    ], version, 'all')).toThrow(/root-level|Unexpected/)
+  })
+
+  it('rejects assets whose version does not match the package version', () => {
+    const mismatched = getExpectedReleaseAssetNames('1.11.1', 'win')
+    expect(() => validateReleaseAssetManifest(mismatched, version, 'win'))
+      .toThrow(/Missing: MindDiary-Portable-1\.11\.2\.exe/)
+  })
+
+  it('stages only allowlisted root assets from a build output with unpacked directories', () => {
+    const root = makeTempRoot()
+    const sourceDir = path.join(root, 'release')
+    const outputDir = path.join(root, 'release-upload')
+    fs.mkdirSync(path.join(sourceDir, 'win-unpacked', 'resources'), { recursive: true })
+
+    for (const assetName of getExpectedReleaseAssetNames(version, 'win')) {
+      fs.writeFileSync(path.join(sourceDir, assetName), assetName)
+    }
+    fs.writeFileSync(path.join(sourceDir, 'win-unpacked', 'MindDiary.exe'), 'internal app')
+    fs.writeFileSync(path.join(sourceDir, 'win-unpacked', 'resources', 'elevate.exe'), 'helper')
+
+    expect(stageReleaseAssets({ sourceDir, outputDir, version, platform: 'win' }))
+      .toEqual([...getExpectedReleaseAssetNames(version, 'win')].sort())
+    expect(fs.readdirSync(outputDir).sort()).toEqual(
+      [...getExpectedReleaseAssetNames(version, 'win')].sort(),
+    )
+  })
+
+  it('rejects directories in the final publish manifest', () => {
+    const root = makeTempRoot()
+    for (const assetName of getExpectedReleaseAssetNames(version, 'all')) {
+      fs.writeFileSync(path.join(root, assetName), assetName)
+    }
+    fs.mkdirSync(path.join(root, 'win-unpacked'))
+
+    expect(() => verifyReleaseAssetDirectory(root, version, 'all'))
+      .toThrow(/must contain only root-level files.*win-unpacked/)
+  })
+
+  it('keeps workflow upload paths non-recursive and manifest-backed', () => {
+    const workflow = fs.readFileSync(
+      path.resolve(process.cwd(), '.github/workflows/release.yml'),
+      'utf8',
+    )
+
+    expect(workflow).toContain('node scripts/prepare-release-assets.mjs --platform win')
+    expect(workflow).toContain('node scripts/prepare-release-assets.mjs --platform mac')
+    expect(workflow).toContain('node scripts/prepare-release-assets.mjs --platform all')
+    expect(workflow).toContain('release-upload/*')
+    expect(workflow).toContain('release-artifacts/*')
+    expect(workflow).not.toContain('release/**/*.exe')
+    expect(workflow).not.toContain('release-artifacts/**/*.exe')
+  })
+})

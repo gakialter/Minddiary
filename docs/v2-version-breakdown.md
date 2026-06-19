@@ -1,9 +1,9 @@
 # MindDiary v1.9.9 → v2.0 分阶段任务拆分计划
 
-> 基线版本：v1.10.0
-> 基线 commit：`5298acf36bca0cfd6d443397057e6607c64136fe`
+> 基线版本：v1.11.1
+> 基线 commit：`bc305cfe1464c713e3253c19dce0a8d8acc063b6`
 > 目标方向：v2.0 学习闭环系统
-> 本次合并版本：v1.11.0
+> 本次准备版本：v1.11.2
 
 ---
 
@@ -55,7 +55,10 @@ Issue 状态：
 |---|---|---|---|
 | v1.9.9 | M0 护栏 | v2 前置工程护栏、迁移、AI 边界、错题/专注基础 | 已完成 |
 | v1.10.0 | M1 闭环 | 合并原 v1.9.10、v1.9.11、v1.9.12：任务绑定专注、结束结算、一句话复盘、Dashboard 闭环指标 | 已正式发布 |
-| v1.11.0 | M2/M3 联动 | 详细章节进度、错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | 发布候选 |
+| v1.11.0 | M2/M3 联动 | 详细章节进度、错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | 已正式发布 |
+| v1.11.1 | 稳定性热修复 | 日期 rollover、日记/任务闭环与 Pomodoro 结算一致性 | 已正式发布 / latest |
+| v1.11.2 | 发布卫生 | Release asset allowlist、manifest 测试、Actions runtime 与文档同步 | 准备中 |
+| v1.12.0 | M4 章节闭环 | 章节与今日任务闭环；如需持久化关系，单独评估 schema 5 | 未开始 |
 | v2.0.0 | 正式版 | 学习闭环系统发布收口 | 未开始 |
 
 ---
@@ -280,7 +283,7 @@ ON pomodoro_sessions(task_id);
 
 ---
 
-## 6. v1.11.0：学习内容与今日任务闭环（发布候选）
+## 6. v1.11.0：学习内容与今日任务闭环（已完成）
 
 ### 6.1 版本目标
 
@@ -354,9 +357,23 @@ AI 助手 composer：
 - AI 自动写库、自动建任务、自动完成/跳过/删除任务或后台持续运行。
 - AI 自动完成章节、章节权重、截止日期、甘特图、看板或多级章节树。
 
-## 7. v2 后续预留
+## 7. v1.11.2：发布卫生与文档同步
 
-v1.11.0 后建议顺序：
+本版本是独立 patch，不承载产品功能：
+
+- Release workflow 只上传版本化正式根目录资产，禁止 `MindDiary.exe`、`elevate.exe`、`win-unpacked/**` 和 macOS app bundle 内部产物。
+- release asset manifest 测试覆盖 allowlist、禁止资产、版本化文件名和 latest metadata 基本结构。
+- 只升级明确触发 Node 20 runtime warning 的 Action major；项目 Node 22 不变。
+- README、路线图、release notes 与 release checklist 同步到 v1.11.2。
+- SQLite schema 保持 4；无 migration、无 backup / restore 格式变化；不修改既有 tag 或 Release 资产。
+
+## 8. v1.12.0：章节与今日任务闭环方向
+
+v1.12.0 才处理章节加入今日任务。若持久化 chapter-task 关系确有必要，可在该独立版本中评估 schema version 5，并同步设计 migration、旧库升级、自动 ZIP 备份恢复和 JSON 导入导出兼容；v1.11.2 不预建表或字段。
+
+## 9. v2 后续预留
+
+v1.12.0 后建议顺序：
 
 1. 基于真实使用反馈评估是否需要任务历史归档或更独立的今日执行页。
 2. v2.0 RC 回归与正式发布准备。
