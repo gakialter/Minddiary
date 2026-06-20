@@ -71,11 +71,20 @@ jobs:
       - name: Prepare build resources
         run: npm run build:resources
 
+      - name: Rebuild native dependencies for Electron
+        run: npm run rebuild:electron
+
+      - name: Verify Electron native dependencies
+        run: npm run verify:electron-native
+
       - name: Package Windows build
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --x64 --publish never
+
+      - name: Verify packaged Electron native dependencies
+        run: npm run verify:electron-native:packaged
 
       - name: Verify Windows signing
         shell: pwsh
