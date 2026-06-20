@@ -15,6 +15,7 @@ import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
+import { normalizeUpdaterReleaseNotes, preserveUpdaterReleaseDetails } from './updaterReleaseNotes';
 import {
     validateAiMessagesPayload,
     validateAiSummaryPayload,
@@ -138,11 +139,12 @@ function initAutoUpdater() {
         pushUpdaterStatus({ status: 'checking' });
     });
 
-    autoUpdater.on('update-available', (info: { version: string; releaseNotes?: unknown }) => {
+    autoUpdater.on('update-available', (info: { version: string; releaseNotes?: unknown; releaseDate?: unknown }) => {
         pushUpdaterStatus({
             status: 'available',
             version: info.version,
-            releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
+            releaseNotes: normalizeUpdaterReleaseNotes(info.releaseNotes),
+            releaseDate: typeof info.releaseDate === 'string' ? info.releaseDate : undefined,
         });
     });
 
@@ -151,17 +153,20 @@ function initAutoUpdater() {
     });
 
     autoUpdater.on('download-progress', (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
-        pushUpdaterStatus({
+        pushUpdaterStatus(preserveUpdaterReleaseDetails(lastUpdaterStatus, {
             status: 'downloading',
             percent: Math.round(progress.percent),
             bytesPerSecond: progress.bytesPerSecond,
             transferred: progress.transferred,
             total: progress.total,
-        });
+        }));
     });
 
     autoUpdater.on('update-downloaded', (info: { version: string }) => {
-        pushUpdaterStatus({ status: 'downloaded', version: info.version });
+        pushUpdaterStatus(preserveUpdaterReleaseDetails(lastUpdaterStatus, {
+            status: 'downloaded',
+            version: info.version,
+        }));
     });
 
     autoUpdater.on('error', (err: Error) => {

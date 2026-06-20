@@ -1,9 +1,9 @@
 # MindDiary v1.9.9 → v2.0 分阶段任务拆分计划
 
-> 基线版本：v1.11.1
-> 基线 commit：`bc305cfe1464c713e3253c19dce0a8d8acc063b6`
+> 基线版本：v1.11.2
+> 基线 commit：`152450de6a5ff76fb73ac94b90435d5a910d8679`
 > 目标方向：v2.0 学习闭环系统
-> 本次准备版本：v1.11.2
+> 本次准备版本：v1.11.3
 
 ---
 
@@ -56,8 +56,9 @@ Issue 状态：
 | v1.9.9 | M0 护栏 | v2 前置工程护栏、迁移、AI 边界、错题/专注基础 | 已完成 |
 | v1.10.0 | M1 闭环 | 合并原 v1.9.10、v1.9.11、v1.9.12：任务绑定专注、结束结算、一句话复盘、Dashboard 闭环指标 | 已正式发布 |
 | v1.11.0 | M2/M3 联动 | 详细章节进度、错题任务联动、日记保存后确认结算、AI 今日行动建议、AI 助手 composer 附件与受控上下文 | 已正式发布 |
-| v1.11.1 | 稳定性热修复 | 日期 rollover、日记/任务闭环与 Pomodoro 结算一致性 | 已正式发布 / latest |
-| v1.11.2 | 发布卫生 | Release asset allowlist、manifest 测试、Actions runtime 与文档同步 | 准备中 |
+| v1.11.1 | 稳定性热修复 | 日期 rollover、日记/任务闭环与 Pomodoro 结算一致性 | 已正式发布 |
+| v1.11.2 | 发布卫生 | Release asset allowlist、manifest 测试、Actions runtime 与文档同步 | 已正式发布 / latest |
+| v1.11.3 | 更新体验 | 应用内离线更新日志、远程更新摘要与安全降级 | 准备中 |
 | v1.12.0 | M4 章节闭环 | 章节与今日任务闭环；如需持久化关系，单独评估 schema 5 | 未开始 |
 | v2.0.0 | 正式版 | 学习闭环系统发布收口 | 未开始 |
 
@@ -367,11 +368,21 @@ AI 助手 composer：
 - README、路线图、release notes 与 release checklist 同步到 v1.11.2。
 - SQLite schema 保持 4；无 migration、无 backup / restore 格式变化；不修改既有 tag 或 Release 资产。
 
-## 8. v1.12.0：章节与今日任务闭环方向
+## 8. v1.11.3：应用内更新日志
+
+本版本是独立 patch，只处理 Issue #107：
+
+- 在“设置 → 关于”展示当前版本的内置更新摘要，离线可用且无需登录 GitHub。
+- 检查到新版本时展示 `electron-updater` 提供的版本号、更新说明和可用的发布时间。
+- 远程说明缺失、网络失败或 browser fallback 无 updater API 时安全降级。
+- 远程内容按纯文本渲染，不使用 `innerHTML`。
+- SQLite schema 保持 4；无 migration、无 backup / restore 格式变化；不修改 release workflow 或既有 Release/tag。
+
+## 9. v1.12.0：章节与今日任务闭环方向
 
 v1.12.0 才处理章节加入今日任务。若持久化 chapter-task 关系确有必要，可在该独立版本中评估 schema version 5，并同步设计 migration、旧库升级、自动 ZIP 备份恢复和 JSON 导入导出兼容；v1.11.2 不预建表或字段。
 
-## 9. v2 后续预留
+## 10. v2 后续预留
 
 v1.12.0 后建议顺序：
 

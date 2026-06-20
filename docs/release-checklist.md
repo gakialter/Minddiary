@@ -7,7 +7,10 @@ This checklist separates CI build acceptance from manual installer acceptance fo
 - Confirm `package.json` and root `package-lock.json` have the intended version.
 - Confirm the pushed tag is exactly `v${package.json.version}`.
 - Confirm `RELEASE_NOTES.md` starts with `# MindDiary v${package.json.version}`.
-- Confirm `CURRENT_SCHEMA_VERSION` matches the release plan. v1.11.2 remains schema 4 and has no migration.
+- Confirm `CURRENT_SCHEMA_VERSION` matches the release plan. v1.11.3 remains schema 4 and has no migration.
+- Confirm the bundled current-version notes match `RELEASE_NOTES.md` and `package.json`.
+- Confirm an available update shows remote notes when present and the fallback message when notes are absent.
+- Confirm browser fallback renders the bundled current-version notes without an Electron updater API.
 - Run the required local gate:
   - `npm.cmd run typecheck`
   - `npm.cmd test -- --run`

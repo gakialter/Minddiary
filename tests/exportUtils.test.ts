@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateJSON, generateMarkdown, generatePdfHtml, parseMindDiaryJsonSnapshot } from '../src/utils/exportUtils'
+import packageJson from '../package.json'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -121,7 +122,7 @@ describe('generateJSON', () => {
     const payload = parseExport(generateJSON({ entries, subjects, mistakes }))
 
     expect(payload._meta.app).toBe('MindDiary')
-    expect(payload._meta.version).toBe('1.0.0')
+    expect(payload._meta.version).toBe(packageJson.version)
     expect(payload._meta.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(payload._meta.counts).toEqual({ entries: 1, subjects: 1, subject_chapters: 0, mistakes: 1 })
     expect(payload.entries).toEqual(entries)

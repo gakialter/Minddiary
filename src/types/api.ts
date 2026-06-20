@@ -206,8 +206,10 @@ export interface UpdateStatus {
   status: UpdateStatusType
   /** Available / downloaded version string */
   version?: string
-  /** Markdown release notes (if provided by electron-updater) */
+  /** Remote release notes, rendered as inert text in the UI */
   releaseNotes?: string
+  /** ISO release timestamp (if provided by electron-updater) */
+  releaseDate?: string
   /** Download percent 0–100 */
   percent?: number
   /** Current download speed in bytes/sec */

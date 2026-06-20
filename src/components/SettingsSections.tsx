@@ -5,6 +5,7 @@ import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
 import type { ActiveAppInfo, CountdownEvent, FocusWhitelistItem } from '../types'
 import type { UpdateStatus } from '../types/api'
+import { CURRENT_RELEASE_NOTES } from '../releaseNotes'
 
 interface SettingsGeneralProps {
   examDate: string; setExamDate: (v: string) => void
@@ -890,6 +891,12 @@ function formatSpeed(bytesPerSecond: number): string {
     return Math.round(bytesPerSecond / 1024) + ' KB/s'
 }
 
+function formatReleaseDate(value: string | undefined): string | null {
+    if (!value) return null
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString('zh-CN')
+}
+
 export function SettingsAbout({
     checkForUpdates, installUpdate, updateStatus, version
 }: SettingsAboutProps) {
@@ -898,6 +905,8 @@ export function SettingsAbout({
     const isDownloading = status === 'downloading'
     const isDownloaded = status === 'downloaded'
     const isBusy = isChecking || status === 'available' || isDownloading
+    const hasRemoteRelease = status === 'available' || status === 'downloading' || status === 'downloaded'
+    const formattedReleaseDate = formatReleaseDate(updateStatus.releaseDate)
 
     return (
         <div style={sectionStyle}>
@@ -906,13 +915,28 @@ export function SettingsAbout({
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                 <div className="text-sm">
-                    <span className="text-muted">版本：</span> <span>{version}</span>
+                    <span className="text-muted">当前版本：</span> <span>v{version}</span>
                 </div>
                 <div className="text-sm">
                     <span className="text-muted">存储：</span> <span>SQLite 本地数据库</span>
                 </div>
                 <div className="text-sm">
                     <span className="text-muted">隐私：</span> <span>学习数据完全本地存储；AI 与更新检查仅在配置或触发时联网</span>
+                </div>
+                <div
+                    data-testid="current-release-notes"
+                    style={{
+                        padding: '12px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-tertiary)',
+                    }}
+                >
+                    <div className="text-sm font-semibold" style={{ marginBottom: 6 }}>
+                        {CURRENT_RELEASE_NOTES.title}
+                    </div>
+                    <ul className="text-xs" style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                        {CURRENT_RELEASE_NOTES.items.map(item => <li key={item}>{item}</li>)}
+                    </ul>
                 </div>
                 <div style={{ marginTop: 'var(--space-md)' }}>
                     {isDownloaded ? (
@@ -1020,6 +1044,39 @@ export function SettingsAbout({
                                 <AlertTriangle size={12} />
                                 {updateStatus.message || '当前版本未配置自动更新源'}
                             </span>
+                        )}
+                    </div>
+                )}
+
+                {hasRemoteRelease && (
+                    <div
+                        data-testid="remote-release-notes"
+                        style={{
+                            padding: '12px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border)',
+                        }}
+                    >
+                        <div className="text-sm font-semibold">
+                            最新版本：v{updateStatus.version || '未知'}
+                        </div>
+                        {formattedReleaseDate && (
+                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>
+                                发布时间：{formattedReleaseDate}
+                            </div>
+                        )}
+                        <div className="text-xs font-semibold" style={{ marginTop: 10, marginBottom: 4 }}>
+                            更新内容
+                        </div>
+                        {updateStatus.releaseNotes ? (
+                            <div
+                                className="text-xs"
+                                style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6 }}
+                            >
+                                {updateStatus.releaseNotes}
+                            </div>
+                        ) : (
+                            <div className="text-xs text-muted">暂时无法获取更新日志</div>
                         )}
                     </div>
                 )}

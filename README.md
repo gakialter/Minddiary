@@ -210,7 +210,17 @@ MindDiary 遵循 Zen Forest 品牌体系，详见 [Brand System](./docs/assets/b
 ## 更新日志
 
 <details open>
-<summary>v1.11.2 — 发布卫生与文档同步（准备中）</summary>
+<summary>v1.11.3 — 应用内更新日志（准备中）</summary>
+
+- **离线更新摘要**：在“设置 → 关于”直接查看当前版本更新内容，不依赖 GitHub 登录或网络连接。
+- **新版本说明**：检查到新版本时展示版本号、远程更新摘要和可用的发布时间。
+- **安全降级**：远程说明按纯文本展示；网络、metadata 或 updater 不可用时不影响应用启动和当前版本日志。
+- **兼容边界**：SQLite schema 仍为 4，无 migration、无备份/恢复格式变化。
+
+</details>
+
+<details>
+<summary>v1.11.2 — 发布卫生与文档同步（2026-06-19）</summary>
 
 - **Release asset allowlist**：未来 Release 只上传 Setup、Portable、DMG、macOS ZIP、对应 blockmap 与 latest metadata；禁止 unpacked 内部 `MindDiary.exe` / `elevate.exe`。
 - **Manifest 验证**：测试锁定允许资产、禁止资产、版本化文件名，以及 `latest.yml` / `latest-mac.yml` 的 version、path、sha512 与 releaseDate 基本结构。
