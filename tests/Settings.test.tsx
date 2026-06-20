@@ -321,6 +321,60 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
+  it('shows the bundled current release notes and v1.11.3 in browser fallback', async () => {
+    ;(window as any).api = undefined
+    await act(async () => {
+      render(<Settings />)
+    })
+
+    expect(screen.getByText('当前版本：')).toBeInTheDocument()
+    expect(screen.getByText('v1.11.3')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('新增应用内更新日志展示')
+  })
+
+  it('shows remote release notes and release date when an update is available', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({
+        status: 'available',
+        version: '1.12.0',
+        releaseNotes: 'Added a safer update summary.',
+        releaseDate: '2026-06-20T08:00:00.000Z',
+      })
+    })
+
+    const notes = screen.getByTestId('remote-release-notes')
+    expect(notes).toHaveTextContent('最新版本：v1.12.0')
+    expect(notes).toHaveTextContent('Added a safer update summary.')
+    expect(notes).toHaveTextContent('发布时间：')
+  })
+
+  it('falls back safely when remote release notes are missing', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'available', version: '1.12.0' })
+    })
+
+    expect(screen.getByText('暂时无法获取更新日志')).toBeInTheDocument()
+  })
+
+  it('renders remote release note HTML as inert text', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    await act(async () => {
+      statusCallback({ status: 'available', version: '1.12.0', releaseNotes: '<img src=x onerror=alert(1)>' })
+    })
+
+    const notes = screen.getByTestId('remote-release-notes')
+    expect(notes).toHaveTextContent('<img src=x onerror=alert(1)>')
+    expect(notes.querySelector('img')).toBeNull()
+  })
+
   it('shows download progress bar', async () => {
     await act(async () => {
       render(<Settings />)
@@ -368,6 +422,7 @@ describe('Settings Component', () => {
       statusCallback({ status: 'error', message: '网络连接失败' })
     })
     expect(screen.getByText('网络连接失败')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toBeInTheDocument()
     // Button should show "\u91cd\u8bd5" text
     const btn = screen.getByTestId('update-check-btn')
     expect(btn.textContent).toContain('重\u8bd5')
