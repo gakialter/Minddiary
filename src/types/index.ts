@@ -108,6 +108,7 @@ export interface StudyTask {
   subject_id: number | null
   related_mistake_id: number | null
   related_entry_id: number | null
+  related_chapter_id: number | null
   planned_date: string
   estimate_minutes: number
   status: StudyTaskStatus
@@ -122,6 +123,7 @@ export interface StudyTaskQuery {
   status?: StudyTaskStatus | StudyTaskStatus[]
   related_mistake_id?: number | null
   related_entry_id?: number | null
+  related_chapter_id?: number | null
 }
 
 export type NewStudyTask = Pick<StudyTask, 'title' | 'planned_date'> & Partial<
@@ -132,6 +134,7 @@ export type NewStudyTask = Pick<StudyTask, 'title' | 'planned_date'> & Partial<
     | 'subject_id'
     | 'related_mistake_id'
     | 'related_entry_id'
+    | 'related_chapter_id'
     | 'estimate_minutes'
     | 'status'
     | 'source'

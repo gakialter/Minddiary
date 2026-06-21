@@ -46,6 +46,7 @@ type StudyTaskRow = {
   subject_id: number | null
   related_mistake_id: number | null
   related_entry_id: number | null
+  related_chapter_id: number | null
   planned_date: string
   estimate_minutes: number
   status: string
@@ -429,10 +430,11 @@ vi.mock('better-sqlite3', () => {
               subject_id: params[3] == null ? null : Number(params[3]),
               related_mistake_id: params[4] == null ? null : Number(params[4]),
               related_entry_id: params[5] == null ? null : Number(params[5]),
-              planned_date: String(params[6]),
-              estimate_minutes: Number(params[7] ?? 25),
-              status: String(params[8] ?? 'todo'),
-              source: String(params[9] ?? 'manual'),
+              related_chapter_id: params[6] == null ? null : Number(params[6]),
+              planned_date: String(params[7]),
+              estimate_minutes: Number(params[8] ?? 25),
+              status: String(params[9] ?? 'todo'),
+              source: String(params[10] ?? 'manual'),
               created_at: now,
               updated_at: now,
             }
@@ -459,6 +461,8 @@ vi.mock('better-sqlite3', () => {
                 row.related_mistake_id = value == null ? null : Number(value)
               } else if (field === 'related_entry_id') {
                 row.related_entry_id = value == null ? null : Number(value)
+              } else if (field === 'related_chapter_id') {
+                row.related_chapter_id = value == null ? null : Number(value)
               } else if (field === 'planned_date') {
                 row.planned_date = String(value)
               } else if (field === 'estimate_minutes') {
@@ -1346,16 +1350,18 @@ describe('database study task APIs', () => {
           subject_id,
           related_mistake_id,
           related_entry_id,
+          related_chapter_id,
           planned_date,
           estimate_minutes,
           status,
           source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     expect(insertCall?.params).toEqual([
       'Review wrong answers',
       '10 high-risk questions',
       'review',
       2,
+      null,
       null,
       null,
       '2026-05-31',

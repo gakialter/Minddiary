@@ -139,6 +139,7 @@ const createWindowApiMock = (): ElectronAPI => ({
       subject_id: null,
       related_mistake_id: null,
       related_entry_id: null,
+      related_chapter_id: null,
       planned_date: '2026-05-31',
       estimate_minutes: 25,
       status: 'todo',
@@ -154,6 +155,7 @@ const createWindowApiMock = (): ElectronAPI => ({
       subject_id: null,
       related_mistake_id: null,
       related_entry_id: null,
+      related_chapter_id: null,
       planned_date: '2026-05-31',
       estimate_minutes: 25,
       status: 'doing',
@@ -313,6 +315,37 @@ describe('DataContext', () => {
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.SUBJECT_CHAPTERS, JSON.stringify(mockSubjectChapters))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.TASKS, JSON.stringify([]))
     expect(setItemSpy).toHaveBeenCalledWith(STORAGE_KEYS.POMODORO_SESSIONS, JSON.stringify([]))
+  })
+
+  it('normalizes legacy browser fallback tasks with missing chapter attribution', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const legacyTask = {
+      id: 1,
+      title: 'Legacy task',
+      description: '',
+      type: 'custom',
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: null,
+      planned_date: '2026-06-21',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'manual',
+      created_at: '2026-06-21T00:00:00.000Z',
+      updated_at: '2026-06-21T00:00:00.000Z',
+    }
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify([legacyTask]))
+
+    const { result } = renderDataHook()
+    await waitFor(() => expect(result.current.dataReady).toBe(true))
+
+    await expect(result.current.tasks.getByDate('2026-06-21')).resolves.toEqual([
+      expect.objectContaining({ id: 1, related_chapter_id: null }),
+    ])
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([
+      expect.objectContaining({ id: 1, related_chapter_id: null }),
+    ])
   })
 
   it('passes core API calls through to Electron window.api namespaces', async () => {
@@ -604,6 +637,7 @@ describe('DataContext', () => {
       subject_id: 1,
       related_mistake_id: null,
       related_entry_id: null,
+      related_chapter_id: chapter.id,
       planned_date: '2026-05-31',
       estimate_minutes: 25,
       status: 'todo',
@@ -637,7 +671,7 @@ describe('DataContext', () => {
       expect.objectContaining({ id: 10, subject_id: null }),
     ])
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([
-      expect.objectContaining({ id: 11, subject_id: null }),
+      expect.objectContaining({ id: 11, subject_id: null, related_chapter_id: null }),
     ])
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.POMODORO_SESSIONS) || '[]')).toEqual([
       expect.objectContaining({ id: 12, subject_id: null }),
@@ -661,6 +695,7 @@ describe('DataContext', () => {
       subject_id: null,
       related_mistake_id: null,
       related_entry_id: 11,
+      related_chapter_id: null,
       planned_date: '2026-05-31',
       estimate_minutes: 15,
       status: 'done',
@@ -857,6 +892,59 @@ describe('DataContext', () => {
 
     await expect(result.current.tasks.getByDate('2026-05-31')).resolves.toEqual([])
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]')).toEqual([])
+  })
+
+  it('validates and clears chapter attribution in browser fallback tasks', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([
+      { id: 1, name: 'Math', color: '#0F766E' },
+      { id: 2, name: 'English', color: '#854D0E' },
+    ]))
+    localStorage.setItem(STORAGE_KEYS.SUBJECT_CHAPTERS, JSON.stringify([{
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-06-21T00:00:00.000Z',
+      updated_at: '2026-06-21T00:00:00.000Z',
+    }]))
+    const { result } = renderDataHook()
+    await waitFor(() => expect(result.current.dataReady).toBe(true))
+
+    const task = await result.current.tasks.create({
+      title: '学习：第一章 函数',
+      type: 'focus',
+      subject_id: 1,
+      related_chapter_id: 9,
+      planned_date: '2026-06-21',
+      source: 'manual',
+    })
+    expect(task).toEqual(expect.objectContaining({ subject_id: 1, related_chapter_id: 9 }))
+    await expect(result.current.tasks.find({
+      planned_date: '2026-06-21',
+      related_chapter_id: 9,
+    })).resolves.toEqual([expect.objectContaining({ id: task.id })])
+
+    await expect(result.current.tasks.create({
+      title: 'Missing chapter',
+      subject_id: 1,
+      related_chapter_id: 999,
+      planned_date: '2026-06-21',
+    })).rejects.toThrow('Chapter not found')
+    await expect(result.current.tasks.create({
+      title: 'Cross-subject chapter',
+      subject_id: 2,
+      related_chapter_id: 9,
+      planned_date: '2026-06-21',
+    })).rejects.toThrow('Task subject must match chapter subject')
+
+    await result.current.subjectChapters.delete(9)
+    await expect(result.current.tasks.getByDate('2026-06-21')).resolves.toEqual([
+      expect.objectContaining({ id: task.id, related_chapter_id: null }),
+    ])
   })
 
   it('starts fallback task focus, stores pomodoro task_id, and clears it when the task is deleted', async () => {
@@ -1237,6 +1325,7 @@ describe('DataContext', () => {
       subject_id: null,
       related_mistake_id: 31,
       related_entry_id: null,
+      related_chapter_id: null,
       planned_date: '2026-05-31',
       estimate_minutes: 10,
       status: 'done',

@@ -110,6 +110,83 @@ describe('PomodoroAlert', () => {
     expect(screen.queryByTestId('pomodoro-alert-write-diary')).not.toBeInTheDocument()
   })
 
+  it('renders three chapter settlement paths with explicit completion intent', () => {
+    const onSettleTask = vi.fn().mockResolvedValue(true)
+    render(
+      <PomodoroAlert
+        visible
+        isWorkComplete
+        duration={25}
+        todayTotal={50}
+        showSettlementActions
+        taskSettlement={{
+          id: 7,
+          title: '学习：Math · 第一章 函数',
+          subjectName: 'Math',
+          status: 'doing',
+          duration: 25,
+          relatedChapterId: 9,
+          chapterTitle: '第一章 函数',
+          chapterCompleted: false,
+        }}
+        onClose={vi.fn()}
+        onSettleTask={onSettleTask}
+        onAddMistake={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('pomodoro-chapter-settlement')).toHaveTextContent('第一章 函数')
+    fireEvent.click(screen.getByTestId('pomodoro-settle-complete-chapter'))
+    expect(onSettleTask).toHaveBeenLastCalledWith({
+      completeTask: true,
+      completeChapter: true,
+      reviewText: '',
+    })
+
+    fireEvent.click(screen.getByTestId('pomodoro-settle-task-only'))
+    expect(onSettleTask).toHaveBeenLastCalledWith({
+      completeTask: true,
+      completeChapter: false,
+      reviewText: '',
+    })
+
+    fireEvent.click(screen.getByTestId('pomodoro-settle-continue'))
+    expect(onSettleTask).toHaveBeenLastCalledWith({
+      completeTask: false,
+      completeChapter: false,
+      reviewText: '',
+    })
+  })
+
+  it('does not ask to complete an already completed chapter', () => {
+    render(
+      <PomodoroAlert
+        visible
+        isWorkComplete
+        duration={25}
+        todayTotal={50}
+        showSettlementActions
+        taskSettlement={{
+          id: 7,
+          title: 'Chapter task',
+          subjectName: 'Math',
+          status: 'doing',
+          duration: 25,
+          relatedChapterId: 9,
+          chapterTitle: '第一章 函数',
+          chapterCompleted: true,
+        }}
+        onClose={vi.fn()}
+        onSettleTask={vi.fn()}
+        onAddMistake={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('pomodoro-chapter-settlement')).toHaveTextContent('章节已完成')
+    expect(screen.queryByTestId('pomodoro-settle-complete-chapter')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-settle-complete')).toBeInTheDocument()
+  })
+
   it('renders in-app diary creation choices while review creation is pending', () => {
     const onResolveReviewEntryCreation = vi.fn().mockResolvedValue(true)
     render(

@@ -19,8 +19,14 @@ const mocks = vi.hoisted(() => ({
   chaptersClear: vi.fn(),
   pomodoroGetStats: vi.fn(),
   mistakesGetAll: vi.fn(),
+  tasksGetByDate: vi.fn(),
+  tasksFind: vi.fn(),
+  tasksCreate: vi.fn(),
+  requestDataRefresh: vi.fn(),
   showToast: vi.fn(),
 }))
+
+let mockDataRefreshVersion = 0
 
 vi.mock('../src/contexts/DiaryContext', () => {
   const diaryApi = {
@@ -47,6 +53,15 @@ vi.mock('../src/contexts/DiaryContext', () => {
     mistakes: {
       getAll: mocks.mistakesGetAll,
     },
+    tasks: {
+      getByDate: mocks.tasksGetByDate,
+      find: mocks.tasksFind,
+      create: mocks.tasksCreate,
+    },
+    requestDataRefresh: mocks.requestDataRefresh,
+    get dataRefreshVersion() {
+      return mockDataRefreshVersion
+    },
   }
   return {
     useDiary: () => diaryApi,
@@ -55,6 +70,10 @@ vi.mock('../src/contexts/DiaryContext', () => {
 
 vi.mock('../src/components/Toast', () => ({
   showToast: mocks.showToast,
+}))
+
+vi.mock('../src/contexts/LocalDateContext', () => ({
+  useCurrentLocalDateKey: () => '2026-06-21',
 }))
 
 const makeSubject = (overrides: Partial<Subject> = {}): Subject => ({
@@ -103,6 +122,7 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
     Object.entries(initialChapters).map(([subjectId, chapters]) => [Number(subjectId), [...chapters]]),
   )
   let nextChapterId = 100
+  let tasks: Array<Record<string, unknown>> = []
 
   const syncSubject = (subjectId: number) => {
     const chapters = chaptersBySubject[subjectId] ?? []
@@ -123,6 +143,18 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
   mocks.chaptersGetBySubject.mockImplementation(async (subjectId: number) => chaptersBySubject[subjectId] ?? [])
   mocks.pomodoroGetStats.mockResolvedValue(pomodoroStats)
   mocks.mistakesGetAll.mockResolvedValue({ data: mistakes, total: mistakes.length, masteredTotal: 0 })
+  mocks.tasksGetByDate.mockImplementation(async () => tasks)
+  mocks.tasksFind.mockImplementation(async (query: { planned_date?: string; related_chapter_id?: number | null }) => (
+    tasks.filter(task => (
+      (query.planned_date === undefined || task.planned_date === query.planned_date)
+      && (query.related_chapter_id === undefined || task.related_chapter_id === query.related_chapter_id)
+    ))
+  ))
+  mocks.tasksCreate.mockImplementation(async (data: Record<string, unknown>) => {
+    const created = { id: tasks.length + 1, status: 'todo', ...data }
+    tasks = [...tasks, created]
+    return created
+  })
   mocks.subjectsCreate.mockImplementation(async (data: Partial<Subject>) => {
     const created = makeSubject({
       id: Math.max(0, ...subjects.map(subject => subject.id)) + 1,
@@ -220,15 +252,59 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
     return subjects.find(subject => subject.id === subjectId)
   })
 
-  render(<StudyProgress />)
-  return { getSubjects: () => subjects, getChapters: (subjectId: number) => chaptersBySubject[subjectId] ?? [] }
+  const view = render(<StudyProgress />)
+  return { view, getSubjects: () => subjects, getChapters: (subjectId: number) => chaptersBySubject[subjectId] ?? [] }
 }
 
 describe('StudyProgress detailed subject chapters', () => {
   beforeEach(() => {
+    mockDataRefreshVersion = 0
     vi.clearAllMocks()
     vi.restoreAllMocks()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
+  })
+
+  it('adds an incomplete chapter to today once and disables the entry after refresh', async () => {
+    setupStudyProgress([makeSubject({ total_chapters: 2, completed_chapters: 1 })], {
+      7: [
+        makeChapter({ id: 1, completed: false, title: '第一章 函数' }),
+        makeChapter({ id: 2, completed: true, title: '第二章 导数', sort_order: 1 }),
+      ],
+    })
+
+    fireEvent.click(await screen.findByTestId('manage-chapters-7'))
+    const addButton = await screen.findByTestId('chapter-add-today-1')
+    expect(screen.queryByTestId('chapter-add-today-2')).not.toBeInTheDocument()
+
+    fireEvent.click(addButton)
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledWith({
+      title: '学习：Math · 第一章 函数',
+      type: 'focus',
+      subject_id: 7,
+      related_chapter_id: 1,
+      planned_date: '2026-06-21',
+      source: 'manual',
+    }))
+    expect(mocks.tasksFind).toHaveBeenCalledWith({ planned_date: '2026-06-21', related_chapter_id: 1 })
+    expect(mocks.requestDataRefresh).toHaveBeenCalled()
+    expect(await screen.findByTestId('chapter-added-today-1')).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('chapter-added-today-1'))
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads chapter progress when the global data refresh version changes', async () => {
+    const chapter = makeChapter({ id: 1, completed: false })
+    const setup = setupStudyProgress([makeSubject({ total_chapters: 1, completed_chapters: 0 })], { 7: [chapter] })
+    fireEvent.click(await screen.findByTestId('manage-chapters-7'))
+    expect(screen.getByTestId('chapter-toggle-1')).not.toBeChecked()
+
+    mocks.chaptersGetBySubject.mockResolvedValue([{ ...chapter, completed: true }])
+    mocks.subjectsGetAll.mockResolvedValue([makeSubject({ total_chapters: 1, completed_chapters: 1 })])
+    mockDataRefreshVersion = 1
+    setup.view.rerender(<StudyProgress />)
+
+    await waitFor(() => expect(screen.getByTestId('chapter-toggle-1')).toBeChecked())
   })
 
   it('shows legacy summary progress and keeps subject deletion behind confirmation', async () => {

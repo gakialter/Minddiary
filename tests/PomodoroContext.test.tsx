@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings, PomodoroStat, StudyTask, Subject } from '../src/types'
+import type { AppSettings, PomodoroStat, StudyTask, Subject, SubjectChapter } from '../src/types'
 
 const mocks = vi.hoisted(() => ({
   useDiary: vi.fn(),
@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   tasksStartFocus: vi.fn(),
   tasksComplete: vi.fn(),
   tasksUpdate: vi.fn(),
+  chaptersGetBySubject: vi.fn(),
+  chaptersToggleCompleted: vi.fn(),
   entriesGetByDate: vi.fn(),
   entriesCreate: vi.fn(),
   entriesUpdate: vi.fn(),
@@ -130,6 +132,7 @@ const makeStudyTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   subject_id: 1,
   related_mistake_id: null,
   related_entry_id: null,
+  related_chapter_id: null,
   planned_date: '2026-05-05',
   estimate_minutes: 30,
   status: 'todo',
@@ -256,6 +259,8 @@ beforeEach(() => {
   mocks.tasksStartFocus.mockImplementation(async (id: number) => ({ id, status: 'doing' }))
   mocks.tasksComplete.mockImplementation(async (id: number) => ({ id, status: 'done' }))
   mocks.tasksUpdate.mockImplementation(async (id: number, patch: Record<string, unknown>) => ({ id, ...patch }))
+  mocks.chaptersGetBySubject.mockResolvedValue([])
+  mocks.chaptersToggleCompleted.mockImplementation(async (id: number, completed: boolean) => ({ id, completed }))
   mocks.entriesGetByDate.mockResolvedValue(null)
   mocks.entriesCreate.mockResolvedValue({ id: 1 })
   mocks.entriesUpdate.mockResolvedValue({ id: 1 })
@@ -280,6 +285,10 @@ beforeEach(() => {
       startFocus: mocks.tasksStartFocus,
       complete: mocks.tasksComplete,
       update: mocks.tasksUpdate,
+    },
+    subjectChapters: {
+      getBySubject: mocks.chaptersGetBySubject,
+      toggleCompleted: mocks.chaptersToggleCompleted,
     },
     entries: {
       getByDate: mocks.entriesGetByDate,
@@ -1679,6 +1688,149 @@ describe('PomodoroContext', () => {
 
     expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
     expect(mocks.entriesUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('completes a bound task and chapter idempotently when the user confirms both', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const task = makeStudyTask({ related_chapter_id: 9 })
+    const doingTask = makeStudyTask({ related_chapter_id: 9, status: 'doing' })
+    const chapter: SubjectChapter = {
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    }
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.tasksComplete.mockResolvedValue(makeStudyTask({ related_chapter_id: 9, status: 'done' }))
+    mocks.chaptersGetBySubject.mockResolvedValue([chapter])
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+    await act(async () => { await result.current.actions.finishCountdownFocusSession() })
+    await flushAsyncWork()
+
+    expect(result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+      relatedChapterId: 9,
+      chapterTitle: '第一章 函数',
+      chapterCompleted: false,
+    }))
+
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: true,
+        completeChapter: true,
+        reviewText: '',
+      })
+    })
+
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    expect(mocks.chaptersToggleCompleted).toHaveBeenCalledWith(9, true)
+    expect(mocks.requestDataRefresh).toHaveBeenCalled()
+  })
+
+  it('does not complete a stale chapter after the latest task attribution is cleared', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const task = makeStudyTask({ related_chapter_id: 9 })
+    const doingTask = makeStudyTask({ related_chapter_id: 9, status: 'doing' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.chaptersGetBySubject.mockResolvedValue([{
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    }])
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+    await act(async () => { await result.current.actions.finishCountdownFocusSession() })
+    await flushAsyncWork()
+    expect(result.current.data.alertState.taskSettlement?.relatedChapterId).toBe(9)
+
+    mocks.tasksGetByDate.mockResolvedValue([makeStudyTask({ related_chapter_id: null, status: 'doing' })])
+    await act(async () => {
+      await result.current.actions.settleFocusTask({
+        completeTask: true,
+        completeChapter: true,
+        reviewText: '',
+      })
+    })
+
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    expect(mocks.chaptersToggleCompleted).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['complete task only', true, false],
+    ['keep task active', false, false],
+  ])('keeps the chapter unchanged when settling with %s', async (_label, completeTask, completeChapter) => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const task = makeStudyTask({ related_chapter_id: 9 })
+    const doingTask = makeStudyTask({ related_chapter_id: 9, status: 'doing' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.chaptersGetBySubject.mockResolvedValue([{
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    }])
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+    await act(async () => { await result.current.actions.finishCountdownFocusSession() })
+    await flushAsyncWork()
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+
+    await act(async () => {
+      await result.current.actions.settleFocusTask({ completeTask, completeChapter, reviewText: '' })
+    })
+
+    expect(mocks.chaptersToggleCompleted).not.toHaveBeenCalled()
+    if (completeTask) expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    else expect(mocks.tasksComplete).not.toHaveBeenCalled()
+  })
+
+  it('degrades a deleted chapter to ordinary task settlement without losing the session', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 9, 0, 0))
+    const task = makeStudyTask({ related_chapter_id: 9 })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(makeStudyTask({ related_chapter_id: 9, status: 'doing' }))
+    mocks.chaptersGetBySubject.mockResolvedValue([])
+
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await startBoundCustomCountdown(result, task.id)
+    await advanceTimer(125_000)
+    await act(async () => { await result.current.actions.finishCountdownFocusSession() })
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+      id: task.id,
+      relatedChapterId: null,
+      chapterTitle: null,
+    }))
   })
 
   it('asks inside the settlement UI before creating a diary for a bound focus review', async () => {

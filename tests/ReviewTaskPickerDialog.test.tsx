@@ -25,6 +25,7 @@ const makeTask = (id: number, mistakeId: number): StudyTask => ({
   subject_id: 1,
   related_mistake_id: mistakeId,
   related_entry_id: null,
+  related_chapter_id: null,
   planned_date: '2026-06-13',
   estimate_minutes: 10,
   status: 'todo',

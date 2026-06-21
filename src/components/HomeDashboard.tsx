@@ -388,6 +388,14 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                           关联日记 #{task.related_entry_id}
                         </span>
                       )}
+                      {task.related_chapter_id !== null && (
+                        <span
+                          className="rounded-full px-2 py-0.5 text-xs"
+                          style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
+                        >
+                          章节任务
+                        </span>
+                      )}
                     </div>
                     {task.description && (
                       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>

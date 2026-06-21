@@ -321,15 +321,15 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.11.3 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.12.0 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.11.3')).toBeInTheDocument()
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('新增应用内更新日志展示')
+    expect(screen.getByText('v1.12.0')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('未完成章节可以加入今日任务')
   })
 
   it('shows remote release notes and release date when an update is available', async () => {

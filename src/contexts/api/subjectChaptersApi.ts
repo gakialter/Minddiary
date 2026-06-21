@@ -9,6 +9,7 @@ import type {
     SubjectChapter,
     SubjectChapterDraft,
     SubjectChapterPatch,
+    StudyTask,
 } from '../../types'
 import type { SubjectChaptersContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
@@ -78,12 +79,23 @@ export const createSubjectChaptersApi = (
     subjectsRef: MutableRefObject<Subject[]>,
     chaptersRef: MutableRefObject<SubjectChapter[]>,
     saveToLocal: SaveToLocalFn,
+    tasksRef?: MutableRefObject<StudyTask[]>,
 ): SubjectChaptersContextAPI => {
     const commit = (subjects: Subject[], chapters: SubjectChapter[]) => {
         subjectsRef.current = subjects
         chaptersRef.current = sortChapters(chapters)
         saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
         saveToLocal(STORAGE_KEYS.SUBJECT_CHAPTERS, chaptersRef.current)
+    }
+
+    const clearTaskChapterLinks = (chapterIds: Set<number>) => {
+        if (!tasksRef || chapterIds.size === 0) return
+        tasksRef.current = tasksRef.current.map(task => (
+            task.related_chapter_id !== null && chapterIds.has(task.related_chapter_id)
+                ? { ...task, related_chapter_id: null, updated_at: nowIso() }
+                : task
+        ))
+        saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
     }
 
     return {
@@ -188,6 +200,7 @@ export const createSubjectChaptersApi = (
             if (!existing) throw new Error('Chapter not found')
             const before = chaptersRef.current.filter(chapter => chapter.subject_id === existing.subject_id)
             const chapters = chaptersRef.current.filter(chapter => chapter.id !== chapterId)
+            clearTaskChapterLinks(new Set([chapterId]))
             const after = chapters.filter(chapter => chapter.subject_id === existing.subject_id)
             const subjects = after.length === 0
                 ? subjectsRef.current.map(subject => (
@@ -214,6 +227,7 @@ export const createSubjectChaptersApi = (
             const total = existing.length
             const completed = existing.filter(chapter => chapter.completed).length
             const chapters = chaptersRef.current.filter(chapter => chapter.subject_id !== normalizedSubjectId)
+            clearTaskChapterLinks(new Set(existing.map(chapter => chapter.id)))
             const subjects = subjectsRef.current.map(subject => (
                 subject.id === normalizedSubjectId
                     ? { ...subject, total_chapters: total, completed_chapters: completed }

@@ -9,6 +9,7 @@ import type {
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
+    SubjectChapter,
 } from '../../types'
 import type { TasksContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
@@ -80,7 +81,10 @@ function normalizeEstimate(value: number | undefined): number {
 }
 
 function sortTasks(tasks: StudyTask[]): StudyTask[] {
-    return [...tasks].sort((a, b) => {
+    return tasks.map(task => ({
+        ...task,
+        related_chapter_id: task.related_chapter_id ?? null,
+    })).sort((a, b) => {
         const statusDiff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
         if (statusDiff !== 0) return statusDiff
         return a.created_at.localeCompare(b.created_at) || a.id - b.id
@@ -104,13 +108,18 @@ function matchesQuery(task: StudyTask, query: StudyTaskQuery): boolean {
         const relatedEntryId = normalizeNullableId(query.related_entry_id)
         if (task.related_entry_id !== relatedEntryId) return false
     }
+    if (query.related_chapter_id !== undefined) {
+        const relatedChapterId = normalizeNullableId(query.related_chapter_id)
+        if ((task.related_chapter_id ?? null) !== relatedChapterId) return false
+    }
     return true
 }
 
 export const createTasksApi = (
     tasksRef: MutableRefObject<StudyTask[]>,
     saveToLocal: SaveToLocalFn,
-    pomodoroSessionsRef?: MutableRefObject<PomodoroSession[]>
+    pomodoroSessionsRef?: MutableRefObject<PomodoroSession[]>,
+    subjectChaptersRef?: MutableRefObject<SubjectChapter[]>,
 ): TasksContextAPI => ({
     getByDate: async (date: string) => {
         if (IS_ELECTRON) return window.api.tasks.getByDate(date)
@@ -125,14 +134,22 @@ export const createTasksApi = (
         if (IS_ELECTRON) return window.api.tasks.create(data)
 
         const now = new Date().toISOString()
+        const subjectId = normalizeNullableId(data.subject_id)
+        const relatedChapterId = normalizeNullableId(data.related_chapter_id)
+        if (relatedChapterId !== null) {
+            const chapter = subjectChaptersRef?.current.find(item => item.id === relatedChapterId)
+            if (!chapter) throw new Error('Chapter not found')
+            if (chapter.subject_id !== subjectId) throw new Error('Task subject must match chapter subject')
+        }
         const newTask: StudyTask = {
             id: Math.max(0, ...tasksRef.current.map(task => task.id)) + 1,
             title: requireTitle(data.title),
             description: data.description ?? '',
             type: normalizeType(data.type),
-            subject_id: normalizeNullableId(data.subject_id),
+            subject_id: subjectId,
             related_mistake_id: normalizeNullableId(data.related_mistake_id),
             related_entry_id: normalizeNullableId(data.related_entry_id),
+            related_chapter_id: relatedChapterId,
             planned_date: requireDateKey(data.planned_date),
             estimate_minutes: normalizeEstimate(data.estimate_minutes),
             status: normalizeStatus(data.status),
@@ -152,14 +169,25 @@ export const createTasksApi = (
             throw new Error('Task not found')
         }
 
+        const subjectId = patch.subject_id !== undefined ? normalizeNullableId(patch.subject_id) : existing.subject_id
+        const relatedChapterId = patch.related_chapter_id !== undefined
+            ? normalizeNullableId(patch.related_chapter_id)
+            : (existing.related_chapter_id ?? null)
+        if (relatedChapterId !== null) {
+            const chapter = subjectChaptersRef?.current.find(item => item.id === relatedChapterId)
+            if (!chapter) throw new Error('Chapter not found')
+            if (chapter.subject_id !== subjectId) throw new Error('Task subject must match chapter subject')
+        }
+
         const updated: StudyTask = {
             ...existing,
             ...(patch.title !== undefined ? { title: requireTitle(patch.title) } : {}),
             ...(patch.description !== undefined ? { description: patch.description } : {}),
             ...(patch.type !== undefined ? { type: normalizeType(patch.type) } : {}),
-            ...(patch.subject_id !== undefined ? { subject_id: normalizeNullableId(patch.subject_id) } : {}),
+            subject_id: subjectId,
             ...(patch.related_mistake_id !== undefined ? { related_mistake_id: normalizeNullableId(patch.related_mistake_id) } : {}),
             ...(patch.related_entry_id !== undefined ? { related_entry_id: normalizeNullableId(patch.related_entry_id) } : {}),
+            related_chapter_id: relatedChapterId,
             ...(patch.planned_date !== undefined ? { planned_date: requireDateKey(patch.planned_date) } : {}),
             ...(patch.estimate_minutes !== undefined ? { estimate_minutes: normalizeEstimate(patch.estimate_minutes) } : {}),
             ...(patch.status !== undefined ? { status: normalizeStatus(patch.status) } : {}),
@@ -187,11 +215,11 @@ export const createTasksApi = (
     },
     complete: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.complete(id)
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'done' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'done' })
     },
     skip: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.skip(id)
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'skipped' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'skipped' })
     },
     startFocus: async (id: number, date: string) => {
         if (IS_ELECTRON) return window.api.tasks.startFocus(id, date)
@@ -207,6 +235,6 @@ export const createTasksApi = (
             throw new Error('Cannot start focus for a completed or skipped task')
         }
         if (existing.status === 'doing') return existing
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef).update(id, { status: 'doing' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'doing' })
     },
 })

@@ -13,6 +13,13 @@ const STUDY_TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake'
 const STUDY_TASK_STATUSES: StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped'];
 const STUDY_TASK_SOURCES: StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro'];
 
+function rowToStudyTask(row: StudyTask): StudyTask {
+    return {
+        ...row,
+        related_chapter_id: row.related_chapter_id ?? null,
+    };
+}
+
 function normalizeStudyTaskTitle(value: unknown): string {
     const title = typeof value === 'string' ? value.trim() : '';
     if (!title) throw new Error('Task title is required');
@@ -69,11 +76,23 @@ function normalizeStudyTaskId(id: number): number {
 
 export function createStudyTasksRepository(db: Database.Database) {
     function getStudyTaskById(id: number): StudyTask | null {
-        return db.prepare(`
+        const row = db.prepare(`
         SELECT t.*
         FROM study_tasks t
         WHERE t.id = ?
-    `).get(normalizeStudyTaskId(id)) as StudyTask | null;
+    `).get(normalizeStudyTaskId(id)) as StudyTask | undefined;
+        return row ? rowToStudyTask(row) : null;
+    }
+
+    function validateChapterAttribution(subjectId: number | null, chapterId: number | null): void {
+        if (chapterId === null) return;
+        const chapter = db.prepare('SELECT subject_id FROM subject_chapters WHERE id = ?').get(chapterId) as
+            | { subject_id: number }
+            | undefined;
+        if (!chapter) throw new Error('Chapter not found');
+        if (subjectId !== chapter.subject_id) {
+            throw new Error('Task subject must match chapter subject');
+        }
     }
 
     function requireStudyTask(id: number): StudyTask {
@@ -84,7 +103,7 @@ export function createStudyTasksRepository(db: Database.Database) {
 
     function getStudyTasksByDate(date: string): StudyTask[] {
         const plannedDate = normalizeStudyTaskDate(date);
-        return db.prepare(`
+        return (db.prepare(`
         SELECT t.*
         FROM study_tasks t
         WHERE t.planned_date = ?
@@ -98,7 +117,7 @@ export function createStudyTasksRepository(db: Database.Database) {
           END,
           t.created_at ASC,
           t.id ASC
-    `).all(plannedDate) as StudyTask[];
+    `).all(plannedDate) as StudyTask[]).map(rowToStudyTask);
     }
 
     function findStudyTasks(query: StudyTaskQuery): StudyTask[] {
@@ -138,9 +157,17 @@ export function createStudyTasksRepository(db: Database.Database) {
                 params.push(normalizeStudyTaskNullableId(query.related_entry_id));
             }
         }
+        if (query.related_chapter_id !== undefined) {
+            if (query.related_chapter_id === null) {
+                conditions.push('t.related_chapter_id IS NULL');
+            } else {
+                conditions.push('t.related_chapter_id = ?');
+                params.push(normalizeStudyTaskNullableId(query.related_chapter_id));
+            }
+        }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        return db.prepare(`
+        return (db.prepare(`
         SELECT t.*
         FROM study_tasks t
         ${whereClause}
@@ -154,7 +181,7 @@ export function createStudyTasksRepository(db: Database.Database) {
           END,
           t.created_at ASC,
           t.id ASC
-    `).all(...params) as StudyTask[];
+    `).all(...params) as StudyTask[]).map(rowToStudyTask);
     }
 
     function createStudyTask(data: NewStudyTask): StudyTask {
@@ -164,10 +191,12 @@ export function createStudyTasksRepository(db: Database.Database) {
         const subjectId = normalizeStudyTaskNullableId(data.subject_id);
         const relatedMistakeId = normalizeStudyTaskNullableId(data.related_mistake_id);
         const relatedEntryId = normalizeStudyTaskNullableId(data.related_entry_id);
+        const relatedChapterId = normalizeStudyTaskNullableId(data.related_chapter_id);
         const plannedDate = normalizeStudyTaskDate(data.planned_date);
         const estimateMinutes = normalizeStudyTaskEstimate(data.estimate_minutes);
         const status = normalizeStudyTaskStatus(data.status);
         const source = normalizeStudyTaskSource(data.source);
+        validateChapterAttribution(subjectId, relatedChapterId);
 
         const result = db.prepare(`
         INSERT INTO study_tasks (
@@ -177,11 +206,12 @@ export function createStudyTasksRepository(db: Database.Database) {
           subject_id,
           related_mistake_id,
           related_entry_id,
+          related_chapter_id,
           planned_date,
           estimate_minutes,
           status,
           source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
             title,
             description,
@@ -189,6 +219,7 @@ export function createStudyTasksRepository(db: Database.Database) {
             subjectId,
             relatedMistakeId,
             relatedEntryId,
+            relatedChapterId,
             plannedDate,
             estimateMinutes,
             status,
@@ -208,12 +239,22 @@ export function createStudyTasksRepository(db: Database.Database) {
         if (patch.subject_id !== undefined) fields.push({ column: 'subject_id', value: normalizeStudyTaskNullableId(patch.subject_id) });
         if (patch.related_mistake_id !== undefined) fields.push({ column: 'related_mistake_id', value: normalizeStudyTaskNullableId(patch.related_mistake_id) });
         if (patch.related_entry_id !== undefined) fields.push({ column: 'related_entry_id', value: normalizeStudyTaskNullableId(patch.related_entry_id) });
+        if (patch.related_chapter_id !== undefined) fields.push({ column: 'related_chapter_id', value: normalizeStudyTaskNullableId(patch.related_chapter_id) });
         if (patch.planned_date !== undefined) fields.push({ column: 'planned_date', value: normalizeStudyTaskDate(patch.planned_date) });
         if (patch.estimate_minutes !== undefined) fields.push({ column: 'estimate_minutes', value: normalizeStudyTaskEstimate(patch.estimate_minutes) });
         if (patch.status !== undefined) fields.push({ column: 'status', value: normalizeStudyTaskStatus(patch.status) });
         if (patch.source !== undefined) fields.push({ column: 'source', value: normalizeStudyTaskSource(patch.source) });
 
-        if (fields.length === 0) return requireStudyTask(taskId);
+        const existing = requireStudyTask(taskId);
+        if (fields.length === 0) return existing;
+
+        const finalSubjectId = patch.subject_id !== undefined
+            ? normalizeStudyTaskNullableId(patch.subject_id)
+            : existing.subject_id;
+        const finalChapterId = patch.related_chapter_id !== undefined
+            ? normalizeStudyTaskNullableId(patch.related_chapter_id)
+            : existing.related_chapter_id;
+        validateChapterAttribution(finalSubjectId, finalChapterId);
 
         const setClause = fields.map(field => `${field.column} = ?`).join(', ');
         const result = db.prepare(`

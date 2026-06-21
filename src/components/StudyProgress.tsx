@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, PlusCircle, Target, Trash2 } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { showToast } from './Toast'
 import { logger } from '../utils/logger'
-import { getLocalDateKey } from '../utils/dateKey'
 import { calculateChapterStats } from '../utils/subjectChapters'
 import SubjectChapterPanel from './SubjectChapterPanel'
 import type { Mistake, PomodoroStat, Subject, SubjectChapter } from '../types'
@@ -35,7 +35,11 @@ export default function StudyProgress() {
         subjectChapters: subjectChaptersAPI,
         pomodoro: pomodoroAPI,
         mistakes: mistakesAPI,
+        tasks: tasksAPI,
+        requestDataRefresh,
+        dataRefreshVersion = 0,
     } = useDiary()
+    const todayDate = useCurrentLocalDateKey()
     const [subjects, setSubjects] = useState<Subject[]>([])
     const [chaptersBySubject, setChaptersBySubject] = useState<Record<number, SubjectChapter[]>>({})
     const [pomodoroStats, setPomodoroStats] = useState<PomodoroStat[]>([])
@@ -44,6 +48,7 @@ export default function StudyProgress() {
     const [savingSubject, setSavingSubject] = useState(false)
     const [subjectActionPending, setSubjectActionPending] = useState<string | null>(null)
     const [expandedSubjectId, setExpandedSubjectId] = useState<number | null>(null)
+    const [todayChapterTaskIds, setTodayChapterTaskIds] = useState<Set<number>>(new Set())
 
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -52,10 +57,11 @@ export default function StudyProgress() {
     const loadAllData = useCallback(async () => {
         setLoading(true)
         try {
-            const [subjData, pStats, mistData] = await Promise.all([
+            const [subjData, pStats, mistData, todayTasks] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
-                pomodoroAPI.getStats(getLocalDateKey()).catch(() => [] as PomodoroStat[]),
+                pomodoroAPI.getStats(todayDate).catch(() => [] as PomodoroStat[]),
                 mistakesAPI.getAll({}).catch(() => ({ data: [] })),
+                tasksAPI.getByDate(todayDate).catch(() => []),
             ])
             const normalizedSubjects = subjData || []
             const chapterPairs = await Promise.all(
@@ -68,17 +74,44 @@ export default function StudyProgress() {
             setChaptersBySubject(Object.fromEntries(chapterPairs))
             setPomodoroStats(pStats || [])
             setMistakes((mistData && 'data' in mistData ? mistData.data : []) as Mistake[])
+            setTodayChapterTaskIds(new Set(
+                (todayTasks || [])
+                    .map(task => task.related_chapter_id)
+                    .filter((chapterId): chapterId is number => chapterId !== null),
+            ))
         } catch (error) {
             logger.error(error)
             showToast('加载科目进度失败', 'error')
         } finally {
             setLoading(false)
         }
-    }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI])
+    }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI, tasksAPI, todayDate])
 
     useEffect(() => {
         void loadAllData()
-    }, [loadAllData])
+    }, [dataRefreshVersion, loadAllData])
+
+    const addChapterToToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
+        const existing = await tasksAPI.find({
+            planned_date: todayDate,
+            related_chapter_id: chapter.id,
+        })
+        if (existing.length === 0) {
+            await tasksAPI.create({
+                title: `学习：${subject.name} · ${chapter.title}`,
+                type: 'focus',
+                subject_id: subject.id,
+                related_chapter_id: chapter.id,
+                planned_date: todayDate,
+                source: 'manual',
+            })
+            showToast('已加入今日任务', 'success')
+        } else {
+            showToast('该章节已在今日任务中', 'success')
+        }
+        requestDataRefresh()
+        await loadAllData()
+    }, [loadAllData, requestDataRefresh, tasksAPI, todayDate])
 
     const { totalChapters, totalCompleted, overallProgress, subjectMetrics } = useMemo(() => {
         const mistakeIndex = new Map<number | null, { total: number; mastered: number }>()
@@ -501,6 +534,8 @@ export default function StudyProgress() {
                                         color={displayColor}
                                         api={subjectChaptersAPI}
                                         onRefresh={loadAllData}
+                                        todayChapterTaskIds={todayChapterTaskIds}
+                                        onAddToToday={chapter => addChapterToToday(subject, chapter)}
                                     />
                                 )}
                             </div>

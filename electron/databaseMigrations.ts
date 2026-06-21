@@ -6,7 +6,7 @@ import {
     TAG_VARIANTS,
 } from '../src/utils/tagStyle';
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export type DatabaseMigration = {
     version: number;
@@ -357,6 +357,16 @@ function migrateToSchemaVersion4(database: Database.Database): void {
     `);
 }
 
+function migrateToSchemaVersion5(database: Database.Database): void {
+    ensureColumn(
+        database,
+        'study_tasks',
+        'related_chapter_id',
+        'INTEGER REFERENCES subject_chapters(id) ON DELETE SET NULL',
+    );
+    database.exec('CREATE INDEX IF NOT EXISTS idx_study_tasks_related_chapter_id ON study_tasks(related_chapter_id)');
+}
+
 export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     {
         version: 1,
@@ -377,6 +387,11 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
         version: 4,
         name: 'add-subject-chapters',
         up: migrateToSchemaVersion4,
+    },
+    {
+        version: 5,
+        name: 'add-study-task-chapter-attribution',
+        up: migrateToSchemaVersion5,
     },
 ] as const;
 

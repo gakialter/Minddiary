@@ -15,11 +15,14 @@ interface PomodoroAlertProps {
     subjectName: string | null
     status: string
     duration: number
+    relatedChapterId?: number | null
+    chapterTitle?: string | null
+    chapterCompleted?: boolean
   } | null
   settlementError?: string | null
   isSettlingTask?: boolean
   pendingReviewEntryCreation?: { reviewText: string } | null
-  onSettleTask?: (options: { completeTask: boolean; reviewText: string }) => Promise<boolean> | boolean
+  onSettleTask?: (options: { completeTask: boolean; completeChapter?: boolean; reviewText: string }) => Promise<boolean> | boolean
   onResolveReviewEntryCreation?: (createEntry: boolean) => Promise<boolean> | boolean
   onWriteDiary?: () => void
   onAddMistake?: () => void
@@ -74,6 +77,8 @@ export default function PomodoroAlert({
     : isWorkComplete
       ? '干得漂亮，休息几分钟再继续吧～'
       : '精力充沛，继续加油！'
+  const hasChapterAttribution = taskSettlement?.relatedChapterId != null && !!taskSettlement.chapterTitle
+  const canCompleteChapter = hasChapterAttribution && !taskSettlement?.chapterCompleted
 
   return (
     <div
@@ -152,6 +157,23 @@ export default function PomodoroAlert({
             <div className="font-bold" style={{ fontSize: 18, color: 'var(--color-state-success)' }}>
               {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
             </div>
+            {hasChapterAttribution && (
+              <div
+                data-testid="pomodoro-chapter-settlement"
+                style={{
+                  background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-tertiary))',
+                  border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--space-md)',
+                }}
+              >
+                <div className="text-xs text-muted" style={{ marginBottom: 4 }}>关联章节</div>
+                <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{taskSettlement.chapterTitle}</div>
+                <div className="text-xs" style={{ marginTop: 4, color: 'var(--text-secondary)' }}>
+                  {taskSettlement.chapterCompleted ? '章节已完成' : '本次结算是否同时完成该章节？'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -229,18 +251,45 @@ export default function PomodoroAlert({
             )}
             {!pendingReviewEntryCreation && (
               <>
-                <button
-                  className="button button-primary w-full"
-                  onClick={() => { void onSettleTask?.({ completeTask: true, reviewText }) }}
-                  disabled={isSettlingTask}
-                  data-testid="pomodoro-settle-complete"
-                  style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
-                >
-                  {isSettlingTask ? '保存中...' : '标记任务完成'}
-                </button>
+                {canCompleteChapter ? (
+                  <>
+                    <button
+                      className="button button-primary w-full"
+                      onClick={() => { void onSettleTask?.({ completeTask: true, completeChapter: true, reviewText }) }}
+                      disabled={isSettlingTask}
+                      data-testid="pomodoro-settle-complete-chapter"
+                      style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
+                    >
+                      {isSettlingTask ? '保存中...' : '完成任务并完成章节'}
+                    </button>
+                    <button
+                      className="button button-secondary w-full"
+                      onClick={() => { void onSettleTask?.({ completeTask: true, completeChapter: false, reviewText }) }}
+                      disabled={isSettlingTask}
+                      data-testid="pomodoro-settle-task-only"
+                      style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
+                    >
+                      仅完成任务，章节暂不完成
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="button button-primary w-full"
+                    onClick={() => { void onSettleTask?.({ completeTask: true, reviewText }) }}
+                    disabled={isSettlingTask}
+                    data-testid="pomodoro-settle-complete"
+                    style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
+                  >
+                    {isSettlingTask ? '保存中...' : '标记任务完成'}
+                  </button>
+                )}
                 <button
                   className="button button-secondary w-full"
-                  onClick={() => { void onSettleTask?.({ completeTask: false, reviewText }) }}
+                  onClick={() => {
+                    void onSettleTask?.(hasChapterAttribution
+                      ? { completeTask: false, completeChapter: false, reviewText }
+                      : { completeTask: false, reviewText })
+                  }}
                   disabled={isSettlingTask}
                   data-testid="pomodoro-settle-continue"
                   style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
@@ -249,7 +298,11 @@ export default function PomodoroAlert({
                 </button>
                 <button
                   className="button w-full"
-                  onClick={() => { void onSettleTask?.({ completeTask: false, reviewText: '' }) }}
+                  onClick={() => {
+                    void onSettleTask?.(hasChapterAttribution
+                      ? { completeTask: false, completeChapter: false, reviewText: '' }
+                      : { completeTask: false, reviewText: '' })
+                  }}
                   disabled={isSettlingTask}
                   data-testid="pomodoro-settle-skip-review"
                   style={{ height: 38, borderRadius: 19, fontSize: 13 }}

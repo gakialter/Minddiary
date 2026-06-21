@@ -57,6 +57,7 @@ describe('database backup data normalization', () => {
       subject_id: 2,
       related_mistake_id: null,
       related_entry_id: null,
+      related_chapter_id: 9,
       planned_date: '2026-05-31',
       estimate_minutes: 25,
       status: 'todo',
@@ -70,7 +71,8 @@ describe('database backup data normalization', () => {
     })
 
     expect(normalized.study_tasks).toEqual([task])
-    expect(DATABASE_BACKUP_TABLES.some(item => item.table === 'study_tasks')).toBe(true)
+    const taskTable = DATABASE_BACKUP_TABLES.find(item => item.table === 'study_tasks')
+    expect(taskTable?.columns).toContain('related_chapter_id')
   })
 
   it('normalizes subject chapters and restores them immediately after subjects', () => {
@@ -86,12 +88,14 @@ describe('database backup data normalization', () => {
     }
     const subjectsIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'subjects')
     const chaptersIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'subject_chapters')
+    const taskIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'study_tasks')
     const mistakesIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'mistakes')
     const chaptersTable = DATABASE_BACKUP_TABLES[chaptersIndex]
 
     expect(subjectsIndex).toBeGreaterThanOrEqual(0)
     expect(chaptersIndex).toBeGreaterThan(subjectsIndex)
     expect(mistakesIndex).toBeGreaterThan(chaptersIndex)
+    expect(taskIndex).toBeGreaterThan(chaptersIndex)
     expect(chaptersTable?.columns).toEqual([
       'id',
       'subject_id',

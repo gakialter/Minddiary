@@ -85,6 +85,7 @@ export const DATABASE_BACKUP_TABLES = [
             'subject_id',
             'related_mistake_id',
             'related_entry_id',
+            'related_chapter_id',
             'planned_date',
             'estimate_minutes',
             'status',
