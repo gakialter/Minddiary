@@ -114,6 +114,7 @@ describe('database repositories', () => {
         subject_id INTEGER REFERENCES subjects(id) ON DELETE SET NULL,
         related_mistake_id INTEGER REFERENCES mistakes(id) ON DELETE SET NULL,
         related_entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+        related_chapter_id INTEGER REFERENCES subject_chapters(id) ON DELETE SET NULL,
         planned_date TEXT NOT NULL,
         estimate_minutes INTEGER DEFAULT 25,
         status TEXT NOT NULL DEFAULT 'todo',
@@ -124,6 +125,7 @@ describe('database repositories', () => {
       CREATE INDEX idx_study_tasks_planned_date ON study_tasks(planned_date);
       CREATE INDEX idx_study_tasks_status ON study_tasks(status);
       CREATE INDEX idx_study_tasks_subject_id ON study_tasks(subject_id);
+      CREATE INDEX idx_study_tasks_related_chapter_id ON study_tasks(related_chapter_id);
 
       CREATE TABLE diary_templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -769,6 +771,7 @@ describe('database repositories', () => {
     const task = repositories.studyTasks.createStudyTask({
       title: 'Math task',
       subject_id: subjectId,
+      related_chapter_id: chapter.id,
       planned_date: '2026-06-07',
     })
 
@@ -777,7 +780,55 @@ describe('database repositories', () => {
     expect(database.prepare('SELECT id FROM subject_chapters WHERE id = ?').get(chapter.id)).toBeUndefined()
     expect(database.prepare('SELECT subject_id FROM mistakes WHERE id = ?').get(mistakeId)).toEqual({ subject_id: null })
     expect(database.prepare('SELECT subject_id FROM pomodoro_sessions WHERE id = ?').get(pomodoroId)).toEqual({ subject_id: null })
-    expect(database.prepare('SELECT subject_id FROM study_tasks WHERE id = ?').get(task.id)).toEqual({ subject_id: null })
+    expect(database.prepare('SELECT subject_id, related_chapter_id FROM study_tasks WHERE id = ?').get(task.id)).toEqual({
+      subject_id: null,
+      related_chapter_id: null,
+    })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+  })
+
+  it('validates chapter-attributed tasks and clears attribution when a chapter is deleted', () => {
+    const math = repositories.subjects.createSubject({ name: 'Math', color: '#0F766E' })
+    const english = repositories.subjects.createSubject({ name: 'English', color: '#854D0E' })
+    const mathChapter = repositories.subjectChapters.createChapter({
+      subject_id: Number(math.id),
+      title: '第一章 函数',
+    })
+
+    const task = repositories.studyTasks.createStudyTask({
+      title: '学习：第一章 函数',
+      type: 'focus',
+      subject_id: Number(math.id),
+      related_chapter_id: mathChapter.id,
+      planned_date: '2026-06-21',
+      source: 'manual',
+    })
+    expect(task.related_chapter_id).toBe(mathChapter.id)
+    expect(repositories.studyTasks.findStudyTasks({
+      planned_date: '2026-06-21',
+      related_chapter_id: mathChapter.id,
+    })).toEqual([expect.objectContaining({ id: task.id, related_chapter_id: mathChapter.id })])
+
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Missing chapter',
+      subject_id: Number(math.id),
+      related_chapter_id: 999,
+      planned_date: '2026-06-21',
+    })).toThrow('Chapter not found')
+    expect(() => repositories.studyTasks.createStudyTask({
+      title: 'Cross-subject chapter',
+      subject_id: Number(english.id),
+      related_chapter_id: mathChapter.id,
+      planned_date: '2026-06-21',
+    })).toThrow('Task subject must match chapter subject')
+    expect(() => repositories.studyTasks.updateStudyTask(task.id, { subject_id: Number(english.id) })).toThrow(
+      'Task subject must match chapter subject',
+    )
+
+    repositories.subjectChapters.deleteChapter(mathChapter.id)
+    expect(repositories.studyTasks.findStudyTasks({ planned_date: '2026-06-21' })).toEqual([
+      expect.objectContaining({ id: task.id, related_chapter_id: null }),
+    ])
     expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 

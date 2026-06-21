@@ -18,13 +18,23 @@ interface SubjectChapterPanelProps {
     color: string
     api: SubjectChaptersContextAPI
     onRefresh: () => Promise<void>
+    todayChapterTaskIds: Set<number>
+    onAddToToday: (chapter: SubjectChapter) => Promise<void>
 }
 
 interface PendingConversion {
     drafts: SubjectChapterDraft[]
 }
 
-export default function SubjectChapterPanel({ subject, chapters, color, api, onRefresh }: SubjectChapterPanelProps) {
+export default function SubjectChapterPanel({
+    subject,
+    chapters,
+    color,
+    api,
+    onRefresh,
+    todayChapterTaskIds,
+    onAddToToday,
+}: SubjectChapterPanelProps) {
     const [filter, setFilter] = useState<ChapterFilter>('all')
     const [singleTitle, setSingleTitle] = useState('')
     const [bulkText, setBulkText] = useState('')
@@ -125,6 +135,12 @@ export default function SubjectChapterPanel({ subject, chapters, color, api, onR
         await runAction(`toggle-${chapter.id}`, async () => {
             await api.toggleCompleted(chapter.id, !chapter.completed)
             await onRefresh()
+        })
+    }
+
+    const addToToday = async (chapter: SubjectChapter) => {
+        await runAction(`today-${chapter.id}`, async () => {
+            await onAddToToday(chapter)
         })
     }
 
@@ -414,6 +430,22 @@ export default function SubjectChapterPanel({ subject, chapters, color, api, onR
                                         )}
                                     </div>
                                 </div>
+                                {!chapter.completed && !editing && (
+                                    <div style={{ marginTop: 8, paddingLeft: 26 }}>
+                                        <button
+                                            type="button"
+                                            className="button button-secondary"
+                                            data-testid={todayChapterTaskIds.has(chapter.id)
+                                                ? `chapter-added-today-${chapter.id}`
+                                                : `chapter-add-today-${chapter.id}`}
+                                            disabled={!!pending || todayChapterTaskIds.has(chapter.id)}
+                                            onClick={() => void addToToday(chapter)}
+                                            style={{ minHeight: 32, padding: '4px 10px', borderRadius: 16, fontSize: 12 }}
+                                        >
+                                            {todayChapterTaskIds.has(chapter.id) ? '已加入今日任务' : '加入今日任务'}
+                                        </button>
+                                    </div>
+                                )}
                                 {chapter.completed && !editing && (
                                     <div className="text-xs" style={{ color: color, marginTop: 6, paddingLeft: 26 }}>
                                         <Check size={12} style={{ display: 'inline', marginRight: 4 }} />

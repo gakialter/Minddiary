@@ -173,23 +173,23 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 4 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(4)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4])
+  it('defines schema version 5 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(5)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 4', () => {
+  it('migrates a new database from user_version 0 to schema version 5', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(4)
+    expect(runDatabaseMigrations(database)).toBe(5)
 
-    expect(getUserVersion(database)).toBe(4)
-    expect(getDatabaseSchemaVersion(database)).toBe(4)
+    expect(getUserVersion(database)).toBe(5)
+    expect(getDatabaseSchemaVersion(database)).toBe(5)
     for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
@@ -201,12 +201,17 @@ describe('SQLite schema migrations', () => {
       'idx_pomodoro_task_id',
       'idx_mistakes_next_review',
       'idx_study_tasks_planned_date',
+      'idx_study_tasks_related_chapter_id',
     ]) {
       expect(indexExists(database, indexName)).toBe(true)
     }
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining(['image_path', 'answer_image_path']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['task_id']))
+    expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
+    expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: 'subject_chapters', from: 'related_chapter_id', to: 'id', on_delete: 'SET NULL' }),
+    ]))
     expect(getColumnNames(database, 'subject_chapters')).toEqual(expect.arrayContaining([
       'id',
       'subject_id',
@@ -241,7 +246,7 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(4)
+    expect(getUserVersion(database)).toBe(5)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
@@ -303,7 +308,7 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(4)
+    expect(getUserVersion(database)).toBe(5)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getTableCount(database, 'subject_chapters')).toBe(0)
   })
@@ -323,10 +328,10 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(2)
     expect(getColumnNames(database, 'pomodoro_sessions')).not.toContain('task_id')
 
-    expect(runDatabaseMigrations(database)).toBe(4)
-    expect(runDatabaseMigrations(database)).toBe(4)
+    expect(runDatabaseMigrations(database)).toBe(5)
+    expect(runDatabaseMigrations(database)).toBe(5)
 
-    expect(getUserVersion(database)).toBe(4)
+    expect(getUserVersion(database)).toBe(5)
     expect(indexExists(database, 'idx_pomodoro_task_id')).toBe(true)
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
@@ -337,13 +342,32 @@ describe('SQLite schema migrations', () => {
     expect(database.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
   })
 
-  it('rejects databases from newer schema versions without mutation', () => {
+  it('migrates schema version 4 tasks to nullable chapter attribution without backfill', () => {
     const database = createDatabase()
-    database.pragma('user_version = 5')
+    runDatabaseMigrations(database, { targetVersion: 4 })
+    const taskId = Number(database.prepare(`
+      INSERT INTO study_tasks (title, planned_date, status)
+      VALUES ('Existing task', '2026-06-21', 'todo')
+    `).run().lastInsertRowid)
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 5.*supported version 4/i)
+    expect(getColumnNames(database, 'study_tasks')).not.toContain('related_chapter_id')
+    expect(runDatabaseMigrations(database)).toBe(5)
 
     expect(getUserVersion(database)).toBe(5)
+    expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
+    expect(indexExists(database, 'idx_study_tasks_related_chapter_id')).toBe(true)
+    expect(database.prepare('SELECT related_chapter_id FROM study_tasks WHERE id = ?').get(taskId)).toEqual({
+      related_chapter_id: null,
+    })
+  })
+
+  it('rejects databases from newer schema versions without mutation', () => {
+    const database = createDatabase()
+    database.pragma('user_version = 6')
+
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 6.*supported version 5/i)
+
+    expect(getUserVersion(database)).toBe(6)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -378,7 +402,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 4', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 5', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -388,11 +412,12 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(4)
-    expect(getUserVersion(database)).toBe(4)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(5)
+    expect(getUserVersion(database)).toBe(5)
     expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
     expect(getColumnNames(database, 'pomodoro_sessions')).toContain('task_id')
     expect(tableExists(database, 'subject_chapters')).toBe(true)
+    expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
@@ -401,17 +426,17 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 5')
+    seed.pragma('user_version = 6')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 5.*supported version 4/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 6.*supported version 5/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(5)
+    expect(getUserVersion(reopened)).toBe(6)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
@@ -431,9 +456,9 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(4)
+    expect(CURRENT_SCHEMA_VERSION).toBe(5)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 4')
+    expect(zipText).toContain('"schemaVersion": 5')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
 
@@ -470,9 +495,22 @@ describe('backup schema version consistency', () => {
         subject_id: 1,
         related_mistake_id: null,
         related_entry_id: 1,
+        related_chapter_id: 21,
         planned_date: '2026-06-12',
         estimate_minutes: 25,
         status: 'doing',
+        source: 'manual',
+      }, {
+        id: 8,
+        title: 'Legacy task without chapter attribution',
+        description: '',
+        type: 'custom',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        planned_date: '2026-06-12',
+        estimate_minutes: 15,
+        status: 'todo',
         source: 'manual',
       }],
       pomodoro_sessions: [
@@ -506,6 +544,14 @@ describe('backup schema version consistency', () => {
     ])
     expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     expect(database.prepare(`
+      SELECT id, related_chapter_id
+      FROM study_tasks
+      ORDER BY id
+    `).all()).toEqual([
+      { id: 7, related_chapter_id: 21 },
+      { id: 8, related_chapter_id: null },
+    ])
+    expect(database.prepare(`
       SELECT id, subject_id, title, notes, completed, sort_order
       FROM subject_chapters
     `).all()).toEqual([
@@ -525,5 +571,9 @@ describe('backup schema version consistency', () => {
     expect(databaseModule.exportBackupData().subject_chapters).toEqual([
       expect.objectContaining({ id: 21, subject_id: 1, title: '第一章 函数', completed: 1 }),
     ])
+    expect(databaseModule.exportBackupData().study_tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 7, related_chapter_id: 21 }),
+      expect.objectContaining({ id: 8, related_chapter_id: null }),
+    ]))
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })

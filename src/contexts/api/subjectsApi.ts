@@ -47,6 +47,11 @@ export const createSubjectsApi = (
         }
         subjectsRef.current = subjectsRef.current.filter(s => s.id !== id)
         saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
+        const deletedChapterIds = new Set(
+            relatedRefs?.subjectChaptersRef?.current
+                .filter(chapter => chapter.subject_id === id)
+                .map(chapter => chapter.id) ?? [],
+        )
         if (relatedRefs?.subjectChaptersRef) {
             relatedRefs.subjectChaptersRef.current = relatedRefs.subjectChaptersRef.current.filter(chapter => chapter.subject_id !== id)
             saveToLocal(STORAGE_KEYS.SUBJECT_CHAPTERS, relatedRefs.subjectChaptersRef.current)
@@ -59,7 +64,13 @@ export const createSubjectsApi = (
         }
         if (relatedRefs?.tasksRef) {
             relatedRefs.tasksRef.current = relatedRefs.tasksRef.current.map(task => (
-                task.subject_id === id ? { ...task, subject_id: null } : task
+                task.subject_id === id || (task.related_chapter_id !== null && deletedChapterIds.has(task.related_chapter_id))
+                    ? {
+                        ...task,
+                        ...(task.subject_id === id ? { subject_id: null } : {}),
+                        related_chapter_id: null,
+                    }
+                    : task
             ))
             saveToLocal(STORAGE_KEYS.TASKS, relatedRefs.tasksRef.current)
         }

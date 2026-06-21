@@ -83,6 +83,7 @@ describe('IPC runtime payload validation', () => {
       subject_id: null,
       related_mistake_id: 12,
       related_entry_id: 18,
+      related_chapter_id: null,
       planned_date: '2026-06-03',
       estimate_minutes: 25,
       status: 'todo',
@@ -99,12 +100,32 @@ describe('IPC runtime payload validation', () => {
       status: ['todo', 'doing'],
       related_mistake_id: 12,
       related_entry_id: null,
+      related_chapter_id: 7,
     }
 
     expect(validateStudyTaskQueryPayload(query)).toBe(query)
     expect(() => validateStudyTaskQueryPayload({ ...query, title: 'not allowed' })).toThrow('unsupported field')
     expect(() => validateStudyTaskQueryPayload({ ...query, status: ['todo', 'blocked'] })).toThrow('task status[1] must be one of')
     expect(() => validateStudyTaskQueryPayload({ ...query, related_mistake_id: '12' })).toThrow('task related_mistake_id must be a positive integer')
+    expect(() => validateStudyTaskQueryPayload({ ...query, related_chapter_id: '7' })).toThrow('task related_chapter_id must be a positive integer')
+  })
+
+  it('accepts nullable chapter task attribution and rejects invalid chapter ids', () => {
+    const baseTask = { title: 'Chapter task', planned_date: '2026-06-21' }
+
+    expect(validateStudyTaskCreatePayload({ ...baseTask, related_chapter_id: 7 })).toEqual({
+      ...baseTask,
+      related_chapter_id: 7,
+    })
+    expect(validateStudyTaskCreatePayload({ ...baseTask, related_chapter_id: null })).toEqual({
+      ...baseTask,
+      related_chapter_id: null,
+    })
+    for (const invalid of ['7', -1, 0, 1.5]) {
+      expect(() => validateStudyTaskCreatePayload({ ...baseTask, related_chapter_id: invalid })).toThrow(
+        'task related_chapter_id must be a positive integer',
+      )
+    }
   })
 
   it('validates task focus start date keys', () => {

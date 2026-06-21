@@ -42,6 +42,7 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   subject_id: null,
   related_mistake_id: null,
   related_entry_id: null,
+  related_chapter_id: null,
   planned_date: '2026-05-31',
   estimate_minutes: 25,
   status: 'todo',
@@ -226,6 +227,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
         subject_id: null,
         related_mistake_id: 44,
         related_entry_id: null,
+        related_chapter_id: null,
         planned_date: '2026-05-31',
         estimate_minutes: 25,
         status: 'todo',
@@ -241,6 +243,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
         subject_id: null,
         related_mistake_id: null,
         related_entry_id: 1,
+        related_chapter_id: null,
         planned_date: '2026-05-31',
         estimate_minutes: 15,
         status: 'done',
@@ -260,6 +263,19 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('AI 建议')).toBeInTheDocument()
     expect(screen.getByText('关联错题 #44')).toBeInTheDocument()
     expect(screen.getByText('关联日记 #1')).toBeInTheDocument()
+  })
+
+  it('marks chapter-attributed tasks without changing ordinary task badges', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 1, title: '学习：Math · 第一章 函数', type: 'focus', related_chapter_id: 9 }),
+      makeTask({ id: 2, title: 'Ordinary focus', type: 'focus' }),
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByText('学习：Math · 第一章 函数')).toBeInTheDocument()
+    expect(screen.getAllByText('章节任务')).toHaveLength(1)
+    expect(screen.getByText('Ordinary focus')).toBeInTheDocument()
   })
 
   it('renders lightweight task focus loop metrics', async () => {

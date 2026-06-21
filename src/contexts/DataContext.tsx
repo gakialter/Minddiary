@@ -101,6 +101,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         load(STORAGE_KEYS.SUBJECTS, mockSubjects, subjectsRef)
         load(STORAGE_KEYS.SUBJECT_CHAPTERS, mockSubjectChapters, subjectChaptersRef)
         load(STORAGE_KEYS.TASKS, [], tasksRef)
+        const normalizedTasks = tasksRef.current.map(task => ({
+            ...task,
+            related_chapter_id: task.related_chapter_id ?? null,
+        }))
+        if (normalizedTasks.some((task, index) => task.related_chapter_id !== tasksRef.current[index]?.related_chapter_id)) {
+            tasksRef.current = normalizedTasks
+            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(normalizedTasks))
+        }
         load(STORAGE_KEYS.POMODORO_SESSIONS, [], pomodoroSessionsRef)
         return { initialized: true, initErrors }
     })
@@ -120,9 +128,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             pomodoroSessionsRef,
             subjectChaptersRef,
         }),
-        subjectChapters: createSubjectChaptersApi(subjectsRef, subjectChaptersRef, saveToLocal),
+        subjectChapters: createSubjectChaptersApi(subjectsRef, subjectChaptersRef, saveToLocal, tasksRef),
         pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
-        tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef),
+        tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef),
         dashboard: createDashboardApi(),
         todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef, tasksRef, pomodoroSessionsRef),
         exportUtil: createExportApi(),

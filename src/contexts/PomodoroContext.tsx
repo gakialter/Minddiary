@@ -100,6 +100,11 @@ const FALLBACK_ENTRIES_API = {
   update: async () => { throw new Error('Entries API unavailable') },
 }
 
+const FALLBACK_SUBJECT_CHAPTERS_API = {
+  getBySubject: async () => [],
+  toggleCompleted: async () => { throw new Error('Subject chapters API unavailable') },
+}
+
 const noopRequestDataRefresh = () => {}
 
 type PomodoroModeId = 'work' | 'custom' | 'short_break' | 'long_break' | 'stopwatch'
@@ -114,10 +119,14 @@ interface FocusTaskSettlement {
   dateKey: string
   completedAt: string
   settlementKey: string
+  relatedChapterId: number | null
+  chapterTitle: string | null
+  chapterCompleted: boolean
 }
 
 interface FocusTaskSettlementOptions {
   completeTask: boolean
+  completeChapter?: boolean
   reviewText: string
 }
 
@@ -360,6 +369,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   } = diary
   const tasksAPI = diary.tasks ?? FALLBACK_TASKS_API
   const entriesAPI = diary.entries ?? FALLBACK_ENTRIES_API
+  const subjectChaptersAPI = diary.subjectChapters ?? FALLBACK_SUBJECT_CHAPTERS_API
   const requestDataRefresh = typeof diary.requestDataRefresh === 'function' ? diary.requestDataRefresh : noopRequestDataRefresh
   const dataRefreshVersion = diary.dataRefreshVersion ?? 0
   const customWorkTime = (Number(settingsData?.pomodoroMinutes) || 25) * 60
@@ -436,19 +446,37 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setActiveTaskSnapshotState(task)
   }, [])
 
-  const buildTaskSettlement = useCallback((
+  const buildTaskSettlement = useCallback(async (
     taskId: number | null,
     duration: number,
     completedAt: Date,
     startedAt: Date,
     taskSnapshot: StudyTask | null = activeTaskSnapshotRef.current,
-  ): FocusTaskSettlement | null => {
+  ): Promise<FocusTaskSettlement | null> => {
     if (taskId === null) return null
     const task = taskSnapshot?.id === taskId
       ? taskSnapshot
       : todayTasksRef.current.find(candidate => candidate.id === taskId)
     if (!task) return null
     const dateKey = getLocalDateKey(startedAt)
+    let relatedChapterId = task.related_chapter_id ?? null
+    let chapterTitle: string | null = null
+    let chapterCompleted = false
+    if (relatedChapterId !== null && task.subject_id !== null) {
+      try {
+        const chapters = await subjectChaptersAPI.getBySubject(task.subject_id)
+        const chapter = (chapters || []).find(candidate => candidate.id === relatedChapterId)
+        if (chapter) {
+          chapterTitle = chapter.title
+          chapterCompleted = chapter.completed
+        } else {
+          relatedChapterId = null
+        }
+      } catch (error) {
+        logger.warn('Failed to resolve task chapter attribution:', error)
+        relatedChapterId = null
+      }
+    }
     return {
       id: task.id,
       title: task.title,
@@ -458,8 +486,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       dateKey,
       completedAt: toLocalDateTimeString(completedAt),
       settlementKey: `${task.id}:${startedAt.getTime()}:${completedAt.getTime()}:${duration}`,
+      relatedChapterId,
+      chapterTitle,
+      chapterCompleted,
     }
-  }, [getSubjectName])
+  }, [getSubjectName, subjectChaptersAPI])
 
   const endTimeRef = useRef<number | null>(null)
   const activeSessionRef = useRef(false)
@@ -471,6 +502,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const stopwatchElapsedBeforeRunRef = useRef(0)
   const stopwatchRunStartedAtRef = useRef<number | null>(null)
   const sessionSettlementInFlightRef = useRef(false)
+  const taskSettlementInFlightRef = useRef(false)
   const reviewSettlementKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -752,7 +784,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     return 'written'
   }, [entriesAPI, requestDataRefresh])
 
-  const settleFocusTask = useCallback(async ({ completeTask, reviewText }: FocusTaskSettlementOptions) => {
+  const settleFocusTask = useCallback(async ({ completeTask, completeChapter = false, reviewText }: FocusTaskSettlementOptions) => {
+    if (taskSettlementInFlightRef.current) return false
+    if (completeChapter && !completeTask) {
+      setAlertState(current => ({ ...current, settlementError: '完成章节时必须同时完成任务。' }))
+      return false
+    }
     const settlement = alertState.taskSettlement
     if (!settlement) {
       setAlertState(current => ({
@@ -765,6 +802,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       return true
     }
 
+    taskSettlementInFlightRef.current = true
     setAlertState(current => ({ ...current, settlementError: null, isSettlingTask: true }))
 
     try {
@@ -817,6 +855,19 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      if (
+        completeChapter
+        && settlement.relatedChapterId !== null
+        && latestTask.related_chapter_id === settlement.relatedChapterId
+        && latestTask.subject_id !== null
+      ) {
+        const chapters = await subjectChaptersAPI.getBySubject(latestTask.subject_id)
+        const chapter = (chapters || []).find(candidate => candidate.id === settlement.relatedChapterId)
+        if (chapter && !chapter.completed) {
+          await subjectChaptersAPI.toggleCompleted(chapter.id, true)
+        }
+      }
+
       const reviewResult = await appendFocusReviewToTodayEntry(settlement, reviewText)
       if (reviewResult === 'needs-entry-confirmation') {
         void loadTodayTasks(todayDateKeyRef.current)
@@ -843,12 +894,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : String(error)
       setAlertState(current => ({ ...current, settlementError: message, isSettlingTask: false }))
       return false
+    } finally {
+      taskSettlementInFlightRef.current = false
     }
   }, [
     alertState.taskSettlement,
     appendFocusReviewToTodayEntry,
     loadTodayTasks,
     requestDataRefresh,
+    subjectChaptersAPI,
     tasksAPI,
   ])
 
@@ -961,7 +1015,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           startedAt,
           completedAt,
         })
-        const taskSettlement = buildTaskSettlement(
+        const taskSettlement = await buildTaskSettlement(
           completedTaskId,
           Math.round(completedMode.time / 60),
           completedAt,
@@ -1382,7 +1436,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         startedAt,
         completedAt,
       })
-      const taskSettlement = buildTaskSettlement(
+      const taskSettlement = await buildTaskSettlement(
         completedTaskId,
         roundedMinutes,
         completedAt,
@@ -1475,7 +1529,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         startedAt,
         completedAt,
       })
-      const taskSettlement = buildTaskSettlement(
+      const taskSettlement = await buildTaskSettlement(
         completedTaskId,
         roundedMinutes,
         completedAt,

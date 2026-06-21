@@ -46,6 +46,7 @@ const task: StudyTask = {
   subject_id: 1,
   related_mistake_id: 12,
   related_entry_id: null,
+  related_chapter_id: null,
   planned_date: '2026-06-12',
   estimate_minutes: 10,
   status: 'todo',

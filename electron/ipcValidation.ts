@@ -198,6 +198,7 @@ function validateTaskFields(record: Record<string, unknown>, requireCreateFields
     validateOptionalNullablePositiveInteger(record, 'subject_id', 'task subject_id');
     validateOptionalNullablePositiveInteger(record, 'related_mistake_id', 'task related_mistake_id');
     validateOptionalNullablePositiveInteger(record, 'related_entry_id', 'task related_entry_id');
+    validateOptionalNullablePositiveInteger(record, 'related_chapter_id', 'task related_chapter_id');
     validateOptionalPositiveInteger(record, 'estimate_minutes', 'task estimate_minutes');
 }
 
@@ -276,6 +277,7 @@ export function validateStudyTaskQueryPayload(payload: unknown): StudyTaskQuery 
         'status',
         'related_mistake_id',
         'related_entry_id',
+        'related_chapter_id',
     ]);
     Object.keys(record).forEach(key => {
         if (!allowed.has(key)) {
@@ -295,6 +297,7 @@ export function validateStudyTaskQueryPayload(payload: unknown): StudyTaskQuery 
     }
     validateOptionalNullablePositiveInteger(record, 'related_mistake_id', 'task related_mistake_id');
     validateOptionalNullablePositiveInteger(record, 'related_entry_id', 'task related_entry_id');
+    validateOptionalNullablePositiveInteger(record, 'related_chapter_id', 'task related_chapter_id');
     return payload as StudyTaskQuery;
 }
 

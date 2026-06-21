@@ -29,6 +29,7 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   subject_id: 2,
   related_mistake_id: 12,
   related_entry_id: null,
+  related_chapter_id: null,
   planned_date: '2026-06-07',
   estimate_minutes: 10,
   status: 'todo',
