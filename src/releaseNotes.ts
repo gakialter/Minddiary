@@ -9,12 +9,12 @@ export interface LocalReleaseNotes {
  * release without GitHub access or a network connection.
  */
 export const CURRENT_RELEASE_NOTES: LocalReleaseNotes = {
-  version: '1.12.0',
+  version: '1.13.0',
   title: '本次更新',
   items: [
-    '未完成章节可以加入今日任务，并保留科目与章节来源。',
-    '章节任务完成专注后，可选择同时完成章节、仅完成任务或保持任务进行。',
-    '章节完成后会同步刷新科目进度，普通任务与普通专注流程保持不变。',
-    'SQLite schema 升级到 5，自动备份与恢复会保留章节任务关联。',
+    '今日首页升级为轻量今日执行入口。',
+    '新增确定性“推荐下一步”，优先继续进行中任务、章节任务和普通任务。',
+    '今日概览展示任务完成、专注时长、章节任务和日记状态。',
+    '新增今日复盘入口，普通 Dashboard 与 Pomodoro 流程保持兼容。',
   ],
 }

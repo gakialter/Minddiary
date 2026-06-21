@@ -8,20 +8,28 @@ import { TrustMetric } from './dashboard/TrustMetric'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
-import type { NewStudyTask, StudyTask, StudyTaskType } from '../types'
+import { usePomodoroActions, usePomodoroData, usePomodoroTimer } from '../contexts/PomodoroContext'
+import {
+  buildTodayExecutionSummary,
+  getNextTodayAction,
+  resolveTaskSourceLabels,
+} from '../utils/todayExecution'
+import type { NewStudyTask, StudyTask, StudyTaskType, Subject, SubjectChapter } from '../types'
 
 interface HomeDashboardProps {
   setActiveView: (view: string) => void
+  setSelectedDate?: (date: string) => void
   onMistakeFilterIntent?: (intent: 'due') => void
 }
 
-export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: HomeDashboardProps) {
+export default function HomeDashboard({ setActiveView, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
   const { data, loading, error } = useTodayStats()
   const {
     settingsData,
     tasks: tasksAPI,
     mistakes: mistakesAPI,
     subjects: subjectsAPI,
+    subjectChapters: subjectChaptersAPI,
     entries: entriesAPI,
     ai: aiAPI,
     requestDataRefresh,
@@ -29,8 +37,11 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   } = useDiary()
   const [showDetails, setShowDetails] = useState(false)
   const [tasks, setTasks] = useState<StudyTask[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [chaptersBySubject, setChaptersBySubject] = useState<Record<number, SubjectChapter[]>>({})
+  const [taskSourcesAvailable, setTaskSourcesAvailable] = useState(false)
   const [taskError, setTaskError] = useState<string | null>(null)
-  const [taskLoading, setTaskLoading] = useState(false)
+  const [taskLoading, setTaskLoading] = useState(true)
   const [taskMutating, setTaskMutating] = useState(false)
   const taskMutationLockedRef = useRef(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -39,20 +50,48 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
   const todayDate = useCurrentLocalDateKey()
+  const { hasActiveTimerSession } = usePomodoroTimer()
+  const { selectedTask: activePomodoroTask } = usePomodoroData()
+  const { selectFocusTask } = usePomodoroActions()
 
   const config = useDashboardMasterState(data)
+
+  const loadTaskSources = useCallback(async (todayTasks: StudyTask[]) => {
+    try {
+      const nextSubjects = await subjectsAPI.getAll()
+      const subjectIds = Array.from(new Set(
+        todayTasks
+          .filter(task => task.related_chapter_id !== null && task.subject_id !== null)
+          .map(task => task.subject_id)
+          .filter((subjectId): subjectId is number => subjectId !== null),
+      ))
+      const chapterEntries = await Promise.all(subjectIds.map(async subjectId => (
+        [subjectId, await subjectChaptersAPI.getBySubject(subjectId)] as const
+      )))
+
+      setSubjects(nextSubjects)
+      setChaptersBySubject(Object.fromEntries(chapterEntries))
+      setTaskSourcesAvailable(true)
+    } catch {
+      setSubjects([])
+      setChaptersBySubject({})
+      setTaskSourcesAvailable(false)
+    }
+  }, [subjectChaptersAPI, subjectsAPI])
 
   const loadTasks = useCallback(async () => {
     setTaskLoading(true)
     setTaskError(null)
     try {
-      setTasks(await tasksAPI.getByDate(todayDate))
+      const todayTasks = await tasksAPI.getByDate(todayDate)
+      setTasks(todayTasks)
+      await loadTaskSources(todayTasks)
     } catch (taskLoadError) {
       setTaskError(taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError))
     } finally {
       setTaskLoading(false)
     }
-  }, [tasksAPI, todayDate])
+  }, [loadTaskSources, tasksAPI, todayDate])
 
   useEffect(() => {
     void loadTasks()
@@ -137,6 +176,35 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
   const plannedTaskMinutes = tasks
     .filter(task => task.status !== 'skipped')
     .reduce((total, task) => total + task.estimate_minutes, 0)
+  const executionSummary = buildTodayExecutionSummary({
+    tasks,
+    focusMinutes: data.pomodoroToday.totalMinutes,
+    todayEntry: data.todayEntry,
+  })
+  const taskSourceLabels = taskSourcesAvailable
+    ? resolveTaskSourceLabels({ tasks, subjects, chaptersBySubject })
+    : {}
+  const hasIncompleteChapters = subjects.some(subject => (
+    (subject.total_chapters ?? 0) > (subject.completed_chapters ?? 0)
+  ))
+  const nextAction = getNextTodayAction({
+    tasks,
+    hasActivePomodoroSession: hasActiveTimerSession,
+    activeTask: activePomodoroTask,
+    hasIncompleteChapters,
+    diaryStatus: executionSummary.diaryStatus,
+  })
+  const recommendedTaskSource = nextAction.task ? taskSourceLabels[nextAction.task.id] : undefined
+  const diaryStatusLabel = executionSummary.diaryStatus === 'missing'
+    ? '未写'
+    : executionSummary.diaryStatus === 'draft'
+      ? '已有草稿'
+      : '已写'
+  const reviewActionLabel = executionSummary.diaryStatus === 'missing'
+    ? '写今日复盘'
+    : executionSummary.diaryStatus === 'draft'
+      ? '完善今日复盘'
+      : '继续写今日复盘'
 
   const handleCTA = () => {
     // Navigate based on the exact state logic Action intent
@@ -147,6 +215,28 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
     else if (config.type === 'B') setActiveView('pomodoro') // Steady -> focus
     else if (config.type === 'C') setActiveView('mistakes') // Digest needed -> review / edit
     else setActiveView('pomodoro') // Cold start -> focus to build up
+  }
+
+  const openTodayReview = () => {
+    setSelectedDate?.(todayDate)
+    setActiveView('editor')
+  }
+
+  const handleNextAction = () => {
+    if (nextAction.kind === 'active-focus') {
+      setActiveView('pomodoro')
+      return
+    }
+    if (nextAction.kind === 'task' && nextAction.task) {
+      selectFocusTask(nextAction.task.id)
+      setActiveView('pomodoro')
+      return
+    }
+    if (nextAction.kind === 'add-chapter') {
+      setActiveView('progress')
+      return
+    }
+    openTodayReview()
   }
 
   // Calculate generic exam countdown to inject into details
@@ -166,7 +256,100 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
     <div className="w-full min-h-full bg-transparent overflow-y-auto">
       <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
         <div className="space-y-6">
-          
+
+          <section
+            data-testid="today-execution-overview"
+            className="rounded-2xl p-5 md:p-6"
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+          >
+            <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>今日学习驾驶舱</p>
+                <h2 className="mt-1 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>今日概览</h2>
+              </div>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{todayDate}</p>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div data-testid="overview-tasks" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日任务</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {executionSummary.completedTasks} / {executionSummary.totalTasks}
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>已完成 / 总数</div>
+              </div>
+              <div data-testid="overview-focus" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日专注</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {executionSummary.focusMinutes} 分钟
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>全部专注会话</div>
+              </div>
+              <div data-testid="overview-chapters" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>章节推进</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>已完成 / 今日章节</div>
+              </div>
+              <div data-testid="overview-diary" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日复盘</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{diaryStatusLabel}</div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>按今日日记内容判断</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
+            <div
+              data-testid="next-today-action"
+              className="rounded-2xl p-5 md:p-6"
+              style={{ border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))', background: 'var(--bg-secondary)' }}
+            >
+              <div className="text-xs font-medium" style={{ color: 'var(--accent)' }}>推荐下一步</div>
+              <h2 className="mt-2 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{nextAction.title}</h2>
+              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{nextAction.reason}</p>
+              {nextAction.task && (
+                <div className="mt-3 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <span>{nextAction.task.status} · 预计 {nextAction.task.estimate_minutes} 分钟</span>
+                  <span data-testid="next-action-source">
+                    来源：{recommendedTaskSource?.label ?? '今日任务'}
+                  </span>
+                </div>
+              )}
+              <button
+                type="button"
+                data-testid="next-today-action-cta"
+                className="button button-primary mt-4"
+                disabled={taskLoading || Boolean(taskError)}
+                onClick={handleNextAction}
+                style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
+              >
+                {nextAction.actionLabel}
+              </button>
+            </div>
+
+            <div
+              data-testid="today-review-entry"
+              className="rounded-2xl p-5 md:p-6"
+              style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+            >
+              <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>今日复盘</div>
+              <h2 className="mt-2 text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{reviewActionLabel}</h2>
+              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
+                回到今天的日记，记录收获、问题和明日第一步。
+              </p>
+              <button
+                type="button"
+                data-testid="today-review-cta"
+                className="button button-secondary mt-4"
+                onClick={openTodayReview}
+                style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
+              >
+                {reviewActionLabel}
+              </button>
+            </div>
+          </section>
+
           <CommanderHero config={config} onActionClick={handleCTA} />
 
           <section className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
@@ -389,12 +572,23 @@ export default function HomeDashboard({ setActiveView, onMistakeFilterIntent }: 
                         </span>
                       )}
                       {task.related_chapter_id !== null && (
-                        <span
-                          className="rounded-full px-2 py-0.5 text-xs"
-                          style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
-                        >
-                          章节任务
-                        </span>
+                        <>
+                          <span
+                            className="rounded-full px-2 py-0.5 text-xs"
+                            style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
+                          >
+                            章节任务
+                          </span>
+                          {taskSourceLabels[task.id] && (
+                            <span
+                              data-testid={`task-source-${task.id}`}
+                              className="text-xs"
+                              style={{ color: taskSourceLabels[task.id]?.missingChapter ? 'var(--warning)' : 'var(--text-secondary)' }}
+                            >
+                              {taskSourceLabels[task.id]?.label}
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                     {task.description && (

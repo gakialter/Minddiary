@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -36,6 +36,12 @@ describe('VIEW_CONFIG', () => {
       expect(VIEW_CONFIG).toHaveProperty(view)
       expect(typeof VIEW_CONFIG[view]?.render).toBe('function')
     }
+  })
+
+  it('labels the default home view as 今日执行', () => {
+    render(<>{VIEW_CONFIG.home?.title}</>)
+
+    expect(screen.getByText('今日执行')).toBeInTheDocument()
   })
 })
 

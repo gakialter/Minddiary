@@ -17,7 +17,7 @@ interface NavItem {
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
   const navItems: NavItem[] = [
-    { id: 'home', icon: <Home size={20} />, label: '今日决策' },
+    { id: 'home', icon: <Home size={20} />, label: '今日执行' },
     { id: 'editor', icon: <PenLine size={20} />, label: '写日记' },
     { id: 'calendar', icon: <Calendar size={20} />, label: '日历' },
     { id: 'dashboard', icon: <BarChart2 size={20} />, label: '数据统计' },

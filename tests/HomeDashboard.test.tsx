@@ -17,6 +17,21 @@ const mockTasksComplete = vi.fn()
 const mockTasksSkip = vi.fn()
 const mockTasksDelete = vi.fn()
 const mockMistakesGetAll = vi.fn()
+const mockSubjectsGetAll = vi.fn()
+const mockSubjectChaptersGetBySubject = vi.fn()
+const mockSetSelectedDate = vi.fn()
+
+const pomodoroMocks = vi.hoisted(() => ({
+  timer: { hasActiveTimerSession: false },
+  data: { selectedTask: null as StudyTask | null },
+  selectFocusTask: vi.fn(),
+}))
+
+vi.mock('../src/contexts/PomodoroContext', () => ({
+  usePomodoroTimer: () => pomodoroMocks.timer,
+  usePomodoroData: () => pomodoroMocks.data,
+  usePomodoroActions: () => ({ selectFocusTask: pomodoroMocks.selectFocusTask }),
+}))
 let mockHookState: {
   data: TodayDashboardData
   loading: boolean
@@ -126,6 +141,10 @@ describe('HomeDashboard Component - Commander Engine', () => {
     mockTasksSkip.mockResolvedValue({ id: 2, status: 'skipped' })
     mockTasksDelete.mockResolvedValue(true)
     mockMistakesGetAll.mockResolvedValue({ data: [makeMistake()], total: 1 })
+    mockSubjectsGetAll.mockResolvedValue([])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([])
+    pomodoroMocks.timer.hasActiveTimerSession = false
+    pomodoroMocks.data.selectedTask = null
     mockUseDiary.mockReturnValue({
       settingsData: { examDate: '2026-12-25' },
       tasks: {
@@ -139,6 +158,12 @@ describe('HomeDashboard Component - Commander Engine', () => {
       },
       mistakes: {
         getAll: mockMistakesGetAll,
+      },
+      subjects: {
+        getAll: mockSubjectsGetAll,
+      },
+      subjectChapters: {
+        getBySubject: mockSubjectChaptersGetBySubject,
       },
       requestDataRefresh: mockRequestDataRefresh,
     })
@@ -215,6 +240,173 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
     expect(mockMistakeFilterIntent).toHaveBeenCalledWith('due')
     expect(mockSetActiveView).toHaveBeenCalledWith('mistakes')
+  })
+
+  it('renders the today execution overview with task, focus, chapter, and diary status', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 1, status: 'done', related_chapter_id: 10, subject_id: 7 }),
+      makeTask({ id: 2, status: 'todo', related_chapter_id: 11, subject_id: 7 }),
+      makeTask({ id: 3, status: 'skipped' }),
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    const overview = await screen.findByTestId('today-execution-overview')
+    expect(overview).toHaveTextContent('今日概览')
+    expect(screen.getByTestId('overview-tasks')).toHaveTextContent('1 / 3')
+    expect(screen.getByTestId('overview-focus')).toHaveTextContent('45 分钟')
+    expect(screen.getByTestId('overview-chapters')).toHaveTextContent('1 / 2')
+    expect(screen.getByTestId('overview-diary')).toHaveTextContent('已写')
+  })
+
+  it('recommends a doing task before chapter and ordinary todos', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 1, title: '普通待办' }),
+      makeTask({ id: 2, title: '章节待办', related_chapter_id: 20, subject_id: 7 }),
+      makeTask({ id: 3, title: '进行中的任务', status: 'doing' }),
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    const recommendation = await screen.findByTestId('next-today-action')
+    expect(recommendation).toHaveTextContent('继续：进行中的任务')
+    expect(recommendation).toHaveTextContent('该任务已经开始，优先完成现有闭环。')
+  })
+
+  it('recommends a chapter todo and shows its stable subject and chapter source', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 1, title: '普通待办' }),
+      makeTask({ id: 2, title: '任意章节任务标题', subject_id: 7, related_chapter_id: 70 }),
+    ])
+    mockSubjectsGetAll.mockResolvedValue([
+      { id: 7, name: '数学', color: '#2563eb', total_chapters: 2, completed_chapters: 0 },
+    ])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([
+      {
+        id: 70,
+        subject_id: 7,
+        title: '函数',
+        notes: '',
+        completed: false,
+        sort_order: 0,
+        created_at: '2026-05-31T00:00:00.000Z',
+        updated_at: '2026-05-31T00:00:00.000Z',
+      },
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    const recommendation = await screen.findByTestId('next-today-action')
+    await waitFor(() => expect(recommendation).toHaveTextContent('数学 · 函数'))
+    expect(recommendation).toHaveTextContent('推进章节：任意章节任务标题')
+    expect(screen.getByTestId('task-source-2')).toHaveTextContent('数学 · 函数')
+    expect(mockSubjectChaptersGetBySubject).toHaveBeenCalledWith(7)
+  })
+
+  it('recommends the first ordinary todo without rendering a chapter source', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 4, title: '普通任务一' }),
+      makeTask({ id: 5, title: '普通任务二' }),
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByTestId('next-today-action')).toHaveTextContent('开始：普通任务一')
+    expect(screen.queryByTestId('task-source-4')).not.toBeInTheDocument()
+    expect(screen.queryByText('章节已删除')).not.toBeInTheDocument()
+  })
+
+  it('degrades a missing chapter source safely without hiding the task', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 8, title: '保留任务标题', subject_id: 7, related_chapter_id: 999 }),
+    ])
+    mockSubjectsGetAll.mockResolvedValue([{ id: 7, name: '数学', color: '#2563eb' }])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByText('保留任务标题')).toBeInTheDocument()
+    expect(await screen.findByTestId('task-source-8')).toHaveTextContent('章节已删除')
+  })
+
+  it('selects a recommended task and opens Pomodoro without starting the timer', async () => {
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 12, title: '进入专注任务' })])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} setSelectedDate={mockSetSelectedDate} />)
+
+    fireEvent.click(await screen.findByTestId('next-today-action-cta'))
+
+    expect(pomodoroMocks.selectFocusTask).toHaveBeenCalledWith(12)
+    expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro')
+  })
+
+  it('returns to an active Pomodoro session without replacing its selected task', async () => {
+    pomodoroMocks.timer.hasActiveTimerSession = true
+    pomodoroMocks.data.selectedTask = makeTask({ id: 22, title: '当前专注任务', status: 'doing' })
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 12, title: '其他任务' })])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} setSelectedDate={mockSetSelectedDate} />)
+
+    const recommendation = await screen.findByTestId('next-today-action')
+    expect(recommendation).toHaveTextContent('返回当前专注：当前专注任务')
+    fireEvent.click(screen.getByTestId('next-today-action-cta'))
+
+    expect(pomodoroMocks.selectFocusTask).not.toHaveBeenCalled()
+    expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro')
+  })
+
+  it('opens today editor from the review recommendation after setting today date', async () => {
+    mockHookState = { data: EMPTY_DATA, loading: false, error: null, refresh: mockRefresh }
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 1, status: 'done' })])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} setSelectedDate={mockSetSelectedDate} />)
+
+    expect(await screen.findByTestId('next-today-action')).toHaveTextContent('写今日复盘')
+    fireEvent.click(screen.getByTestId('today-review-cta'))
+
+    expect(mockSetSelectedDate).toHaveBeenCalledWith('2026-05-31')
+    expect(mockSetActiveView).toHaveBeenCalledWith('editor')
+    expect(mockSetSelectedDate.mock.invocationCallOrder[0]!).toBeLessThan(mockSetActiveView.mock.invocationCallOrder[0]!)
+  })
+
+  it('opens subject progress when today has no tasks and unfinished chapters remain', async () => {
+    mockHookState = { data: EMPTY_DATA, loading: false, error: null, refresh: mockRefresh }
+    mockSubjectsGetAll.mockResolvedValue([
+      { id: 7, name: '数学', color: '#2563eb', total_chapters: 3, completed_chapters: 1 },
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} setSelectedDate={mockSetSelectedDate} />)
+
+    expect(await screen.findByTestId('next-today-action')).toHaveTextContent('选择一个章节开始推进')
+    fireEvent.click(screen.getByTestId('next-today-action-cta'))
+
+    expect(mockSetActiveView).toHaveBeenCalledWith('progress')
+  })
+
+  it('refreshes the overview after completing a task', async () => {
+    mockTasksGetByDate
+      .mockResolvedValueOnce([makeTask({ id: 31, title: '待完成任务' })])
+      .mockResolvedValueOnce([makeTask({ id: 31, title: '待完成任务', status: 'done' })])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByTestId('overview-tasks')).toHaveTextContent('0 / 1')
+    fireEvent.click(screen.getByTestId('task-complete-31'))
+
+    await waitFor(() => expect(screen.getByTestId('overview-tasks')).toHaveTextContent('1 / 1'))
+    expect(mockRequestDataRefresh).toHaveBeenCalled()
+  })
+
+  it('keeps tasks usable when chapter source loading fails', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 41, title: '来源加载失败任务', subject_id: 7, related_chapter_id: 70 }),
+    ])
+    mockSubjectsGetAll.mockRejectedValue(new Error('subjects unavailable'))
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByText('来源加载失败任务')).toBeInTheDocument()
+    expect(screen.getByTestId('task-complete-41')).toBeEnabled()
   })
 
   it('renders today action queue with task statuses', async () => {
