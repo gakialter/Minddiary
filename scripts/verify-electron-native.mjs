@@ -1,0 +1,95 @@
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const require = createRequire(import.meta.url)
+const electronPath = require('electron')
+const scriptPath = fileURLToPath(import.meta.url)
+const probeFlag = '--probe-electron-native'
+const binaryFlag = '--native-binary'
+
+function findNativeBinaries(root) {
+  const matches = []
+  const pending = [root]
+
+  while (pending.length > 0) {
+    const current = pending.pop()
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        pending.push(fullPath)
+      } else if (entry.name === 'better_sqlite3.node') {
+        matches.push(fullPath)
+      }
+    }
+  }
+
+  return matches.sort()
+}
+
+function runElectronProbe(extraArgs = []) {
+  const result = spawnSync(electronPath, [scriptPath, probeFlag, ...extraArgs], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+    },
+  })
+
+  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.stderr) process.stderr.write(result.stderr)
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Electron native dependency probe exited with code ${result.status}`)
+  }
+}
+
+if (process.argv.includes(probeFlag)) {
+  try {
+    const binaryIndex = process.argv.indexOf(binaryFlag)
+    if (binaryIndex >= 0) {
+      const binaryPath = process.argv[binaryIndex + 1]
+      if (!binaryPath) throw new Error(`${binaryFlag} requires a path`)
+      require(path.resolve(binaryPath))
+    } else {
+      const BetterSqlite3 = require('better-sqlite3')
+      const database = new BetterSqlite3(':memory:')
+      const row = database.prepare('SELECT 1 AS value').get()
+      database.close()
+      if (row?.value !== 1) throw new Error('better-sqlite3 probe query failed')
+    }
+
+    process.stdout.write(JSON.stringify({
+      electron: process.versions.electron,
+      moduleAbi: process.versions.modules,
+    }) + '\n')
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(1)
+  }
+} else {
+  const releaseDirIndex = process.argv.indexOf('--release-dir')
+  if (releaseDirIndex >= 0) {
+    const releaseDir = process.argv[releaseDirIndex + 1]
+    if (!releaseDir) throw new Error('--release-dir requires a path')
+    const resolvedReleaseDir = path.resolve(releaseDir)
+    if (!fs.existsSync(resolvedReleaseDir)) {
+      throw new Error(`Release directory does not exist: ${resolvedReleaseDir}`)
+    }
+
+    const nativeBinaries = findNativeBinaries(resolvedReleaseDir)
+    if (nativeBinaries.length === 0) {
+      throw new Error(`No packaged better_sqlite3.node found in ${resolvedReleaseDir}`)
+    }
+
+    for (const nativeBinary of nativeBinaries) {
+      runElectronProbe([binaryFlag, nativeBinary])
+    }
+    console.log(`Verified ${nativeBinaries.length} packaged better-sqlite3 binary/binaries for Electron.`)
+  } else {
+    runElectronProbe()
+    console.log('Verified better-sqlite3 against the Electron runtime.')
+  }
+}

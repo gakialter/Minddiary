@@ -65,3 +65,19 @@ jobs:
 
       - name: Prepare build resources
         run: npm run build:resources
+
+      - name: Rebuild native dependencies for Electron
+        if: matrix.os == 'windows-latest'
+        run: npm run rebuild:electron
+
+      - name: Verify Electron native dependencies
+        if: matrix.os == 'windows-latest'
+        run: npm run verify:electron-native
+
+      - name: Package Windows app for native verification
+        if: matrix.os == 'windows-latest'
+        run: npx electron-builder --dir --win --x64 --publish never
+
+      - name: Verify packaged Electron native dependencies
+        if: matrix.os == 'windows-latest'
+        run: npm run verify:electron-native:packaged

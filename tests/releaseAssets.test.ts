@@ -104,4 +104,46 @@ describe('release asset allowlist', () => {
     expect(workflow).not.toContain('release/**/*.exe')
     expect(workflow).not.toContain('release-artifacts/**/*.exe')
   })
+
+  it('rebuilds and verifies better-sqlite3 for Electron before packaging', () => {
+    const packageJson = JSON.parse(fs.readFileSync(
+      path.resolve(process.cwd(), 'package.json'),
+      'utf8',
+    )) as {
+      scripts: Record<string, string>
+      devDependencies: Record<string, string>
+    }
+    const ciWorkflow = fs.readFileSync(
+      path.resolve(process.cwd(), '.github/workflows/ci.yml'),
+      'utf8',
+    )
+    const releaseWorkflow = fs.readFileSync(
+      path.resolve(process.cwd(), '.github/workflows/release.yml'),
+      'utf8',
+    )
+
+    expect(packageJson.devDependencies['@electron/rebuild']).toBeDefined()
+    expect(packageJson.scripts['rebuild:electron'])
+      .toBe('electron-rebuild -f -w better-sqlite3')
+    expect(packageJson.scripts['verify:electron-native'])
+      .toBe('node scripts/verify-electron-native.mjs')
+    expect(packageJson.scripts['verify:electron-native:packaged'])
+      .toBe('node scripts/verify-electron-native.mjs --release-dir release')
+
+    for (const scriptName of ['build', 'build:win', 'build:mac']) {
+      expect(packageJson.scripts[scriptName]).toMatch(
+        /npm run rebuild:electron && npm run verify:electron-native && electron-builder/,
+      )
+      expect(packageJson.scripts[scriptName]).toMatch(
+        /electron-builder(?: --(?:win|mac))? && npm run verify:electron-native:packaged$/,
+      )
+    }
+
+    expect(ciWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(1)
+    expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(1)
+    expect(releaseWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(1)
+    expect(releaseWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(1)
+  })
 })
