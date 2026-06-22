@@ -35,11 +35,15 @@ MindDiary v1.13.0 汇总了自 v1.11.3 以来的章节任务闭环和今日执�
 - Windows Setup、Portable 和 packaged `better-sqlite3` Electron ABI 132 本地构建校验通过。
 - PR #110、PR #111 以及当前 main CI 检查通过.
 
+## Windows 安装包说明
+
+- 本版本不声明 Windows 安装包已经代码签名。
+- 如果发布资产未配置代码签名，Windows 可能显示 Unknown Publisher，或触发 Windows SmartScreen。
+
 ## Known notes
 
 - 本版本使用 SQLite schema **5**，并包含 schema **4 → 5** upgrade。升级前建议保留最新自动 ZIP 备份。
 - 升级后的 schema 5 数据库不应使用只支持 schema 4 的旧版本直接打开。
-- 本发布说明不声明 Windows 安装包已经代码签名。未签名资产可能显示 Unknown Publisher 或触发 Windows SmartScreen。
 - macOS 构建不声明已完成 Apple notarization。
 - 不声明 macOS Gatekeeper 人工验收通过；该结论必须基于正式 DMG/ZIP 的后续真实验收。
 - Windows Setup、Windows Portable、macOS DMG 和 ZIP 的正式人工启动结果应在发布资产生成后记录。
