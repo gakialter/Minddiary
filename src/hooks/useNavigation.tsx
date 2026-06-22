@@ -56,10 +56,11 @@ interface ViewConfig {
  */
 export const VIEW_CONFIG: Record<string, ViewConfig> = {
   home: {
-    title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Home size={22} style={{ color: 'var(--accent)' }} /> 今日决策</span>,
+    title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Home size={22} style={{ color: 'var(--accent)' }} /> 今日执行</span>,
     render: (props) => (
       <HomeDashboard
         setActiveView={props.setActiveView}
+        setSelectedDate={props.setSelectedDate}
         onMistakeFilterIntent={props.onMistakeFilterIntent}
       />
     ),
