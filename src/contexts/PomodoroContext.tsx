@@ -1119,6 +1119,35 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             startedAt,
             completedAt,
           })
+          try {
+            const duration = Math.round(restore.session.modeTime / 60)
+            const taskSettlement = await buildTaskSettlement(
+              resolvedTask.taskId,
+              duration,
+              completedAt,
+              startedAt,
+              resolvedTask.task,
+            )
+            if (!taskSettlement) return
+
+            const alertDateKey = getLocalDateKey(startedAt)
+            const newTotal = await pomodoroAPI.getDailyTotal(alertDateKey).catch(() => todayTotal)
+            setAlertState({
+              visible: true,
+              isWorkComplete: true,
+              completionKind: 'completed',
+              duration,
+              todayTotal: newTotal,
+              showSettlementActions: true,
+              subjectName: getSubjectName(restore.session.selectedSubject),
+              taskSettlement,
+              settlementError: null,
+              isSettlingTask: false,
+              pendingReviewEntryCreation: null,
+            })
+          } catch (error) {
+            logger.warn('Failed to show restored expired focus settlement:', error)
+          }
         })().catch(error => logger.error(error))
       }
       return
@@ -1174,9 +1203,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     buildTaskSettlement,
     clearActiveSessionState,
     dynamicModes,
+    getSubjectName,
+    pomodoroAPI,
     resolveSessionTask,
     setActiveTaskSnapshot,
     setIdleMode,
+    todayTotal,
   ])
 
   // Main Timer Loop
