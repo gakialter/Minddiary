@@ -500,14 +500,103 @@ describe('PomodoroContext', () => {
     expect(second.result.current.timer.isRunning).toBe(false)
   })
 
-  it('completes a recently expired running work session during reload only once', async () => {
+  it('restores settlement for a bound recently expired work session only once', async () => {
+    vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
+    const task = makeStudyTask({ related_chapter_id: 9 })
+    const doingTask = makeStudyTask({ related_chapter_id: 9, status: 'doing' })
+    const chapter: SubjectChapter = {
+      id: 9,
+      subject_id: 1,
+      title: '第一章 函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    }
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue(doingTask)
+    mocks.tasksComplete.mockResolvedValue(makeStudyTask({ related_chapter_id: 9, status: 'done' }))
+    mocks.chaptersGetBySubject.mockResolvedValue([chapter])
+    mocks.entriesGetByDate.mockResolvedValue({
+      id: 7,
+      date: '2026-05-05',
+      title: 'Today',
+      content: 'Existing note',
+      mood: 'calm',
+      created_at: '2026-05-05T00:00:00.000Z',
+      updated_at: '2026-05-05T00:00:00.000Z',
+    })
+    const first = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await act(async () => {
+      first.result.current.actions.selectFocusTask(task.id)
+    })
+
+    await act(async () => {
+      await first.result.current.actions.toggleTimer()
+    })
+
+    first.unmount()
+
+    await act(async () => {
+      vi.advanceTimersByTime(25 * 60 * 1000 + 5_000)
+    })
+
+    mocks.tasksGetByDate.mockResolvedValue([doingTask])
+    const second = renderPomodoroHook()
+    await flushAsyncWork()
+
+    await waitForExpect(() => {
+      expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+      expect(second.result.current.data.alertState.visible).toBe(true)
+      expect(second.result.current.data.alertState.taskSettlement).toEqual(expect.objectContaining({
+        id: task.id,
+        duration: 25,
+        relatedChapterId: chapter.id,
+      }))
+    })
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1,
+      task_id: task.id,
+      duration: 25,
+      date_key: '2026-05-05',
+      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
+      completed_at: expect.stringMatching(/^2026-05-05 08:25:/),
+    }))
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+    expect(second.result.current.timer.mode.id).toBe('short_break')
+    expect(second.result.current.timer.isRunning).toBe(false)
+
+    await act(async () => {
+      await second.result.current.actions.settleFocusTask({
+        completeTask: true,
+        completeChapter: true,
+        reviewText: 'Recovered after restart.',
+      })
+    })
+
+    expect(mocks.tasksComplete).toHaveBeenCalledWith(task.id)
+    expect(mocks.chaptersToggleCompleted).toHaveBeenCalledWith(chapter.id, true)
+
+    second.unmount()
+    const third = renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
+    expect(third.result.current.timer.mode.id).toBe('work')
+    expect(third.result.current.timer.isRunning).toBe(false)
+  })
+
+  it('restores an unbound recently expired work session without task settlement', async () => {
     vi.setSystemTime(new Date(2026, 4, 5, 8, 0, 0))
     const first = renderPomodoroHook()
 
     await act(async () => {
-      first.result.current.actions.toggleTimer()
+      await first.result.current.actions.toggleTimer()
     })
-
     first.unmount()
 
     await act(async () => {
@@ -520,17 +609,13 @@ describe('PomodoroContext', () => {
     await waitForExpect(() => {
       expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
     })
-
     expect(mocks.pomodoroAddSession).toHaveBeenCalledWith(expect.objectContaining({
-      subject_id: null,
+      task_id: null,
       duration: 25,
       date_key: '2026-05-05',
-      started_at: expect.stringMatching(/^2026-05-05 08:00:/),
-      completed_at: expect.stringMatching(/^2026-05-05 08:25:/),
     }))
-    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
-    expect(second.result.current.timer.mode.id).toBe('short_break')
-    expect(second.result.current.timer.isRunning).toBe(false)
+    expect(second.result.current.data.alertState.visible).toBe(false)
+    expect(second.result.current.data.alertState.taskSettlement).toBeNull()
 
     second.unmount()
     const third = renderPomodoroHook()
@@ -538,7 +623,6 @@ describe('PomodoroContext', () => {
 
     expect(mocks.pomodoroAddSession).toHaveBeenCalledTimes(1)
     expect(third.result.current.timer.mode.id).toBe('work')
-    expect(third.result.current.timer.isRunning).toBe(false)
   })
 
   it('discards a stale active session without recording it', async () => {
