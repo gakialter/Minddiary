@@ -349,16 +349,38 @@ describe('SQLite schema migrations', () => {
       INSERT INTO study_tasks (title, planned_date, status)
       VALUES ('Existing task', '2026-06-21', 'todo')
     `).run().lastInsertRowid)
+    const originalTask = database.prepare(`
+      SELECT title, planned_date, status
+      FROM study_tasks
+      WHERE id = ?
+    `).get(taskId) as { title: string; planned_date: string; status: string }
 
     expect(getColumnNames(database, 'study_tasks')).not.toContain('related_chapter_id')
+    expect(runDatabaseMigrations(database)).toBe(5)
     expect(runDatabaseMigrations(database)).toBe(5)
 
     expect(getUserVersion(database)).toBe(5)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(indexExists(database, 'idx_study_tasks_related_chapter_id')).toBe(true)
-    expect(database.prepare('SELECT related_chapter_id FROM study_tasks WHERE id = ?').get(taskId)).toEqual({
+    expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: 'subject_chapters',
+          from: 'related_chapter_id',
+          to: 'id',
+          on_delete: 'SET NULL',
+        }),
+      ]),
+    )
+    expect(database.prepare(`
+      SELECT title, planned_date, status, related_chapter_id
+      FROM study_tasks
+      WHERE id = ?
+    `).get(taskId)).toEqual({
+      ...originalTask,
       related_chapter_id: null,
     })
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
   it('rejects databases from newer schema versions without mutation', () => {
