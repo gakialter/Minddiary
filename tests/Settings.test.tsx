@@ -321,15 +321,15 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.13.0 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.13.1 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.13.0')).toBeInTheDocument()
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('今日首页升级为轻量今日执行入口')
+    expect(screen.getByText('v1.13.1')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('错题本图片上传与保存稳定性')
   })
 
   it('shows remote release notes and release date when an update is available', async () => {

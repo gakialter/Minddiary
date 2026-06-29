@@ -9,12 +9,12 @@ export interface LocalReleaseNotes {
  * release without GitHub access or a network connection.
  */
 export const CURRENT_RELEASE_NOTES: LocalReleaseNotes = {
-  version: '1.13.0',
+  version: '1.13.1',
   title: '本次更新',
   items: [
-    '今日首页升级为轻量今日执行入口。',
-    '新增确定性“推荐下一步”，优先继续进行中任务、章节任务和普通任务。',
-    '今日概览展示任务完成、专注时长、章节任务和日记状态。',
-    '新增今日复盘入口，普通 Dashboard 与 Pomodoro 流程保持兼容。',
+    '补强 v1.13.0 章节任务 parity audit 与回归覆盖。',
+    '强化 schema 4 → 5 迁移断言与兼容性验证，schema 仍为 5。',
+    'README 与 release checklist 已同步到 v1.13.0 / schema 5 基线。',
+    '修复 #114 错题本图片上传与保存稳定性。',
   ],
 }
