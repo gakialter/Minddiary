@@ -1,5 +1,7 @@
 # MindDiary v1.9.9 → v2.0 分阶段任务拆分计划
 
+> 历史说明（2026-06-29）：本文保留 v1.11.x 时点的任务拆分，不再作为当前版本或 schema 基线；当前路线请见 [MindDiary v1.13.x to v2.0 Roadmap](./roadmap/minddiary-v1.13.x-to-v2.0-roadmap.md)。
+
 > 基线版本：v1.11.2
 > 基线 commit：`152450de6a5ff76fb73ac94b90435d5a910d8679`
 > 目标方向：v2.0 学习闭环系统
