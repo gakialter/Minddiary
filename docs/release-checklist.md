@@ -7,7 +7,9 @@ This checklist separates CI build acceptance from manual installer acceptance fo
 - Confirm `package.json` and root `package-lock.json` have the intended version.
 - Confirm the pushed tag is exactly `v${package.json.version}`.
 - Confirm `RELEASE_NOTES.md` starts with `# MindDiary v${package.json.version}`.
-- Confirm `CURRENT_SCHEMA_VERSION` matches the release plan. v1.11.3 remains schema 4 and has no migration.
+- Confirm `CURRENT_SCHEMA_VERSION` matches the intended release baseline and `RELEASE_NOTES.md`; record explicitly whether the schema changed.
+- If the schema changed, verify new-database creation, every supported old-database upgrade, migration idempotency, browser fallback normalization, JSON import/export, and automatic backup/restore compatibility.
+- If the schema is unchanged, confirm no migration was added and current fallback plus backup/restore compatibility remains covered.
 - Confirm the bundled current-version notes match `RELEASE_NOTES.md` and `package.json`.
 - Confirm an available update shows remote notes when present and the fallback message when notes are absent.
 - Confirm browser fallback renders the bundled current-version notes without an Electron updater API.
@@ -86,6 +88,13 @@ CI does not install the Windows Setup package, launch Portable on a clean Window
 ## Manual Install Smoke Tests
 
 Run these during release acceptance after candidate artifacts exist. Record OS version, architecture, asset name, result, and any warning shown.
+
+Before publishing v1.13.1, also record one packaged chapter-task smoke against a candidate Windows Setup or Portable build:
+
+- Create a subject and detailed chapter, then add that chapter to today's tasks.
+- Confirm the dashboard recommends the chapter task and can start its Pomodoro flow.
+- Complete the Pomodoro settlement and confirm the task/chapter choices persist exactly once.
+- Delete a chapter that still has a task; confirm the task survives without chapter attribution and, when the database is inspected, `study_tasks.related_chapter_id` is `NULL`.
 
 1. Windows Setup — manual acceptance
    - Download `MindDiary-Setup-<version>.exe` from the candidate Release.
