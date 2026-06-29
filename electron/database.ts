@@ -521,6 +521,21 @@ async function cleanupRemovedMistakeImages(mistakeId: number, oldFields: Mistake
     }
 }
 
+async function discardUnreferencedMistakeImage(ref: string): Promise<{ success: true }> {
+    const targetKey = getMistakeImageReferenceKey(ref);
+    if (!targetKey) {
+        throw new Error('Invalid managed mistake image path');
+    }
+    const isReferenced = getRepositories().mistakes.getAllMistakeImageFields().some(fields => (
+        getMistakeImageRefs(fields).some(candidate => getMistakeImageReferenceKey(candidate) === targetKey)
+    ));
+    if (isReferenced) {
+        throw new Error('Mistake image is still referenced');
+    }
+    await deleteManagedMistakeImage(ref);
+    return { success: true };
+}
+
 async function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
     const hasImagePatch = image_path !== undefined || answer_image_path !== undefined;
     const previousImageFields = hasImagePatch
@@ -704,7 +719,7 @@ module.exports = {
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
     getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
-    getAllMistakes, createMistake, updateMistake, deleteMistake, toggleMistakeMastered,
+    getAllMistakes, createMistake, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
     setCustomDbPath, getDb,

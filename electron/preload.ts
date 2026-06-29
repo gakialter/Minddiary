@@ -167,6 +167,7 @@ contextBridge.exposeInMainWorld('api', {
         getDueCount: (date: string) => ipcRenderer.invoke('mistakes:getDueCount', date),
         getRandomDue: (date: string, subjectId?: number) => ipcRenderer.invoke('mistakes:getRandomDue', date, subjectId),
         saveImage: (data: { data: string; ext?: string; name?: string; mimetype?: string }) => ipcRenderer.invoke('mistakes:saveImage', data),
+        deleteImage: (filename: string) => ipcRenderer.invoke('mistakes:deleteImage', filename),
         getImagePath: (filename: string) => ipcRenderer.invoke('mistakes:getImagePath', filename),
     },
 

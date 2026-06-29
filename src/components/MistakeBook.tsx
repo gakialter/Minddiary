@@ -33,6 +33,24 @@ interface MistakeForm {
 
 type ImageRole = 'question' | 'answer'
 
+interface ImageUploadFailure {
+    id: number
+    role: ImageRole
+    filename: string
+    message: string
+}
+
+type ImageFormSaveOutcome = 'idle' | 'save_failed' | 'saved'
+type ImageFormState =
+    | 'idle'
+    | 'uploading'
+    | 'upload_failed'
+    | 'cleanup_in_flight'
+    | 'ready_to_save'
+    | 'saving'
+    | 'save_failed'
+    | 'saved'
+
 export type MistakeFilterIntent = 'due'
 
 interface MistakeBookProps {
@@ -63,6 +81,45 @@ const serializeImagePaths = (paths: string[]): string | null => {
 }
 
 const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
+const IMAGE_EXTENSION_BY_MIME: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/bmp': '.bmp',
+}
+const ALLOWED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
+
+const getSupportedImageExtension = (file: File): string | null => {
+    const mimetype = file.type.toLowerCase()
+    if (mimetype && !IMAGE_EXTENSION_BY_MIME[mimetype]) return null
+
+    const dotIndex = file.name.lastIndexOf('.')
+    const filenameExtension = dotIndex >= 0 ? file.name.slice(dotIndex).toLowerCase() : ''
+    if (!mimetype && !ALLOWED_IMAGE_EXTENSIONS.has(filenameExtension)) return null
+
+    return IMAGE_EXTENSION_BY_MIME[mimetype] || filenameExtension
+}
+
+const readFileAsBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error || new Error('Failed to read image file'))
+    reader.onabort = () => reject(new Error('Image file read was aborted'))
+    reader.onload = () => {
+        if (typeof reader.result !== 'string') {
+            reject(new Error('Invalid image file data'))
+            return
+        }
+        const separatorIndex = reader.result.indexOf(',')
+        const base64 = separatorIndex >= 0 ? reader.result.slice(separatorIndex + 1) : ''
+        if (!base64) {
+            reject(new Error('Empty image file data'))
+            return
+        }
+        resolve(base64)
+    }
+    reader.readAsDataURL(file)
+})
 
 export default function MistakeBook({ initialFilter = null, onInitialFilterApplied }: MistakeBookProps) {
     const diary = useDiary()
@@ -82,14 +139,41 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [showManualReview, setShowManualReview] = useState(false)
     const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
     const [editScrollRequest, setEditScrollRequest] = useState(0)
+    const [uploadingImageCount, setUploadingImageCount] = useState(0)
+    const [cleaningImageCount, setCleaningImageCount] = useState(0)
+    const [imageUploadFailures, setImageUploadFailures] = useState<ImageUploadFailure[]>([])
+    const [isSaving, setIsSaving] = useState(false)
+    const [saveOutcome, setSaveOutcome] = useState<ImageFormSaveOutcome>('idle')
     const PAGE_SIZE = 50
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const questionFileInputRef = useRef<HTMLInputElement>(null)
     const answerFileInputRef = useRef<HTMLInputElement>(null)
-    const formRef = useRef<HTMLDivElement>(null)
+    const formRef = useRef<HTMLFormElement>(null)
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
     const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
     const reviewInFlightIdsRef = useRef<Set<number>>(new Set())
+    const uploadInFlightRef = useRef(0)
+    const cleanupInFlightRef = useRef(0)
+    const imageUploadFailuresRef = useRef<ImageUploadFailure[]>([])
+    const nextImageUploadFailureIdRef = useRef(1)
+    const saveInFlightRef = useRef(false)
+    const pendingImagePathsRef = useRef<Set<string>>(new Set())
+
+    const imageFormState: ImageFormState = isSaving
+        ? 'saving'
+        : cleaningImageCount > 0
+            ? 'cleanup_in_flight'
+            : uploadingImageCount > 0
+                ? 'uploading'
+                : imageUploadFailures.length > 0
+                    ? 'upload_failed'
+                    : saveOutcome === 'save_failed'
+                        ? 'save_failed'
+                        : saveOutcome === 'saved'
+                            ? 'saved'
+                            : showForm
+                                ? 'ready_to_save'
+                                : 'idle'
 
     const handleNotesValueChange = useCallback((newValue: string) => {
         setForm(f => ({ ...f, notes: newValue }))
@@ -161,8 +245,88 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         } catch (e) { logger.error(e) }
     }
 
+    const replaceImageUploadFailures = (failures: ImageUploadFailure[]) => {
+        imageUploadFailuresRef.current = failures
+        setImageUploadFailures(failures)
+    }
+
+    const addImageUploadFailure = (file: File, role: ImageRole, message: string) => {
+        replaceImageUploadFailures([
+            ...imageUploadFailuresRef.current,
+            {
+                id: nextImageUploadFailureIdRef.current++,
+                role,
+                filename: file.name || '未命名图片',
+                message,
+            },
+        ])
+    }
+
+    const removeImageUploadFailure = (failureId: number) => {
+        replaceImageUploadFailures(imageUploadFailuresRef.current.filter(failure => failure.id !== failureId))
+    }
+
+    const clearImageUploadFailures = (role: ImageRole) => {
+        replaceImageUploadFailures(imageUploadFailuresRef.current.filter(failure => failure.role !== role))
+    }
+
+    const deletePendingImagePaths = async (paths: string[]): Promise<Set<string>> => {
+        const deleted = new Set<string>()
+        const uniquePaths = Array.from(new Set(paths.filter(path => pendingImagePathsRef.current.has(path))))
+        if (uniquePaths.length === 0) return deleted
+        if (!diary.mistakes.deleteImage) {
+            logger.error('Mistake image cleanup API is unavailable')
+            return deleted
+        }
+
+        cleanupInFlightRef.current += 1
+        setCleaningImageCount(cleanupInFlightRef.current)
+        try {
+            await Promise.all(uniquePaths.map(async imagePath => {
+                try {
+                    await diary.mistakes.deleteImage!(imagePath)
+                    pendingImagePathsRef.current.delete(imagePath)
+                    deleted.add(imagePath)
+                } catch (error) {
+                    logger.error('Failed to clean up pending mistake image:', error instanceof Error ? error.message : String(error))
+                }
+            }))
+        } finally {
+            cleanupInFlightRef.current = Math.max(0, cleanupInFlightRef.current - 1)
+            setCleaningImageCount(cleanupInFlightRef.current)
+        }
+        return deleted
+    }
+
+    const cleanupCurrentDraftImages = async (): Promise<boolean> => {
+        const pendingPaths = Array.from(pendingImagePathsRef.current)
+        const deleted = await deletePendingImagePaths(pendingPaths)
+        if (deleted.size !== pendingPaths.length) {
+            showToast('图片清理失败，请重试', 'error')
+            return false
+        }
+        return true
+    }
+
     const handleSubmit = async () => {
         if (!form.question.trim()) return
+        if (uploadInFlightRef.current > 0) {
+            showToast('请等待图片上传完成后再保存', 'error')
+            return
+        }
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
+        if (imageUploadFailuresRef.current.length > 0) {
+            showToast('图片上传失败，请移除失败项后重试', 'error')
+            return
+        }
+        if (saveInFlightRef.current) return
+
+        saveInFlightRef.current = true
+        setSaveOutcome('idle')
+        setIsSaving(true)
         try {
             const payload = {
                 subject_id: form.subject_id ? Number(form.subject_id) : null,
@@ -177,18 +341,46 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             } else {
                 await diary.mistakes.create(payload)
             }
+            pendingImagePathsRef.current.clear()
+            setSaveOutcome('saved')
             setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
             setShowForm(false)
             setEditingId(null)
             loadMistakes()
             showToast(editingId ? '修改已保存' : '已添加新的记录', 'success')
         } catch (e) {
+            setSaveOutcome('save_failed')
+            const pendingPaths = Array.from(pendingImagePathsRef.current)
+            const deletedPaths = await deletePendingImagePaths(pendingPaths)
+            if (deletedPaths.size > 0) {
+                setForm(current => ({
+                    ...current,
+                    question_image_paths: current.question_image_paths.filter(path => !deletedPaths.has(path)),
+                    answer_image_paths: current.answer_image_paths.filter(path => !deletedPaths.has(path)),
+                }))
+            }
             logger.error(e)
-            showToast('保存失败', 'error')
+            showToast(
+                deletedPaths.size === pendingPaths.length
+                    ? '保存错题失败，请重试'
+                    : '保存错题失败，图片清理未完成，请重试',
+                'error',
+            )
+        } finally {
+            saveInFlightRef.current = false
+            setIsSaving(false)
         }
     }
 
-    const handleEdit = (m: Mistake) => {
+    const handleEdit = async (m: Mistake) => {
+        if (uploadInFlightRef.current > 0 || saveInFlightRef.current) return
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
+        if (!await cleanupCurrentDraftImages()) return
+        replaceImageUploadFailures([])
+        setSaveOutcome('idle')
         setEditingId(m.id)
         setForm({
             subject_id: m.subject_id?.toString() || '',
@@ -209,49 +401,57 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     }
 
     const handleImageFile = async (file: File, role: ImageRole) => {
-        if (!file.type.startsWith('image/')) {
-            showToast(`文件 ${file.name} 不是图片，已拒绝上传`, 'error')
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
+        const extension = getSupportedImageExtension(file)
+        if (!extension) {
+            addImageUploadFailure(file, role, '不支持的图片格式')
+            showToast(`文件 ${file.name} 不是支持的图片格式，已拒绝上传`, 'error')
             return
         }
         if (file.size > MAX_IMAGE_FILE_BYTES) {
+            addImageUploadFailure(file, role, '图片文件过大，请选择 10MB 以内的文件')
             showToast(`图片 ${file.name} 超过 10MB，已拒绝上传`, 'error')
             return
         }
         if (!diary.mistakes.saveImage) {
+            addImageUploadFailure(file, role, '当前环境不支持图片上传')
+            showToast('当前环境不支持错题图片上传', 'error')
             return
         }
-        
+
+        uploadInFlightRef.current += 1
+        setUploadingImageCount(uploadInFlightRef.current)
         try {
-            const reader = new FileReader()
-            reader.onload = async (e) => {
-                try {
-                    const base64 = e.target?.result?.toString().split(',')[1]
-                    if (base64) {
-                        const ext = file.name ? file.name.substring(file.name.lastIndexOf('.')) : '.png'
-                        const filename = await diary.mistakes.saveImage!({
-                            data: base64,
-                            ext: ext || '.png',
-                            name: file.name,
-                            mimetype: file.type,
-                        })
-                        appendImagePath(role, filename)
-                        showToast('图片已上传', 'success')
-                    }
-                } catch (error) {
-                    logger.error('Failed to upload mistake image:', error instanceof Error ? error.message : String(error))
-                    showToast('图片上传失败', 'error')
-                }
+            const base64 = await readFileAsBase64(file)
+            const filename = await diary.mistakes.saveImage({
+                data: base64,
+                ext: extension,
+                name: file.name,
+                mimetype: file.type || undefined,
+            })
+            if (!filename || !filename.trim()) {
+                throw new Error('Image upload returned an empty path')
             }
-            reader.readAsDataURL(file)
-        } catch (e) {
-            logger.error('Failed to read mistake image:', e instanceof Error ? e.message : String(e))
-            showToast('图片上传失败', 'error')
+            pendingImagePathsRef.current.add(filename)
+            appendImagePath(role, filename)
+            showToast('图片已上传', 'success')
+        } catch (error) {
+            logger.error('Failed to upload mistake image:', error instanceof Error ? error.message : String(error))
+            addImageUploadFailure(file, role, '上传失败，请移除失败项后重试')
+            showToast(`图片 ${file.name || '未命名图片'} 上传失败，请移除失败项后重试`, 'error')
+        } finally {
+            uploadInFlightRef.current = Math.max(0, uploadInFlightRef.current - 1)
+            setUploadingImageCount(uploadInFlightRef.current)
         }
     }
 
     const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>, role: ImageRole) => {
         const files = Array.from(e.target.files || [])
-        files.forEach(file => handleImageFile(file, role))
+        if (files.length > 0) clearImageUploadFailures(role)
+        files.forEach(file => void handleImageFile(file, role))
         e.target.value = ''
     }
 
@@ -260,9 +460,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         const items = e.clipboardData.items
         for (let i = 0; i < items.length; i++) {
             const item = items[i]
-            if (item && item.type.startsWith('image/')) {
-                const file = item.getAsFile()
-                if (file) handleImageFile(file, role)
+            const file = item?.getAsFile()
+            if (file) {
+                clearImageUploadFailures(role)
+                void handleImageFile(file, role)
                 e.preventDefault()
                 break
             }
@@ -284,16 +485,67 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         setDraggingRole(null)
         if (!showForm || !e.dataTransfer || !e.dataTransfer.files) return
         const files = e.dataTransfer.files
+        if (files.length > 0) clearImageUploadFailures(role)
         for (let i = 0; i < files.length; i++) {
             const file = files.item(i)
-            if (file && file.type.startsWith('image/')) handleImageFile(file, role)
+            if (file) void handleImageFile(file, role)
         }
     }
 
-    const removeImagePath = (role: ImageRole, index: number) => {
-        setForm(f => role === 'question'
-            ? { ...f, question_image_paths: f.question_image_paths.filter((_, i) => i !== index) }
-            : { ...f, answer_image_paths: f.answer_image_paths.filter((_, i) => i !== index) })
+    const removeImagePath = async (role: ImageRole, index: number) => {
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
+        const rolePaths = role === 'question' ? form.question_image_paths : form.answer_image_paths
+        const imagePath = rolePaths[index]
+        if (!imagePath) return
+        const nextForm = role === 'question'
+            ? { ...form, question_image_paths: form.question_image_paths.filter((_, i) => i !== index) }
+            : { ...form, answer_image_paths: form.answer_image_paths.filter((_, i) => i !== index) }
+        setForm(nextForm)
+
+        const remainsReferenced = [...nextForm.question_image_paths, ...nextForm.answer_image_paths].includes(imagePath)
+        if (pendingImagePathsRef.current.has(imagePath) && !remainsReferenced) {
+            const deleted = await deletePendingImagePaths([imagePath])
+            if (!deleted.has(imagePath)) {
+                setForm(current => role === 'question'
+                    ? { ...current, question_image_paths: appendUniqueImagePath(current.question_image_paths, imagePath) }
+                    : { ...current, answer_image_paths: appendUniqueImagePath(current.answer_image_paths, imagePath) })
+                showToast('图片删除失败，请重试', 'error')
+            }
+        }
+    }
+
+    const handleCancelForm = async () => {
+        if (uploadInFlightRef.current > 0 || saveInFlightRef.current) return
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
+        const pendingPaths = Array.from(pendingImagePathsRef.current)
+        const deleted = await deletePendingImagePaths(pendingPaths)
+        if (deleted.size !== pendingPaths.length) {
+            showToast('新上传图片清理失败，请重试', 'error')
+            return
+        }
+        replaceImageUploadFailures([])
+        setSaveOutcome('idle')
+        setShowForm(false)
+        setEditingId(null)
+        setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
+    }
+
+    const handleToggleForm = async () => {
+        if (showForm) {
+            await handleCancelForm()
+            return
+        }
+        replaceImageUploadFailures([])
+        setSaveOutcome('idle')
+        setEditingId(null)
+        setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
+        setShowForm(true)
     }
 
     const appendUniqueImagePath = (paths: string[], imagePath: string): string[] => (
@@ -301,6 +553,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     )
 
     const moveImagePath = (fromRole: ImageRole, index: number) => {
+        if (cleanupInFlightRef.current > 0) {
+            showToast('正在清理图片，请稍后', 'error')
+            return
+        }
         setForm(f => {
             const sourcePaths = fromRole === 'question' ? f.question_image_paths : f.answer_image_paths
             const imagePath = sourcePaths[index]
@@ -385,6 +641,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         const moveLabel = role === 'question' ? '移到答案' : '移到题目'
         const previewLabel = role === 'question' ? '题目图片' : '答案图片'
         const isRoleDragging = draggingRole === role
+        const roleFailures = imageUploadFailures.filter(failure => failure.role === role)
 
         return (
             <div
@@ -412,6 +669,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         type="button"
                         className="button button-secondary"
                         onClick={() => fileInputRef.current?.click()}
+                        disabled={cleaningImageCount > 0 || isSaving}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                         title={`选择${title}文件，支持多选`}
                     >
@@ -423,6 +681,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         type="file"
                         accept="image/*"
                         multiple
+                        disabled={cleaningImageCount > 0 || isSaving}
                         onChange={e => handleFileInputChange(e, role)}
                         style={{ display: 'none' }}
                     />
@@ -451,6 +710,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                         type="button"
                                         className="button button-secondary text-xs"
                                         onClick={() => moveImagePath(role, idx)}
+                                        disabled={cleaningImageCount > 0 || isSaving}
                                         style={{ padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 4 }}
                                         title={`${moveLabel}${previewLabel} ${idx + 1}`}
                                     >
@@ -459,6 +719,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                     <button
                                         type="button"
                                         onClick={() => removeImagePath(role, idx)}
+                                        disabled={cleaningImageCount > 0 || isSaving}
                                         style={{ background: 'var(--color-state-danger)', color: 'white', borderRadius: '50%', width: 22, height: 22, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         title={`删除${previewLabel} ${idx + 1}`}
                                         aria-label={`删除${previewLabel} ${idx + 1}`}
@@ -472,6 +733,24 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 ) : (
                     <span className="text-xs text-muted">拖拽图片到这里，或在此区域 Ctrl/Cmd+V 粘贴</span>
                 )}
+                {roleFailures.map(failure => (
+                    <div
+                        key={failure.id}
+                        className="text-xs"
+                        style={{ marginTop: 'var(--space-xs)', color: 'var(--color-state-danger)', display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                        <span>{failure.filename}：{failure.message}</span>
+                        <button
+                            type="button"
+                            className="button button-secondary text-xs"
+                            aria-label={`移除失败图片 ${failure.filename}`}
+                            onClick={() => removeImageUploadFailure(failure.id)}
+                            disabled={cleaningImageCount > 0 || isSaving}
+                        >
+                            移除失败项
+                        </button>
+                    </div>
+                ))}
             </div>
         )
     }
@@ -495,10 +774,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     >
                         <BookOpen size={16} /> 开始复习
                     </button>
-                    <button className="button button-primary" onClick={() => {
-                        setShowForm(!showForm); setEditingId(null);
-                        setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
-                    }} data-testid="mistake-add-btn">
+                    <button
+                        className="button button-primary"
+                        onClick={handleToggleForm}
+                        disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || isSaving}
+                        data-testid="mistake-add-btn"
+                    >
                         + 添加
                     </button>
                 </div>
@@ -558,8 +839,14 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
 
             {/* Add/Edit Form */}
             {showForm && (
-                <div className="card" 
+                <form className="card"
                      ref={formRef}
+                     data-testid="mistake-form"
+                     data-image-form-state={imageFormState}
+                     onSubmit={event => {
+                         event.preventDefault()
+                         void handleSubmit()
+                     }}
                      style={{ 
                          padding: 'var(--space-lg)', marginBottom: 'var(--space-md)',
                          border: draggingRole ? '2px dashed var(--accent)' : '1px solid var(--border)'
@@ -605,15 +892,25 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         </div>
                         {/* Action row: submit + cancel */}
                         <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <button className="button button-primary" onClick={handleSubmit}>
-                                {editingId ? '保存' : '添加'}
+                            <button
+                                type="submit"
+                                className="button button-primary"
+                                disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || imageUploadFailures.length > 0 || isSaving}
+                                data-testid="mistake-submit-btn"
+                            >
+                                {uploadingImageCount > 0 ? '图片上传中...' : isSaving ? '保存中...' : editingId ? '保存' : '添加'}
                             </button>
-                            <button className="button button-secondary" onClick={() => { setShowForm(false); setEditingId(null) }}>
+                            <button
+                                type="button"
+                                className="button button-secondary"
+                                onClick={() => void handleCancelForm()}
+                                disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || isSaving}
+                            >
                                 取消
                             </button>
                         </div>
                     </div>
-                </div>
+                </form>
             )}
 
             {/* Mistake List */}

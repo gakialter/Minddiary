@@ -88,6 +88,7 @@ type DatabaseModule = {
   startStudyTaskFocus: (id: number, date: string) => StudyTaskRow
   updateMistake: (id: number, mistake: Partial<Mistake>) => Promise<{ success: boolean }>
   deleteMistake: (id: number) => Promise<{ success: boolean }>
+  discardUnreferencedMistakeImage: (ref: string) => Promise<{ success: true }>
   toggleMistakeMastered: (id: number) => { mastered: number }
   reviewMistake: (id: number, data: Partial<Mistake>) => { success: boolean }
   getDueForReviewCount: (date: string) => number
@@ -717,6 +718,9 @@ vi.mock('better-sqlite3', () => {
             if (state.mistakeImagePathQueryError) throw state.mistakeImagePathQueryError
             const excludedId = Number(params[0])
             return state.mistakeRows.filter(row => row.id !== excludedId && (row.image_path || row.answer_image_path))
+          }
+          if (sql.includes('SELECT id, image_path, answer_image_path') && sql.includes('FROM mistakes')) {
+            return state.mistakeRows.filter(row => row.image_path || row.answer_image_path)
           }
           return []
         }),
@@ -1673,6 +1677,19 @@ describe('database mistake image cleanup', () => {
     await expect(database.updateMistake(1, { image_path: null })).resolves.toEqual({ success: true })
 
     expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/old.png')
+  })
+
+  it('discards an unreferenced pending image but refuses to delete a committed image', async () => {
+    const database = await loadDatabase()
+
+    await expect(database.discardUnreferencedMistakeImage('mistake_images/pending.png')).resolves.toEqual({ success: true })
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).toHaveBeenCalledWith('mistake_images/pending.png')
+
+    mistakeImageStorageState.deleteManagedMistakeImage.mockClear()
+    state.mistakeRows = [{ id: 1, image_path: null, answer_image_path: 'mistake_images/committed.png' }]
+
+    await expect(database.discardUnreferencedMistakeImage('local://mistake_images/Committed.png')).rejects.toThrow(/still referenced/i)
+    expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
   })
 
   it('deletes a removed answer-image reference', async () => {

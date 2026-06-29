@@ -71,6 +71,14 @@ export function createMistakesRepository(db: Database.Database) {
         `).all(excludingId) as { id: number; image_path: string | null; answer_image_path: string | null }[];
     }
 
+    function getAllMistakeImageFields(): { id: number; image_path: string | null; answer_image_path: string | null }[] {
+        return db.prepare(`
+            SELECT id, image_path, answer_image_path
+            FROM mistakes
+            WHERE image_path IS NOT NULL OR answer_image_path IS NOT NULL
+        `).all() as { id: number; image_path: string | null; answer_image_path: string | null }[];
+    }
+
     function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
         const updates = [];
         const params = [];
@@ -164,6 +172,7 @@ export function createMistakesRepository(db: Database.Database) {
         createMistake,
         getMistakeImageFields,
         getOtherMistakeImageFields,
+        getAllMistakeImageFields,
         updateMistake,
         deleteMistake,
         toggleMistakeMastered,
