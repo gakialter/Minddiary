@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const { app } = require('electron');
 const db = require('./database');
 const pool = require('./imageWorkerPool');
@@ -131,7 +132,7 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
             deleted++;
         } else {
             logger.error(
-                `[fileManager] Failed to delete physical file for attachment id=${attachments[i].id}:`,
+                `[fileManager] Failed to delete physical file for attachment id=${attachments[i]?.id ?? 'unknown'}:`,
                 r.reason instanceof Error ? r.reason.message : String(r.reason)
             );
             errors++;
@@ -161,7 +162,7 @@ async function saveMistakeImage({ data, ext = '.png', mimetype }: { data: string
     }
 
     const timestamp = Date.now();
-    const safeFilename = `mistake_${timestamp}${extLower}`;
+    const safeFilename = `mistake_${timestamp}_${randomUUID()}${extLower}`;
     const filepath = path.join(getMistakeImagesDir(), safeFilename);
 
     try {

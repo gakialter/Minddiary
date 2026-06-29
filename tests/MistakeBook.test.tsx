@@ -37,6 +37,7 @@ describe('MistakeBook Component', () => {
     review: ReturnType<typeof vi.fn>
     getRandomDue: ReturnType<typeof vi.fn>
     saveImage: ReturnType<typeof vi.fn> | undefined
+    deleteImage: ReturnType<typeof vi.fn>
   }
   let subjectsApi: {
     getAll: ReturnType<typeof vi.fn>
@@ -68,6 +69,7 @@ describe('MistakeBook Component', () => {
         created_at: '2026-06-07',
       }),
       saveImage: undefined,
+      deleteImage: vi.fn().mockResolvedValue(undefined),
     }
 
     subjectsApi = {
@@ -226,6 +228,22 @@ describe('MistakeBook Component', () => {
     })
   })
 
+  it('shows a safe actionable message when saving a mistake fails', async () => {
+    mistakesApi.create.mockRejectedValueOnce(new Error('C:\\Users\\private\\minddiary.db is locked'))
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Save error' } })
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+
+    await waitFor(() => expect(toastMock.showToast).toHaveBeenCalledWith('保存错题失败，请重试', 'error'))
+    expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'save_failed')
+    expect(toastMock.showToast.mock.calls.flat().join(' ')).not.toContain('C:\\Users\\private')
+    expect(screen.getByTestId('mistake-form')).toBeInTheDocument()
+  })
+
   it('uploads an image into form state and saves the image path', async () => {
     mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/测试图片.png')
 
@@ -312,6 +330,263 @@ describe('MistakeBook Component', () => {
       image_path: 'mistake_images/question.png',
       answer_image_path: 'mistake_images/answer.png',
     })
+  })
+
+  it('blocks save until an in-flight image upload has completed', async () => {
+    let resolveUpload!: (path: string) => void
+    mistakesApi.saveImage = vi.fn().mockReturnValue(new Promise<string>(resolve => {
+      resolveUpload = resolve
+    }))
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Upload race' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['question'], 'question.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(mistakesApi.saveImage).toHaveBeenCalledTimes(1))
+    const submitButton = screen.getByTestId('mistake-submit-btn')
+    expect(submitButton).toBeDisabled()
+    fireEvent.click(submitButton)
+    expect(mistakesApi.create).not.toHaveBeenCalled()
+
+    resolveUpload('mistake_images/question.png')
+
+    await waitFor(() => expect(submitButton).toBeEnabled())
+    fireEvent.click(submitButton)
+
+    await waitFor(() => expect(mistakesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      image_path: 'mistake_images/question.png',
+    })))
+  })
+
+  it('blocks save after an image upload fails until the failed item is removed', async () => {
+    mistakesApi.saveImage = vi.fn().mockRejectedValue(new Error('C:\\Users\\private\\broken.png'))
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Failed upload' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['broken'], 'broken.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => {
+      expect(toastMock.showToast).toHaveBeenCalledWith('图片 broken.png 上传失败，请移除失败项后重试', 'error')
+    })
+    expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'upload_failed')
+    const submitButton = screen.getByTestId('mistake-submit-btn')
+    expect(submitButton).toBeDisabled()
+
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+
+    expect(mistakesApi.create).not.toHaveBeenCalled()
+    expect(toastMock.showToast).toHaveBeenCalledWith('图片上传失败，请移除失败项后重试', 'error')
+    expect(document.body.textContent).not.toContain('C:\\Users\\private')
+
+    fireEvent.click(screen.getByRole('button', { name: '移除失败图片 broken.png' }))
+    await waitFor(() => expect(submitButton).toBeEnabled())
+  })
+
+  it('clears failed-upload state when cancelling and reopening a new draft', async () => {
+    mistakesApi.saveImage = vi.fn().mockRejectedValue(new Error('upload failed'))
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['broken'], 'broken.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'upload_failed')
+    })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+
+    expect(await screen.findByTestId('mistake-submit-btn')).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '移除失败图片 broken.png' })).not.toBeInTheDocument()
+  })
+
+  it('rolls back newly uploaded files when creating the mistake fails', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/pending.png')
+    mistakesApi.create.mockRejectedValueOnce(new Error('database failed'))
+
+    const { container } = render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Rollback image' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['question'], 'question.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(container.querySelector('img[src="local://mistake_images/pending.png"]')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+
+    await waitFor(() => expect(mistakesApi.deleteImage).toHaveBeenCalledWith('mistake_images/pending.png'))
+    expect(container.querySelector('img[src="local://mistake_images/pending.png"]')).not.toBeInTheDocument()
+  })
+
+  it('awaits pending-image cleanup before switching to edit another mistake', async () => {
+    let resolveCleanup!: () => void
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/abandoned.png')
+    mistakesApi.deleteImage.mockReturnValue(new Promise<void>(resolve => {
+      resolveCleanup = resolve
+    }))
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const questionInput = screen.getByPlaceholderText('问题 / 知识点') as HTMLTextAreaElement
+    fireEvent.change(questionInput, { target: { value: 'Unsaved draft' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['draft'], 'draft.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(screen.getByAltText('题目图片 1')).toBeInTheDocument())
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    fireEvent.click(editButtons[0]!)
+
+    await waitFor(() => expect(mistakesApi.deleteImage).toHaveBeenCalledWith('mistake_images/abandoned.png'))
+    expect(questionInput.value).toBe('Unsaved draft')
+
+    resolveCleanup()
+
+    await waitFor(() => expect((screen.getByPlaceholderText('问题 / 知识点') as HTMLTextAreaElement).value).toBe('1+1=?'))
+  })
+
+  it('keeps the current draft and pending set when switch cleanup fails', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/retry-cleanup.png')
+    mistakesApi.deleteImage
+      .mockRejectedValueOnce(new Error('disk locked'))
+      .mockResolvedValueOnce(undefined)
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const questionInput = screen.getByPlaceholderText('问题 / 知识点') as HTMLTextAreaElement
+    fireEvent.change(questionInput, { target: { value: 'Keep this draft' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['draft'], 'draft.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(screen.getByAltText('题目图片 1')).toBeInTheDocument())
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    fireEvent.click(editButtons[0]!)
+
+    await waitFor(() => expect(toastMock.showToast).toHaveBeenCalledWith('图片清理失败，请重试', 'error'))
+    expect(questionInput.value).toBe('Keep this draft')
+
+    fireEvent.click(editButtons[0]!)
+    await waitFor(() => expect(mistakesApi.deleteImage).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect((screen.getByPlaceholderText('问题 / 知识点') as HTMLTextAreaElement).value).toBe('1+1=?'))
+  })
+
+  it('does not delete database-backed images when switching between existing mistakes', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      { ...mockMistakes[0], image_path: 'mistake_images/existing.png', answer_image_path: null },
+      mockMistakes[1],
+    ])
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    fireEvent.click(editButtons[0]!)
+    await waitFor(() => expect(screen.getByAltText('题目图片 1')).toBeInTheDocument())
+    fireEvent.click(editButtons[1]!)
+
+    await waitFor(() => expect((screen.getByPlaceholderText('问题 / 知识点') as HTMLTextAreaElement).value).toBe('Apple means?'))
+    expect(mistakesApi.deleteImage).not.toHaveBeenCalled()
+  })
+
+  it('blocks save while pending-image cleanup is in flight', async () => {
+    let resolveCleanup!: () => void
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/removing.png')
+    mistakesApi.deleteImage.mockReturnValue(new Promise<void>(resolve => {
+      resolveCleanup = resolve
+    }))
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'Cleanup race' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['image'], 'removing.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(screen.getByAltText('题目图片 1')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '删除题目图片 1' }))
+
+    await waitFor(() => expect(mistakesApi.deleteImage).toHaveBeenCalledWith('mistake_images/removing.png'))
+    expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'cleanup_in_flight')
+    const submitButton = screen.getByTestId('mistake-submit-btn')
+    expect(submitButton).toBeDisabled()
+
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+
+    expect(mistakesApi.create).not.toHaveBeenCalled()
+    expect(toastMock.showToast).toHaveBeenCalledWith('正在清理图片，请稍后', 'error')
+
+    resolveCleanup()
+    await waitFor(() => expect(submitButton).toBeEnabled())
+  })
+
+  it('adds an answer image while editing without losing the existing question image', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      { ...mockMistakes[0], image_path: 'mistake_images/existing.png', answer_image_path: null },
+    ])
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/new-answer.png')
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    fireEvent.click(editButtons[0]!)
+    fireEvent.change(await screen.findByTestId('mistake-answer-image-input'), {
+      target: { files: [new File(['answer'], 'answer.png', { type: 'image/png' })] },
+    })
+
+    await waitFor(() => expect(screen.getByAltText('答案图片 1')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      image_path: 'mistake_images/existing.png',
+      answer_image_path: 'mistake_images/new-answer.png',
+    })))
+  })
+
+  it('saves removal of an existing image through the database cleanup path', async () => {
+    mistakesApi.getAll.mockResolvedValue([
+      { ...mockMistakes[0], image_path: 'mistake_images/existing.png', answer_image_path: null },
+    ])
+    Element.prototype.scrollIntoView = vi.fn()
+
+    render(<MistakeBook />)
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑错题' })
+    fireEvent.click(editButtons[0]!)
+    fireEvent.click(await screen.findByRole('button', { name: '删除题目图片 1' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      image_path: null,
+      answer_image_path: null,
+    })))
+    expect(mistakesApi.deleteImage).not.toHaveBeenCalled()
   })
 
   it('moves existing image references between question and answer without saving files again', async () => {
@@ -599,6 +874,110 @@ describe('MistakeBook Component', () => {
     expect(mistakesApi.saveImage).not.toHaveBeenCalled()
     expect(container.querySelector('img[src^="local://"]')).not.toBeInTheDocument()
     expect(toastMock.showToast).toHaveBeenCalledWith(expect.stringContaining('图片'), 'error')
+  })
+
+  it('rejects image MIME types that the Electron storage layer does not support', async () => {
+    mistakesApi.saveImage = vi.fn()
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['svg'], 'diagram.svg', { type: 'image/svg+xml' })] },
+    })
+
+    await waitFor(() => {
+      expect(toastMock.showToast).toHaveBeenCalledWith(expect.stringContaining('diagram.svg'), 'error')
+    })
+    expect(mistakesApi.saveImage).not.toHaveBeenCalled()
+  })
+
+  it('accepts a supported Windows image extension when the browser omits MIME metadata', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/windows.png')
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['image'], '扫描.PNG')] },
+    })
+
+    await waitFor(() => expect(mistakesApi.saveImage).toHaveBeenCalledWith(expect.objectContaining({
+      ext: '.png',
+      name: '扫描.PNG',
+      mimetype: undefined,
+    })))
+  })
+
+  it.each(['png', 'jpg', 'jpeg', 'webp'])('accepts a dropped .%s image when Windows omits MIME metadata', async extension => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue(`mistake_images/dropped.${extension}`)
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const file = new File(['image'], `dropped.${extension}`)
+    fireEvent.drop(screen.getByTestId('mistake-question-image-zone'), {
+      dataTransfer: {
+        files: {
+          0: file,
+          length: 1,
+          item: (index: number) => index === 0 ? file : null,
+        },
+      },
+    })
+
+    await waitFor(() => expect(mistakesApi.saveImage).toHaveBeenCalledWith(expect.objectContaining({
+      ext: `.${extension}`,
+      name: `dropped.${extension}`,
+      mimetype: undefined,
+    })))
+  })
+
+  it('reports a dropped empty-MIME file with an unsupported extension', async () => {
+    mistakesApi.saveImage = vi.fn()
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const file = new File(['text'], 'not-an-image.txt')
+    fireEvent.drop(screen.getByTestId('mistake-question-image-zone'), {
+      dataTransfer: {
+        files: {
+          0: file,
+          length: 1,
+          item: (index: number) => index === 0 ? file : null,
+        },
+      },
+    })
+
+    await waitFor(() => expect(toastMock.showToast).toHaveBeenCalledWith(
+      '文件 not-an-image.txt 不是支持的图片格式，已拒绝上传',
+      'error',
+    ))
+    expect(mistakesApi.saveImage).not.toHaveBeenCalled()
+  })
+
+  it('accepts an image at the 10 MB boundary and rejects one byte over it', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/limit.png')
+    const atLimit = new File(['image'], 'limit.png', { type: 'image/png' })
+    const overLimit = new File(['image'], 'over.png', { type: 'image/png' })
+    Object.defineProperty(atLimit, 'size', { value: 10 * 1024 * 1024 })
+    Object.defineProperty(overLimit, 'size', { value: 10 * 1024 * 1024 + 1 })
+
+    render(<MistakeBook />)
+
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const input = screen.getByTestId('mistake-question-image-input')
+    fireEvent.change(input, { target: { files: [atLimit, overLimit] } })
+
+    await waitFor(() => expect(mistakesApi.saveImage).toHaveBeenCalledTimes(1))
+    expect(mistakesApi.saveImage).toHaveBeenCalledWith(expect.objectContaining({ name: 'limit.png' }))
+    expect(toastMock.showToast).toHaveBeenCalledWith(expect.stringContaining('over.png'), 'error')
   })
 
   it('triggers delete API when delete button clicked', async () => {

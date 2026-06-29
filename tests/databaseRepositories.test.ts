@@ -1605,6 +1605,11 @@ describe('database repositories', () => {
       { id: thirdId, image_path: jsonPath, answer_image_path: null },
       { id: fourthId, image_path: null, answer_image_path: 'mistake_images/answer-only.png' },
     ])
+    expect(repositories.mistakes.getAllMistakeImageFields()).toEqual([
+      { id: firstId, image_path: 'mistake_images/a.png', answer_image_path: 'mistake_images/answer-a.png' },
+      { id: thirdId, image_path: jsonPath, answer_image_path: null },
+      { id: fourthId, image_path: null, answer_image_path: 'mistake_images/answer-only.png' },
+    ])
   })
 
   it('creates study tasks with defaults and complete stored rows', () => {

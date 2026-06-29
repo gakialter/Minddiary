@@ -1252,19 +1252,21 @@ describe('DataContext', () => {
     })
 
     let createdMistake: Mistake | undefined
+    const questionImages = JSON.stringify(['mistake_images/question-1.png', 'mistake_images/question-2.png'])
+    const answerImages = JSON.stringify(['mistake_images/answer-1.png', 'mistake_images/answer-2.png'])
     await act(async () => {
       createdMistake = await result.current.mistakes.create({
         question: 'A',
-        image_path: 'mistake_images/question.png',
-        answer_image_path: 'mistake_images/answer.png',
+        image_path: questionImages,
+        answer_image_path: answerImages,
       })
     })
 
     expect(createdMistake).toEqual(expect.objectContaining({
       id: 21,
       question: 'A',
-      image_path: 'mistake_images/question.png',
-      answer_image_path: 'mistake_images/answer.png',
+      image_path: questionImages,
+      answer_image_path: answerImages,
       mastered: false,
       created_at: expect.any(String),
     }))
@@ -1293,11 +1295,44 @@ describe('DataContext', () => {
       expect.objectContaining({
         id: 21,
         question: 'A',
-        image_path: 'mistake_images/question.png',
+        image_path: questionImages,
         answer_image_path: 'mistake_images/answer-updated.png',
         mastered: true,
       }),
     ])
+  })
+
+  it('does not report browser fallback mistake-image uploads as successful', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.mistakes.saveImage?.({
+      data: 'aW1hZ2U=',
+      ext: '.png',
+      name: 'image.png',
+      mimetype: 'image/png',
+    })).rejects.toThrow(/browser/i)
+  })
+
+  it('rejects an empty mistake-image path returned by Electron IPC', async () => {
+    window.api.mistakes.saveImage = vi.fn().mockResolvedValue('')
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.mistakes.saveImage?.({
+      data: 'aW1hZ2U=',
+      ext: '.png',
+      name: 'image.png',
+      mimetype: 'image/png',
+    })).rejects.toThrow(/invalid/i)
   })
 
   it('reviews mistakes with a verifiable result and clears task links on browser fallback delete', async () => {

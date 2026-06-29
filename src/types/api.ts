@@ -168,6 +168,7 @@ export interface ElectronMistakesAPI {
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
   saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
+  deleteImage?: (filename: string) => Promise<void>
   getImagePath?: (filename: string) => Promise<string>
 }
 
@@ -290,6 +291,7 @@ export interface MistakesContextAPI {
   getDueCount: (date: string) => Promise<number>
   getRandomDue: (date: string, subjectId?: number) => Promise<Mistake | null>
   saveImage?: (data: { data: string, ext?: string, name?: string, mimetype?: string }) => Promise<string>
+  deleteImage?: (filename: string) => Promise<void>
   getImagePath?: (filename: string) => Promise<string>
 }
 

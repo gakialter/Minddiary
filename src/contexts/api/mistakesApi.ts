@@ -120,9 +120,18 @@ export const createMistakesApi = (
     },
     saveImage: async (data: { data: string, ext?: string, name?: string, mimetype?: string }) => {
         if (IS_ELECTRON && window.api.mistakes.saveImage) {
-            return window.api.mistakes.saveImage(data);
+            const imagePath = await window.api.mistakes.saveImage(data);
+            if (typeof imagePath !== 'string' || !imagePath.trim()) {
+                throw new Error('Invalid mistake image path returned by Electron IPC');
+            }
+            return imagePath;
         }
-        return '';
+        throw new Error('Mistake image uploads are not supported in browser fallback mode');
+    },
+    deleteImage: async (filename: string) => {
+        if (IS_ELECTRON && window.api.mistakes.deleteImage) {
+            await window.api.mistakes.deleteImage(filename);
+        }
     },
     getImagePath: async (filename: string) => {
         if (IS_ELECTRON && window.api.mistakes.getImagePath) {

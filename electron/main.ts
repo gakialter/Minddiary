@@ -714,6 +714,9 @@ ipcMain.handle('mistakes:getRandomDue', (_: unknown, date: string, subjectId?: n
 ipcMain.handle('mistakes:saveImage', (_: unknown, data: AttachmentData & { ext?: string }) => {
     return fileManager.saveMistakeImage(data);
 });
+ipcMain.handle('mistakes:deleteImage', async (_: unknown, filename: string) => {
+    await db.discardUnreferencedMistakeImage(filename);
+});
 ipcMain.handle('mistakes:getImagePath', (_: unknown, filename: string) => fileManager.getMistakeImagePath(filename));
 
 // ==================== AI ====================
