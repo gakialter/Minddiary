@@ -1,49 +1,32 @@
-# MindDiary v1.13.0
+# MindDiary v1.13.1
 
-MindDiary v1.13.0 汇总了自 v1.11.3 以来的章节任务闭环和今日执行入口改进，将详细章节、今日任务、Pomodoro 与每日复盘连接为更完整的学习执行流程。
+MindDiary v1.13.1 是基于 v1.13.0 的稳定性与验证补丁，不扩展产品功能。SQLite schema unchanged，仍为 schema **5**。
 
-## Highlights
+## Reliability and validation
 
-- 将未完成章节直接加入今日任务，并保留科目与章节来源。
-- 章节任务可进入 Pomodoro，结算时可分别决定是否完成任务和章节。
-- 首页升级为轻量今日执行入口，集中展示今日进度、专注时长、章节任务和日记状态。
-- 新增确定性的“推荐下一步”和今日复盘入口。
+- 补强 v1.13.0 task/chapter parity audit 与回归覆盖，锁定 Electron SQLite 和 browser fallback 的章节任务行为。
+- 补强 schema **4 → 5** migration assertions、旧库升级与兼容性验证；本版本不新增 migration。
+- 将 README 与 release checklist 同步到 v1.13.0 / schema 5 正式基线。
+- 修复 #114 错题本图片上传与保存稳定性：等待异步上传、阻止失败态保存、保护题目/答案图片引用，并安全清理未提交图片。
 
-## Changed
+## Verification boundary
 
-- SQLite schema 升级为 **5**。
-- 新增 nullable `study_tasks.related_chapter_id`，通过 `ON DELETE SET NULL` 安全处理章节删除。
-- 新增 schema **4 → 5** migration 和章节任务查询索引。
-- 推荐顺序为：活动专注 session、进行中任务、章节待办、普通待办、复盘或休息。
-- 推荐任务可被选中并打开 Pomodoro，但不会自动启动计时。
-- Electron SQLite 与 browser fallback 使用一致的章节任务和推荐逻辑。
+- #117 的 Electron UI smoke 已覆盖纯文本错题、题目图片、答案图片、双图片、失败态阻止保存、删除图片、pending 图片清理与安全错误提示。
+- 发布前仍需对候选 Windows Setup 或 Portable 构建执行最终 packaged smoke，至少覆盖启动、章节任务和错题图片保存。
 
-## Fixed / Reliability
+## Compatibility
 
-- 防止同一章节在同一天重复加入今日任务。
-- 章节在专注期间被删除时安全降级，不破坏任务结算。
-- 章节完成使用明确目标状态，避免 toggle race。
-- 自动 ZIP backup/restore 保存 `related_chapter_id`；旧备份缺少该字段时安全恢复为 `null`。
-- 活动 Pomodoro session 不会被新的推荐任务覆盖。
-- 普通任务和原有 Dashboard/Pomodoro 流程保持兼容。
-
-## Verification
-
-- `npm.cmd run typecheck` passed.
-- `npm.cmd test -- --run` passed: 86 test files, 963 tests.
-- `npm.cmd run build` passed.
-- Windows Setup、Portable 和 packaged `better-sqlite3` Electron ABI 132 本地构建校验通过。
-- PR #110、PR #111 以及当前 main CI 检查通过.
+- schema unchanged；`CURRENT_SCHEMA_VERSION` remains **5**。
+- schema 4 数据库继续通过既有 migration 升级到 schema 5；本版本不改变持久化结构。
+- no product feature expansion；不包含新的产品功能、业务流程或 subject ordering 变更。
 
 ## Windows 安装包说明
 
 - 本版本不声明 Windows 安装包已经代码签名。
 - 如果发布资产未配置代码签名，Windows 可能显示 Unknown Publisher，或触发 Windows SmartScreen。
 
-## Known notes
+## Release gate
 
-- 本版本使用 SQLite schema **5**，并包含 schema **4 → 5** upgrade。升级前建议保留最新自动 ZIP 备份。
-- 升级后的 schema 5 数据库不应使用只支持 schema 4 的旧版本直接打开。
-- macOS 构建不声明已完成 Apple notarization。
-- 不声明 macOS Gatekeeper 人工验收通过；该结论必须基于正式 DMG/ZIP 的后续真实验收。
-- Windows Setup、Windows Portable、macOS DMG 和 ZIP 的正式人工启动结果应在发布资产生成后记录。
+- release-prep PR 必须在 current head 上通过 CI。
+- tag 前必须再次确认 `package.json`、`package-lock.json` 与 `RELEASE_NOTES.md` 均为 `1.13.1`。
+- 完成候选 packaged Windows smoke 后，才能进入 tag / GitHub Release 阶段。
