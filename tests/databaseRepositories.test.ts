@@ -1337,6 +1337,22 @@ describe('database repositories', () => {
     expect(empty).toEqual({ data: [], total: 0, masteredTotal: 0 })
   })
 
+  it('orders equal-time mistakes by descending id before applying pagination', () => {
+    const createdAt = '2026-06-04 08:00:00'
+    const firstId = insertMistake({ question: 'first', created_at: createdAt })
+    const secondId = insertMistake({ question: 'second', created_at: createdAt })
+    const thirdId = insertMistake({ question: 'third', created_at: createdAt })
+
+    expect(repositories.mistakes.getAllMistakes().data.map(mistake => mistake.id)).toEqual([
+      thirdId,
+      secondId,
+      firstId,
+    ])
+    expect(repositories.mistakes.getAllMistakes({ limit: 1, offset: 1 }).data.map(mistake => mistake.id)).toEqual([
+      secondId,
+    ])
+  })
+
   it('filters due mistakes with default local date, explicit date, and due priority over mastered', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 5, 6, 12, 0, 0))
