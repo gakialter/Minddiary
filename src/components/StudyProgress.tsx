@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, PlusCircle, Target, Trash2 } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
 import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
@@ -49,6 +49,7 @@ export default function StudyProgress() {
     const [subjectActionPending, setSubjectActionPending] = useState<string | null>(null)
     const [expandedSubjectId, setExpandedSubjectId] = useState<number | null>(null)
     const [todayChapterTaskIds, setTodayChapterTaskIds] = useState<Set<number>>(new Set())
+    const locallyRequestedRefreshVersionRef = useRef<number | null>(null)
 
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -88,8 +89,29 @@ export default function StudyProgress() {
     }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI, tasksAPI, todayDate])
 
     useEffect(() => {
+        if (locallyRequestedRefreshVersionRef.current === dataRefreshVersion) {
+            locallyRequestedRefreshVersionRef.current = null
+            return
+        }
         void loadAllData()
     }, [dataRefreshVersion, loadAllData])
+
+    const updateChapterLocally = useCallback((previousChapter: SubjectChapter, updatedChapter: SubjectChapter) => {
+        setChaptersBySubject(previous => ({
+            ...previous,
+            [updatedChapter.subject_id]: (previous[updatedChapter.subject_id] || []).map(chapter => (
+                chapter.id === updatedChapter.id ? updatedChapter : chapter
+            )),
+        }))
+        if (previousChapter.completed === updatedChapter.completed) return
+        const completedDelta = updatedChapter.completed ? 1 : -1
+        setSubjects(previous => previous.map(subject => {
+            if (subject.id !== updatedChapter.subject_id) return subject
+            const total = subject.total_chapters || 0
+            const completed = Math.max(0, Math.min(total, (subject.completed_chapters || 0) + completedDelta))
+            return { ...subject, completed_chapters: completed }
+        }))
+    }, [])
 
     const addChapterToToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
         const existing = await tasksAPI.find({
@@ -109,9 +131,15 @@ export default function StudyProgress() {
         } else {
             showToast('该章节已在今日任务中', 'success')
         }
+        setTodayChapterTaskIds(previous => {
+            if (previous.has(chapter.id)) return previous
+            const next = new Set(previous)
+            next.add(chapter.id)
+            return next
+        })
+        locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
         requestDataRefresh()
-        await loadAllData()
-    }, [loadAllData, requestDataRefresh, tasksAPI, todayDate])
+    }, [dataRefreshVersion, requestDataRefresh, tasksAPI, todayDate])
 
     const { totalChapters, totalCompleted, overallProgress, subjectMetrics } = useMemo(() => {
         const mistakeIndex = new Map<number | null, { total: number; mastered: number }>()
@@ -534,6 +562,7 @@ export default function StudyProgress() {
                                         color={displayColor}
                                         api={subjectChaptersAPI}
                                         onRefresh={loadAllData}
+                                        onChapterUpdated={updateChapterLocally}
                                         todayChapterTaskIds={todayChapterTaskIds}
                                         onAddToToday={chapter => addChapterToToday(subject, chapter)}
                                     />

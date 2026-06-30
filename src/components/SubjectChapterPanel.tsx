@@ -18,6 +18,7 @@ interface SubjectChapterPanelProps {
     color: string
     api: SubjectChaptersContextAPI
     onRefresh: () => Promise<void>
+    onChapterUpdated: (previousChapter: SubjectChapter, updatedChapter: SubjectChapter) => void
     todayChapterTaskIds: Set<number>
     onAddToToday: (chapter: SubjectChapter) => Promise<void>
 }
@@ -32,6 +33,7 @@ export default function SubjectChapterPanel({
     color,
     api,
     onRefresh,
+    onChapterUpdated,
     todayChapterTaskIds,
     onAddToToday,
 }: SubjectChapterPanelProps) {
@@ -133,8 +135,8 @@ export default function SubjectChapterPanel({
 
     const toggleCompleted = async (chapter: SubjectChapter) => {
         await runAction(`toggle-${chapter.id}`, async () => {
-            await api.toggleCompleted(chapter.id, !chapter.completed)
-            await onRefresh()
+            const updated = await api.toggleCompleted(chapter.id, !chapter.completed)
+            onChapterUpdated(chapter, updated)
         })
     }
 

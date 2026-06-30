@@ -264,8 +264,8 @@ describe('StudyProgress detailed subject chapters', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
-  it('adds an incomplete chapter to today once and disables the entry after refresh', async () => {
-    setupStudyProgress([makeSubject({ total_chapters: 2, completed_chapters: 1 })], {
+  it('adds an incomplete chapter to today once without reloading the chapter list', async () => {
+    const setup = setupStudyProgress([makeSubject({ total_chapters: 2, completed_chapters: 1 })], {
       7: [
         makeChapter({ id: 1, completed: false, title: '第一章 函数' }),
         makeChapter({ id: 2, completed: true, title: '第二章 导数', sort_order: 1 }),
@@ -288,9 +288,57 @@ describe('StudyProgress detailed subject chapters', () => {
     expect(mocks.tasksFind).toHaveBeenCalledWith({ planned_date: '2026-06-21', related_chapter_id: 1 })
     expect(mocks.requestDataRefresh).toHaveBeenCalled()
     expect(await screen.findByTestId('chapter-added-today-1')).toBeDisabled()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
+    expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
+
+    mockDataRefreshVersion = 1
+    setup.view.rerender(<StudyProgress />)
+    expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
+    expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByTestId('chapter-added-today-1'))
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks an already-existing today task locally without creating or reloading', async () => {
+    setupStudyProgress([makeSubject({ total_chapters: 1, completed_chapters: 0 })], {
+      7: [makeChapter({ id: 1, completed: false })],
+    })
+    mocks.tasksFind.mockResolvedValueOnce([{ id: 99, planned_date: '2026-06-21', related_chapter_id: 1 }])
+
+    fireEvent.click(await screen.findByTestId('manage-chapters-7'))
+    fireEvent.click(await screen.findByTestId('chapter-add-today-1'))
+
+    expect(await screen.findByTestId('chapter-added-today-1')).toBeDisabled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(mocks.requestDataRefresh).toHaveBeenCalledTimes(1)
+    expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
+    expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates chapter completion locally without reloading the chapter list', async () => {
+    setupStudyProgress([makeSubject({ total_chapters: 1, completed_chapters: 0 })], {
+      7: [makeChapter({ id: 1, completed: false })],
+    })
+
+    const subjectCard = await screen.findByTestId('subject-card-7')
+    fireEvent.click(screen.getByTestId('manage-chapters-7'))
+    const toggle = await screen.findByTestId('chapter-toggle-1')
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle).toBeChecked())
+    expect(subjectCard).toHaveTextContent('1 / 1')
+    expect(screen.queryByTestId('chapter-add-today-1')).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle).not.toBeChecked())
+    expect(subjectCard).toHaveTextContent('0 / 1')
+    expect(await screen.findByTestId('chapter-add-today-1')).toBeInTheDocument()
+    expect(mocks.chaptersToggle).toHaveBeenNthCalledWith(1, 1, true)
+    expect(mocks.chaptersToggle).toHaveBeenNthCalledWith(2, 1, false)
+    expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
+    expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
   })
 
   it('reloads chapter progress when the global data refresh version changes', async () => {
