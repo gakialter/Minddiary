@@ -62,7 +62,11 @@ export function aggregatePomodoroStats(allDayStats: PomodoroStat[][]): Aggregate
     }
   }
 
-  return Array.from(merged.values()).sort((a, b) => b.total_minutes - a.total_minutes)
+  return Array.from(merged.values()).sort((a, b) =>
+    b.total_minutes - a.total_minutes
+    || b.session_count - a.session_count
+    || a.subject_name.localeCompare(b.subject_name)
+  )
 }
 
 export function summarizePomodoroStats(stats: AggregatedPomodoroStat[]): PomodoroStatsSummary {

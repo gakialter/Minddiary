@@ -39,6 +39,23 @@ describe('pomodoroStats utilities', () => {
     ])
   })
 
+  it('uses session count and subject name tie-breakers after range aggregation', () => {
+    const result = aggregatePomodoroStats([
+      [stat('Beta', '#854D0E', 30, 1), stat('Alpha', '#0F766E', 20, 1), stat('Gamma', '#C65A3A', 25, 2)],
+      [stat('Beta', '#854D0E', 10, 1), stat('Alpha', '#0F766E', 20, 1), stat('Gamma', '#C65A3A', 15, 1)],
+    ])
+
+    expect(result.map(({ subject_name, total_minutes, session_count }) => ({
+      subject_name,
+      total_minutes,
+      session_count,
+    }))).toEqual([
+      { subject_name: 'Gamma', total_minutes: 40, session_count: 3 },
+      { subject_name: 'Alpha', total_minutes: 40, session_count: 2 },
+      { subject_name: 'Beta', total_minutes: 40, session_count: 2 },
+    ])
+  })
+
   it('summarizes total focus time, session count, and average minutes', () => {
     expect(summarizePomodoroStats([
       { subject_name: '数学', color: '#0F766E', total_minutes: 42, session_count: 2 },
