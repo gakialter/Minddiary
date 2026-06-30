@@ -4,11 +4,11 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.13.1 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.13.1')
+  it('bundles the current v1.13.2 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.13.2')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('错题本图片上传与保存稳定性')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('保持列表位置')
   })
 
   it('normalizes a remote string release note', () => {
