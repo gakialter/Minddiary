@@ -35,7 +35,11 @@ export const createMistakesApi = (
         
         const total = result.length;
         const masteredTotal = result.filter(m => m.mastered).length;
-        result = result.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        result = result.sort((a, b) => {
+            const createdAtOrder = (typeof b.created_at === 'string' ? b.created_at : '')
+                .localeCompare(typeof a.created_at === 'string' ? a.created_at : '')
+            return createdAtOrder || b.id - a.id
+        })
         
         if (filters.limit) {
             const offset = filters.offset || 0;

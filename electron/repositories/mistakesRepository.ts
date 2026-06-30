@@ -36,7 +36,7 @@ export function createMistakesRepository(db: Database.Database) {
         const masteredTotal = countRow.mastered_total || 0;
 
         let query = 'SELECT m.*, s.name as subject_name, s.color as subject_color' + baseQuery + whereClause;
-        query += ' ORDER BY m.created_at DESC';
+        query += ' ORDER BY m.created_at DESC, m.id DESC';
 
         if (filters.limit) {
             query += ' LIMIT ? OFFSET ?';

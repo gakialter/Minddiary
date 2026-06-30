@@ -1302,6 +1302,51 @@ describe('DataContext', () => {
     ])
   })
 
+  it('stably orders and paginates browser fallback mistakes with equal or invalid timestamps', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const baseMistake: Mistake = {
+      id: 1,
+      subject_id: null,
+      question: 'Question',
+      answer: '',
+      notes: '',
+      mastered: false,
+      ease_factor: 2.5,
+      review_interval: 1,
+      next_review_date: null,
+      review_count: 0,
+      created_at: '2026-06-04T08:00:00.000Z',
+    }
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify([
+      { ...baseMistake, id: 1 },
+      { ...baseMistake, id: 3 },
+      { ...baseMistake, id: 2 },
+      { ...baseMistake, id: 4, created_at: 123 },
+      { ...baseMistake, id: 5, created_at: undefined },
+    ]))
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.mistakes.getAll()).resolves.toMatchObject({
+      data: [
+        { id: 3 },
+        { id: 2 },
+        { id: 1 },
+        { id: 5 },
+        { id: 4 },
+      ],
+      total: 5,
+    })
+    await expect(result.current.mistakes.getAll({ limit: 1, offset: 1 })).resolves.toMatchObject({
+      data: [{ id: 2 }],
+      total: 5,
+    })
+  })
+
   it('does not report browser fallback mistake-image uploads as successful', async () => {
     mocks.isElectron = false
     seedEmptyBrowserStorage()
