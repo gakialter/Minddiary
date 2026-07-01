@@ -89,12 +89,12 @@ CI does not install the Windows Setup package, launch Portable on a clean Window
 
 Run these during release acceptance after candidate artifacts exist. Record OS version, architecture, asset name, result, and any warning shown.
 
-Before publishing v1.13.1, also record one packaged chapter-task smoke against a candidate Windows Setup or Portable build:
+Before publishing v1.13.2, also record one packaged chapter-list continuity smoke against a candidate Windows Setup or Portable build:
 
-- Create a subject and detailed chapter, then add that chapter to today's tasks.
-- Confirm the dashboard recommends the chapter task and can start its Pomodoro flow.
-- Complete the Pomodoro settlement and confirm the task/chapter choices persist exactly once.
-- Delete a chapter that still has a task; confirm the task survives without chapter attribution and, when the database is inspected, `study_tasks.related_chapter_id` is `NULL`.
+- Create a subject with at least 20 detailed chapters and scroll to the middle or lower rows.
+- Add several consecutive chapters to today's tasks; confirm each button becomes disabled and the list does not return to the top.
+- Check and uncheck several consecutive chapter completion boxes; confirm progress updates and the list does not return to the top.
+- Navigate away and back, then confirm the added-task buttons and completion state reload from persisted data.
 
 1. Windows Setup — manual acceptance
    - Download `MindDiary-Setup-<version>.exe` from the candidate Release.
