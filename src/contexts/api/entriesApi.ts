@@ -17,8 +17,9 @@ export const createEntriesApi = (
         if (filters.tagId) result = result.filter(e => e.tags && e.tags.includes(Number(filters.tagId)))
         if (filters.startDate) result = result.filter(e => e.date >= filters.startDate!)
         if (filters.endDate) result = result.filter(e => e.date <= filters.endDate!)
+        result.sort((a, b) => b.date.localeCompare(a.date))
         if (filters.limit) result = result.slice(0, filters.limit)
-        return result.sort((a, b) => b.date.localeCompare(a.date))
+        return result
     },
     getByDate: async (date: string) => {
         if (IS_ELECTRON) return window.api.entries.getByDate(date)
