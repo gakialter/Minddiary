@@ -1,3 +1,4 @@
+import fs from 'fs'
 import Module from 'module'
 import os from 'os'
 import path from 'path'
@@ -7,26 +8,38 @@ type ModuleWithLoad = typeof Module & {
   _load: (request: string, parent: { filename?: string } | null, isMain: boolean) => unknown
 }
 
-describe('mistake image file storage', () => {
+describe('file manager storage', () => {
   const moduleWithLoad = Module as ModuleWithLoad
   const originalLoad = moduleWithLoad._load
   const submit = vi.fn().mockResolvedValue(undefined)
+  const database = {
+    getAttachmentById: vi.fn(),
+    getAttachmentsByEntry: vi.fn(),
+    removeAttachment: vi.fn(),
+  }
+  const logger = { error: vi.fn() }
+  let userDataPath: string
 
   beforeEach(() => {
     vi.resetModules()
     submit.mockClear()
+    database.getAttachmentById.mockReset()
+    database.getAttachmentsByEntry.mockReset()
+    database.removeAttachment.mockReset()
+    logger.error.mockReset()
+    userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-file-manager-'))
     moduleWithLoad._load = ((request: string, parent: { filename?: string } | null, isMain: boolean) => {
       if (request === 'electron') {
-        return { app: { getPath: () => path.join(os.tmpdir(), 'minddiary-file-manager-test') } }
+        return { app: { getPath: () => userDataPath } }
       }
       if (request === './database' && parent?.filename?.endsWith('fileManager.ts')) {
-        return {}
+        return database
       }
       if (request === './imageWorkerPool' && parent?.filename?.endsWith('fileManager.ts')) {
         return { initialize: vi.fn(), submit }
       }
       if (request === './logger' && parent?.filename?.endsWith('fileManager.ts')) {
-        return { logger: { error: vi.fn() } }
+        return { logger }
       }
       return originalLoad(request, parent, isMain)
     }) as ModuleWithLoad['_load']
@@ -35,10 +48,13 @@ describe('mistake image file storage', () => {
   afterEach(() => {
     moduleWithLoad._load = originalLoad
     vi.restoreAllMocks()
+    fs.rmSync(userDataPath, { recursive: true, force: true })
   })
 
   const loadFileManager = async () => await import('../electron/fileManager') as unknown as {
     saveMistakeImage: (data: { data: string; ext: string; mimetype?: string }) => Promise<string>
+    deleteAttachment: (id: number) => Promise<{ success: boolean }>
+    deleteAttachmentsForEntry: (entryId: number) => Promise<{ deleted: number; errors: number }>
   }
 
   it('generates distinct paths for rapid uploads even when Date.now collides', async () => {
@@ -69,5 +85,50 @@ describe('mistake image file storage', () => {
       code: 'UNSUPPORTED_IMAGE_FORMAT',
     })
     expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not unlink outside the attachments directory for a malicious attachment row', async () => {
+    const outsidePath = path.join(userDataPath, 'outside.txt')
+    fs.writeFileSync(outsidePath, 'keep')
+    database.getAttachmentById.mockReturnValue({ id: 7, filepath: '../outside.txt' })
+    const unlink = vi.spyOn(fs.promises, 'unlink')
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachment(7)).rejects.toMatchObject({ code: 'PATH_TRAVERSAL' })
+
+    expect(unlink).not.toHaveBeenCalled()
+    expect(fs.readFileSync(outsidePath, 'utf8')).toBe('keep')
+    expect(database.removeAttachment).not.toHaveBeenCalled()
+  })
+
+  it('does not unlink outside the attachments directory when deleting entry attachments', async () => {
+    const outsidePath = path.join(userDataPath, 'outside.txt')
+    fs.writeFileSync(outsidePath, 'keep')
+    database.getAttachmentsByEntry.mockReturnValue([{ id: 8, filepath: '..\\outside.txt' }])
+    const unlink = vi.spyOn(fs.promises, 'unlink')
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachmentsForEntry(3)).resolves.toEqual({ deleted: 0, errors: 1 })
+
+    expect(unlink).not.toHaveBeenCalled()
+    expect(fs.readFileSync(outsidePath, 'utf8')).toBe('keep')
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('attachment id=8'),
+      expect.stringContaining('Invalid attachment path'),
+    )
+  })
+
+  it('still deletes a valid legacy attachment filepath', async () => {
+    const attachmentsPath = path.join(userDataPath, 'attachments')
+    const attachmentPath = path.join(attachmentsPath, 'abc.png')
+    fs.mkdirSync(attachmentsPath, { recursive: true })
+    fs.writeFileSync(attachmentPath, 'image')
+    database.getAttachmentById.mockReturnValue({ id: 9, filepath: 'abc.png' })
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachment(9)).resolves.toEqual({ success: true })
+
+    expect(fs.existsSync(attachmentPath)).toBe(false)
+    expect(database.removeAttachment).toHaveBeenCalledWith(9)
   })
 })

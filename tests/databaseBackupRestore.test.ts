@@ -181,4 +181,39 @@ describe('database backup data normalization', () => {
       entries: { id: 1 },
     })).toThrow(/entries/i)
   })
+
+  it.each([
+    ['parent traversal', '../outside.txt'],
+    ['absolute path', '/var/tmp/outside.txt'],
+    ['Windows drive path', 'C:\\Users\\x\\outside.txt'],
+    ['mixed-separator traversal', 'nested/..\\..\\outside.txt'],
+  ])('rejects unsafe restored attachment filepaths: %s', (_label, filepath) => {
+    expect(() => normalizeBackupDatabaseData({
+      attachments: [{
+        id: 1,
+        entry_id: 1,
+        filename: 'attachment.png',
+        filepath,
+        mimetype: 'image/png',
+      }],
+    })).toThrow(/attachment.*filepath/i)
+  })
+
+  it.each([
+    'abc.png',
+    'timestamp-random.png',
+    '1_1779000000000.webp',
+  ])('keeps valid legacy attachment filepath %s', (filepath) => {
+    const normalized = normalizeBackupDatabaseData({
+      attachments: [{
+        id: 1,
+        entry_id: 1,
+        filename: 'attachment.png',
+        filepath,
+        mimetype: 'image/png',
+      }],
+    })
+
+    expect(normalized.attachments[0]?.filepath).toBe(filepath)
+  })
 })
