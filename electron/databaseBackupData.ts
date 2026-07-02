@@ -1,3 +1,4 @@
+import path from 'path';
 import { SENSITIVE_SETTINGS_KEYS } from './settingsSecurity';
 
 export type DatabaseBackupValue = string | number | null;
@@ -125,6 +126,26 @@ function normalizeBackupValue(value: unknown, tableName: string, columnName: str
     throw new Error(`Invalid database backup value for ${tableName}.${columnName}`);
 }
 
+export function validateAttachmentFilepath(value: unknown): string {
+    if (typeof value !== 'string' || value.length === 0 || value.includes('\0')) {
+        throw new Error('Invalid attachment filepath: expected a non-empty relative path');
+    }
+
+    const normalizedSeparators = value.replace(/\\/g, '/');
+    const hasParentTraversal = normalizedSeparators.split('/').includes('..');
+    const hasWindowsDrivePrefix = /^[A-Za-z]:/.test(value);
+    if (
+        path.posix.isAbsolute(normalizedSeparators)
+        || path.win32.isAbsolute(value)
+        || hasWindowsDrivePrefix
+        || hasParentTraversal
+    ) {
+        throw new Error('Invalid attachment filepath: path must stay within the attachments directory');
+    }
+
+    return value;
+}
+
 function normalizeTableRows(raw: unknown, tableName: string): DatabaseBackupRow[] {
     if (raw === undefined) return [];
     if (!Array.isArray(raw)) {
@@ -143,6 +164,13 @@ function normalizeTableRows(raw: unknown, tableName: string): DatabaseBackupRow[
         }
         return normalized;
     });
+}
+
+function normalizeAttachments(raw: unknown): DatabaseBackupRow[] {
+    return normalizeTableRows(raw, 'attachments').map(row => ({
+        ...row,
+        filepath: validateAttachmentFilepath(row.filepath),
+    }));
 }
 
 function normalizeSettingValue(value: unknown): string | null {
@@ -213,7 +241,7 @@ export function normalizeBackupDatabaseData(raw: Record<string, unknown>): Norma
         tags: normalizeTableRows(raw.tags, 'tags'),
         entries: normalizeTableRows(raw.entries, 'entries'),
         entry_tags: normalizeTableRows(raw.entry_tags, 'entry_tags'),
-        attachments: normalizeTableRows(raw.attachments, 'attachments'),
+        attachments: normalizeAttachments(raw.attachments),
         pomodoro_sessions: normalizePomodoroSessions(raw),
         mistakes: normalizeMistakes(raw.mistakes),
         study_tasks: normalizeTableRows(raw.study_tasks, 'study_tasks'),

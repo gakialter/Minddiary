@@ -6,6 +6,7 @@ const db = require('./database');
 const pool = require('./imageWorkerPool');
 const { logger } = require('./logger');
 import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
+import { validateAttachmentFilepath } from './databaseBackupData';
 
 import type { Attachment, AttachmentData } from '../src/types/index';
 
@@ -99,10 +100,30 @@ async function saveAttachment(entryId: number, { name, data, mimetype }: Attachm
     return attachment;
 }
 
+function resolveAttachmentPath(filepath: unknown): string {
+    try {
+        const safeFilepath = validateAttachmentFilepath(filepath);
+        const baseDir = path.resolve(getAttachmentsDir());
+        const resolved = path.resolve(baseDir, safeFilepath);
+        const relative = path.relative(baseDir, resolved);
+        if (
+            relative.length === 0
+            || relative === '..'
+            || relative.startsWith(`..${path.sep}`)
+            || path.isAbsolute(relative)
+        ) {
+            throw new Error('Attachment path escaped the managed directory');
+        }
+        return resolved;
+    } catch {
+        throw Object.assign(new Error('Invalid attachment path'), { code: 'PATH_TRAVERSAL' });
+    }
+}
+
 async function deleteAttachment(id: number): Promise<{ success: boolean }> {
     const attachment = db.getAttachmentById(id) as Attachment | undefined;
     if (attachment) {
-        const filepath = path.join(getAttachmentsDir(), attachment.filepath);
+        const filepath = resolveAttachmentPath(attachment.filepath);
         try {
             await fs.promises.unlink(filepath);
         } catch (err: unknown) {
@@ -118,7 +139,7 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 
     const results = await Promise.allSettled(
         attachments.map(async (attachment) => {
-            const filepath = path.join(getAttachmentsDir(), attachment.filepath);
+            const filepath = resolveAttachmentPath(attachment.filepath);
             await fs.promises.unlink(filepath).catch((err: unknown) => {
                 if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
             });
@@ -143,13 +164,7 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 }
 
 function getAttachmentPath(filepath: string): string {
-    const baseDir = getAttachmentsDir();
-    const resolved = path.resolve(baseDir, filepath);
-    const relative = path.relative(baseDir, resolved);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        throw { code: 'PATH_TRAVERSAL', message: 'Invalid attachment path' };
-    }
-    return resolved;
+    return resolveAttachmentPath(filepath);
 }
 
 // ── Mistake Images ───────────────────────────────────────────────────────────
