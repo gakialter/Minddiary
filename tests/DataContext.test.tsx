@@ -520,6 +520,26 @@ describe('DataContext', () => {
     ])
   })
 
+  it('applies the browser fallback entry limit after sorting by date', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    localStorage.setItem(STORAGE_KEYS.ENTRIES, JSON.stringify([
+      { ...mockEntries[0], id: 1, date: '2026-01-01', title: 'oldest' },
+      { ...mockEntries[0], id: 2, date: '2026-02-01', title: 'middle' },
+      { ...mockEntries[0], id: 3, date: '2026-03-01', title: 'newest' },
+    ]))
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.entries.getAll({ limit: 2 })).resolves.toMatchObject([
+      { id: 3, title: 'newest' },
+      { id: 2, title: 'middle' },
+    ])
+  })
+
   it('keeps browser fallback subject chapters and subject summaries consistent', async () => {
     mocks.isElectron = false
     localStorage.setItem(STORAGE_KEYS.ENTRIES, '[]')
