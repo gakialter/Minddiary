@@ -11,6 +11,19 @@ interface FsModule {
     realpathSync: RealpathSync;
 }
 
+function isEnoentError(error: unknown): boolean {
+    return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+}
+
+async function getRealPathForDeletion(filepath: string): Promise<string | null> {
+    try {
+        return await fs.promises.realpath(filepath);
+    } catch (error) {
+        if (isEnoentError(error)) return null;
+        throw error;
+    }
+}
+
 export interface PathSecurityOptions {
     fsModule?: FsModule;
     pathModule?: PathModule;
@@ -43,6 +56,29 @@ export function isPathInside(child: string, parent: string, options: PathSecurit
 
     const relative = pathModule.relative(normalizedParent, normalizedChild);
     return relative.length > 0 && !relative.startsWith('..') && !pathModule.isAbsolute(relative);
+}
+
+export async function resolveManagedDeletionTarget(
+    managedBase: string,
+    logicalTarget: string,
+): Promise<string | null> {
+    const realBase = await getRealPathForDeletion(path.resolve(managedBase));
+    if (!realBase) return null;
+
+    const realTarget = await getRealPathForDeletion(logicalTarget);
+    if (!realTarget) return null;
+
+    const relative = path.relative(realBase, realTarget);
+    if (
+        relative.length === 0
+        || relative === '..'
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative)
+    ) {
+        throw Object.assign(new Error('Path escaped the managed directory'), { code: 'PATH_TRAVERSAL' });
+    }
+
+    return realTarget;
 }
 
 export function resolveLocalProtocolPath(

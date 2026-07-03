@@ -7,6 +7,7 @@ const pool = require('./imageWorkerPool');
 const { logger } = require('./logger');
 import { deleteManagedMistakeImage, getMistakeImageReferenceKey } from './mistakeImageStorage';
 import { validateAttachmentFilepath } from './databaseBackupData';
+import { resolveManagedDeletionTarget } from './pathSecurity';
 
 import type { Attachment, AttachmentData } from '../src/types/index';
 
@@ -120,12 +121,24 @@ function resolveAttachmentPath(filepath: unknown): string {
     }
 }
 
+async function resolveAttachmentDeletionPath(filepath: unknown): Promise<string | null> {
+    const logicalTarget = resolveAttachmentPath(filepath);
+    try {
+        return await resolveManagedDeletionTarget(getAttachmentsDir(), logicalTarget);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === 'PATH_TRAVERSAL') {
+            throw Object.assign(new Error('Invalid attachment path'), { code: 'PATH_TRAVERSAL' });
+        }
+        throw error;
+    }
+}
+
 async function deleteAttachment(id: number): Promise<{ success: boolean }> {
     const attachment = db.getAttachmentById(id) as Attachment | undefined;
     if (attachment) {
-        const filepath = resolveAttachmentPath(attachment.filepath);
+        const filepath = await resolveAttachmentDeletionPath(attachment.filepath);
         try {
-            await fs.promises.unlink(filepath);
+            if (filepath) await fs.promises.unlink(filepath);
         } catch (err: unknown) {
             if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
         }
@@ -139,10 +152,12 @@ async function deleteAttachmentsForEntry(entryId: number): Promise<{ deleted: nu
 
     const results = await Promise.allSettled(
         attachments.map(async (attachment) => {
-            const filepath = resolveAttachmentPath(attachment.filepath);
-            await fs.promises.unlink(filepath).catch((err: unknown) => {
-                if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-            });
+            const filepath = await resolveAttachmentDeletionPath(attachment.filepath);
+            if (filepath) {
+                await fs.promises.unlink(filepath).catch((err: unknown) => {
+                    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+                });
+            }
         })
     );
 
