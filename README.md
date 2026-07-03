@@ -127,7 +127,7 @@ MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它�
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 当前正式应用基线为 MindDiary v1.13.2，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。
+- 当前正式应用基线为 MindDiary v1.13.3，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
