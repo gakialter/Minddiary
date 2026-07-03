@@ -8,6 +8,10 @@ type ModuleWithLoad = typeof Module & {
   _load: (request: string, parent: { filename?: string } | null, isMain: boolean) => unknown
 }
 
+function makeDirLink(target: string, linkPath: string): void {
+  fs.symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
+}
+
 describe('file manager storage', () => {
   const moduleWithLoad = Module as ModuleWithLoad
   const originalLoad = moduleWithLoad._load
@@ -130,5 +134,62 @@ describe('file manager storage', () => {
 
     expect(fs.existsSync(attachmentPath)).toBe(false)
     expect(database.removeAttachment).toHaveBeenCalledWith(9)
+  })
+
+  it('does not delete an outside file through a junction inside the attachments directory', async () => {
+    const attachmentsPath = path.join(userDataPath, 'attachments')
+    const outsidePath = path.join(userDataPath, 'outside-attachments')
+    const sentinelPath = path.join(outsidePath, 'sentinel.txt')
+    fs.mkdirSync(attachmentsPath, { recursive: true })
+    fs.mkdirSync(outsidePath, { recursive: true })
+    fs.writeFileSync(sentinelPath, 'keep')
+    makeDirLink(outsidePath, path.join(attachmentsPath, 'escape'))
+    database.getAttachmentById.mockReturnValue({ id: 10, filepath: 'escape/sentinel.txt' })
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachment(10)).rejects.toMatchObject({ code: 'PATH_TRAVERSAL' })
+
+    expect(fs.existsSync(sentinelPath)).toBe(true)
+    expect(fs.readFileSync(sentinelPath, 'utf8')).toBe('keep')
+    expect(database.removeAttachment).not.toHaveBeenCalled()
+  })
+
+  it('does not delete an outside file through a junction during entry attachment cleanup', async () => {
+    const attachmentsPath = path.join(userDataPath, 'attachments')
+    const outsidePath = path.join(userDataPath, 'outside-entry-attachments')
+    const sentinelPath = path.join(outsidePath, 'sentinel.txt')
+    fs.mkdirSync(attachmentsPath, { recursive: true })
+    fs.mkdirSync(outsidePath, { recursive: true })
+    fs.writeFileSync(sentinelPath, 'keep')
+    makeDirLink(outsidePath, path.join(attachmentsPath, 'escape'))
+    database.getAttachmentsByEntry.mockReturnValue([{ id: 11, filepath: 'escape/sentinel.txt' }])
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachmentsForEntry(4)).resolves.toEqual({ deleted: 0, errors: 1 })
+
+    expect(fs.existsSync(sentinelPath)).toBe(true)
+    expect(fs.readFileSync(sentinelPath, 'utf8')).toBe('keep')
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('attachment id=11'),
+      expect.stringContaining('Invalid attachment path'),
+    )
+  })
+
+  it('keeps missing attachment files compatible with record cleanup', async () => {
+    fs.mkdirSync(path.join(userDataPath, 'attachments'), { recursive: true })
+    database.getAttachmentById.mockReturnValue({ id: 12, filepath: 'missing.png' })
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachment(12)).resolves.toEqual({ success: true })
+
+    expect(database.removeAttachment).toHaveBeenCalledWith(12)
+  })
+
+  it('counts missing entry attachment files as successfully cleaned up', async () => {
+    fs.mkdirSync(path.join(userDataPath, 'attachments'), { recursive: true })
+    database.getAttachmentsByEntry.mockReturnValue([{ id: 13, filepath: 'missing.png' }])
+    const fileManager = await loadFileManager()
+
+    await expect(fileManager.deleteAttachmentsForEntry(5)).resolves.toEqual({ deleted: 1, errors: 0 })
   })
 })

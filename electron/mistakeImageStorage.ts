@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import { fileURLToPath } from 'url';
+import { resolveManagedDeletionTarget } from './pathSecurity';
 
 function getMistakeImagesDir(): string {
     return path.join(app.getPath('userData'), 'mistake_images');
@@ -43,7 +44,19 @@ export async function deleteManagedMistakeImage(urlPathname: string): Promise<vo
     if (!filepath) {
         throw { code: 'PATH_TRAVERSAL', message: 'Invalid image path' };
     }
-    await fs.promises.unlink(filepath).catch((err: unknown) => {
+
+    let deletionTarget: string | null;
+    try {
+        deletionTarget = await resolveManagedDeletionTarget(getMistakeImagesDir(), filepath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === 'PATH_TRAVERSAL') {
+            throw { code: 'PATH_TRAVERSAL', message: 'Invalid image path' };
+        }
+        throw error;
+    }
+
+    if (!deletionTarget) return;
+    await fs.promises.unlink(deletionTarget).catch((err: unknown) => {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     });
 }
