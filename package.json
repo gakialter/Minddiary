@@ -1,6 +1,6 @@
 {
     "name": "minddiary",
-    "version": "1.13.2",
+    "version": "1.13.3",
     "description": "考研日记桌面应用",
     "engines": {
         "node": ">=20.12.0"

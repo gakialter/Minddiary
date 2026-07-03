@@ -1,28 +1,27 @@
-# MindDiary v1.13.2
+# MindDiary v1.13.3
 
-MindDiary v1.13.2 是面向确定性与连续操作体验的低风险维护补丁，不扩展产品功能。SQLite schema unchanged，仍为 schema **5**。
+MindDiary v1.13.3 是一个聚焦本地媒体删除安全性的维护补丁，不扩展产品功能。SQLite schema unchanged，仍为 schema **5**。
 
-## Deterministic ordering
+## Realpath-aware media deletion containment
 
-- 错题列表在 Electron SQLite 与 browser fallback 中统一按 `created_at DESC, id DESC` 稳定排序；相同创建时间下分页顺序保持一致。
-- Pomodoro 科目聚合按总分钟数降序、session count 降序、科目名升序稳定排序；统计含义、颜色与未分类回退保持不变。
-
-## Continuous chapter operations
-
-- 修复 #119：在详细章节列表中连续“加入今日任务”、勾选或取消完成状态时，不再因无必要的全量重载回到页面顶部。
-- 今日任务按钮与章节完成进度在成功路径局部更新；失败路径与外部数据刷新仍会回源读取真实状态。
+- 附件单项删除在执行 destructive `unlink` 前，同时保留原有 lexical validation 并校验真实目标仍位于托管附件目录内。
+- 日记条目附件批量清理使用相同的 realpath containment，避免目录内 junction / symlink 将删除目标重定向到托管目录之外。
+- 托管错题图片删除在执行 `unlink` 前校验真实目标，阻止通过 `mistake_images` 内 junction / symlink 删除外部文件。
+- 目标文件或托管目录不存在时继续按安全缺失处理；权限、I/O 或其他非 `ENOENT` 文件系统错误不会被吞掉。
 
 ## Verification boundary
 
-- #120、#121、#122 均在各自 exact head 上通过 test、Windows build verification 与 macOS build verification 后合并。
-- #122 已在隔离 Electron profile 中完成 24 章节真实 UI smoke：中下部连续加入今日任务、勾选/取消完成均保持当前位置，跨页面重载后任务与完成状态仍来自 SQLite。
-- 发布前仍需对候选 Windows Setup 或 Portable 构建执行最终 packaged smoke；本次 release-prep 不创建 tag 或 GitHub Release。
+- #126 在 exact head `f124ada2392a616f756a51ae21d33c9f0e318ccb` 上通过 test、Windows build verification 与 macOS build verification 后，以 squash merge 进入 `main`。
+- 回归测试使用真实临时 junction（其他平台使用 directory symlink）从托管目录内路径指向外部哨兵文件，并确认附件单项删除、条目附件清理和托管错题图片删除均不会删除哨兵。
+- 本次 release-prep 不构建或验收 Windows Setup / Portable，不创建 tag 或 GitHub Release。
 
 ## Compatibility
 
-- schema unchanged；`CURRENT_SCHEMA_VERSION` remains **5**，不新增 migration。
-- no dependency changes；不改变筛选、分页参数、统计聚合、复习、图片或章节任务业务规则。
-- no product feature expansion；不包含 subject management ordering、npm audit 或 v2.0 工作。
+- schema unchanged；`CURRENT_SCHEMA_VERSION` remains **5**。
+- API unchanged；不改变 renderer、preload 或 IPC 公共接口。
+- migration unchanged；不新增或修改数据库 migration。
+- dependency unchanged；不新增、删除或升级依赖。
+- 不包含 #124 同日期 tie-breaker、负数 limit 语义、路线图或其他相邻修复。
 
 ## Windows 安装包说明
 
@@ -32,5 +31,5 @@ MindDiary v1.13.2 是面向确定性与连续操作体验的低风险维护补�
 ## Release gate
 
 - release-prep PR 必须在 current head 上通过 CI。
-- tag 前必须再次确认 `package.json`、`package-lock.json` 与 `RELEASE_NOTES.md` 均为 `1.13.2`。
+- tag 前必须再次确认 `package.json`、`package-lock.json`、内置更新摘要与 `RELEASE_NOTES.md` 均为 `1.13.3`。
 - 完成候选 packaged Windows smoke 与严格 release asset allowlist 审核后，才能进入另行授权的 tag / GitHub Release 阶段。

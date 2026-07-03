@@ -89,12 +89,12 @@ CI does not install the Windows Setup package, launch Portable on a clean Window
 
 Run these during release acceptance after candidate artifacts exist. Record OS version, architecture, asset name, result, and any warning shown.
 
-Before publishing v1.13.2, also record one packaged chapter-list continuity smoke against a candidate Windows Setup or Portable build:
+Before publishing v1.13.3, also record one packaged media-deletion containment smoke against a candidate Windows Setup or Portable build using only disposable profile data:
 
-- Create a subject with at least 20 detailed chapters and scroll to the middle or lower rows.
-- Add several consecutive chapters to today's tasks; confirm each button becomes disabled and the list does not return to the top.
-- Check and uncheck several consecutive chapter completion boxes; confirm progress updates and the list does not return to the top.
-- Navigate away and back, then confirm the added-task buttons and completion state reload from persisted data.
+- Confirm normal attachment deletion, entry attachment cleanup, and managed mistake image deletion still remove files inside their managed directories.
+- Place a junction inside the disposable `attachments` directory that points to an outside disposable sentinel file; confirm single and entry-cleanup deletion paths leave the sentinel unchanged.
+- Place a junction inside the disposable `mistake_images` directory that points to an outside disposable sentinel file; confirm managed mistake image deletion leaves the sentinel unchanged.
+- Record the candidate artifact, disposable profile paths, sentinel results, and any filesystem error; do not use the real user profile or real attachments.
 
 1. Windows Setup — manual acceptance
    - Download `MindDiary-Setup-<version>.exe` from the candidate Release.
