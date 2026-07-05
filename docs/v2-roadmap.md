@@ -1,6 +1,6 @@
 # MindDiary v2.0 学习闭环增强路线图
 
-> 历史说明（2026-06-29）：本文保留 v1.11.x 时点的规划内容，不再作为当前版本或 schema 基线；当前路线请见 [MindDiary v1.13.x to v2.0 Roadmap](./roadmap/minddiary-v1.13.x-to-v2.0-roadmap.md)。
+> 历史说明（2026-07-05）：本文保留 v1.11.x 时点的规划内容，不再作为当前版本、schema 或产品方向基线；当前路线请见 [MindDiary AI Study Planning Agent Roadmap](./roadmap/minddiary-ai-study-agent-roadmap.md)。
 
 审查日期：2026-06-19
 

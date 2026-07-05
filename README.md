@@ -22,7 +22,7 @@
 
 **Less but better. Action first, noise last.**
 
-MindDiary 是一个为考研备考者设计的桌面日记与效率工具。它围绕"持续学习"这一核心动作，提供日记、番茄钟、错题管理三层结构化记忆与追踪，辅以 AI 助教的低摩擦智囊支持。
+MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Agent，而不是自主运行或直接写入数据库的通用 Agent 平台。它从现有的「AI 规划今日行动」出发，逐步将日记、番茄钟、错题复习、科目、章节和今日任务纳入由用户确认的学习闭环；当前能力与后续版本边界见 [AI Study Planning Agent Roadmap](./docs/roadmap/minddiary-ai-study-agent-roadmap.md)。
 
 学习数据存储在本地 SQLite 中，零云端依赖；AI 对话与自动更新仅在用户配置或触发时联网，用户拥有完整数据主权。
 
