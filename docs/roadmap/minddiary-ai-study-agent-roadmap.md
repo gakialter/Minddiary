@@ -16,7 +16,7 @@ Schema status for this roadmap update: schema unchanged.
 
 ## Product Positioning
 
-MindDiary is a local-first AI Study Planning Agent for long-cycle exam preparation, not a generic autonomous agent platform. It turns diary entries, Pomodoro sessions, mistake reviews, subjects, chapters, and today's tasks into user-confirmed learning plans.
+MindDiary is a local-first AI Study Planning Agent for long-cycle exam preparation, not a generic autonomous agent platform. It starts from AI Today Action and progressively brings diary entries, Pomodoro sessions, mistake reviews, subjects, chapters, and today's tasks into a user-confirmed learning loop.
 
 This sentence defines the product direction, not a claim that every listed input already participates in AI planning. Today, AI Today Action uses a bounded subset of local context; later inputs enter the loop only after their version gates are separately authorized and implemented.
 
