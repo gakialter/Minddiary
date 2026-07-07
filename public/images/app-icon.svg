@@ -1,22 +1,17 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-    <!-- Base background (warm grey) with a very subtle linear gradient matching Zen Forest -->
     <defs>
         <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="#FDFDFB"/>
             <stop offset="100%" stop-color="#E2E6DF"/>
         </linearGradient>
     </defs>
-    <!-- Premium Rounded Rectangle Background with stronger brand border for small-size contrast -->
     <rect x="1.5" y="1.5" width="509" height="509" rx="116" fill="url(#bg)" stroke="#0F766E" stroke-width="3"/>
-    
-    <!-- The Core logo takes up ~65% of the canvas (330px out of 512) -->
-    <g transform="translate(91, 91) scale(3.3)" color="#0F766E">
-        <circle cx="50" cy="50" r="16" fill="currentColor"/>
-        <!-- Thickened stroke to 6 for better small-size readability -->
-        <g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="butt">
-            <path d="M 50 18 A 32 32 0 0 1 77.7 34" />
-            <path d="M 77.7 66 A 32 32 0 0 1 22.3 66" />
-            <path d="M 22.3 34 A 32 32 0 0 1 50 18" />
+    <g transform="translate(91,91) scale(3.3)" color="#0F766E">
+        <circle cx="50" cy="50" r="13.5" fill="currentColor"/>
+        <g fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M 50 16.5 A 33.5 33.5 0 0 1 79 33.25" />
+            <path d="M 79 66.75 A 33.5 33.5 0 0 1 21 66.75" />
+            <path d="M 21 33.25 A 33.5 33.5 0 0 1 50 16.5" />
         </g>
     </g>
 </svg>
