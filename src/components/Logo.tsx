@@ -8,26 +8,29 @@ export interface LogoProps {
 }
 
 /**
- * 绝对原点 (The Core) 
+ * Quiet Orbit
  * MindDiary Brand Logo (Zen Forest Edition)
- * Reference docs/brand.md for usage guidelines.
+ *
+ * A stable focus core held by three calm learning cycles.
+ * The mark preserves the original Core identity while improving
+ * small-size legibility, balance, and long-term brand distinctiveness.
  */
 export default function Logo({ size = '100%', color = 'currentColor', className = '', title = 'MindDiary Logo' }: LogoProps) {
   return (
-    <svg 
-      viewBox="0 0 100 100" 
-      xmlns="http://www.w3.org/2000/svg" 
-      className={className} 
-      style={{ width: size, height: size, color: color }}
+    <svg
+      viewBox="0 0 100 100"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ width: size, height: size, color }}
       role="img"
       aria-label={title}
     >
       <title>{title}</title>
-      <circle cx="50" cy="50" r="16" fill="currentColor"/>
-      <g fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="butt">
-        <path d="M 50 18 A 32 32 0 0 1 77.7 34" />
-        <path d="M 77.7 66 A 32 32 0 0 1 22.3 66" />
-        <path d="M 22.3 34 A 32 32 0 0 1 50 18" />
+      <circle cx="50" cy="50" r="13.5" fill="currentColor" />
+      <g fill="none" stroke="currentColor" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M 50 16.5 A 33.5 33.5 0 0 1 79 33.25" />
+        <path d="M 79 66.75 A 33.5 33.5 0 0 1 21 66.75" />
+        <path d="M 21 33.25 A 33.5 33.5 0 0 1 50 16.5" />
       </g>
     </svg>
   );
