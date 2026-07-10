@@ -5,6 +5,7 @@ import { useDashboardMasterState } from '../hooks/useDashboardMasterState'
 import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { CommanderHero } from './dashboard/CommanderHero'
 import { TrustMetric } from './dashboard/TrustMetric'
+import DailyReviewAgentDialog from './DailyReviewAgentDialog'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
@@ -30,6 +31,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     mistakes: mistakesAPI,
     subjects: subjectsAPI,
     subjectChapters: subjectChaptersAPI,
+    pomodoro: pomodoroAPI,
     entries: entriesAPI,
     ai: aiAPI,
     requestDataRefresh,
@@ -49,6 +51,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
+  const [dailyReviewAgentOpen, setDailyReviewAgentOpen] = useState(false)
   const todayDate = useCurrentLocalDateKey()
   const { hasActiveTimerSession } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
@@ -393,16 +396,28 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               {taskLoading && (
                 <span className="text-sm" style={{ color: 'var(--text-muted)' }}>同步中...</span>
               )}
-              <button
-                type="button"
-                className="button button-secondary"
-                data-testid="open-ai-today-action-suggestions"
-                disabled={taskMutating}
-                onClick={() => setAiSuggestionOpen(true)}
-                style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
-              >
-                AI 规划今日行动
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="open-daily-review-agent"
+                  disabled={taskMutating}
+                  onClick={() => setDailyReviewAgentOpen(true)}
+                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+                >
+                  每日复盘
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="open-ai-today-action-suggestions"
+                  disabled={taskMutating}
+                  onClick={() => setAiSuggestionOpen(true)}
+                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+                >
+                  AI 规划今日行动
+                </button>
+              </div>
             </div>
 
             <form className="mt-4 grid gap-3 md:grid-cols-[1fr_150px_120px_auto]" onSubmit={handleManualTaskSubmit}>
@@ -718,6 +733,22 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           subjectsAPI={subjectsAPI}
           entriesAPI={entriesAPI}
           onClose={() => setAiSuggestionOpen(false)}
+          onCreated={async () => {
+            await loadTasks()
+            requestDataRefresh()
+          }}
+        />
+      )}
+      {dailyReviewAgentOpen && (
+        <DailyReviewAgentDialog
+          date={todayDate}
+          aiAPI={aiAPI}
+          tasksAPI={tasksAPI}
+          mistakesAPI={mistakesAPI}
+          subjectsAPI={subjectsAPI}
+          entriesAPI={entriesAPI}
+          pomodoroAPI={pomodoroAPI}
+          onClose={() => setDailyReviewAgentOpen(false)}
           onCreated={async () => {
             await loadTasks()
             requestDataRefresh()
