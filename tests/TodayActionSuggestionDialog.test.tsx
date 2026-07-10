@@ -183,6 +183,18 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
+  it('shows a visible error and does not create tasks when the final context refresh fails', async () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+
+    mocks.tasksGetByDate.mockRejectedValueOnce(new Error('context refresh failed'))
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByText('创建前无法刷新规划依据：context refresh failed')).toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
   it('blocks task creation when AI response has fatal top-level schema errors', async () => {
     mocks.aiChat.mockResolvedValue({
       content: JSON.stringify({

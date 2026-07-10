@@ -226,6 +226,8 @@ export default function TodayActionSuggestionDialog({
         }
       }
       if (createdAny) await onCreated()
+    } catch (error) {
+      setErrors([`创建前无法刷新规划依据：${error instanceof Error ? error.message : String(error)}`])
     } finally {
       setCreating(false)
     }
