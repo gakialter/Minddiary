@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildTodayActionPlanningContextPreview,
   buildTodayActionSuggestionMessages,
   extractSingleJsonObject,
   parseTodayActionSuggestions,
@@ -89,6 +90,41 @@ const validPayload = () => ({
 })
 
 describe('todayActionSuggestions parser and schema', () => {
+  it('builds a deterministic preview with included counts, exclusions, and local risks', () => {
+    const preview = buildTodayActionPlanningContextPreview(context({
+      availableMinutes: 30,
+      todayTasks: [makeTask({ estimate_minutes: 30 })],
+      dueMistakeTotal: 14,
+    }))
+
+    expect(preview.find(item => item.source === 'today_tasks')).toEqual(expect.objectContaining({
+      included: true,
+      count: 1,
+      warnings: expect.arrayContaining([expect.stringContaining('重复')]),
+    }))
+    expect(preview.find(item => item.source === 'due_mistakes')).toEqual(expect.objectContaining({
+      included: true,
+      count: 1,
+      warnings: expect.arrayContaining([expect.stringContaining('最多 12 项')]),
+    }))
+    expect(preview.find(item => item.source === 'available_minutes')?.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('超过可用时间预算')]),
+    )
+    expect(preview.find(item => item.source === 'chapters')).toEqual(expect.objectContaining({ included: false }))
+    expect(preview.find(item => item.source === 'focus_history')).toEqual(expect.objectContaining({ included: false }))
+  })
+
+  it('explains that a missing today diary is excluded', () => {
+    const diary = buildTodayActionPlanningContextPreview(context({ todayEntry: null }))
+      .find(item => item.source === 'today_entry')
+
+    expect(diary).toEqual(expect.objectContaining({
+      included: false,
+      count: 0,
+      reason: expect.stringContaining('尚无日记'),
+    }))
+  })
+
   it('parses a normal JSON object into valid editable drafts', () => {
     const result = parseTodayActionSuggestions(JSON.stringify(validPayload()), context())
 

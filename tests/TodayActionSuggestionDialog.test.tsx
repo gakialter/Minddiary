@@ -129,6 +129,47 @@ describe('TodayActionSuggestionDialog', () => {
     expect(await screen.findByText('已创建 #99')).toBeInTheDocument()
   })
 
+  it('shows local planning context before an AI request without creating tasks', async () => {
+    mocks.tasksGetByDate.mockResolvedValue([task])
+
+    renderDialog()
+
+    expect(await screen.findByTestId('planning-context-today_tasks')).toHaveTextContent('已使用：今日活跃任务（1）')
+    expect(screen.getByTestId('planning-context-due_mistakes')).toHaveTextContent('已使用：今日到期错题（1）')
+    expect(mocks.aiChat).not.toHaveBeenCalled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('shows the empty local context state and explains a missing today diary', async () => {
+    mocks.mistakesGetAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
+    mocks.entriesGetByDate.mockResolvedValue(null)
+
+    renderDialog()
+
+    expect(await screen.findByTestId('planning-context-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('planning-context-today_tasks')).toHaveTextContent('今天没有待办或进行中的任务')
+    expect(screen.getByTestId('planning-context-today_entry')).toHaveTextContent('今天尚无日记')
+    expect(mocks.aiChat).not.toHaveBeenCalled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('loads the preview without requesting AI or mutating tasks', async () => {
+    const request = createDeferred<StudyTask[]>()
+    mocks.tasksGetByDate.mockReturnValueOnce(request.promise)
+
+    renderDialog()
+
+    expect(screen.getByTestId('planning-context-loading')).toBeInTheDocument()
+    expect(mocks.aiChat).not.toHaveBeenCalled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+    await act(async () => {
+      request.resolve([])
+      await request.promise
+    })
+    expect(await screen.findByTestId('planning-context-preview')).toBeInTheDocument()
+  })
+
   it('shows unsupported AI errors without creating tasks', async () => {
     mocks.aiChat.mockResolvedValue({
       unsupported: true,
@@ -184,5 +225,24 @@ describe('TodayActionSuggestionDialog', () => {
     })
 
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('ignores an older planning-context response after available time changes', async () => {
+    const staleTasks = createDeferred<StudyTask[]>()
+    mocks.tasksGetByDate.mockReturnValueOnce(staleTasks.promise).mockResolvedValue([])
+
+    renderDialog()
+    fireEvent.change(screen.getByTestId('ai-plan-available-minutes'), { target: { value: '120' } })
+
+    expect(await screen.findByTestId('planning-context-available_minutes')).toHaveTextContent('120 分钟')
+
+    await act(async () => {
+      staleTasks.resolve([task])
+      await staleTasks.promise
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('planning-context-today_tasks')).toHaveTextContent('今日活跃任务（0）')
+    })
   })
 })

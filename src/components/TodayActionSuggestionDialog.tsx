@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
 import type { AIContextAPI, EntriesContextAPI, MistakesContextAPI, SubjectsContextAPI, TasksContextAPI } from '../types/api'
 import {
   buildTodayActionSuggestionMessages,
+  buildTodayActionPlanningContextPreview,
   parseTodayActionSuggestions,
   validateTodayActionDrafts,
   type TodayActionPlanningContext,
@@ -49,6 +50,7 @@ async function loadPlanningContext({
     availableMinutes,
     todayTasks,
     dueMistakes: mistakesResponse.data || [],
+    dueMistakeTotal: mistakesResponse.total,
     subjects,
     todayEntry,
   }
@@ -66,11 +68,14 @@ export default function TodayActionSuggestionDialog({
 }: TodayActionSuggestionDialogProps) {
   const [availableMinutes, setAvailableMinutes] = useState(90)
   const [planningContext, setPlanningContext] = useState<TodayActionPlanningContext | null>(null)
+  const [contextLoading, setContextLoading] = useState(false)
+  const [contextError, setContextError] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<TodayActionSuggestionDraft[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
   const generationRef = useRef(0)
+  const contextRequestRef = useRef(0)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -84,7 +89,39 @@ export default function TodayActionSuggestionDialog({
 
   useEffect(() => () => {
     generationRef.current += 1
+    contextRequestRef.current += 1
   }, [])
+
+  const refreshPlanningContext = useCallback(async (): Promise<TodayActionPlanningContext | null> => {
+    const request = ++contextRequestRef.current
+    setContextLoading(true)
+    setContextError(null)
+    try {
+      const context = await loadPlanningContext({
+        date,
+        availableMinutes,
+        tasksAPI,
+        mistakesAPI,
+        subjectsAPI,
+        entriesAPI,
+      })
+      if (contextRequestRef.current !== request) return null
+      setPlanningContext(context)
+      return context
+    } catch (error) {
+      if (contextRequestRef.current === request) {
+        setPlanningContext(null)
+        setContextError(error instanceof Error ? error.message : String(error))
+      }
+      return null
+    } finally {
+      if (contextRequestRef.current === request) setContextLoading(false)
+    }
+  }, [availableMinutes, date, entriesAPI, mistakesAPI, subjectsAPI, tasksAPI])
+
+  useEffect(() => {
+    void refreshPlanningContext()
+  }, [refreshPlanningContext])
 
   const revalidate = (nextSuggestions: TodayActionSuggestionDraft[], context = planningContext) => (
     context ? validateTodayActionDrafts(nextSuggestions, context) : nextSuggestions
@@ -110,14 +147,8 @@ export default function TodayActionSuggestionDialog({
     setErrors([])
     setSuggestions([])
     try {
-      const context = await loadPlanningContext({
-        date,
-        availableMinutes,
-        tasksAPI,
-        mistakesAPI,
-        subjectsAPI,
-        entriesAPI,
-      })
+      const context = await refreshPlanningContext()
+      if (!context) return
       if (generationRef.current !== generation) return
       setPlanningContext(context)
 
@@ -200,6 +231,16 @@ export default function TodayActionSuggestionDialog({
     }
   }
 
+  const visiblePlanningContext = planningContext?.date === date && planningContext.availableMinutes === availableMinutes
+    ? planningContext
+    : null
+  const planningPreview = visiblePlanningContext
+    ? buildTodayActionPlanningContextPreview(visiblePlanningContext)
+    : []
+  const isPlanningContextEmpty = visiblePlanningContext
+    && planningPreview.find(item => item.source === 'today_tasks')?.count === 0
+    && planningPreview.find(item => item.source === 'due_mistakes')?.count === 0
+    && !visiblePlanningContext.todayEntry
   const selectedValidCount = suggestions.filter(suggestion => (
     suggestion.selected &&
     suggestion.creationState !== 'created' &&
@@ -268,7 +309,10 @@ export default function TodayActionSuggestionDialog({
                 max={720}
                 value={availableMinutes}
                 disabled={generating || creating}
-                onChange={event => setAvailableMinutes(Math.max(5, Math.round(Number(event.target.value) || 90)))}
+                onChange={event => {
+                  setPlanningContext(null)
+                  setAvailableMinutes(Math.max(5, Math.round(Number(event.target.value) || 90)))
+                }}
                 style={{ width: 96, marginLeft: 8, minHeight: 36 }}
               />
               分钟
@@ -283,6 +327,61 @@ export default function TodayActionSuggestionDialog({
               {generating ? <><Loader2 size={14} className="animate-spin" /> 生成中...</> : <><Sparkles size={14} /> 生成建议</>}
             </button>
           </div>
+
+          <section className="mt-4" aria-label="AI 规划依据" data-testid="planning-context-preview">
+            <div className="flex flex-wrap items-center justify-between gap-sm">
+              <div>
+                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>规划依据（仅本地读取）</h4>
+                <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                  查看不会请求 AI，也不会创建或修改任务。
+                </p>
+              </div>
+              <button
+                type="button"
+                className="button button-secondary"
+                data-testid="ai-plan-refresh-context"
+                disabled={contextLoading || generating || creating}
+                onClick={() => { void refreshPlanningContext() }}
+              >
+                {contextLoading ? '加载中...' : '刷新规划依据'}
+              </button>
+            </div>
+
+            {contextLoading && (
+              <p className="mt-2 text-sm" data-testid="planning-context-loading" style={{ color: 'var(--text-muted)' }}>
+                正在加载本地规划依据…
+              </p>
+            )}
+            {contextError && (
+              <p className="mt-2 text-sm" role="alert" style={{ color: 'var(--danger)' }}>
+                规划依据加载失败：{contextError}
+              </p>
+            )}
+            {visiblePlanningContext && !contextLoading && (
+              <>
+                {isPlanningContextEmpty && (
+                  <p className="mt-2 text-sm" data-testid="planning-context-empty" style={{ color: 'var(--text-muted)' }}>
+                    今天没有待办任务、到期错题或日记；仍会使用可用时间和现有科目作为规划依据。
+                  </p>
+                )}
+                <ul className="mt-2 flex flex-col gap-xs" style={{ marginBottom: 0, paddingLeft: 18 }}>
+                  {planningPreview.map(item => (
+                    <li key={item.source} data-testid={`planning-context-${item.source}`} className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      <strong style={{ color: item.included ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {item.included ? '已使用' : '未使用'}：{item.label}{typeof item.count === 'number' ? `（${item.count}）` : ''}
+                      </strong>
+                      <span> — {item.reason}</span>
+                      {item.warnings?.map(warning => (
+                        <div key={warning} className="text-xs" style={{ color: 'var(--warning, var(--text-muted))', marginTop: 2 }}>
+                          风险提示：{warning}
+                        </div>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
 
           {errors.length > 0 && (
             <div className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>
