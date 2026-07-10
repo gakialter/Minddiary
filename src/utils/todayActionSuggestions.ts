@@ -24,8 +24,27 @@ export interface TodayActionPlanningContext {
   availableMinutes: number
   subjects: Subject[]
   dueMistakes: Mistake[]
+  dueMistakeTotal?: number
   todayTasks: StudyTask[]
   todayEntry: DiaryEntry | null
+}
+
+export type PlanningContextSource =
+  | 'available_minutes'
+  | 'today_tasks'
+  | 'due_mistakes'
+  | 'subjects'
+  | 'chapters'
+  | 'today_entry'
+  | 'focus_history'
+
+export interface PlanningContextPreviewItem {
+  source: PlanningContextSource
+  label: string
+  included: boolean
+  reason: string
+  count?: number
+  warnings?: string[]
 }
 
 export interface TodayActionSuggestionDraft {
@@ -68,6 +87,82 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeTitle(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+export function buildTodayActionPlanningContextPreview(
+  context: TodayActionPlanningContext,
+): PlanningContextPreviewItem[] {
+  const activeTasks = context.todayTasks.filter(task => (
+    ACTIVE_STATUSES.includes(task.status as typeof ACTIVE_STATUSES[number])
+  ))
+  const activeTaskMinutes = activeTasks.reduce((total, task) => total + Math.max(0, task.estimate_minutes || 0), 0)
+  const dueMistakeTotal = Math.max(context.dueMistakeTotal || 0, context.dueMistakes.length)
+
+  return [
+    {
+      source: 'available_minutes',
+      label: '今日可用时间',
+      included: true,
+      reason: `使用你设置的 ${context.availableMinutes} 分钟作为建议时长预算。`,
+      warnings: activeTaskMinutes >= context.availableMinutes
+        ? [`现有 ${activeTasks.length} 项活跃任务预计 ${activeTaskMinutes} 分钟，已达到或超过可用时间预算。`]
+        : undefined,
+    },
+    {
+      source: 'today_tasks',
+      label: '今日活跃任务',
+      included: true,
+      reason: activeTasks.length > 0
+        ? '用于检查候选任务标题和关联错题是否与今日活跃任务重复。'
+        : '今天没有待办或进行中的任务，生成建议时没有现有任务可供去重。',
+      count: activeTasks.length,
+      warnings: activeTasks.length > 0
+        ? [`存在 ${activeTasks.length} 项活跃任务；本地校验会拦截重复标题和重复错题复习。`]
+        : undefined,
+    },
+    {
+      source: 'due_mistakes',
+      label: '今日到期错题',
+      included: true,
+      reason: context.dueMistakes.length > 0
+        ? '用于限定可关联的错题复习建议。'
+        : '今天没有到期错题，生成建议不会关联错题复习。',
+      count: context.dueMistakes.length,
+      warnings: dueMistakeTotal > context.dueMistakes.length
+        ? [`仅使用前 ${context.dueMistakes.length} 项到期错题（最多 12 项），其余 ${dueMistakeTotal - context.dueMistakes.length} 项未传入本次规划。`]
+        : undefined,
+    },
+    {
+      source: 'subjects',
+      label: '科目',
+      included: true,
+      reason: context.subjects.length > 0
+        ? '用于让候选任务只关联现有科目。'
+        : '当前没有科目，候选任务不会关联科目。',
+      count: context.subjects.length,
+    },
+    {
+      source: 'today_entry',
+      label: '今日日记',
+      included: Boolean(context.todayEntry),
+      reason: context.todayEntry
+        ? '使用今日日记作为可关联的学习沉淀上下文。'
+        : '今天尚无日记，因此本次规划不使用日记内容。',
+      count: context.todayEntry ? 1 : 0,
+    },
+    {
+      source: 'chapters',
+      label: '章节进度',
+      included: false,
+      reason: '本版本尚未将章节 API 接入 AI 今日行动的规划上下文。',
+    },
+    {
+      source: 'focus_history',
+      label: '专注历史',
+      included: false,
+      reason: '本版本尚未将 Pomodoro 专注历史接入 AI 今日行动的规划上下文。',
+    },
+  ]
 }
 
 function makeClientId(index: number): string {
