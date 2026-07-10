@@ -3,15 +3,31 @@ import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
 import type { AIContextAPI, EntriesContextAPI, MistakesContextAPI, SubjectsContextAPI, TasksContextAPI } from '../types/api'
 import {
+  buildTodayActionPlanningContextSignature,
   buildTodayActionSuggestionMessages,
+  buildTodayActionSuggestionLocalEvidence,
   buildTodayActionPlanningContextPreview,
+  clampTodayActionAvailableMinutes,
   parseTodayActionSuggestions,
   validateTodayActionDrafts,
   type TodayActionPlanningContext,
+  type TodayActionPriority,
   type TodayActionSuggestionDraft,
 } from '../utils/todayActionSuggestions'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
+const PRIORITIES: TodayActionPriority[] = ['high', 'medium', 'low']
+const PRIORITY_LABELS: Record<TodayActionPriority, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+}
+
+interface CreationSummary {
+  created: number
+  failed: number
+  refreshError?: string
+}
 
 interface TodayActionSuggestionDialogProps {
   date: string
@@ -74,6 +90,9 @@ export default function TodayActionSuggestionDialog({
   const [errors, setErrors] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [generatedContextSignature, setGeneratedContextSignature] = useState<string | null>(null)
+  const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
+  const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
 
@@ -107,6 +126,7 @@ export default function TodayActionSuggestionDialog({
       })
       if (contextRequestRef.current !== request) return null
       setPlanningContext(context)
+      setSuggestions(current => current.length > 0 ? validateTodayActionDrafts(current, context) : current)
       return context
     } catch (error) {
       if (contextRequestRef.current === request) {
@@ -146,6 +166,9 @@ export default function TodayActionSuggestionDialog({
     setGenerating(true)
     setErrors([])
     setSuggestions([])
+    setGeneratedContextSignature(null)
+    setStaleContextNotice(null)
+    setCreationSummary(null)
     try {
       const context = await refreshPlanningContext()
       if (!context) return
@@ -162,6 +185,7 @@ export default function TodayActionSuggestionDialog({
       const parsed = parseTodayActionSuggestions(result.content, context)
       setErrors(parsed.errors)
       setSuggestions(parsed.suggestions)
+      setGeneratedContextSignature(buildTodayActionPlanningContextSignature(context))
     } catch (error) {
       if (generationRef.current === generation) {
         setErrors([error instanceof Error ? error.message : String(error)])
@@ -175,7 +199,7 @@ export default function TodayActionSuggestionDialog({
     if (creating || !planningContext) return
     setCreating(true)
     setErrors([])
-    let createdAny = false
+    setCreationSummary(null)
     try {
       const latestContext = await loadPlanningContext({
         date,
@@ -185,11 +209,27 @@ export default function TodayActionSuggestionDialog({
         subjectsAPI,
         entriesAPI,
       })
+      const latestSignature = buildTodayActionPlanningContextSignature(latestContext)
       setPlanningContext(latestContext)
       let currentSuggestions = validateTodayActionDrafts(suggestions, latestContext)
       setSuggestions(currentSuggestions)
+      if (generatedContextSignature === null || generatedContextSignature !== latestSignature) {
+        setGeneratedContextSignature(latestSignature)
+        setStaleContextNotice('规划依据已更新，候选已按最新本地数据重新校验。请查看结果后再次确认创建。')
+        return
+      }
 
-      for (const suggestion of currentSuggestions) {
+      setStaleContextNotice(null)
+      let currentContext = latestContext
+      let createdCount = 0
+      let failedCount = 0
+      const candidateIds = currentSuggestions.map(suggestion => suggestion.clientId)
+
+      for (const clientId of candidateIds) {
+        currentSuggestions = validateTodayActionDrafts(currentSuggestions, currentContext)
+        setSuggestions(currentSuggestions)
+        const suggestion = currentSuggestions.find(item => item.clientId === clientId)
+        if (!suggestion) continue
         if (!suggestion.selected || suggestion.creationState === 'created' || suggestion.validationErrors.length > 0) continue
         currentSuggestions = currentSuggestions.map(item => (
           item.clientId === suggestion.clientId ? { ...item, creationState: 'creating', creationError: undefined } : item
@@ -208,7 +248,11 @@ export default function TodayActionSuggestionDialog({
             status: 'todo',
             source: 'ai',
           })
-          createdAny = true
+          createdCount += 1
+          currentContext = {
+            ...currentContext,
+            todayTasks: [...currentContext.todayTasks, task],
+          }
           currentSuggestions = currentSuggestions.map(item => (
             item.clientId === suggestion.clientId
               ? { ...item, creationState: 'created', createdTaskId: task.id, selected: false }
@@ -216,6 +260,7 @@ export default function TodayActionSuggestionDialog({
           ))
           setSuggestions(currentSuggestions)
         } catch (error) {
+          failedCount += 1
           const creationError = error instanceof Error ? error.message : String(error)
           currentSuggestions = currentSuggestions.map(item => (
             item.clientId === suggestion.clientId
@@ -225,7 +270,23 @@ export default function TodayActionSuggestionDialog({
           setSuggestions(currentSuggestions)
         }
       }
-      if (createdAny) await onCreated()
+      setPlanningContext(currentContext)
+      setGeneratedContextSignature(buildTodayActionPlanningContextSignature(currentContext))
+      setSuggestions(currentSuggestions)
+      if (createdCount > 0 || failedCount > 0) {
+        setCreationSummary({ created: createdCount, failed: failedCount })
+      }
+      if (createdCount > 0) {
+        try {
+          await onCreated()
+        } catch (error) {
+          setCreationSummary({
+            created: createdCount,
+            failed: failedCount,
+            refreshError: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
     } catch (error) {
       setErrors([`创建前无法刷新规划依据：${error instanceof Error ? error.message : String(error)}`])
     } finally {
@@ -313,7 +374,7 @@ export default function TodayActionSuggestionDialog({
                 disabled={generating || creating}
                 onChange={event => {
                   setPlanningContext(null)
-                  setAvailableMinutes(Math.max(5, Math.round(Number(event.target.value) || 90)))
+                  setAvailableMinutes(clampTodayActionAvailableMinutes(event.target.value))
                 }}
                 style={{ width: 96, marginLeft: 8, minHeight: 36 }}
               />
@@ -326,7 +387,9 @@ export default function TodayActionSuggestionDialog({
               disabled={generating || creating}
               onClick={generateSuggestions}
             >
-              {generating ? <><Loader2 size={14} className="animate-spin" /> 生成中...</> : <><Sparkles size={14} /> 生成建议</>}
+              {generating
+                ? <><Loader2 size={14} className="animate-spin" /> 生成中...</>
+                : <><Sparkles size={14} /> {errors.length > 0 ? '重新生成建议' : '生成建议'}</>}
             </button>
           </div>
 
@@ -386,9 +449,24 @@ export default function TodayActionSuggestionDialog({
           </section>
 
           {errors.length > 0 && (
-            <div className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>
+            <div className="mt-3 text-sm" role="alert" data-testid="ai-plan-errors" style={{ color: 'var(--danger)' }}>
               {errors.map(error => <div key={error}>{error}</div>)}
+              <div>请检查规划依据后重新生成建议；在出现这些错误时不会创建任务。</div>
             </div>
+          )}
+
+          {staleContextNotice && (
+            <p className="mt-3 text-sm" role="status" data-testid="ai-plan-stale-context" style={{ color: 'var(--warning, var(--text-secondary))' }}>
+              {staleContextNotice}
+            </p>
+          )}
+
+          {creationSummary && (
+            <p className="mt-3 text-sm" role="status" data-testid="ai-plan-creation-summary" style={{ color: creationSummary.failed > 0 ? 'var(--warning, var(--text-secondary))' : 'var(--success)' }}>
+              本次已创建 {creationSummary.created} 项，失败 {creationSummary.failed} 项。
+              {creationSummary.failed > 0 ? ' 已保留成功任务；可修改失败候选后重试。' : ''}
+              {creationSummary.refreshError ? ` 刷新今日任务失败：${creationSummary.refreshError}` : ''}
+            </p>
           )}
 
           {suggestions.length === 0 && !generating && (
@@ -399,100 +477,179 @@ export default function TodayActionSuggestionDialog({
 
           {suggestions.length > 0 && (
             <div className="mt-4 flex flex-col gap-sm">
-              {suggestions.map(suggestion => (
-                <div
-                  key={suggestion.clientId}
-                  data-testid={`ai-suggestion-${suggestion.clientId}`}
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    padding: 'var(--space-sm)',
-                    background: 'var(--bg-tertiary)',
-                  }}
-                >
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <input
-                      type="checkbox"
-                      aria-label={`选择 ${suggestion.title || suggestion.clientId}`}
-                      checked={suggestion.selected}
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onChange={event => updateSuggestion(suggestion.clientId, { selected: event.target.checked })}
+              {suggestions.map(suggestion => {
+                const isCreated = suggestion.creationState === 'created'
+                const isKnownSubject = suggestion.subject_id === null || Boolean(
+                  planningContext?.subjects.some(subject => subject.id === suggestion.subject_id),
+                )
+                const isKnownMistake = suggestion.related_mistake_id === null || Boolean(
+                  planningContext?.dueMistakes.some(mistake => mistake.id === suggestion.related_mistake_id),
+                )
+                const isKnownEntry = suggestion.related_entry_id === null || planningContext?.todayEntry?.id === suggestion.related_entry_id
+                const evidence = planningContext
+                  ? buildTodayActionSuggestionLocalEvidence(suggestion, planningContext)
+                  : []
+                const matchingMistake = planningContext?.dueMistakes.find(mistake => mistake.id === suggestion.related_mistake_id)
+
+                return (
+                  <div
+                    key={suggestion.clientId}
+                    data-testid={`ai-suggestion-${suggestion.clientId}`}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      padding: 'var(--space-sm)',
+                      background: 'var(--bg-tertiary)',
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center gap-sm">
+                      <input
+                        type="checkbox"
+                        aria-label={`选择 ${suggestion.title || suggestion.clientId}`}
+                        checked={suggestion.selected}
+                        disabled={creating || isCreated}
+                        onChange={event => updateSuggestion(suggestion.clientId, { selected: event.target.checked })}
+                      />
+                      <input
+                        className="input"
+                        aria-label="建议标题"
+                        value={suggestion.title}
+                        disabled={creating || isCreated}
+                        onChange={event => updateSuggestion(suggestion.clientId, { title: event.target.value })}
+                        style={{ flex: '1 1 220px', minHeight: 36 }}
+                      />
+                      <select
+                        className="input"
+                        aria-label="建议类型"
+                        value={suggestion.type}
+                        disabled={creating || isCreated}
+                        onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType })}
+                        style={{ width: 112, minHeight: 36 }}
+                      >
+                        {!TASK_TYPES.includes(suggestion.type) && <option value={suggestion.type} disabled>请选择有效类型</option>}
+                        {TASK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                      </select>
+                      <input
+                        className="input"
+                        aria-label="预计分钟"
+                        type="number"
+                        min={5}
+                        max={180}
+                        value={suggestion.estimate_minutes}
+                        disabled={creating || isCreated}
+                        onChange={event => updateSuggestion(suggestion.clientId, { estimate_minutes: Math.round(Number(event.target.value) || 0) })}
+                        style={{ width: 86, minHeight: 36 }}
+                      />
+                      <select
+                        className="input"
+                        aria-label="建议科目"
+                        value={suggestion.subject_id ?? ''}
+                        disabled={creating || isCreated}
+                        onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null })}
+                        style={{ width: 120, minHeight: 36 }}
+                      >
+                        {!isKnownSubject && <option value={suggestion.subject_id ?? ''} disabled>请选择有效科目</option>}
+                        <option value="">无科目</option>
+                        {planningContext?.subjects.map(subject => (
+                          <option key={subject.id} value={subject.id}>{subject.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        aria-label="删除建议"
+                        className="button button-secondary"
+                        disabled={creating || isCreated}
+                        onClick={() => removeSuggestion(suggestion.clientId)}
+                        style={{ padding: 8 }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-sm">
+                      <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        关联到期错题
+                        <select
+                          className="input"
+                          aria-label="关联到期错题"
+                          value={suggestion.related_mistake_id ?? ''}
+                          disabled={creating || isCreated}
+                          onChange={event => {
+                            const relatedMistakeId = event.target.value ? Number(event.target.value) : null
+                            const selectedMistake = planningContext?.dueMistakes.find(mistake => mistake.id === relatedMistakeId)
+                            updateSuggestion(suggestion.clientId, {
+                              related_mistake_id: relatedMistakeId,
+                              ...(selectedMistake?.subject_id !== null && selectedMistake?.subject_id !== undefined
+                                ? { subject_id: selectedMistake.subject_id }
+                                : {}),
+                            })
+                          }}
+                          style={{ marginLeft: 6, minHeight: 32 }}
+                        >
+                          {!isKnownMistake && <option value={suggestion.related_mistake_id ?? ''} disabled>请选择有效错题</option>}
+                          <option value="">{suggestion.type === 'review' ? '选择到期错题' : '不关联错题'}</option>
+                          {suggestion.type === 'review' && planningContext?.dueMistakes.map(mistake => (
+                            <option key={mistake.id} value={mistake.id}>#{mistake.id} {mistake.question || '（无题目）'}</option>
+                          ))}
+                          {suggestion.type !== 'review' && matchingMistake && (
+                            <option value={matchingMistake.id} disabled>#{matchingMistake.id} 已关联，请移除</option>
+                          )}
+                        </select>
+                      </label>
+                      <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        关联今日日记
+                        <select
+                          className="input"
+                          aria-label="关联今日日记"
+                          value={suggestion.related_entry_id ?? ''}
+                          disabled={creating || isCreated}
+                          onChange={event => updateSuggestion(suggestion.clientId, {
+                            related_entry_id: event.target.value ? Number(event.target.value) : null,
+                          })}
+                          style={{ marginLeft: 6, minHeight: 32 }}
+                        >
+                          {!isKnownEntry && <option value={suggestion.related_entry_id ?? ''} disabled>请选择有效日记</option>}
+                          <option value="">{planningContext?.todayEntry ? '不关联日记' : '今天没有可关联日记'}</option>
+                          {planningContext?.todayEntry && (
+                            <option value={planningContext.todayEntry.id}>{planningContext.todayEntry.title || planningContext.todayEntry.date}</option>
+                          )}
+                        </select>
+                      </label>
+                      <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        AI 建议优先级（不写入任务）
+                        <select
+                          className="input"
+                          aria-label="建议优先级"
+                          value={suggestion.priority}
+                          disabled={creating || isCreated}
+                          onChange={event => updateSuggestion(suggestion.clientId, { priority: event.target.value as TodayActionPriority })}
+                          style={{ marginLeft: 6, minHeight: 32 }}
+                        >
+                          {!PRIORITIES.includes(suggestion.priority) && <option value={suggestion.priority} disabled>请选择有效优先级</option>}
+                          {PRIORITIES.map(priority => <option key={priority} value={priority}>{PRIORITY_LABELS[priority]}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <textarea
+                      className="input"
+                      aria-label="建议理由"
+                      value={suggestion.reason}
+                      disabled={creating || isCreated}
+                      onChange={event => updateSuggestion(suggestion.clientId, { reason: event.target.value })}
+                      style={{ width: '100%', minHeight: 58, marginTop: 8 }}
                     />
-                    <input
-                      className="input"
-                      aria-label="建议标题"
-                      value={suggestion.title}
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onChange={event => updateSuggestion(suggestion.clientId, { title: event.target.value })}
-                      style={{ flex: '1 1 220px', minHeight: 36 }}
-                    />
-                    <select
-                      className="input"
-                      aria-label="建议类型"
-                      value={suggestion.type}
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType })}
-                      style={{ width: 112, minHeight: 36 }}
-                    >
-                      {TASK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
-                    </select>
-                    <input
-                      className="input"
-                      aria-label="预计分钟"
-                      type="number"
-                      min={5}
-                      max={180}
-                      value={suggestion.estimate_minutes}
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onChange={event => updateSuggestion(suggestion.clientId, { estimate_minutes: Math.round(Number(event.target.value) || 0) })}
-                      style={{ width: 86, minHeight: 36 }}
-                    />
-                    <select
-                      className="input"
-                      aria-label="建议科目"
-                      value={suggestion.subject_id ?? ''}
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null })}
-                      style={{ width: 120, minHeight: 36 }}
-                    >
-                      <option value="">无科目</option>
-                      {planningContext?.subjects.map(subject => (
-                        <option key={subject.id} value={subject.id}>{subject.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      aria-label="删除建议"
-                      className="button button-secondary"
-                      disabled={creating || suggestion.creationState === 'created'}
-                      onClick={() => removeSuggestion(suggestion.clientId)}
-                      style={{ padding: 8 }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {evidence.map(item => <span key={item}>本地依据：{item}</span>)}
+                      {suggestion.creationState === 'created' && <span style={{ color: 'var(--success)' }}>已创建 #{suggestion.createdTaskId}</span>}
+                      {suggestion.creationState === 'failed' && <span style={{ color: 'var(--danger)' }}>{suggestion.creationError}</span>}
+                    </div>
+                    {suggestion.validationErrors.length > 0 && (
+                      <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>
+                        {suggestion.validationErrors.map(error => <li key={error}>{error}</li>)}
+                      </ul>
+                    )}
                   </div>
-                  <textarea
-                    className="input"
-                    aria-label="建议理由"
-                    value={suggestion.reason}
-                    disabled={creating || suggestion.creationState === 'created'}
-                    onChange={event => updateSuggestion(suggestion.clientId, { reason: event.target.value })}
-                    style={{ width: '100%', minHeight: 58, marginTop: 8 }}
-                  />
-                  <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
-                    <span>priority: {suggestion.priority}</span>
-                    {suggestion.related_mistake_id && <span>错题 #{suggestion.related_mistake_id}</span>}
-                    {suggestion.related_entry_id && <span>日记 #{suggestion.related_entry_id}</span>}
-                    {suggestion.creationState === 'created' && <span style={{ color: 'var(--success)' }}>已创建 #{suggestion.createdTaskId}</span>}
-                    {suggestion.creationState === 'failed' && <span style={{ color: 'var(--danger)' }}>{suggestion.creationError}</span>}
-                  </div>
-                  {suggestion.validationErrors.length > 0 && (
-                    <ul className="mt-2 text-xs" style={{ color: 'var(--danger)', paddingLeft: 18 }}>
-                      {suggestion.validationErrors.map(error => <li key={error}>{error}</li>)}
-                    </ul>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -509,7 +666,7 @@ export default function TodayActionSuggestionDialog({
               type="button"
               className="button button-primary"
               data-testid="ai-plan-create-selected"
-              disabled={generating || creating || selectedValidCount === 0 || hasFatalParseErrors}
+              disabled={generating || creating || contextLoading || !visiblePlanningContext || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
               {creating ? '创建中...' : '创建选中任务'}

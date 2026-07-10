@@ -38,7 +38,7 @@ const entry: DiaryEntry = {
   updated_at: '2026-06-12T00:00:00.000Z',
 }
 
-const task: StudyTask = {
+const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   id: 99,
   title: '复习函数极限错题',
   description: '',
@@ -53,7 +53,8 @@ const task: StudyTask = {
   source: 'ai',
   created_at: '2026-06-12T00:00:00.000Z',
   updated_at: '2026-06-12T00:00:00.000Z',
-}
+  ...overrides,
+})
 
 const validAiResponse = JSON.stringify({
   suggestions: [
@@ -66,6 +67,13 @@ const validAiResponse = JSON.stringify({
       subject_ref: 'subject:1',
       related_mistake_ref: 'mistake:12',
     },
+  ],
+})
+
+const twoCandidateResponse = JSON.stringify({
+  suggestions: [
+    { title: '任务 A', type: 'focus', estimate_minutes: 10, reason: '先做 A。', priority: 'high' },
+    { title: '任务 B', type: 'focus', estimate_minutes: 10, reason: '再做 B。', priority: 'medium' },
   ],
 })
 
@@ -85,7 +93,7 @@ describe('TodayActionSuggestionDialog', () => {
     vi.clearAllMocks()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
-    mocks.tasksCreate.mockResolvedValue(task)
+    mocks.tasksCreate.mockResolvedValue(makeTask())
     mocks.mistakesGetAll.mockResolvedValue({ data: [mistake], total: 1, masteredTotal: 0 })
     mocks.subjectsGetAll.mockResolvedValue([subject])
     mocks.entriesGetByDate.mockResolvedValue(entry)
@@ -130,7 +138,7 @@ describe('TodayActionSuggestionDialog', () => {
   })
 
   it('shows local planning context before an AI request without creating tasks', async () => {
-    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksGetByDate.mockResolvedValue([makeTask()])
 
     renderDialog()
 
@@ -140,16 +148,26 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
-  it('shows the empty local context state and explains a missing today diary', async () => {
+  it('shows the empty local context state and an unavailable diary association', async () => {
     mocks.mistakesGetAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
     mocks.entriesGetByDate.mockResolvedValue(null)
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        suggestions: [{
+          title: '写复盘', type: 'diary', estimate_minutes: 10, reason: '记录今天。', priority: 'low', related_entry_ref: 'entry:5',
+        }],
+      }),
+    })
 
     renderDialog()
 
     expect(await screen.findByTestId('planning-context-empty')).toBeInTheDocument()
-    expect(screen.getByTestId('planning-context-today_tasks')).toHaveTextContent('今天没有待办或进行中的任务')
     expect(screen.getByTestId('planning-context-today_entry')).toHaveTextContent('今天尚无日记')
-    expect(mocks.aiChat).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByText('related_entry_ref is not in the allowlist')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '今天没有可关联日记' })).toBeInTheDocument()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -170,7 +188,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(await screen.findByTestId('planning-context-preview')).toBeInTheDocument()
   })
 
-  it('shows unsupported AI errors without creating tasks', async () => {
+  it('shows unsupported AI errors with a visible regenerate path and no task creation', async () => {
     mocks.aiChat.mockResolvedValue({
       unsupported: true,
       error: '浏览器端目前不支持直接调用 AI 接口，请使用 Electron 客户端体验完整功能。',
@@ -179,7 +197,9 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findByText(/浏览器端目前不支持/)).toBeInTheDocument()
+    expect(await screen.findByTestId('ai-plan-errors')).toHaveTextContent('浏览器端目前不支持')
+    expect(screen.getByTestId('ai-plan-errors')).toHaveTextContent('重新生成建议')
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('重新生成建议')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -195,16 +215,16 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
-  it('blocks task creation when AI response has fatal top-level schema errors', async () => {
+  it('blocks task creation when AI response has fatal schema errors', async () => {
     mocks.aiChat.mockResolvedValue({
       content: JSON.stringify({
         unsafe: true,
         suggestions: [
           {
-            title: '澶嶄範鍑芥暟鏋侀檺閿欓',
+            title: '复习函数极限错题',
             type: 'review',
             estimate_minutes: 10,
-            reason: '浠婂ぉ鍒版湡锛屽厛澶勭悊钖勫急鐐广€?',
+            reason: '今天到期，先处理薄弱点。',
             priority: 'high',
             subject_ref: 'subject:1',
             related_mistake_ref: 'mistake:12',
@@ -218,9 +238,94 @@ describe('TodayActionSuggestionDialog', () => {
 
     expect(await screen.findByText(/Unsupported top-level fields/)).toBeInTheDocument()
     expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('lets users edit due-mistake and diary associations before confirmation', async () => {
+    const secondMistake: Mistake = { ...mistake, id: 13, question: '导数符号错误' }
+    mocks.mistakesGetAll.mockResolvedValue({ data: [mistake, secondMistake], total: 2, masteredTotal: 0 })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+
+    fireEvent.change(screen.getByLabelText('关联到期错题'), { target: { value: '13' } })
+    fireEvent.change(screen.getByLabelText('关联今日日记'), { target: { value: '5' } })
+
+    expect(screen.getByLabelText('关联到期错题')).toHaveValue('13')
+    expect(screen.getByLabelText('关联今日日记')).toHaveValue('5')
+    expect(screen.getByText('本地依据：到期错题：#13 导数符号错误')).toBeInTheDocument()
+    expect(screen.getByText('本地依据：今日日记：Today')).toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('clamps available time to the supported daily capacity range', async () => {
+    renderDialog()
+    const available = screen.getByTestId('ai-plan-available-minutes')
+
+    fireEvent.change(available, { target: { value: '0' } })
+    expect(available).toHaveValue(5)
+    fireEvent.change(available, { target: { value: '1000' } })
+    expect(available).toHaveValue(720)
+  })
+
+  it('requires a second explicit confirmation when the planning context becomes stale', async () => {
+    const changedTask = makeTask({
+      id: 100,
+      title: '新出现的任务',
+      type: 'focus',
+      subject_id: null,
+      related_mistake_id: null,
+      estimate_minutes: 20,
+      source: 'manual',
+    })
+    let taskRows: StudyTask[] = []
+    mocks.tasksGetByDate.mockImplementation(async () => taskRows)
+
+    renderDialog()
+    await screen.findByTestId('planning-context-today_tasks')
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+
+    taskRows = [changedTask]
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('ai-plan-stale-context')).toHaveTextContent('请查看结果后再次确认创建')
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
-    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+  })
+
+  it('preserves partial success, reports it, and retries only failed candidates', async () => {
+    const createdA = makeTask({ id: 201, title: '任务 A', type: 'focus', subject_id: null, related_mistake_id: null })
+    const createdB = makeTask({ id: 202, title: '任务 B', type: 'focus', subject_id: null, related_mistake_id: null })
+    let taskRows: StudyTask[] = []
+    mocks.tasksGetByDate.mockImplementation(async () => taskRows)
+    mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })
+    mocks.tasksCreate.mockReset()
+    mocks.tasksCreate
+      .mockResolvedValueOnce(createdA)
+      .mockRejectedValueOnce(new Error('second write failed'))
+      .mockResolvedValueOnce(createdB)
+
+    renderDialog()
+    await screen.findByTestId('planning-context-today_tasks')
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 A')
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    expect(await screen.findByTestId('ai-plan-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 1 项')
+    expect(screen.getByText('second write failed')).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+
+    taskRows = [createdA]
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(3))
+
+    const createdTitles = mocks.tasksCreate.mock.calls.map(([input]) => input.title)
+    expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
+    expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(2)
   })
 
   it('does not apply stale AI responses after the dialog is closed', async () => {
@@ -249,7 +354,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(await screen.findByTestId('planning-context-available_minutes')).toHaveTextContent('120 分钟')
 
     await act(async () => {
-      staleTasks.resolve([task])
+      staleTasks.resolve([makeTask()])
       await staleTasks.promise
     })
 
