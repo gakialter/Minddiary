@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { PomodoroStat, StudyTaskType } from '../types'
 import type {
@@ -390,7 +391,7 @@ export default function DailyReviewAgentDialog({
     && visibleContext.pomodoro.total_minutes === 0
     && visibleContext.dueMistakes.length === 0
 
-  return (
+  const modal = (
     <div
       role="dialog"
       aria-modal="true"
@@ -729,4 +730,6 @@ export default function DailyReviewAgentDialog({
       </div>
     </div>
   )
+
+  return createPortal(modal, document.body)
 }

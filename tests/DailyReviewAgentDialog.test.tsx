@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DailyReviewAgentDialog from '../src/components/DailyReviewAgentDialog'
 import type { AIResponse, DiaryEntry, Mistake, PomodoroStat, StudyTask, Subject } from '../src/types'
@@ -129,18 +130,20 @@ describe('DailyReviewAgentDialog', () => {
     mocks.pomodoroGetDailyTotal.mockResolvedValue(25)
   })
 
-  const renderDialog = (date = REVIEW_DATE) => render(
-    <DailyReviewAgentDialog
-      date={date}
-      aiAPI={{ chat: mocks.aiChat }}
-      tasksAPI={{ getByDate: mocks.tasksGetByDate, create: mocks.tasksCreate }}
-      mistakesAPI={{ getAll: mocks.mistakesGetAll, getDueCount: mocks.mistakesGetDueCount }}
-      subjectsAPI={{ getAll: mocks.subjectsGetAll }}
-      entriesAPI={{ getByDate: mocks.entriesGetByDate }}
-      pomodoroAPI={{ getStats: mocks.pomodoroGetStats, getDailyTotal: mocks.pomodoroGetDailyTotal }}
-      onClose={mocks.onClose}
-      onCreated={mocks.onCreated}
-    />,
+  const dialogProps = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => ({
+    date,
+    aiAPI: { chat: mocks.aiChat },
+    tasksAPI: { getByDate: mocks.tasksGetByDate, create: mocks.tasksCreate },
+    mistakesAPI: { getAll: mocks.mistakesGetAll, getDueCount: mocks.mistakesGetDueCount },
+    subjectsAPI: { getAll: mocks.subjectsGetAll },
+    entriesAPI: { getByDate: mocks.entriesGetByDate },
+    pomodoroAPI: { getStats: mocks.pomodoroGetStats, getDailyTotal: mocks.pomodoroGetDailyTotal },
+    onClose: mocks.onClose,
+    onCreated,
+  })
+
+  const renderDialog = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => render(
+    <DailyReviewAgentDialog {...dialogProps(date, onCreated)} />,
   )
 
   const waitForInitialContext = async () => {
@@ -165,6 +168,43 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByTestId('daily-review-deterministic-summary')).toBeInTheDocument()
     expect(mocks.aiChat).not.toHaveBeenCalled()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('portals its viewport-fixed overlay out of a transformed scrolling ancestor without changing page scroll', async () => {
+    const transformedScroller = document.createElement('div')
+    const renderHost = document.createElement('div')
+    transformedScroller.style.transform = 'translateZ(0)'
+    transformedScroller.style.overflow = 'auto'
+    transformedScroller.append(renderHost)
+    document.body.append(transformedScroller)
+
+    const originalScrollY = Object.getOwnPropertyDescriptor(window, 'scrollY')
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 320 })
+
+    try {
+      const view = render(<DailyReviewAgentDialog {...dialogProps()} />, { container: renderHost })
+      await waitForInitialContext()
+
+      const dialog = screen.getByRole('dialog', { name: '每日复盘' })
+      expect(window.scrollY).toBe(320)
+      expect(dialog.parentElement).toBe(document.body)
+      expect(transformedScroller.contains(dialog)).toBe(false)
+      expect(dialog).toHaveStyle('position: fixed')
+      expect(dialog).toHaveStyle('inset: 0')
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(mocks.onClose).toHaveBeenCalledTimes(1)
+
+      view.unmount()
+      expect(screen.queryByRole('dialog', { name: '每日复盘' })).not.toBeInTheDocument()
+      expect(scrollTo).not.toHaveBeenCalled()
+    } finally {
+      if (originalScrollY) Object.defineProperty(window, 'scrollY', originalScrollY)
+      else Reflect.deleteProperty(window, 'scrollY')
+      scrollTo.mockRestore()
+      transformedScroller.remove()
+    }
   })
 
   it('shows an empty-day message with no AI or task mutation', async () => {
@@ -283,6 +323,68 @@ describe('DailyReviewAgentDialog', () => {
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
   })
 
+  it('preserves successful creation state and summary through a parent refresh rerender', async () => {
+    const createdTask = makeTask({ id: 301 })
+    let candidateDateRows: StudyTask[] = []
+    mocks.tasksGetByDate.mockImplementation(async (requestDate: string) => requestDate === CANDIDATE_DATE ? candidateDateRows : [])
+    mocks.tasksCreate.mockImplementation(async () => {
+      candidateDateRows = [...candidateDateRows, createdTask]
+      return createdTask
+    })
+
+    function ParentRefreshHarness() {
+      const [refreshVersion, setRefreshVersion] = useState(0)
+      return (
+        <>
+          <span data-testid="daily-review-parent-refresh-version">{refreshVersion}</span>
+          <DailyReviewAgentDialog
+            {...dialogProps(REVIEW_DATE, async () => {
+              setRefreshVersion(version => version + 1)
+            })}
+          />
+        </>
+      )
+    }
+
+    render(<ParentRefreshHarness />)
+    await generateCandidates()
+
+    candidateDateRows = [makeTask({ id: 300, title: '刚新增的次日任务', type: 'focus', subject_id: null, related_mistake_id: null, source: 'manual' })]
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+    expect(await screen.findByTestId('daily-review-stale-context')).toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+    await waitFor(() => {
+      expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('daily-review-parent-refresh-version')).toHaveTextContent('1')
+    })
+
+    expect(screen.getByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+    expect(screen.getByText('已创建 #301')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 0 项')
+    const createdSelection = screen.getByLabelText('选择候选任务：复习函数极限错题')
+    expect(createdSelection).not.toBeChecked()
+    expect(createdSelection).toBeDisabled()
+    expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps created candidates and reports a refresh error when onCreated rejects', async () => {
+    mocks.onCreated.mockRejectedValueOnce(new Error('dashboard refresh failed'))
+    renderDialog()
+    await generateCandidates()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    expect(await screen.findByText('已创建 #99')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 0 项')
+    expect(await screen.findByText('列表刷新失败：dashboard refresh failed')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+    expect(screen.getByLabelText('选择候选任务：复习函数极限错题')).toBeDisabled()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
   it('does zero writes when the pre-create context refresh fails', async () => {
     renderDialog()
     await generateCandidates()
@@ -308,22 +410,47 @@ describe('DailyReviewAgentDialog', () => {
       return createdB
     })
 
-    renderDialog()
+    function ParentRefreshHarness() {
+      const [refreshVersion, setRefreshVersion] = useState(0)
+      return (
+        <>
+          <span data-testid="daily-review-parent-refresh-version">{refreshVersion}</span>
+          <DailyReviewAgentDialog
+            {...dialogProps(REVIEW_DATE, async () => {
+              setRefreshVersion(version => version + 1)
+            })}
+          />
+        </>
+      )
+    }
+
+    render(<ParentRefreshHarness />)
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
     await screen.findByDisplayValue('任务 A')
 
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
     expect(await screen.findByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 1 项')
+    await waitFor(() => expect(screen.getByTestId('daily-review-parent-refresh-version')).toHaveTextContent('1'))
+    expect(screen.getByText('已创建 #201')).toBeInTheDocument()
     expect(screen.getByText('second write failed')).toBeInTheDocument()
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
 
+    const retryTitleInput = screen.getAllByLabelText('候选任务标题').find(input => input.getAttribute('value') === '任务 B')
+    expect(retryTitleInput).toBeDefined()
+    expect(retryTitleInput).not.toBeDisabled()
+    fireEvent.change(retryTitleInput!, { target: { value: '任务 B 重试' } })
+
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
-    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(3))
+    await waitFor(() => {
+      expect(mocks.tasksCreate).toHaveBeenCalledTimes(3)
+      expect(screen.getByTestId('daily-review-parent-refresh-version')).toHaveTextContent('2')
+    })
 
     const createdTitles = mocks.tasksCreate.mock.calls.map(([input]) => input.title)
     expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
-    expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(2)
+    expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(1)
+    expect(createdTitles.filter(title => title === '任务 B 重试')).toHaveLength(1)
   })
 
   it('uses local candidate date, todo status, and ai source rather than model-owned fields', async () => {

@@ -25,6 +25,7 @@ interface HomeDashboardProps {
 
 export default function HomeDashboard({ setActiveView, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
   const { data, loading, error } = useTodayStats()
+  const hasResolvedInitialDashboardLoadRef = useRef(false)
   const {
     settingsData,
     tasks: tasksAPI,
@@ -57,6 +58,10 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const { selectedTask: activePomodoroTask } = usePomodoroData()
   const { selectFocusTask } = usePomodoroActions()
 
+  useEffect(() => {
+    if (!loading && !error) hasResolvedInitialDashboardLoadRef.current = true
+  }, [error, loading])
+
   const config = useDashboardMasterState(data)
 
   const loadTaskSources = useCallback(async (todayTasks: StudyTask[]) => {
@@ -82,7 +87,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     }
   }, [subjectChaptersAPI, subjectsAPI])
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async ({ throwOnError = false }: { throwOnError?: boolean } = {}) => {
     setTaskLoading(true)
     setTaskError(null)
     try {
@@ -90,7 +95,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
       setTasks(todayTasks)
       await loadTaskSources(todayTasks)
     } catch (taskLoadError) {
-      setTaskError(taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError))
+      const message = taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError)
+      setTaskError(message)
+      if (throwOnError) throw new Error(message)
     } finally {
       setTaskLoading(false)
     }
@@ -152,7 +159,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     setNewTaskEstimate(25)
   }
 
-  if (loading) {
+  const shouldShowInitialLoading = loading && !hasResolvedInitialDashboardLoadRef.current
+  const shouldShowInitialError = Boolean((error || !data) && !hasResolvedInitialDashboardLoadRef.current)
+  const hasBackgroundDashboardError = Boolean(error && hasResolvedInitialDashboardLoadRef.current)
+
+  if (shouldShowInitialLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <Loader2 size={32} className="animate-spin mb-4" style={{ color: 'var(--text-muted)' }} />
@@ -161,7 +172,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     )
   }
 
-  if (error || !data) {
+  if (shouldShowInitialError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <p style={{ color: 'var(--danger)' }}>加载失败: {error}</p>
@@ -259,6 +270,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     <div className="w-full min-h-full bg-transparent overflow-y-auto">
       <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
         <div className="space-y-6">
+          {hasBackgroundDashboardError && (
+            <p role="alert" data-testid="dashboard-background-refresh-error" className="rounded-lg px-4 py-3 text-sm" style={{ border: '1px solid var(--danger)', color: 'var(--danger)', background: 'var(--danger-bg, rgba(220, 38, 38, 0.1))' }}>
+              实时模型刷新失败：{error}。当前仍显示上次成功加载的数据。
+            </p>
+          )}
 
           <section
             data-testid="today-execution-overview"
@@ -750,7 +766,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           pomodoroAPI={pomodoroAPI}
           onClose={() => setDailyReviewAgentOpen(false)}
           onCreated={async () => {
-            await loadTasks()
+            await loadTasks({ throwOnError: true })
             requestDataRefresh()
           }}
         />

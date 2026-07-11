@@ -20,6 +20,9 @@ const mockMistakesGetAll = vi.fn()
 const mockSubjectsGetAll = vi.fn()
 const mockSubjectChaptersGetBySubject = vi.fn()
 const mockSetSelectedDate = vi.fn()
+const dailyReviewHarness = vi.hoisted(() => ({
+  onCreated: undefined as undefined | (() => void | Promise<void>),
+}))
 
 const pomodoroMocks = vi.hoisted(() => ({
   timer: { hasActiveTimerSession: false },
@@ -45,6 +48,19 @@ vi.mock('../src/hooks/useTodayStats', () => ({
 
 vi.mock('../src/contexts/LocalDateContext', () => ({
   useCurrentLocalDateKey: () => '2026-05-31',
+}))
+
+vi.mock('../src/components/DailyReviewAgentDialog', () => ({
+  default: ({ onCreated }: { onCreated: () => void | Promise<void> }) => {
+    dailyReviewHarness.onCreated = onCreated
+    return (
+      <div data-testid="daily-review-dialog-harness">
+        <button type="button" data-testid="daily-review-harness-created" onClick={() => { void onCreated() }}>
+          模拟每日复盘创建完成
+        </button>
+      </div>
+    )
+  },
 }))
 
 const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
@@ -134,6 +150,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
   const mockSetActiveView = vi.fn()
 
   beforeEach(() => {
+    dailyReviewHarness.onCreated = undefined
     mockTasksGetByDate.mockResolvedValue([])
     mockTasksFind.mockResolvedValue([])
     mockTasksCreate.mockResolvedValue(makeTask())
@@ -194,6 +211,59 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
     expect(screen.getByText(/加载失败.*网络连接失败/)).toBeInTheDocument()
+  })
+
+  it('keeps an open Daily Review instance mounted while its successful creation refreshes the dashboard', async () => {
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    fireEvent.click(await screen.findByTestId('open-daily-review-agent'))
+
+    const dialogInstance = screen.getByTestId('daily-review-dialog-harness')
+    expect(screen.getByTestId('open-ai-today-action-suggestions')).toBeInTheDocument()
+
+    mockHookState = { ...mockHookState, loading: true, error: null }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.queryByTestId('dashboard-loading')).not.toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBe(dialogInstance)
+
+    fireEvent.click(screen.getByTestId('daily-review-harness-created'))
+    await waitFor(() => expect(mockRequestDataRefresh).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBe(dialogInstance)
+
+    mockHookState = {
+      ...mockHookState,
+      data: {
+        ...FULL_DATA,
+        commanderMetrics: { ...FULL_DATA.commanderMetrics, riskPoolCount: 9 },
+      },
+      loading: false,
+    }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBe(dialogInstance)
+    expect(screen.getByText(/今天有 9 个高风险知识点待抢救/)).toBeInTheDocument()
+    expect(screen.getByTestId('open-ai-today-action-suggestions')).toBeInTheDocument()
+
+    mockHookState = { ...mockHookState, loading: false, error: '后台统计刷新失败' }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByTestId('dashboard-background-refresh-error')).toHaveTextContent('后台统计刷新失败')
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBe(dialogInstance)
+    expect(screen.queryByTestId('dashboard-loading')).not.toBeInTheDocument()
+  })
+
+  it('propagates a Daily Review task-list refresh failure through onCreated', async () => {
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    fireEvent.click(await screen.findByTestId('open-daily-review-agent'))
+    await waitFor(() => expect(dailyReviewHarness.onCreated).toEqual(expect.any(Function)))
+
+    mockTasksGetByDate.mockRejectedValueOnce(new Error('task refresh failed'))
+    await act(async () => {
+      await expect(dailyReviewHarness.onCreated!()).rejects.toThrow('task refresh failed')
+    })
+
+    expect(screen.getByText('task refresh failed')).toBeInTheDocument()
+    expect(mockRequestDataRefresh).not.toHaveBeenCalled()
   })
 
   it('renders Commander Hero title and metrics', async () => {
