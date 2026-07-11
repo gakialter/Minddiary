@@ -5,6 +5,7 @@ import { useDashboardMasterState } from '../hooks/useDashboardMasterState'
 import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { CommanderHero } from './dashboard/CommanderHero'
 import { TrustMetric } from './dashboard/TrustMetric'
+import DailyReviewAgentDialog from './DailyReviewAgentDialog'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
@@ -23,13 +24,14 @@ interface HomeDashboardProps {
 }
 
 export default function HomeDashboard({ setActiveView, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
-  const { data, loading, error } = useTodayStats()
+  const { data, error, resolvedDateKey, errorDateKey } = useTodayStats()
   const {
     settingsData,
     tasks: tasksAPI,
     mistakes: mistakesAPI,
     subjects: subjectsAPI,
     subjectChapters: subjectChaptersAPI,
+    pomodoro: pomodoroAPI,
     entries: entriesAPI,
     ai: aiAPI,
     requestDataRefresh,
@@ -49,6 +51,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
+  const [dailyReviewAgentOpenDate, setDailyReviewAgentOpenDate] = useState<string | null>(null)
   const todayDate = useCurrentLocalDateKey()
   const { hasActiveTimerSession } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
@@ -79,7 +82,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     }
   }, [subjectChaptersAPI, subjectsAPI])
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async ({ throwOnError = false }: { throwOnError?: boolean } = {}) => {
     setTaskLoading(true)
     setTaskError(null)
     try {
@@ -87,7 +90,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
       setTasks(todayTasks)
       await loadTaskSources(todayTasks)
     } catch (taskLoadError) {
-      setTaskError(taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError))
+      const message = taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError)
+      setTaskError(message)
+      if (throwOnError) throw new Error(message)
     } finally {
       setTaskLoading(false)
     }
@@ -149,7 +154,13 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     setNewTaskEstimate(25)
   }
 
-  if (loading) {
+  const hasResolvedCurrentDashboardDate = resolvedDateKey === todayDate
+  const hasCurrentDashboardError = errorDateKey === todayDate && Boolean(error)
+  const shouldShowInitialLoading = !hasResolvedCurrentDashboardDate && !hasCurrentDashboardError
+  const shouldShowInitialError = !hasResolvedCurrentDashboardDate && hasCurrentDashboardError
+  const hasBackgroundDashboardError = hasResolvedCurrentDashboardDate && hasCurrentDashboardError
+
+  if (shouldShowInitialLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <Loader2 size={32} className="animate-spin mb-4" style={{ color: 'var(--text-muted)' }} />
@@ -158,7 +169,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     )
   }
 
-  if (error || !data) {
+  if (shouldShowInitialError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <p style={{ color: 'var(--danger)' }}>加载失败: {error}</p>
@@ -256,6 +267,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     <div className="w-full min-h-full bg-transparent overflow-y-auto">
       <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
         <div className="space-y-6">
+          {hasBackgroundDashboardError && (
+            <p role="alert" data-testid="dashboard-background-refresh-error" className="rounded-lg px-4 py-3 text-sm" style={{ border: '1px solid var(--danger)', color: 'var(--danger)', background: 'var(--danger-bg, rgba(220, 38, 38, 0.1))' }}>
+              实时模型刷新失败：{error}。当前仍显示上次成功加载的数据。
+            </p>
+          )}
 
           <section
             data-testid="today-execution-overview"
@@ -393,16 +409,28 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               {taskLoading && (
                 <span className="text-sm" style={{ color: 'var(--text-muted)' }}>同步中...</span>
               )}
-              <button
-                type="button"
-                className="button button-secondary"
-                data-testid="open-ai-today-action-suggestions"
-                disabled={taskMutating}
-                onClick={() => setAiSuggestionOpen(true)}
-                style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
-              >
-                AI 规划今日行动
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="open-daily-review-agent"
+                  disabled={taskMutating}
+                  onClick={() => setDailyReviewAgentOpenDate(todayDate)}
+                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+                >
+                  每日复盘
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="open-ai-today-action-suggestions"
+                  disabled={taskMutating}
+                  onClick={() => setAiSuggestionOpen(true)}
+                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+                >
+                  AI 规划今日行动
+                </button>
+              </div>
             </div>
 
             <form className="mt-4 grid gap-3 md:grid-cols-[1fr_150px_120px_auto]" onSubmit={handleManualTaskSubmit}>
@@ -720,6 +748,22 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           onClose={() => setAiSuggestionOpen(false)}
           onCreated={async () => {
             await loadTasks()
+            requestDataRefresh()
+          }}
+        />
+      )}
+      {dailyReviewAgentOpenDate === todayDate && (
+        <DailyReviewAgentDialog
+          date={todayDate}
+          aiAPI={aiAPI}
+          tasksAPI={tasksAPI}
+          mistakesAPI={mistakesAPI}
+          subjectsAPI={subjectsAPI}
+          entriesAPI={entriesAPI}
+          pomodoroAPI={pomodoroAPI}
+          onClose={() => setDailyReviewAgentOpenDate(null)}
+          onCreated={async () => {
+            await loadTasks({ throwOnError: true })
             requestDataRefresh()
           }}
         />

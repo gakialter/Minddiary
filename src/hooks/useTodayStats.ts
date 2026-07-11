@@ -40,20 +40,27 @@ export function useTodayStats() {
   const [data, setData] = useState<TodayDashboardData>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [resolvedDateKey, setResolvedDateKey] = useState<string | null>(null)
+  const [errorDateKey, setErrorDateKey] = useState<string | null>(null)
   const requestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
     const requestId = ++requestIdRef.current
     setLoading(true)
     setError(null)
+    setErrorDateKey(null)
     try {
       const result = await todayDashboard.getData(currentDateKey)
       if (requestId !== requestIdRef.current) return
       setData(result)
+      setResolvedDateKey(currentDateKey)
+      setError(null)
+      setErrorDateKey(null)
     } catch (err) {
       if (requestId !== requestIdRef.current) return
       logger.error('[useTodayStats] Failed to load:', err)
       setError(err instanceof Error ? err.message : '加载今日数据失败')
+      setErrorDateKey(currentDateKey)
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false)
@@ -65,5 +72,5 @@ export function useTodayStats() {
     refresh()
   }, [refresh, dataRefreshVersion])
 
-  return { data, loading, error, refresh, currentDateKey }
+  return { data, loading, error, refresh, currentDateKey, resolvedDateKey, errorDateKey }
 }
