@@ -53,7 +53,7 @@ AI 不会直接写 SQLite，也不会自动创建、完成、跳过、删除或�
 - Dashboard 同日期后台刷新不再卸载已打开的 Daily Review，成功、失败、可重试候选和创建摘要会继续保留。
 - `useTodayStats` 记录 `resolvedDateKey` 和 `errorDateKey`，避免本地日期切换时把前一天统计显示在新日期下。
 - 新日期请求 pending、失败或请求乱序时，不会把旧日期数据或错误误标为当前日期。
-- Daily Review 与用户打开时的业务日期绑定，不会在跨日后把前一天复盘自动解释为新日期复盘。
+- 本地日期切换后，Dashboard 会关闭旧日期的 Daily Review；待新日期数据加载完成后，用户可重新打开，旧日期复盘不会被误解释为新日期。
 
 ## Verification
 
