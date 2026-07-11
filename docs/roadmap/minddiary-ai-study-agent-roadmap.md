@@ -1,16 +1,22 @@
 # MindDiary AI Study Planning Agent Roadmap
 
-Status: current product-direction roadmap as of 2026-07-05.
+Status: current product-direction roadmap as of 2026-07-11.
 
 This is a planning document. It authorizes documentation alignment only. It does not start a product version or authorize runtime changes, schema changes, migrations, a PR, merge, tag, release, or publication.
 
 ## Verified Baseline
 
-- App version: `1.13.3` in `package.json` and `package-lock.json`.
-- SQLite schema: `CURRENT_SCHEMA_VERSION = 5` in `electron/databaseMigrations.ts`.
+- Release-prep package candidate: `1.16.0`.
+- Latest published GitHub Release remains `v1.13.3` until the separately authorized tag and Release workflow complete.
+- SQLite schema: `CURRENT_SCHEMA_VERSION = 5`.
 - SQLite remains the local source of truth.
 - MindDiary already provides diary, Pomodoro, mistake review, study tasks, Dashboard, AI assistance, backup/restore, and local SQLite persistence.
 - The existing AI Today Action flow generates candidates, parses and validates them locally, and creates selected tasks only after the user confirms.
+- PR #128 aligned the Agent product direction and roadmap.
+- PR #130 implemented explainable Today Action planning context.
+- PR #131 implemented stricter Today Action parsing, local validation, editing, stale-context protection, and partial-success retry.
+- PR #132 implemented the schema-free Daily Review Agent and its modal, refresh, and date-rollover reliability fixes.
+- The schema-6 v1.15.x Agent Run and feedback-loop milestones remain unimplemented and are not part of the v1.16.0 candidate.
 
 Schema status for this roadmap update: schema unchanged.
 
@@ -135,6 +141,10 @@ Context Collector
 **Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
 
 ### v1.16.0 - Daily Review Agent
+
+**Implementation status:** merged into `main` through PR #132 and included in the v1.16.0 release-prep candidate.
+
+**Publication status:** not tagged or released. Candidate packaging, packaged smoke, asset review, tag and GitHub Release remain separately authorized gates.
 
 **Core problem:** users lack one bounded, explainable daily review that connects today's plan, execution, and next-day candidates.
 

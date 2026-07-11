@@ -117,6 +117,10 @@ MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Ag
 - 附件只在点击发送后传给当前配置的 AI provider；MindDiary 不会把附件正文、base64、提取文本或本地路径写入 SQLite、localStorage、聊天历史、备份或导出，也不使用 provider Files API。
 - 今日决策页提供「AI 规划今日行动」入口：AI 只生成候选建议，本地严格解析和校验后，用户可编辑、删除、选择部分建议并确认创建为普通今日任务。
 - AI 今日行动建议强制 `source=ai`、`status=todo`、`planned_date=today`；AI 不会直接写库、自动创建、完成、跳过或删除任务。
+- 今日决策页还提供「每日复盘」入口：打开时只展示确定性的本地复盘依据，不调用 AI，也不创建任务。
+- 用户点击生成后，AI 才会生成解释性观察和可编辑的下一日任务候选；只有选中且通过本地校验的候选会在明确确认后创建。
+- Daily Review 专用上下文排除日记正文、错题答案与笔记、图片/附件路径、API Key 和现有任务描述；不持久化 Agent run 或模型输出历史。
+- Today Action 与 Daily Review 都保留 stale-context 零写入保护、局部失败保留和显式用户确认边界。
 - 设置页提供 6 个预设供应商入口（DeepSeek、通义千问、智谱 GLM、Kimi、豆包、SiliconFlow）和自定义模型配置。
 - AI 请求使用 OpenAI 兼容的 chat completions 格式；本地 LLM 或云端模型都需要提供兼容的 Endpoint、API Key 和模型名。
 - 用户输入和复用历史会经过清理；AI 请求有 role、消息数量、内容长度边界、30 秒超时处理和旧响应覆盖防护。
@@ -127,7 +131,7 @@ MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Ag
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 当前正式应用基线为 MindDiary v1.13.3，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。
+- 当前应用版本为 MindDiary v1.16.0，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
