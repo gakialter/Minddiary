@@ -24,8 +24,7 @@ interface HomeDashboardProps {
 }
 
 export default function HomeDashboard({ setActiveView, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
-  const { data, loading, error } = useTodayStats()
-  const hasResolvedInitialDashboardLoadRef = useRef(false)
+  const { data, error, resolvedDateKey, errorDateKey } = useTodayStats()
   const {
     settingsData,
     tasks: tasksAPI,
@@ -52,15 +51,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
-  const [dailyReviewAgentOpen, setDailyReviewAgentOpen] = useState(false)
+  const [dailyReviewAgentOpenDate, setDailyReviewAgentOpenDate] = useState<string | null>(null)
   const todayDate = useCurrentLocalDateKey()
   const { hasActiveTimerSession } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
   const { selectFocusTask } = usePomodoroActions()
-
-  useEffect(() => {
-    if (!loading && !error) hasResolvedInitialDashboardLoadRef.current = true
-  }, [error, loading])
 
   const config = useDashboardMasterState(data)
 
@@ -159,9 +154,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     setNewTaskEstimate(25)
   }
 
-  const shouldShowInitialLoading = loading && !hasResolvedInitialDashboardLoadRef.current
-  const shouldShowInitialError = Boolean((error || !data) && !hasResolvedInitialDashboardLoadRef.current)
-  const hasBackgroundDashboardError = Boolean(error && hasResolvedInitialDashboardLoadRef.current)
+  const hasResolvedCurrentDashboardDate = resolvedDateKey === todayDate
+  const hasCurrentDashboardError = errorDateKey === todayDate && Boolean(error)
+  const shouldShowInitialLoading = !hasResolvedCurrentDashboardDate && !hasCurrentDashboardError
+  const shouldShowInitialError = !hasResolvedCurrentDashboardDate && hasCurrentDashboardError
+  const hasBackgroundDashboardError = hasResolvedCurrentDashboardDate && hasCurrentDashboardError
 
   if (shouldShowInitialLoading) {
     return (
@@ -418,7 +415,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                   className="button button-secondary"
                   data-testid="open-daily-review-agent"
                   disabled={taskMutating}
-                  onClick={() => setDailyReviewAgentOpen(true)}
+                  onClick={() => setDailyReviewAgentOpenDate(todayDate)}
                   style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
                 >
                   每日复盘
@@ -755,7 +752,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           }}
         />
       )}
-      {dailyReviewAgentOpen && (
+      {dailyReviewAgentOpenDate === todayDate && (
         <DailyReviewAgentDialog
           date={todayDate}
           aiAPI={aiAPI}
@@ -764,7 +761,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           subjectsAPI={subjectsAPI}
           entriesAPI={entriesAPI}
           pomodoroAPI={pomodoroAPI}
-          onClose={() => setDailyReviewAgentOpen(false)}
+          onClose={() => setDailyReviewAgentOpenDate(null)}
           onCreated={async () => {
             await loadTasks({ throwOnError: true })
             requestDataRefresh()

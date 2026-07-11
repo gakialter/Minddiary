@@ -125,6 +125,8 @@ describe('useTodayStats', () => {
     expect(result.current.loading).toBe(true)
     expect(result.current.error).toBeNull()
     expect(result.current.data).toEqual(EMPTY_STATE)
+    expect(result.current.resolvedDateKey).toBeNull()
+    expect(result.current.errorDateKey).toBeNull()
     expect(getData).toHaveBeenCalledWith('2026-05-04')
 
     await act(async () => {
@@ -139,6 +141,8 @@ describe('useTodayStats', () => {
     expect(result.current.data).toEqual(FULL_DATA)
     expect(getData).toHaveBeenCalledTimes(1)
     expect(result.current.currentDateKey).toBe('2026-05-04')
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBeNull()
   })
 
   it('keeps empty data and stores the error message when loading fails', async () => {
@@ -152,6 +156,8 @@ describe('useTodayStats', () => {
 
     expect(result.current.error).toBe('Network failure')
     expect(result.current.data).toEqual(EMPTY_STATE)
+    expect(result.current.resolvedDateKey).toBeNull()
+    expect(result.current.errorDateKey).toBe('2026-05-04')
     expect(getData).toHaveBeenCalledWith('2026-05-04')
     expect(logger.error).toHaveBeenCalledWith('[useTodayStats] Failed to load:', expect.any(Error))
   })
@@ -166,12 +172,26 @@ describe('useTodayStats', () => {
       expect(result.current.data).toEqual(FULL_DATA)
     })
     expect(result.current.loading).toBe(false)
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
 
     getData.mockClear()
-    getData.mockResolvedValueOnce(UPDATED_DATA)
+    const pending = deferred<TodayDashboardData>()
+    getData.mockReturnValueOnce(pending.promise)
+
+    act(() => {
+      void result.current.refresh()
+    })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true)
+    })
+    expect(result.current.data).toEqual(FULL_DATA)
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBeNull()
 
     await act(async () => {
-      await result.current.refresh()
+      pending.resolve(UPDATED_DATA)
+      await pending.promise
     })
 
     await waitFor(() => {
@@ -179,8 +199,36 @@ describe('useTodayStats', () => {
     })
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBeNull()
     expect(getData).toHaveBeenCalledTimes(1)
     expect(getData).toHaveBeenCalledWith('2026-05-04')
+  })
+
+  it('keeps same-date data provenance when a background refresh fails', async () => {
+    const getData = vi.mocked(mocks.getData)
+    getData.mockResolvedValueOnce(FULL_DATA)
+
+    const { result } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(FULL_DATA)
+    })
+
+    getData.mockClear()
+    getData.mockRejectedValueOnce(new Error('Refresh failure'))
+
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+    expect(result.current.data).toEqual(FULL_DATA)
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBe('2026-05-04')
+    expect(result.current.error).toBe('Refresh failure')
   })
 
   it('reloads when the shared data refresh version changes', async () => {
@@ -208,7 +256,65 @@ describe('useTodayStats', () => {
     expect(getData).toHaveBeenCalledTimes(2)
   })
 
-  it('reloads against the new current date when local date rolls over', async () => {
+  it('keeps previous data provenance while the new local date is pending', async () => {
+    const getData = vi.mocked(mocks.getData)
+    getData.mockResolvedValueOnce(FULL_DATA)
+
+    const { result, rerender } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(FULL_DATA)
+    })
+
+    const nextDate = deferred<TodayDashboardData>()
+    mocks.currentDateKey = '2026-05-05'
+    getData.mockReturnValueOnce(nextDate.promise)
+    rerender()
+
+    await waitFor(() => {
+      expect(getData).toHaveBeenLastCalledWith('2026-05-05')
+    })
+    expect(result.current.currentDateKey).toBe('2026-05-05')
+    expect(result.current.data).toEqual(FULL_DATA)
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBeNull()
+  })
+
+  it('keeps previous data provenance when the new local date fails', async () => {
+    const getData = vi.mocked(mocks.getData)
+    getData.mockResolvedValueOnce(FULL_DATA)
+
+    const { result, rerender } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(FULL_DATA)
+    })
+
+    const nextDate = deferred<TodayDashboardData>()
+    mocks.currentDateKey = '2026-05-05'
+    getData.mockReturnValueOnce(nextDate.promise)
+    rerender()
+
+    await waitFor(() => {
+      expect(getData).toHaveBeenLastCalledWith('2026-05-05')
+    })
+
+    await act(async () => {
+      nextDate.reject(new Error('Next date failure'))
+      await nextDate.promise.catch(() => undefined)
+    })
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+    expect(result.current.currentDateKey).toBe('2026-05-05')
+    expect(result.current.data).toEqual(FULL_DATA)
+    expect(result.current.resolvedDateKey).toBe('2026-05-04')
+    expect(result.current.errorDateKey).toBe('2026-05-05')
+    expect(result.current.error).toBe('Next date failure')
+  })
+
+  it('replaces data provenance when the new local date succeeds', async () => {
     const getData = vi.mocked(mocks.getData)
     getData.mockResolvedValueOnce(FULL_DATA)
 
@@ -225,6 +331,48 @@ describe('useTodayStats', () => {
     await waitFor(() => {
       expect(result.current.data).toEqual(UPDATED_DATA)
     })
-    expect(getData).toHaveBeenLastCalledWith('2026-05-05')
+    expect(result.current.currentDateKey).toBe('2026-05-05')
+    expect(result.current.resolvedDateKey).toBe('2026-05-05')
+    expect(result.current.errorDateKey).toBeNull()
+  })
+
+  it('keeps the newer date provenance when an older request resolves last', async () => {
+    const getData = vi.mocked(mocks.getData)
+    const firstDate = deferred<TodayDashboardData>()
+    const secondDate = deferred<TodayDashboardData>()
+    getData
+      .mockReturnValueOnce(firstDate.promise)
+      .mockReturnValueOnce(secondDate.promise)
+
+    const { result, rerender } = renderHook(() => useTodayStats())
+
+    await waitFor(() => {
+      expect(getData).toHaveBeenLastCalledWith('2026-05-04')
+    })
+
+    mocks.currentDateKey = '2026-05-05'
+    rerender()
+
+    await waitFor(() => {
+      expect(getData).toHaveBeenLastCalledWith('2026-05-05')
+    })
+
+    await act(async () => {
+      secondDate.resolve(UPDATED_DATA)
+      await secondDate.promise
+    })
+
+    await waitFor(() => {
+      expect(result.current.resolvedDateKey).toBe('2026-05-05')
+    })
+
+    await act(async () => {
+      firstDate.resolve(FULL_DATA)
+      await firstDate.promise
+    })
+
+    expect(result.current.data).toEqual(UPDATED_DATA)
+    expect(result.current.resolvedDateKey).toBe('2026-05-05')
+    expect(result.current.errorDateKey).toBeNull()
   })
 })

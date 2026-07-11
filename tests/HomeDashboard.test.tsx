@@ -23,6 +23,9 @@ const mockSetSelectedDate = vi.fn()
 const dailyReviewHarness = vi.hoisted(() => ({
   onCreated: undefined as undefined | (() => void | Promise<void>),
 }))
+const localDateMocks = vi.hoisted(() => ({
+  currentDateKey: '2026-05-31',
+}))
 
 const pomodoroMocks = vi.hoisted(() => ({
   timer: { hasActiveTimerSession: false },
@@ -40,6 +43,9 @@ let mockHookState: {
   loading: boolean
   error: string | null
   refresh: ReturnType<typeof vi.fn>
+  currentDateKey: string
+  resolvedDateKey: string | null
+  errorDateKey: string | null
 }
 
 vi.mock('../src/hooks/useTodayStats', () => ({
@@ -47,7 +53,7 @@ vi.mock('../src/hooks/useTodayStats', () => ({
 }))
 
 vi.mock('../src/contexts/LocalDateContext', () => ({
-  useCurrentLocalDateKey: () => '2026-05-31',
+  useCurrentLocalDateKey: () => localDateMocks.currentDateKey,
 }))
 
 vi.mock('../src/components/DailyReviewAgentDialog', () => ({
@@ -134,6 +140,18 @@ const FULL_DATA: TodayDashboardData = {
   streakDays: 7,
 }
 
+const NEXT_DAY_DATA: TodayDashboardData = {
+  ...FULL_DATA,
+  todayEntry: { id: 2, title: '次日复盘', wordCount: 180, mood: 'calm' },
+  pomodoroToday: { totalMinutes: 25, sessionCount: 1 },
+  commanderMetrics: {
+    riskPoolCount: 2,
+    lockedKnowledgeGrowth: 3,
+    focusConversionRate: 50,
+  },
+  streakDays: 8,
+}
+
 const EMPTY_DATA: TodayDashboardData = {
   todayEntry: null,
   pomodoroToday: { totalMinutes: 0, sessionCount: 0 },
@@ -151,6 +169,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
   beforeEach(() => {
     dailyReviewHarness.onCreated = undefined
+    localDateMocks.currentDateKey = '2026-05-31'
     mockTasksGetByDate.mockResolvedValue([])
     mockTasksFind.mockResolvedValue([])
     mockTasksCreate.mockResolvedValue(makeTask())
@@ -190,6 +209,9 @@ describe('HomeDashboard Component - Commander Engine', () => {
       loading: false,
       error: null,
       refresh: mockRefresh,
+      currentDateKey: localDateMocks.currentDateKey,
+      resolvedDateKey: localDateMocks.currentDateKey,
+      errorDateKey: null,
     }
   })
 
@@ -198,7 +220,14 @@ describe('HomeDashboard Component - Commander Engine', () => {
   })
 
   it('renders loading state correctly', async () => {
-    mockHookState = { data: EMPTY_DATA, loading: true, error: null, refresh: mockRefresh }
+    mockHookState = {
+      ...mockHookState,
+      data: EMPTY_DATA,
+      loading: true,
+      error: null,
+      resolvedDateKey: null,
+      errorDateKey: null,
+    }
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
@@ -206,7 +235,14 @@ describe('HomeDashboard Component - Commander Engine', () => {
   })
 
   it('renders error state correctly', async () => {
-    mockHookState = { data: EMPTY_DATA, loading: false, error: '网络连接失败', refresh: mockRefresh }
+    mockHookState = {
+      ...mockHookState,
+      data: EMPTY_DATA,
+      loading: false,
+      error: '网络连接失败',
+      resolvedDateKey: null,
+      errorDateKey: localDateMocks.currentDateKey,
+    }
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
@@ -220,7 +256,14 @@ describe('HomeDashboard Component - Commander Engine', () => {
     const dialogInstance = screen.getByTestId('daily-review-dialog-harness')
     expect(screen.getByTestId('open-ai-today-action-suggestions')).toBeInTheDocument()
 
-    mockHookState = { ...mockHookState, loading: true, error: null }
+    mockHookState = {
+      ...mockHookState,
+      loading: true,
+      error: null,
+      currentDateKey: '2026-05-31',
+      resolvedDateKey: '2026-05-31',
+      errorDateKey: null,
+    }
     view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
 
     expect(screen.queryByTestId('dashboard-loading')).not.toBeInTheDocument()
@@ -244,12 +287,132 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText(/今天有 9 个高风险知识点待抢救/)).toBeInTheDocument()
     expect(screen.getByTestId('open-ai-today-action-suggestions')).toBeInTheDocument()
 
-    mockHookState = { ...mockHookState, loading: false, error: '后台统计刷新失败' }
+    mockHookState = {
+      ...mockHookState,
+      loading: false,
+      error: '后台统计刷新失败',
+      errorDateKey: '2026-05-31',
+    }
     view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
 
     expect(screen.getByTestId('dashboard-background-refresh-error')).toHaveTextContent('后台统计刷新失败')
     expect(screen.getByTestId('daily-review-dialog-harness')).toBe(dialogInstance)
     expect(screen.queryByTestId('dashboard-loading')).not.toBeInTheDocument()
+    expect(screen.getByText(/今天有 9 个高风险知识点待抢救/)).toBeInTheDocument()
+  })
+
+  it('hides stale dashboard data during the date-switch effect-before-loading window', async () => {
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    expect(await screen.findByText(/今天有 6 个高风险知识点待抢救/)).toBeInTheDocument()
+
+    localDateMocks.currentDateKey = '2026-06-01'
+    mockHookState = {
+      ...mockHookState,
+      data: FULL_DATA,
+      loading: false,
+      error: null,
+      currentDateKey: '2026-06-01',
+      resolvedDateKey: '2026-05-31',
+      errorDateKey: null,
+    }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('today-execution-overview')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('open-daily-review-agent')).not.toBeInTheDocument()
+    expect(screen.queryByText(/今天有 6 个高风险知识点待抢救/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the new date in full-page loading while its request is pending', async () => {
+    localDateMocks.currentDateKey = '2026-06-01'
+    mockHookState = {
+      ...mockHookState,
+      data: FULL_DATA,
+      loading: true,
+      error: null,
+      currentDateKey: '2026-06-01',
+      resolvedDateKey: '2026-05-31',
+      errorDateKey: null,
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('today-execution-overview')).not.toBeInTheDocument()
+    expect(screen.queryByText(/今天有 6 个高风险知识点待抢救/)).not.toBeInTheDocument()
+  })
+
+  it('does not display a previous date error as the new date error', async () => {
+    localDateMocks.currentDateKey = '2026-06-01'
+    mockHookState = {
+      ...mockHookState,
+      data: FULL_DATA,
+      loading: false,
+      error: '昨天加载失败',
+      currentDateKey: '2026-06-01',
+      resolvedDateKey: '2026-05-31',
+      errorDateKey: '2026-05-31',
+    }
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument()
+    expect(screen.queryByText(/加载失败.*昨天加载失败/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-background-refresh-error')).not.toBeInTheDocument()
+  })
+
+  it('shows a new-date failure without stale Dashboard data or an old Daily Review dialog', async () => {
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    fireEvent.click(await screen.findByTestId('open-daily-review-agent'))
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBeInTheDocument()
+
+    localDateMocks.currentDateKey = '2026-06-01'
+    mockHookState = {
+      ...mockHookState,
+      data: FULL_DATA,
+      loading: false,
+      error: '次日加载失败',
+      currentDateKey: '2026-06-01',
+      resolvedDateKey: '2026-05-31',
+      errorDateKey: '2026-06-01',
+    }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(screen.getByText(/加载失败.*次日加载失败/)).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-background-refresh-error')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('today-execution-overview')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('daily-review-dialog-harness')).not.toBeInTheDocument()
+  })
+
+  it('renders only the new date Dashboard data after the new date resolves', async () => {
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    expect(await screen.findByText(/今天有 6 个高风险知识点待抢救/)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('open-daily-review-agent'))
+    expect(screen.getByTestId('daily-review-dialog-harness')).toBeInTheDocument()
+
+    localDateMocks.currentDateKey = '2026-06-01'
+    mockHookState = {
+      ...mockHookState,
+      data: NEXT_DAY_DATA,
+      loading: false,
+      error: null,
+      currentDateKey: '2026-06-01',
+      resolvedDateKey: '2026-06-01',
+      errorDateKey: null,
+    }
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    await waitFor(() => {
+      expect(mockTasksGetByDate).toHaveBeenLastCalledWith('2026-06-01')
+    })
+
+    expect(screen.queryByTestId('dashboard-loading')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-background-refresh-error')).not.toBeInTheDocument()
+    expect(screen.getByTestId('today-execution-overview')).toHaveTextContent('2026-06-01')
+    expect(screen.getByTestId('today-execution-overview')).toHaveTextContent('25 分钟')
+    expect(screen.getByTestId('today-execution-overview')).not.toHaveTextContent('45 分钟')
+    expect(screen.queryByText(/今天有 6 个高风险知识点待抢救/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('daily-review-dialog-harness')).not.toBeInTheDocument()
   })
 
   it('propagates a Daily Review task-list refresh failure through onCreated', async () => {
@@ -426,7 +589,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
   })
 
   it('opens today editor from the review recommendation after setting today date', async () => {
-    mockHookState = { data: EMPTY_DATA, loading: false, error: null, refresh: mockRefresh }
+    mockHookState = { ...mockHookState, data: EMPTY_DATA, loading: false, error: null }
     mockTasksGetByDate.mockResolvedValue([makeTask({ id: 1, status: 'done' })])
 
     render(<HomeDashboard setActiveView={mockSetActiveView} setSelectedDate={mockSetSelectedDate} />)
@@ -440,7 +603,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
   })
 
   it('opens subject progress when today has no tasks and unfinished chapters remain', async () => {
-    mockHookState = { data: EMPTY_DATA, loading: false, error: null, refresh: mockRefresh }
+    mockHookState = { ...mockHookState, data: EMPTY_DATA, loading: false, error: null }
     mockSubjectsGetAll.mockResolvedValue([
       { id: 7, name: '数学', color: '#2563eb', total_chapters: 3, completed_chapters: 1 },
     ])
@@ -542,6 +705,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
   it('renders lightweight task focus loop metrics', async () => {
     mockHookState = {
+      ...mockHookState,
       data: {
         ...FULL_DATA,
         taskFocusToday: {
@@ -559,7 +723,6 @@ describe('HomeDashboard Component - Commander Engine', () => {
       },
       loading: false,
       error: null,
-      refresh: mockRefresh,
     }
 
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
@@ -578,10 +741,10 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
   it('renders an empty task focus loop state without NaN', async () => {
     mockHookState = {
+      ...mockHookState,
       data: EMPTY_DATA,
       loading: false,
       error: null,
-      refresh: mockRefresh,
     }
 
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
@@ -596,6 +759,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     const dueMistake = makeMistake({ id: 42, question: '三角函数诱导公式符号错误' })
     mockMistakesGetAll.mockResolvedValue({ data: [dueMistake], total: 1 })
     mockHookState = {
+      ...mockHookState,
       data: {
         ...EMPTY_DATA,
         commanderMetrics: {
@@ -606,7 +770,6 @@ describe('HomeDashboard Component - Commander Engine', () => {
       },
       loading: false,
       error: null,
-      refresh: mockRefresh,
     }
 
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
@@ -652,6 +815,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     const createResult = createDeferredTask()
     mockTasksCreate.mockReturnValue(createResult.promise)
     mockHookState = {
+      ...mockHookState,
       data: {
         ...EMPTY_DATA,
         todayEntry: { id: 1, title: '测试', wordCount: 120, mood: 'calm' },
@@ -663,7 +827,6 @@ describe('HomeDashboard Component - Commander Engine', () => {
       },
       loading: false,
       error: null,
-      refresh: mockRefresh,
     }
 
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
@@ -684,6 +847,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     const createResult = createDeferredTask()
     mockTasksCreate.mockReturnValue(createResult.promise)
     mockHookState = {
+      ...mockHookState,
       data: {
         ...EMPTY_DATA,
         commanderMetrics: {
@@ -694,7 +858,6 @@ describe('HomeDashboard Component - Commander Engine', () => {
       },
       loading: false,
       error: null,
-      refresh: mockRefresh,
     }
 
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
