@@ -58,6 +58,7 @@ AI 不会直接写 SQLite，也不会自动创建、完成、跳过、删除或�
 ## Verification
 
 - PR #128、#130、#131 和 #132 的合并范围共同构成本次累计 Release 内容。
+- PR #129 仍处于 open 状态，不包含在本次 v1.16.0 Release 范围内。
 - 当前合并后 `main` 已通过 GitHub CI 的 test、Windows build verification 和 macOS build verification。
 - Daily Review 最终 focused Vitest 集合为 **107/107**。
 - 日期切换 targeted suite 为 **41/41**。
