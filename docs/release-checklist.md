@@ -89,13 +89,6 @@ CI does not install the Windows Setup package, launch Portable on a clean Window
 
 Run these during release acceptance after candidate artifacts exist. Record OS version, architecture, asset name, result, and any warning shown.
 
-Before publishing v1.13.3, also record one packaged media-deletion containment smoke against a candidate Windows Setup or Portable build using only disposable profile data:
-
-- Confirm normal attachment deletion, entry attachment cleanup, and managed mistake image deletion still remove files inside their managed directories.
-- Place a junction inside the disposable `attachments` directory that points to an outside disposable sentinel file; confirm single and entry-cleanup deletion paths leave the sentinel unchanged.
-- Place a junction inside the disposable `mistake_images` directory that points to an outside disposable sentinel file; confirm managed mistake image deletion leaves the sentinel unchanged.
-- Record the candidate artifact, disposable profile paths, sentinel results, and any filesystem error; do not use the real user profile or real attachments.
-
 1. Windows Setup — manual acceptance
    - Download `MindDiary-Setup-<version>.exe` from the candidate Release.
    - Install on a clean or disposable Windows profile.
@@ -112,6 +105,68 @@ Before publishing v1.13.3, also record one packaged media-deletion containment s
    - Launch the extracted app and record the ad-hoc, non-notarized Gatekeeper boundary exactly.
 
 These are manual release gates, not claims made by CI. Do not publish if an expected artifact is missing, an unexpected internal asset appears, metadata points to an unpacked path, or a basic launch boundary fails without an understood release note.
+
+## v1.16.0 Candidate AI Planning Smoke
+
+在 tag 或正式 Release 前，必须使用候选 packaged build、一次性用户数据目录和本地 mock AI endpoint 完成记录。不得使用真实用户 profile、真实 API Key、真实学习数据或真实云端模型。
+
+至少记录：
+
+- 操作系统、架构、候选资产名称和文件哈希；
+- 一次性 user-data 路径与 mock endpoint；
+- 请求次数、任务写入次数和测试前后数据库任务记录；
+- 每项验收结果及任何错误或系统安全警告。
+
+### Opening and privacy boundary
+
+- 打开 Today Action planning context 和 Daily Review 不自动调用 AI。
+- 打开 Daily Review 不创建、完成、跳过、删除或修改任务。
+- 在可识别的测试字段中放入 diary-body、mistake-answer、mistake-notes、image-path、attachment-path、API-key 和 task-description sentinel。
+- 检查 mock server 收到的请求，确认上述 sentinel 均未发送。
+- 确认 safe preview 只显示允许的摘要、计数、标题或引用字段。
+
+### Parsing and confirmation boundary
+
+- 验证一个合法响应可以生成可编辑候选。
+- 验证 prose、malformed JSON、unknown field、model-provided `planned_date` / `status` / `source`、非法类型和无效引用均被拒绝。
+- 修改本地上下文后执行第一次创建确认，确认任务写入数仍为 0。
+- 第二次明确确认后，只创建选中且有效的候选。
+- 检查创建结果为本地控制的下一日期、`status=todo` 和 `source=ai`。
+
+### Partial failure and retry
+
+- 仅在一次性 profile 中注入一个可恢复的单候选创建失败。
+- 确认成功候选保持 created，失败候选保持可编辑、可重试。
+- 重试时只创建失败候选，已经成功的候选不得重复创建。
+- 完成后恢复 IPC/mock handler 并关闭候选应用。
+
+### Modal and refresh lifecycle
+
+- 在 Dashboard 顶部、中部和底部滚动位置打开 Daily Review。
+- 确认 modal 完整位于 viewport，header、footer 和内部滚动可用。
+- 关闭后 Dashboard 保留原滚动位置。
+- 创建完成触发 Dashboard 后台刷新时，Dialog DOM 和候选状态不得被重置。
+
+### Local-date rollover
+
+- 只在一次性虚拟机、隔离测试系统或可安全控制本地日期的环境执行，不要更改日常使用主机的系统时间。
+- 日期 A 成功加载后切换到日期 B，并让日期 B 请求保持 pending，确认日期 A 统计不再显示在日期 B 下。
+- 让日期 B 请求失败，确认显示日期 B 的整页错误而不是保留日期 A Dashboard。
+- 让日期 B 请求成功，确认只显示日期 B 数据。
+- 验证日期 A 的迟到请求不能覆盖日期 B 的数据或 date provenance。
+
+### Candidate acceptance boundary
+
+自动 CI 和源代码 Electron smoke 不能替代以下 packaged checks：
+
+- Windows Setup 安装并启动；
+- Windows Portable 直接启动；
+- macOS ARM64 DMG 挂载、复制并启动；
+- macOS ARM64 ZIP 解压并启动；
+- 设置页显示 `v1.16.0` 和本版本内置更新摘要；
+- update metadata 与正式资产名符合严格 allowlist。
+
+没有完成的项目必须标记为 blocked，不得描述为 passed。
 
 ## Final Published Release Verification
 
