@@ -649,9 +649,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadSubjects()
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
   }, [loadSubjects])
 
   useEffect(() => {
@@ -995,13 +992,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       // ── Alert modal ──
     } catch (e) {
       logger.warn('Pomodoro notification error:', e)
-    }
-
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('番茄钟提醒', {
-        body: completedMode.id === 'work' ? '专注完成，休息一下吧！' : '休息结束，准备专注！',
-        icon: '/favicon.ico'
-      })
     }
 
     if (completedMode.id === 'work' || completedMode.id === 'custom') {

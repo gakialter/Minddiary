@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol, net, shell } = require('electron');
 const { logger } = require('./logger');
 let autoUpdater: typeof import('electron-updater').autoUpdater | null = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
@@ -13,6 +13,14 @@ const { getActiveAppInfo } = require('./focusGuard');
 import { createAutoBackup } from './backup';
 import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
+import { buildContentSecurityPolicy, describeUrlForLog } from './navigationSecurity';
+import {
+    createMainWindowWebPreferences,
+    createNavigationHandler,
+    createWindowOpenHandler,
+    denyPermissionCheck,
+    denyPermissionRequest,
+} from './electronSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
 import { normalizeUpdaterReleaseNotes, preserveUpdaterReleaseDetails } from './updaterReleaseNotes';
@@ -53,6 +61,8 @@ function configureWindowsAppUserModelId() {
 
 function createWindow() {
     const isMac = process.platform === 'darwin';
+    const preloadPath = path.join(__dirname, 'preload.js');
+    const appDocumentPath = path.join(__dirname, '..', '..', 'dist', 'index.html');
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -63,11 +73,7 @@ function createWindow() {
         frame: isMac,
         ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
         backgroundColor: '#0f0f14',
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            preload: path.join(__dirname, 'preload.js')
-        },
+        webPreferences: createMainWindowWebPreferences(preloadPath),
         icon: path.join(__dirname, '..', '..', 'build', 'icon.png')
     });
 
@@ -87,11 +93,22 @@ function createWindow() {
 
     // Dev or production (E2E tests set NODE_ENV=production)
     const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
+    const navigationPolicy = isDev
+        ? { kind: 'development' as const }
+        : { kind: 'production' as const, appDocumentUrl: pathToFileURL(appDocumentPath).href };
+    const openExternal = (url: string) => shell.openExternal(url);
+    const navigationHandler = createNavigationHandler({ policy: navigationPolicy, openExternal, logger });
+    mainWindow.webContents.setWindowOpenHandler(createWindowOpenHandler({ openExternal, logger }));
+    mainWindow.webContents.on('will-navigate', navigationHandler);
+    mainWindow.webContents.on('will-redirect', navigationHandler);
+    mainWindow.webContents.session.setPermissionRequestHandler(denyPermissionRequest);
+    mainWindow.webContents.session.setPermissionCheckHandler(denyPermissionCheck);
+
     if (isDev) {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
-        mainWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
+        mainWindow.loadFile(appDocumentPath);
     }
 }
 
@@ -210,34 +227,18 @@ app.whenReady().then(() => {
             const resolved = resolveLocalProtocolPath(request.url, app.getPath('userData'));
             return net.fetch(pathToFileURL(resolved).href);
         } catch (error) {
-            logger.warn('[local://] Blocked local asset request:', request.url, error);
+            logger.warn(
+                '[local://] Blocked local asset request',
+                describeUrlForLog(request.url),
+                { errorType: error instanceof Error ? error.name : 'UnknownError' },
+            );
             return new Response('Forbidden', { status: 403 });
         }
     });
 
     // Add Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details: { responseHeaders?: Record<string, string[]> }, callback: (headers: { responseHeaders?: Record<string, string[]> }) => void) => {
-        const isDev = !app.isPackaged;
-        // In development, Vite injects inline scripts; allow 'unsafe-inline'
-        // only for script-src in dev mode.  In production, lock down everything.
-        const scriptSrc = isDev
-            ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-            : "script-src 'self'";
-        // P0-2: AI requests go through main-process IPC — renderer never needs
-        // direct external fetch. Keep dev loose for HMR; lock production to self.
-        const connectSrc = isDev
-            ? "connect-src 'self' https://*"
-            : "connect-src 'self'";
-        const csp = [
-            "default-src 'self'",
-            scriptSrc,
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",   // CSS-in-JS components need this
-            "img-src 'self' data: file: local: blob:",
-            connectSrc,
-            "font-src 'self' data: https://fonts.gstatic.com",
-            "object-src 'none'",
-            "base-uri 'self'",
-        ].join('; ');
+        const csp = buildContentSecurityPolicy(!app.isPackaged);
         callback({
             responseHeaders: {
                 ...details.responseHeaders,

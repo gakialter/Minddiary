@@ -215,7 +215,7 @@ describe('Pomodoro Component', () => {
     expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
   })
 
-  it('falls back to document fullscreen when Electron fullscreen API is unavailable', async () => {
+  it('does not request renderer fullscreen when Electron fullscreen IPC is unavailable', async () => {
     const electronSetFullScreen = window.api.window.setFullScreen
     delete (window.api.window as Partial<typeof window.api.window>).setFullScreen
     await renderPomodoro()
@@ -225,7 +225,7 @@ describe('Pomodoro Component', () => {
     })
 
     expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
-    expect(document.documentElement.requestFullscreen).toHaveBeenCalled()
+    expect(document.documentElement.requestFullscreen).not.toHaveBeenCalled()
 
     window.api.window.setFullScreen = electronSetFullScreen
   })

@@ -238,22 +238,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   }, [focusGuard])
 
   const requestAppFullscreen = useCallback(async () => {
-    let usedElectronFullscreen = false
     try {
       const setFullScreen = window.api?.window?.setFullScreen
       if (setFullScreen) {
-        usedElectronFullscreen = await setFullScreen(true)
+        await setFullScreen(true)
       }
     } catch (error) {
       logger.warn('[zen] Electron fullscreen request failed:', error)
-    }
-
-    if (usedElectronFullscreen) return
-
-    try {
-      await document.documentElement.requestFullscreen?.()
-    } catch (error) {
-      logger.warn('[zen] Browser fullscreen request failed:', error)
     }
   }, [])
 
@@ -268,25 +259,13 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
 
   const exitZenMode = useCallback(async () => {
     setZenVisible(false)
-    let usedElectronFullscreen = false
     try {
       const setFullScreen = window.api?.window?.setFullScreen
       if (setFullScreen) {
         await setFullScreen(false)
-        usedElectronFullscreen = true
       }
     } catch (error) {
       logger.warn('[zen] Electron fullscreen exit failed:', error)
-    }
-
-    if (usedElectronFullscreen) return
-
-    try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen()
-      }
-    } catch (error) {
-      logger.warn('[zen] Browser fullscreen exit failed:', error)
     }
   }, [])
 

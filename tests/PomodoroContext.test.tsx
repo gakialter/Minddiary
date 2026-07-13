@@ -727,11 +727,16 @@ describe('PomodoroContext', () => {
       expect.any(String),
       expect.any(String),
     )
-    expect(mocks.nativeNotification).toHaveBeenCalledWith(expect.any(String), {
-      body: expect.any(String),
-      icon: '/favicon.ico',
-    })
+    expect(mocks.nativeNotification).not.toHaveBeenCalled()
     expect(mocks.audioContextConstructor).toHaveBeenCalled()
+  })
+
+  it('does not request renderer notification permission', async () => {
+    MockNotification.permission = 'default'
+    renderPomodoroHook()
+    await flushAsyncWork()
+
+    expect(mocks.requestNotificationPermission).not.toHaveBeenCalled()
   })
 
   it('opens a settlement prompt after a completed countdown focus session is saved', async () => {
