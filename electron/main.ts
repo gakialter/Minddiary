@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, session, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain, Notification, dialog, session, protocol, net, shell } = require('electron');
 const { logger } = require('./logger');
 let autoUpdater: typeof import('electron-updater').autoUpdater | null = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (_) {}
@@ -13,8 +13,9 @@ const { getActiveAppInfo } = require('./focusGuard');
 import { createAutoBackup } from './backup';
 import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
-import { buildContentSecurityPolicy, describeUrlForLog } from './navigationSecurity';
+import { buildContentSecurityPolicy, describeUrlForLog, type NavigationPolicy } from './navigationSecurity';
 import {
+    createClipboardWriteHandler,
     createMainWindowWebPreferences,
     createNavigationHandler,
     createWindowOpenHandler,
@@ -54,6 +55,20 @@ import type {
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 
+function isDevelopmentRuntime(): boolean {
+    return !app.isPackaged && process.env.NODE_ENV !== 'production';
+}
+
+function getAppDocumentPath(): string {
+    return path.join(__dirname, '..', '..', 'dist', 'index.html');
+}
+
+function getMainNavigationPolicy(): NavigationPolicy {
+    return isDevelopmentRuntime()
+        ? { kind: 'development' }
+        : { kind: 'production', appDocumentUrl: pathToFileURL(getAppDocumentPath()).href };
+}
+
 function configureWindowsAppUserModelId() {
     if (process.platform !== 'win32') return;
     app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -62,7 +77,7 @@ function configureWindowsAppUserModelId() {
 function createWindow() {
     const isMac = process.platform === 'darwin';
     const preloadPath = path.join(__dirname, 'preload.js');
-    const appDocumentPath = path.join(__dirname, '..', '..', 'dist', 'index.html');
+    const appDocumentPath = getAppDocumentPath();
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -92,10 +107,8 @@ function createWindow() {
     });
 
     // Dev or production (E2E tests set NODE_ENV=production)
-    const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
-    const navigationPolicy = isDev
-        ? { kind: 'development' as const }
-        : { kind: 'production' as const, appDocumentUrl: pathToFileURL(appDocumentPath).href };
+    const isDev = isDevelopmentRuntime();
+    const navigationPolicy = getMainNavigationPolicy();
     const openExternal = (url: string) => shell.openExternal(url);
     const navigationHandler = createNavigationHandler({ policy: navigationPolicy, openExternal, logger });
     mainWindow.webContents.setWindowOpenHandler(createWindowOpenHandler({ openExternal, logger }));
@@ -262,6 +275,12 @@ app.on('activate', () => {
 });
 
 // ==================== Window Controls ====================
+ipcMain.handle('clipboard:writeText', createClipboardWriteHandler({
+    getMainWindow: () => mainWindow,
+    getNavigationPolicy: getMainNavigationPolicy,
+    writeText: (text: string) => clipboard.writeText(text),
+}));
+
 ipcMain.handle('window:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
 });

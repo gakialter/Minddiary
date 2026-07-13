@@ -30,7 +30,43 @@ type WindowOpenDetails = {
   readonly url: string
 }
 
+type ClipboardFrame = {
+  readonly url: string
+}
+
+type ClipboardWebContents = {
+  readonly mainFrame: ClipboardFrame
+}
+
+type ClipboardMainWindow = {
+  readonly webContents: ClipboardWebContents
+  readonly isDestroyed: () => boolean
+}
+
+type ClipboardWriteEvent = {
+  readonly sender: ClipboardWebContents
+  readonly senderFrame: ClipboardFrame
+}
+
+type ClipboardWriteHandlerOptions = {
+  readonly getMainWindow: () => ClipboardMainWindow | null
+  readonly getNavigationPolicy: () => NavigationPolicy
+  readonly writeText: (text: string) => void
+}
+
+type PrintWindowNavigationEvent = {
+  readonly preventDefault: () => void
+}
+
 const denyWindowOpen = { action: 'deny' } as const
+
+class ClipboardWriteRejectedError extends Error {
+  readonly name = 'ClipboardWriteRejectedError'
+
+  constructor() {
+    super('Clipboard write request rejected')
+  }
+}
 
 function assertNever(value: never): never {
   throw new Error(`Unexpected navigation decision: ${JSON.stringify(value)}`)
@@ -108,6 +144,46 @@ export function denyPermissionRequest(
 
 export function denyPermissionCheck(_webContents: unknown, _permission: string): boolean {
   return false
+}
+
+export function createClipboardWriteHandler(options: ClipboardWriteHandlerOptions) {
+  return (event: ClipboardWriteEvent, payload: unknown): void => {
+    const mainWindow = options.getMainWindow()
+    const isTrustedSender = (
+      mainWindow !== null &&
+      !mainWindow.isDestroyed() &&
+      event.sender === mainWindow.webContents &&
+      event.senderFrame === mainWindow.webContents.mainFrame &&
+      classifyNavigation(event.senderFrame.url, options.getNavigationPolicy()).kind === 'allow'
+    )
+    if (!isTrustedSender || typeof payload !== 'string') {
+      throw new ClipboardWriteRejectedError()
+    }
+    options.writeText(payload)
+  }
+}
+
+export function createPrintWindowWebPreferences() {
+  return {
+    contextIsolation: true,
+    nodeIntegration: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    webviewTag: false,
+    sandbox: true,
+    javascript: false,
+  }
+}
+
+export function createPrintWindowOpenHandler() {
+  return (): typeof denyWindowOpen => denyWindowOpen
+}
+
+export function createPrintWindowNavigationHandler(documentUrl: string) {
+  const policy: NavigationPolicy = { kind: 'production', appDocumentUrl: documentUrl }
+  return (event: PrintWindowNavigationEvent, target: string): void => {
+    if (classifyNavigation(target, policy).kind !== 'allow') event.preventDefault()
+  }
 }
 
 export function createMainWindowWebPreferences(preload: string) {

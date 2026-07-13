@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createClipboardWriteHandler,
   createMainWindowWebPreferences,
   createNavigationHandler,
   createWindowOpenHandler,
@@ -151,6 +152,7 @@ describe('permission default-deny', () => {
     'fullscreen',
     'openExternal',
     'clipboard-read',
+    'clipboard-sanitized-write',
     'display-capture',
     'idle-detection',
     'serial',
@@ -168,12 +170,75 @@ describe('permission default-deny', () => {
     },
   )
 
-  it.each(['clipboard-read', 'display-capture', 'idle-detection', 'serial', 'usb', 'hid', 'bluetooth']) (
+  it.each(['clipboard-read', 'clipboard-sanitized-write', 'display-capture', 'idle-detection', 'serial', 'usb', 'hid', 'bluetooth']) (
     'returns false for checked permission %s',
     (permission) => {
       expect(denyPermissionCheck(null, permission)).toBe(false)
     },
   )
+})
+
+describe('clipboard write handler', () => {
+  const createFixture = () => {
+    const mainFrame = { url: 'http://localhost:5173/' }
+    const webContents = { mainFrame }
+    const writeText = vi.fn()
+    const mainWindow = { isDestroyed: vi.fn(() => false), webContents }
+    const getMainWindow = vi.fn<() => typeof mainWindow | null>(() => mainWindow)
+    const handler = createClipboardWriteHandler({
+      getMainWindow,
+      getNavigationPolicy: () => ({ kind: 'development' }),
+      writeText,
+    })
+    return { getMainWindow, handler, mainFrame, mainWindow, webContents, writeText }
+  }
+
+  it('writes text for the live trusted main-window main frame', () => {
+    const { handler, mainFrame, webContents, writeText } = createFixture()
+
+    handler({ sender: webContents, senderFrame: mainFrame }, 'copy sentinel')
+
+    expect(writeText).toHaveBeenCalledOnce()
+    expect(writeText).toHaveBeenCalledWith('copy sentinel')
+  })
+
+  it('rejects other webContents and main-window subframes', () => {
+    const { handler, mainFrame, webContents, writeText } = createFixture()
+
+    expect(() => handler({ sender: { mainFrame }, senderFrame: mainFrame }, 'blocked')).toThrow(/rejected/)
+    expect(() => handler({ sender: webContents, senderFrame: { url: mainFrame.url } }, 'blocked')).toThrow(/rejected/)
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('rejects missing, destroyed, and untrusted main windows', () => {
+    const { getMainWindow, handler, mainFrame, mainWindow, webContents, writeText } = createFixture()
+
+    getMainWindow.mockReturnValueOnce(null)
+    expect(() => handler({ sender: webContents, senderFrame: mainFrame }, 'blocked')).toThrow(/rejected/)
+    mainWindow.isDestroyed.mockReturnValueOnce(true)
+    expect(() => handler({ sender: webContents, senderFrame: mainFrame }, 'blocked')).toThrow(/rejected/)
+    mainFrame.url = 'https://untrusted.example/'
+    expect(() => handler({ sender: webContents, senderFrame: mainFrame }, 'blocked')).toThrow(/rejected/)
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it.each([null, 42, {}, ['text']])('rejects a non-string payload: %j', (payload) => {
+    const { handler, mainFrame, webContents, writeText } = createFixture()
+
+    expect(() => handler({ sender: webContents, senderFrame: mainFrame }, payload)).toThrow(/rejected/)
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('does not log rejected clipboard content', () => {
+    const { handler, mainFrame, webContents } = createFixture()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => handler({ sender: webContents, senderFrame: mainFrame }, { secret: 'private copy text' })).toThrow()
+
+    expect(warn).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+  })
 })
 
 describe('BrowserWindow security preferences', () => {

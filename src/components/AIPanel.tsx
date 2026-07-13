@@ -236,7 +236,8 @@ export default function AIPanel({ entry }: AIPanelProps) {
 
     const copyMessage = async (content: string) => {
         try {
-            await navigator.clipboard.writeText(content)
+            const writeText = window.api.clipboard?.writeText ?? navigator.clipboard.writeText.bind(navigator.clipboard)
+            await writeText(content)
             showToast('已复制', 'success')
         } catch {
             showToast('复制失败', 'error')

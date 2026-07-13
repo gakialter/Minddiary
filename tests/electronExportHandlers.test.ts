@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createExportHandlers } from '../electron/exportHandlers';
@@ -28,7 +29,20 @@ function createTestHandlers() {
     const writeFile = vi.fn(async (_filepath: string, _data: string | Buffer, _encoding?: BufferEncoding) => undefined);
     const unlink = vi.fn(async (_filepath: string) => undefined);
     const showSaveDialog = vi.fn(async () => ({ canceled: false, filePath: EXPORT_PATH }));
-    const loadFile = vi.fn(async () => undefined);
+    const registrationOrder: string[] = [];
+    let windowOpenHandler: ((details: { url: string }) => { action: 'deny' }) | undefined;
+    const navigationHandlers = new Map<string, (event: { preventDefault: () => void }, target: string) => void>();
+    const setWindowOpenHandler = vi.fn((handler: typeof windowOpenHandler) => {
+        registrationOrder.push('window-open');
+        windowOpenHandler = handler;
+    });
+    const on = vi.fn((event: string, handler: (event: { preventDefault: () => void }, target: string) => void) => {
+        registrationOrder.push(event);
+        navigationHandlers.set(event, handler);
+    });
+    const loadFile = vi.fn(async () => {
+        registrationOrder.push('loadFile');
+    });
     const printToPDF = vi.fn(async () => Buffer.from('pdf'));
     const close = vi.fn();
     const isDestroyed = vi.fn(() => false);
@@ -37,7 +51,7 @@ function createTestHandlers() {
             loadFile,
             close,
             isDestroyed,
-            webContents: { printToPDF },
+            webContents: { on, printToPDF, setWindowOpenHandler },
         };
     });
 
@@ -61,6 +75,9 @@ function createTestHandlers() {
         loadFile,
         printToPDF,
         close,
+        navigationHandlers,
+        registrationOrder,
+        getWindowOpenHandler: () => windowOpenHandler,
     };
 }
 
@@ -180,6 +197,48 @@ describe('Electron export path authorization', () => {
         expect(printToPDF).toHaveBeenCalled();
         expect(close).toHaveBeenCalled();
         expect(unlink).toHaveBeenCalledWith(tmpPath);
+    });
+
+    it('registers a fully isolated print-window policy before loading the temporary document', async () => {
+        const fixture = createTestHandlers();
+        fixture.showSaveDialog.mockResolvedValueOnce({ canceled: false, filePath: PDF_PATH });
+
+        await fixture.handlers.showSaveDialog(null, { title: 'Export PDF' });
+        await fixture.handlers.toPDF(null, { htmlContent: '<html></html>', savePath: PDF_PATH });
+
+        expect(fixture.BrowserWindow).toHaveBeenCalledWith({
+            show: false,
+            width: 1000,
+            height: 1400,
+            webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                webSecurity: true,
+                allowRunningInsecureContent: false,
+                webviewTag: false,
+                sandbox: true,
+                javascript: false,
+            },
+        });
+        expect(fixture.registrationOrder).toEqual(['window-open', 'will-navigate', 'will-redirect', 'loadFile']);
+
+        const openHandler = fixture.getWindowOpenHandler();
+        const navigate = fixture.navigationHandlers.get('will-navigate');
+        const redirect = fixture.navigationHandlers.get('will-redirect');
+        if (!openHandler || !navigate || !redirect) throw new Error('Print-window handlers were not registered');
+        expect(openHandler({ url: 'https://external.test/' })).toEqual({ action: 'deny' });
+
+        const documentUrl = pathToFileURL(path.win32.join(TEMP_DIR, 'minddiary_export_tmp.html')).href;
+        for (const handler of [navigate, redirect]) {
+            const allowed = { preventDefault: vi.fn() };
+            handler(allowed, `${documentUrl}#page-2`);
+            expect(allowed.preventDefault).not.toHaveBeenCalled();
+            for (const target of ['file:///C:/other.html', 'https://external.test/', 'local://asset', 'javascript:alert(1)', 'data:text/html,x', 'blob:null/id', 'not a url']) {
+                const blocked = { preventDefault: vi.fn() };
+                handler(blocked, target);
+                expect(blocked.preventDefault).toHaveBeenCalledOnce();
+            }
+        }
     });
 
     it('allows an existing non-directory save target', async () => {
