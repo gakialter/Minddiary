@@ -66,18 +66,45 @@ jobs:
       - name: Prepare build resources
         run: npm run build:resources
 
+      - name: Confirm macOS ARM64 runner
+        if: matrix.os == 'macos-14'
+        run: node -e "if (process.arch !== 'arm64') throw new Error(`Expected macOS ARM64 runner, got ${process.arch}`)"
+
       - name: Rebuild native dependencies for Electron
-        if: matrix.os == 'windows-latest'
         run: npm run rebuild:electron
 
       - name: Verify Electron native dependencies
-        if: matrix.os == 'windows-latest'
         run: npm run verify:electron-native
 
       - name: Package Windows app for native verification
         if: matrix.os == 'windows-latest'
         run: npx electron-builder --dir --win --x64 --publish never
 
+      - name: Package macOS ARM64 app for native verification
+        if: matrix.os == 'macos-14'
+        run: npx electron-builder --dir --mac --arm64 --publish never
+
       - name: Verify packaged Electron native dependencies
-        if: matrix.os == 'windows-latest'
         run: npm run verify:electron-native:packaged
+
+      - name: Verify macOS ARM64 package architecture
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="release/mac-arm64/MindDiary.app"
+          main_binary="$app_path/Contents/MacOS/MindDiary"
+          framework_binary="$app_path/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+
+          test -f "$main_binary"
+          test -f "$framework_binary"
+          test -n "$(find "$app_path" -type f -name 'better_sqlite3.node' -print -quit)"
+
+          {
+            printf '%s\0' "$main_binary" "$framework_binary"
+            find "$app_path/Contents/Frameworks" -type f \( -path '*/Contents/MacOS/*' -o -name '*.dylib' -o -name '*.node' \) -print0
+          } | while IFS= read -r -d '' binary; do
+            architecture="$(file "$binary")"
+            echo "$architecture"
+            echo "$architecture" | grep -q 'arm64'
+          done
