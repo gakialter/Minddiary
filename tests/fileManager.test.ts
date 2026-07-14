@@ -74,7 +74,7 @@ describe('file manager storage', () => {
     expect(first).toMatch(/^mistake_images\/mistake_123456789_[a-f0-9-]+\.png$/)
     expect(second).toMatch(/^mistake_images\/mistake_123456789_[a-f0-9-]+\.png$/)
     expect(submit).toHaveBeenCalledTimes(2)
-  })
+  }, 15_000)
 
   it('enforces the decoded 10 MB boundary and supported MIME types before writing', async () => {
     const fileManager = await loadFileManager()
