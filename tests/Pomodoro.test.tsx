@@ -286,6 +286,45 @@ describe('Pomodoro Component', () => {
     expect(window.api.window.setFullScreen).not.toHaveBeenCalled()
   })
 
+  it('does not delay browser Zen fullscreen while notification permission is pending', async () => {
+    runtime.isElectron = false
+    const notificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Notification')
+    let resolvePermission = (_permission: NotificationPermission) => {}
+    const permissionRequest = new Promise<NotificationPermission>(resolve => {
+      resolvePermission = resolve
+    })
+    const requestPermission = vi.fn(() => permissionRequest)
+    Object.defineProperty(globalThis, 'Notification', {
+      configurable: true,
+      value: {
+        permission: 'default',
+        requestPermission,
+      },
+    })
+
+    try {
+      await renderPomodoro()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+        await Promise.resolve()
+      })
+
+      expect(requestPermission).toHaveBeenCalledTimes(1)
+      expect(document.documentElement.requestFullscreen).toHaveBeenCalledTimes(1)
+    } finally {
+      await act(async () => {
+        resolvePermission('granted')
+        await permissionRequest
+      })
+      if (notificationDescriptor) {
+        Object.defineProperty(globalThis, 'Notification', notificationDescriptor)
+      } else {
+        Reflect.deleteProperty(globalThis, 'Notification')
+      }
+    }
+  })
+
   it('exits browser fullscreen when leaving Zen in browser fallback', async () => {
     runtime.isElectron = false
     await renderPomodoro()

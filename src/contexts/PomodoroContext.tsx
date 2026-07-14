@@ -1316,7 +1316,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     ) {
       browserNotificationPermissionRequestedRef.current = true
       try {
-        await Notification.requestPermission()
+        void Notification.requestPermission().catch(error => {
+          logger.warn('Failed to request browser notification permission:', error)
+        })
       } catch (error) {
         logger.warn('Failed to request browser notification permission:', error)
       }
