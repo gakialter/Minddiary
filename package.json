@@ -3,7 +3,7 @@
     "version": "1.16.0",
     "description": "考研日记桌面应用",
     "engines": {
-        "node": ">=20.12.0"
+        "node": ">=22.12.0"
     },
     "author": "MindDiary Team",
     "repository": {
@@ -29,7 +29,7 @@
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"
     },
     "dependencies": {
-        "better-sqlite3": "^11.0.0",
+        "better-sqlite3": "12.11.1",
         "dom-to-image-more": "^3.7.2",
         "electron-updater": "^6.8.9",
         "file-saver": "^2.0.5",
@@ -57,7 +57,7 @@
         "@vitest/coverage-v8": "^4.1.10",
         "autoprefixer": "^10.5.0",
         "concurrently": "^8.2.2",
-        "electron": "^34.5.8",
+        "electron": "42.6.1",
         "electron-builder": "^26.15.6",
         "jsdom": "^29.1.1",
         "playwright": "^1.61.1",
@@ -69,6 +69,11 @@
         "vite": "^8.1.4",
         "vitest": "^4.1.10",
         "wait-on": "^7.2.0"
+    },
+    "overrides": {
+        "prebuild-install": {
+            "node-abi": "4.33.0"
+        }
     },
     "build": {
         "appId": "com.minddiary.app",
@@ -112,7 +117,8 @@
                 "dmg",
                 "zip"
             ],
-            "icon": "build/icon.png"
+            "icon": "build/icon.png",
+            "minimumSystemVersion": "12.0"
         }
     }
 }
