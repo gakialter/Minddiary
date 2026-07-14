@@ -3,6 +3,7 @@ import { usePomodoroTimer, usePomodoroData, usePomodoroActions } from '../contex
 import { useDiary } from '../contexts/DiaryContext'
 import { coerceBoolean } from '../utils/helpers'
 import { logger } from '../utils/logger'
+import { IS_ELECTRON } from '../utils/apiAdapter'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
 import FocusZenMode from './FocusZenMode'
@@ -238,20 +239,21 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   }, [focusGuard])
 
   const requestAppFullscreen = useCallback(async () => {
-    let usedElectronFullscreen = false
-    try {
-      const setFullScreen = window.api?.window?.setFullScreen
-      if (setFullScreen) {
-        usedElectronFullscreen = await setFullScreen(true)
+    if (IS_ELECTRON) {
+      try {
+        await window.api.window.setFullScreen(true)
+      } catch (error) {
+        logger.warn('[zen] Electron fullscreen request failed:', error)
       }
-    } catch (error) {
-      logger.warn('[zen] Electron fullscreen request failed:', error)
+      return
     }
 
-    if (usedElectronFullscreen) return
-
     try {
-      await document.documentElement.requestFullscreen?.()
+      if (!document.documentElement.requestFullscreen) {
+        logger.warn('[zen] Browser fullscreen API unavailable')
+        return
+      }
+      await document.documentElement.requestFullscreen()
     } catch (error) {
       logger.warn('[zen] Browser fullscreen request failed:', error)
     }
@@ -268,23 +270,22 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
 
   const exitZenMode = useCallback(async () => {
     setZenVisible(false)
-    let usedElectronFullscreen = false
-    try {
-      const setFullScreen = window.api?.window?.setFullScreen
-      if (setFullScreen) {
-        await setFullScreen(false)
-        usedElectronFullscreen = true
+    if (IS_ELECTRON) {
+      try {
+        await window.api.window.setFullScreen(false)
+      } catch (error) {
+        logger.warn('[zen] Electron fullscreen exit failed:', error)
       }
-    } catch (error) {
-      logger.warn('[zen] Electron fullscreen exit failed:', error)
+      return
     }
 
-    if (usedElectronFullscreen) return
-
+    if (!document.fullscreenElement) return
     try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen()
+      if (!document.exitFullscreen) {
+        logger.warn('[zen] Browser fullscreen exit API unavailable')
+        return
       }
+      await document.exitFullscreen()
     } catch (error) {
       logger.warn('[zen] Browser fullscreen exit failed:', error)
     }

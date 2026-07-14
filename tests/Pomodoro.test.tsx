@@ -4,9 +4,17 @@ import Pomodoro from '../src/components/Pomodoro'
 import { PomodoroProvider } from '../src/contexts/PomodoroContext'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 
+const runtime = vi.hoisted(() => ({ isElectron: true }))
+
 // Mock useDiary to return dummy APIs for the PomodoroProvider
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: vi.fn(),
+}))
+
+vi.mock('../src/utils/apiAdapter', () => ({
+  get IS_ELECTRON() {
+    return runtime.isElectron
+  },
 }))
 
 const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
@@ -15,6 +23,7 @@ describe('Pomodoro Component', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
+    runtime.isElectron = true
     window.api.focusGuard.getActiveApp = vi.fn().mockResolvedValue(null)
     window.api.window.setFullScreen = vi.fn().mockResolvedValue(true)
     window.api.window.isFullScreen = vi.fn().mockResolvedValue(false)
@@ -28,6 +37,10 @@ describe('Pomodoro Component', () => {
       configurable: true,
       writable: true,
       value: vi.fn().mockResolvedValue(undefined),
+    })
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      value: null,
     })
     Object.defineProperty(window, 'confirm', {
       configurable: true,
@@ -52,6 +65,10 @@ describe('Pomodoro Component', () => {
   })
 
   afterEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      value: null,
+    })
     localStorage.clear()
     vi.useRealTimers()
     vi.clearAllMocks()
@@ -192,6 +209,7 @@ describe('Pomodoro Component', () => {
 
     expect(screen.queryByTestId('focus-zen-mode')).not.toBeInTheDocument()
     expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
+    expect(document.exitFullscreen).not.toHaveBeenCalled()
     expect(screen.getByText('24:59')).toBeInTheDocument()
 
     await act(async () => {
@@ -215,19 +233,157 @@ describe('Pomodoro Component', () => {
     expect(window.api.window.setFullScreen).toHaveBeenLastCalledWith(false)
   })
 
-  it('falls back to document fullscreen when Electron fullscreen API is unavailable', async () => {
+  it('does not request renderer fullscreen when Electron fullscreen IPC is unavailable', async () => {
     const electronSetFullScreen = window.api.window.setFullScreen
     delete (window.api.window as Partial<typeof window.api.window>).setFullScreen
+    try {
+      await renderPomodoro()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+      })
+
+      expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+      expect(document.documentElement.requestFullscreen).not.toHaveBeenCalled()
+    } finally {
+      window.api.window.setFullScreen = electronSetFullScreen
+    }
+  })
+
+  it('does not request renderer fullscreen when Electron fullscreen IPC returns false', async () => {
+    window.api.window.setFullScreen = vi.fn().mockResolvedValue(false)
     await renderPomodoro()
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
     })
 
-    expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
-    expect(document.documentElement.requestFullscreen).toHaveBeenCalled()
+    expect(window.api.window.setFullScreen).toHaveBeenCalledWith(true)
+    expect(document.documentElement.requestFullscreen).not.toHaveBeenCalled()
+  })
 
-    window.api.window.setFullScreen = electronSetFullScreen
+  it('does not request renderer fullscreen when Electron fullscreen IPC rejects', async () => {
+    window.api.window.setFullScreen = vi.fn().mockRejectedValue(new Error('fullscreen denied'))
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+
+    expect(window.api.window.setFullScreen).toHaveBeenCalledWith(true)
+    expect(document.documentElement.requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('uses browser fullscreen without calling mock Electron IPC in browser fallback', async () => {
+    runtime.isElectron = false
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+
+    expect(document.documentElement.requestFullscreen).toHaveBeenCalledTimes(1)
+    expect(window.api.window.setFullScreen).not.toHaveBeenCalled()
+  })
+
+  it('does not delay browser Zen fullscreen while notification permission is pending', async () => {
+    runtime.isElectron = false
+    const notificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Notification')
+    let resolvePermission = (_permission: NotificationPermission) => {}
+    const permissionRequest = new Promise<NotificationPermission>(resolve => {
+      resolvePermission = resolve
+    })
+    const requestPermission = vi.fn(() => permissionRequest)
+    Object.defineProperty(globalThis, 'Notification', {
+      configurable: true,
+      value: {
+        permission: 'default',
+        requestPermission,
+      },
+    })
+
+    try {
+      await renderPomodoro()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+        await Promise.resolve()
+      })
+
+      expect(requestPermission).toHaveBeenCalledTimes(1)
+      expect(document.documentElement.requestFullscreen).toHaveBeenCalledTimes(1)
+    } finally {
+      await act(async () => {
+        resolvePermission('granted')
+        await permissionRequest
+      })
+      if (notificationDescriptor) {
+        Object.defineProperty(globalThis, 'Notification', notificationDescriptor)
+      } else {
+        Reflect.deleteProperty(globalThis, 'Notification')
+      }
+    }
+  })
+
+  it('exits browser fullscreen when leaving Zen in browser fallback', async () => {
+    runtime.isElectron = false
+    await renderPomodoro()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+    })
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      value: document.documentElement,
+    })
+
+    await act(async () => {
+      fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
+      fireEvent.click(screen.getByTestId('focus-zen-exit-btn'))
+    })
+
+    expect(document.exitFullscreen).toHaveBeenCalledTimes(1)
+    expect(window.api.window.setFullScreen).not.toHaveBeenCalled()
+  })
+
+  it('keeps Zen usable when browser fullscreen is unsupported', async () => {
+    runtime.isElectron = false
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      Object.defineProperty(document.documentElement, 'requestFullscreen', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      await renderPomodoro()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+      })
+
+      expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps Zen usable when browser fullscreen rejects', async () => {
+    runtime.isElectron = false
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      vi.mocked(document.documentElement.requestFullscreen).mockRejectedValueOnce(new Error('fullscreen denied'))
+      await renderPomodoro()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('pomodoro-enter-zen-btn'))
+      })
+
+      expect(screen.getByTestId('focus-zen-mode')).toBeInTheDocument()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('auto-exits Zen overlay when timer reaches 0 without resetting', async () => {

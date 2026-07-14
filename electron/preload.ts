@@ -8,6 +8,10 @@ import type {
 } from '../src/types/index';
 
 contextBridge.exposeInMainWorld('api', {
+    clipboard: {
+        writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
+    },
+
     // Window controls
     window: {
         platform: process.platform,

@@ -25,6 +25,10 @@ export interface ElectronWindowAPI {
   onFullScreenChange?: (callback: (fullScreen: boolean) => void) => () => void
 }
 
+export interface ElectronClipboardAPI {
+  writeText: (text: string) => Promise<void>
+}
+
 export interface ElectronEntriesAPI {
   create: (entry: NewEntry) => Promise<DiaryEntry>
   update: (id: number, entry: Partial<DiaryEntry>) => Promise<DiaryEntry>
@@ -238,6 +242,7 @@ export interface ElectronTemplatesAPI {
 }
 
 export interface ElectronAPI {
+  clipboard?: ElectronClipboardAPI
   window: ElectronWindowAPI
   updater: ElectronUpdaterAPI
   entries: ElectronEntriesAPI

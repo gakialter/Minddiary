@@ -1,3 +1,10 @@
+import { pathToFileURL } from 'url';
+import {
+    createPrintWindowNavigationHandler,
+    createPrintWindowOpenHandler,
+    createPrintWindowWebPreferences,
+} from './electronSecurity';
+
 type PathModule = Pick<typeof import('path'), 'isAbsolute' | 'resolve' | 'join'>;
 
 interface StatLike {
@@ -33,7 +40,9 @@ interface BrowserWindowLike {
     close(): void;
     isDestroyed?: () => boolean;
     webContents: {
+        on(event: 'will-navigate' | 'will-redirect', handler: (event: { preventDefault: () => void }, target: string) => void): void;
         printToPDF(options: Record<string, unknown>): Promise<Buffer>;
+        setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void;
     };
 }
 
@@ -164,8 +173,13 @@ export function createExportHandlers({
                     show: false,
                     width: 1000,
                     height: 1400,
-                    webPreferences: { contextIsolation: true, nodeIntegration: false },
+                    webPreferences: createPrintWindowWebPreferences(),
                 });
+
+                const navigationHandler = createPrintWindowNavigationHandler(pathToFileURL(tmpPath).href);
+                win.webContents.setWindowOpenHandler(createPrintWindowOpenHandler());
+                win.webContents.on('will-navigate', navigationHandler);
+                win.webContents.on('will-redirect', navigationHandler);
 
                 await win.loadFile(tmpPath);
 
