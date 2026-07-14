@@ -95,13 +95,14 @@ jobs:
           app_path="release/mac-arm64/MindDiary.app"
           main_binary="$app_path/Contents/MacOS/MindDiary"
           framework_binary="$app_path/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+          native_binary="$(find "$app_path" -type f -name 'better_sqlite3.node' -print -quit)"
 
           test -f "$main_binary"
           test -f "$framework_binary"
-          test -n "$(find "$app_path" -type f -name 'better_sqlite3.node' -print -quit)"
+          test -n "$native_binary"
 
           {
-            printf '%s\0' "$main_binary" "$framework_binary"
+            printf '%s\0' "$main_binary" "$framework_binary" "$native_binary"
             find "$app_path/Contents/Frameworks" -type f \( -path '*/Contents/MacOS/*' -o -name '*.dylib' -o -name '*.node' \) -print0
           } | while IFS= read -r -d '' binary; do
             architecture="$(file -b "$binary")"
