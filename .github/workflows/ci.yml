@@ -104,7 +104,7 @@ jobs:
             printf '%s\0' "$main_binary" "$framework_binary"
             find "$app_path/Contents/Frameworks" -type f \( -path '*/Contents/MacOS/*' -o -name '*.dylib' -o -name '*.node' \) -print0
           } | while IFS= read -r -d '' binary; do
-            architecture="$(file "$binary")"
-            echo "$architecture"
+            architecture="$(file -b "$binary")"
+            echo "$binary: $architecture"
             echo "$architecture" | grep -q 'arm64'
           done
