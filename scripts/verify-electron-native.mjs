@@ -49,21 +49,43 @@ function runElectronProbe(extraArgs = []) {
 if (process.argv.includes(probeFlag)) {
   try {
     const binaryIndex = process.argv.indexOf(binaryFlag)
+    let nativeBinary
     if (binaryIndex >= 0) {
       const binaryPath = process.argv[binaryIndex + 1]
       if (!binaryPath) throw new Error(`${binaryFlag} requires a path`)
-      require(path.resolve(binaryPath))
-    } else {
-      const BetterSqlite3 = require('better-sqlite3')
-      const database = new BetterSqlite3(':memory:')
-      const row = database.prepare('SELECT 1 AS value').get()
-      database.close()
-      if (row?.value !== 1) throw new Error('better-sqlite3 probe query failed')
+      nativeBinary = path.resolve(binaryPath)
+    }
+
+    const BetterSqlite3 = require('better-sqlite3')
+    const database = new BetterSqlite3(
+      ':memory:',
+      nativeBinary ? { nativeBinding: nativeBinary } : undefined,
+    )
+    const row = database.prepare('SELECT 1 AS value, sqlite_version() AS sqliteVersion').get()
+    database.close()
+    if (row?.value !== 1) throw new Error('better-sqlite3 probe query failed')
+
+    if (!nativeBinary) {
+      const packageRoot = path.dirname(require.resolve('better-sqlite3/package.json'))
+      const installedBinaries = findNativeBinaries(packageRoot)
+      if (installedBinaries.length !== 1) {
+        throw new Error(`Expected one installed better_sqlite3.node, found ${installedBinaries.length}`)
+      }
+      nativeBinary = installedBinaries[0]
     }
 
     process.stdout.write(JSON.stringify({
       electron: process.versions.electron,
+      node: process.versions.node,
+      chrome: process.versions.chrome,
+      v8: process.versions.v8,
       moduleAbi: process.versions.modules,
+      platform: process.platform,
+      architecture: process.arch,
+      betterSqlite3: require('better-sqlite3/package.json').version,
+      nativeBinary,
+      sqliteVersion: row.sqliteVersion,
+      queryResult: row.value,
     }) + '\n')
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
