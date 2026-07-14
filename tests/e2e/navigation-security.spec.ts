@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 let app: ElectronApplication
 let page: Page
@@ -13,6 +14,47 @@ let pdfNavigationRequests = 0
 
 const projectRoot = path.join(__dirname, '..', '..')
 const externalCallKey = '__minddiarySecurityExternalCalls'
+
+test('uses a strict production CSP for an unpackaged production renderer', async () => {
+  const productionProfilePath = mkdtempSync(path.join(tmpdir(), 'minddiary-production-csp-e2e-'))
+  let productionApp: ElectronApplication | undefined
+
+  try {
+    productionApp = await electron.launch({
+      args: [projectRoot, `--user-data-dir=${productionProfilePath}`],
+      env: { ...process.env, NODE_ENV: 'production' },
+    })
+    const productionPage = await productionApp.firstWindow()
+    await productionPage.waitForLoadState('load')
+    const runtime = await productionApp.evaluate(({ app: electronApp }) => ({
+      isPackaged: electronApp.isPackaged,
+      nodeEnv: process.env.NODE_ENV,
+    }))
+    expect(runtime).toEqual({ isPackaged: false, nodeEnv: 'production' })
+
+    const expectedDocumentUrl = pathToFileURL(path.join(projectRoot, 'dist', 'index.html')).href
+    await expect(productionPage).toHaveURL(expectedDocumentUrl)
+
+    const inlineScriptExecuted = await productionPage.evaluate(() => {
+      const probeGlobal = globalThis as typeof globalThis & { __minddiaryInlineCspProbe?: boolean }
+      probeGlobal.__minddiaryInlineCspProbe = false
+      const script = document.createElement('script')
+      script.textContent = 'globalThis.__minddiaryInlineCspProbe = true'
+      document.head.appendChild(script)
+      script.remove()
+      return probeGlobal.__minddiaryInlineCspProbe
+    })
+    expect(inlineScriptExecuted).toBe(false)
+  } finally {
+    if (productionApp) await productionApp.close()
+    const resolvedProfile = path.resolve(productionProfilePath)
+    const resolvedTemp = path.resolve(tmpdir())
+    if (!resolvedProfile.startsWith(`${resolvedTemp}${path.sep}minddiary-production-csp-e2e-`)) {
+      throw new Error('Refusing to remove unexpected production CSP E2E profile path')
+    }
+    rmSync(resolvedProfile, { recursive: true, force: true })
+  }
+})
 
 const startServer = async (): Promise<void> => {
   server = createServer((request, response) => {

@@ -1,5 +1,7 @@
 const DEVELOPMENT_ORIGIN = 'http://localhost:5173'
 
+export type RendererRuntimeMode = 'development' | 'production'
+
 export type NavigationPolicy =
   | { readonly kind: 'development' }
   | { readonly kind: 'production'; readonly appDocumentUrl: string }
@@ -76,11 +78,20 @@ export function describeUrlForLog(value: string): UrlLogDescription {
   }
 }
 
-export function buildContentSecurityPolicy(isDev: boolean): string {
-  const scriptSrc = isDev
+export function resolveRendererRuntimeMode(
+  isPackaged: boolean,
+  nodeEnv: string | undefined,
+): RendererRuntimeMode {
+  return !isPackaged && nodeEnv !== 'production'
+    ? 'development'
+    : 'production'
+}
+
+export function buildContentSecurityPolicy(mode: RendererRuntimeMode): string {
+  const scriptSrc = mode === 'development'
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
     : "script-src 'self'"
-  const connectSrc = isDev
+  const connectSrc = mode === 'development'
     ? "connect-src 'self' ws://localhost:5173"
     : "connect-src 'self'"
 

@@ -5,6 +5,7 @@ import {
   classifyNavigation,
   describeUrlForLog,
   getExternalUrl,
+  resolveRendererRuntimeMode,
 } from '../electron/navigationSecurity'
 
 const rejectedProtocols = [
@@ -115,8 +116,36 @@ describe('top-level navigation policy', () => {
 })
 
 describe('Content Security Policy', () => {
+  it.each([
+    [true, undefined, 'production'],
+    [true, 'development', 'production'],
+    [true, 'production', 'production'],
+    [false, 'production', 'production'],
+    [false, 'development', 'development'],
+    [false, undefined, 'development'],
+  ] as const)(
+    'resolves packaged=%s and NODE_ENV=%s to %s mode',
+    (isPackaged, nodeEnv, expectedMode) => {
+      expect(resolveRendererRuntimeMode(isPackaged, nodeEnv)).toBe(expectedMode)
+    },
+  )
+
+  it('uses the strict production policy for an unpackaged production runtime', () => {
+    const mode = resolveRendererRuntimeMode(false, 'production')
+    const csp = buildContentSecurityPolicy(mode)
+    const directives = csp.split('; ')
+    const scriptDirective = directives.find(directive => directive.startsWith('script-src'))
+    const connectDirective = directives.find(directive => directive.startsWith('connect-src'))
+
+    expect(scriptDirective).toBe("script-src 'self'")
+    expect(connectDirective).toBe("connect-src 'self'")
+    expect(scriptDirective).not.toContain("'unsafe-inline'")
+    expect(scriptDirective).not.toContain("'unsafe-eval'")
+    expect(connectDirective).not.toContain('ws://localhost:5173')
+  })
+
   it('keeps the production policy strict', () => {
-    const csp = buildContentSecurityPolicy(false)
+    const csp = buildContentSecurityPolicy('production')
 
     expect(csp).toContain("default-src 'self'")
     expect(csp).toContain("script-src 'self'")
@@ -129,7 +158,7 @@ describe('Content Security Policy', () => {
   })
 
   it('limits development connections to the exact Vite origin and HMR socket', () => {
-    const csp = buildContentSecurityPolicy(true)
+    const csp = buildContentSecurityPolicy('development')
     const connectDirective = csp.split('; ').find(directive => directive.startsWith('connect-src'))
 
     expect(connectDirective).toBe("connect-src 'self' ws://localhost:5173")

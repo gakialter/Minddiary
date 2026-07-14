@@ -13,7 +13,13 @@ const { getActiveAppInfo } = require('./focusGuard');
 import { createAutoBackup } from './backup';
 import { restoreAutoBackupFromZip } from './backupRestore';
 import { resolveLocalProtocolPath } from './pathSecurity';
-import { buildContentSecurityPolicy, describeUrlForLog, type NavigationPolicy } from './navigationSecurity';
+import {
+    buildContentSecurityPolicy,
+    describeUrlForLog,
+    resolveRendererRuntimeMode,
+    type NavigationPolicy,
+    type RendererRuntimeMode,
+} from './navigationSecurity';
 import {
     createClipboardWriteHandler,
     createMainWindowWebPreferences,
@@ -55,16 +61,16 @@ import type {
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 
-function isDevelopmentRuntime(): boolean {
-    return !app.isPackaged && process.env.NODE_ENV !== 'production';
+function getRendererRuntimeMode(): RendererRuntimeMode {
+    return resolveRendererRuntimeMode(app.isPackaged, process.env.NODE_ENV);
 }
 
 function getAppDocumentPath(): string {
     return path.join(__dirname, '..', '..', 'dist', 'index.html');
 }
 
-function getMainNavigationPolicy(): NavigationPolicy {
-    return isDevelopmentRuntime()
+function getMainNavigationPolicy(runtimeMode: RendererRuntimeMode): NavigationPolicy {
+    return runtimeMode === 'development'
         ? { kind: 'development' }
         : { kind: 'production', appDocumentUrl: pathToFileURL(getAppDocumentPath()).href };
 }
@@ -74,7 +80,7 @@ function configureWindowsAppUserModelId() {
     app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
-function createWindow() {
+function createWindow(runtimeMode: RendererRuntimeMode) {
     const isMac = process.platform === 'darwin';
     const preloadPath = path.join(__dirname, 'preload.js');
     const appDocumentPath = getAppDocumentPath();
@@ -107,8 +113,8 @@ function createWindow() {
     });
 
     // Dev or production (E2E tests set NODE_ENV=production)
-    const isDev = isDevelopmentRuntime();
-    const navigationPolicy = getMainNavigationPolicy();
+    const isDev = runtimeMode === 'development';
+    const navigationPolicy = getMainNavigationPolicy(runtimeMode);
     const openExternal = (url: string) => shell.openExternal(url);
     const navigationHandler = createNavigationHandler({ policy: navigationPolicy, openExternal, logger });
     mainWindow.webContents.setWindowOpenHandler(createWindowOpenHandler({ openExternal, logger }));
@@ -231,6 +237,8 @@ ipcMain.handle('updater:getStatus', () => {
 });
 
 app.whenReady().then(() => {
+    const runtimeMode = getRendererRuntimeMode();
+
     if (process.platform === 'win32') {
         configureWindowsAppUserModelId();
     }
@@ -251,7 +259,7 @@ app.whenReady().then(() => {
 
     // Add Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details: { responseHeaders?: Record<string, string[]> }, callback: (headers: { responseHeaders?: Record<string, string[]> }) => void) => {
-        const csp = buildContentSecurityPolicy(!app.isPackaged);
+        const csp = buildContentSecurityPolicy(runtimeMode);
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
@@ -262,7 +270,7 @@ app.whenReady().then(() => {
 
     db.initialize();
     fileManager.initialize();
-    createWindow();
+    createWindow(runtimeMode);
     initAutoUpdater();
 });
 
@@ -271,13 +279,13 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(getRendererRuntimeMode());
 });
 
 // ==================== Window Controls ====================
 ipcMain.handle('clipboard:writeText', createClipboardWriteHandler({
     getMainWindow: () => mainWindow,
-    getNavigationPolicy: getMainNavigationPolicy,
+    getNavigationPolicy: () => getMainNavigationPolicy(getRendererRuntimeMode()),
     writeText: (text: string) => clipboard.writeText(text),
 }));
 
