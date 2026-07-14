@@ -244,6 +244,7 @@ describe('clipboard write handler', () => {
 describe('BrowserWindow security preferences', () => {
   it('keeps all required webPreferences secure', () => {
     expect(createMainWindowWebPreferences('C:\\MindDiary\\preload.js')).toEqual({
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
