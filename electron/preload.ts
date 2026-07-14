@@ -7,6 +7,13 @@ import type {
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
 
+if (process.env.MINDDIARY_E2E_SANDBOX_PROBE === '1') {
+    contextBridge.exposeInMainWorld('__minddiarySandboxProbe', Object.freeze({
+        sandboxed: process.sandboxed === true,
+        contextIsolated: process.contextIsolated === true,
+    }));
+}
+
 contextBridge.exposeInMainWorld('api', {
     clipboard: {
         writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),

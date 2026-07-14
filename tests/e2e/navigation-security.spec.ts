@@ -14,6 +14,88 @@ let pdfNavigationRequests = 0
 
 const projectRoot = path.join(__dirname, '..', '..')
 const externalCallKey = '__minddiarySecurityExternalCalls'
+const sandboxProbeKey = '__minddiarySandboxProbe'
+const expectedMainWindowWebPreferences = {
+  sandbox: true,
+  contextIsolation: true,
+  nodeIntegration: false,
+  webSecurity: true,
+  webviewTag: false,
+}
+
+const getRuntimeSecurityState = async (electronApp: ElectronApplication, appPage: Page) => {
+  const webPreferences = await electronApp.evaluate(({ BrowserWindow }, targetUrl) => {
+    const targetWindow = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.getURL() === targetUrl)
+    if (!targetWindow) throw new Error(`Unable to find BrowserWindow for ${targetUrl}`)
+
+    const getLastWebPreferences = Reflect.get(targetWindow.webContents, 'getLastWebPreferences')
+    if (typeof getLastWebPreferences !== 'function') {
+      throw new Error('webContents.getLastWebPreferences() is unavailable')
+    }
+    const preferences = Reflect.apply(getLastWebPreferences, targetWindow.webContents, [])
+    if (typeof preferences !== 'object' || preferences === null) {
+      throw new Error('webContents.getLastWebPreferences() returned an invalid value')
+    }
+
+    return {
+      sandbox: Reflect.get(preferences, 'sandbox'),
+      contextIsolation: Reflect.get(preferences, 'contextIsolation'),
+      nodeIntegration: Reflect.get(preferences, 'nodeIntegration'),
+      webSecurity: Reflect.get(preferences, 'webSecurity'),
+      webviewTag: Reflect.get(preferences, 'webviewTag'),
+    }
+  }, appPage.url())
+
+  const rendererState = await appPage.evaluate(probeKey => {
+    const probe = Reflect.get(globalThis, probeKey)
+    if (typeof probe !== 'object' || probe === null) {
+      throw new Error('Sandbox preload probe is unavailable')
+    }
+
+    const sandboxed = Reflect.get(probe, 'sandboxed')
+    const contextIsolated = Reflect.get(probe, 'contextIsolated')
+    return {
+      preloadProbe: {
+        sandboxed,
+        contextIsolated,
+        keys: Object.keys(probe).sort(),
+        frozen: Object.isFrozen(probe),
+        valueTypes: {
+          sandboxed: typeof sandboxed,
+          contextIsolated: typeof contextIsolated,
+        },
+      },
+      rendererGlobals: {
+        process: typeof process,
+        require: typeof require,
+        Buffer: typeof Buffer,
+      },
+    }
+  }, sandboxProbeKey)
+
+  return { webPreferences, ...rendererState }
+}
+
+const expectRuntimeSecurityState = async (electronApp: ElectronApplication, appPage: Page): Promise<void> => {
+  expect(await getRuntimeSecurityState(electronApp, appPage)).toEqual({
+    webPreferences: expectedMainWindowWebPreferences,
+    preloadProbe: {
+      sandboxed: true,
+      contextIsolated: true,
+      keys: ['contextIsolated', 'sandboxed'],
+      frozen: true,
+      valueTypes: {
+        sandboxed: 'boolean',
+        contextIsolated: 'boolean',
+      },
+    },
+    rendererGlobals: {
+      process: 'undefined',
+      require: 'undefined',
+      Buffer: 'undefined',
+    },
+  })
+}
 
 test('uses a strict production CSP for an unpackaged production renderer', async () => {
   const productionProfilePath = mkdtempSync(path.join(tmpdir(), 'minddiary-production-csp-e2e-'))
@@ -22,7 +104,7 @@ test('uses a strict production CSP for an unpackaged production renderer', async
   try {
     productionApp = await electron.launch({
       args: [projectRoot, `--user-data-dir=${productionProfilePath}`],
-      env: { ...process.env, NODE_ENV: 'production' },
+      env: { ...process.env, NODE_ENV: 'production', MINDDIARY_E2E_SANDBOX_PROBE: '1' },
     })
     const productionPage = await productionApp.firstWindow()
     await productionPage.waitForLoadState('load')
@@ -34,6 +116,7 @@ test('uses a strict production CSP for an unpackaged production renderer', async
 
     const expectedDocumentUrl = pathToFileURL(path.join(projectRoot, 'dist', 'index.html')).href
     await expect(productionPage).toHaveURL(expectedDocumentUrl)
+    await expectRuntimeSecurityState(productionApp, productionPage)
 
     const inlineScriptExecuted = await productionPage.evaluate(() => {
       const probeGlobal = globalThis as typeof globalThis & { __minddiaryInlineCspProbe?: boolean }
@@ -110,7 +193,7 @@ test.describe.serial('Electron navigation security', () => {
     await startServer()
     app = await electron.launch({
       args: [projectRoot, `--user-data-dir=${profilePath}`],
-      env: { ...process.env, NODE_ENV: 'development' },
+      env: { ...process.env, NODE_ENV: 'development', MINDDIARY_E2E_SANDBOX_PROBE: '1' },
     })
     await expect.poll(() => app.windows().some(candidate => candidate.url().startsWith('http://localhost:5173'))).toBe(true)
     const appPage = app.windows().find(candidate => candidate.url().startsWith('http://localhost:5173'))
@@ -142,6 +225,10 @@ test.describe.serial('Electron navigation security', () => {
 
   test.beforeEach(async () => {
     await clearExternalCalls()
+  })
+
+  test('enforces main-window sandboxing and renderer isolation in development', async () => {
+    await expectRuntimeSecurityState(app, page)
   })
 
   test('denies target=_blank and opens valid HTTPS in the system-browser seam', async () => {

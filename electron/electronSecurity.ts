@@ -188,6 +188,7 @@ export function createPrintWindowNavigationHandler(documentUrl: string) {
 
 export function createMainWindowWebPreferences(preload: string) {
   return {
+    sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
     webSecurity: true,
