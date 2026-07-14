@@ -4,6 +4,7 @@ import { useCurrentLocalDateKey } from './LocalDateContext'
 import { coerceBoolean } from '../utils/helpers'
 import { getLocalDateKey, toLocalDateTimeString } from '../utils/dateKey'
 import { logger } from '../utils/logger'
+import { IS_ELECTRON } from '../utils/apiAdapter'
 import type { StudyTask, Subject, PomodoroStat } from '../types'
 
 interface PomodoroMode {
@@ -503,6 +504,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const stopwatchRunStartedAtRef = useRef<number | null>(null)
   const sessionSettlementInFlightRef = useRef(false)
   const taskSettlementInFlightRef = useRef(false)
+  const browserNotificationPermissionRequestedRef = useRef(false)
   const reviewSettlementKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -1303,6 +1305,23 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const nextIsRunning = !isRunning
     const isStopwatch = isStopwatchModeId(currentMode.id)
     const isStartingNewFocusSession = nextIsRunning && isFocusModeId(currentMode.id) && !activeSessionRef.current
+
+    if (
+      nextIsRunning
+      && !IS_ELECTRON
+      && !browserNotificationPermissionRequestedRef.current
+      && typeof Notification !== 'undefined'
+      && Notification.permission === 'default'
+      && typeof Notification.requestPermission === 'function'
+    ) {
+      browserNotificationPermissionRequestedRef.current = true
+      try {
+        await Notification.requestPermission()
+      } catch (error) {
+        logger.warn('Failed to request browser notification permission:', error)
+      }
+    }
+
     const taskIdForSession = selectedTaskIdRef.current
     const originalTask = taskIdForSession === null
       ? null

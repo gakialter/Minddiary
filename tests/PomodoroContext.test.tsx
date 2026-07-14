@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppSettings, PomodoroStat, StudyTask, Subject, SubjectChapter } from '../src/types'
 
+const runtime = vi.hoisted(() => ({ isElectron: true }))
+
 const mocks = vi.hoisted(() => ({
   useDiary: vi.fn(),
   subjectsGetAll: vi.fn(),
@@ -29,6 +31,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: mocks.useDiary,
+}))
+
+vi.mock('../src/utils/apiAdapter', () => ({
+  get IS_ELECTRON() {
+    return runtime.isElectron
+  },
 }))
 
 vi.mock('../src/utils/logger', () => ({
@@ -249,6 +257,7 @@ const startCustomCountdown = async (
 beforeEach(() => {
   vi.setSystemTime(new Date('2026-05-05T00:00:00.000Z'))
   localStorage.clear()
+  runtime.isElectron = true
   MockNotification.permission = 'granted'
 
   mocks.subjectsGetAll.mockResolvedValue(SUBJECTS)
@@ -699,7 +708,9 @@ describe('PomodoroContext', () => {
     expect(result.current.timer.isRunning).toBe(false)
   })
 
-  it('records a completed work session, notifies the user, and switches to short break', async () => {
+  it('records a completed browser work session through the notification adapter and switches to short break', async () => {
+    runtime.isElectron = false
+    MockNotification.permission = 'granted'
     const { result } = renderPomodoroHook()
 
     await act(async () => {
@@ -727,16 +738,117 @@ describe('PomodoroContext', () => {
       expect.any(String),
       expect.any(String),
     )
+    expect(mocks.notificationShow).toHaveBeenCalledTimes(1)
     expect(mocks.nativeNotification).not.toHaveBeenCalled()
     expect(mocks.audioContextConstructor).toHaveBeenCalled()
   })
 
-  it('does not request renderer notification permission', async () => {
+  it('does not request browser notification permission when the provider mounts', async () => {
+    runtime.isElectron = false
     MockNotification.permission = 'default'
     renderPomodoroHook()
     await flushAsyncWork()
 
     expect(mocks.requestNotificationPermission).not.toHaveBeenCalled()
+  })
+
+  it('requests browser notification permission once when the user starts the timer', async () => {
+    runtime.isElectron = false
+    MockNotification.permission = 'default'
+    mocks.requestNotificationPermission.mockResolvedValue('default')
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+    await flushAsyncWork()
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(mocks.requestNotificationPermission).toHaveBeenCalledTimes(1)
+  })
+
+  it.each<NotificationPermission>(['granted', 'denied'])(
+    'does not request browser notification permission when permission is %s',
+    async permission => {
+      runtime.isElectron = false
+      MockNotification.permission = permission
+      const { result } = renderPomodoroHook()
+
+      await act(async () => {
+        await result.current.actions.toggleTimer()
+      })
+
+      expect(result.current.timer.isRunning).toBe(true)
+      expect(mocks.requestNotificationPermission).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not request browser notification permission in Electron mode', async () => {
+    runtime.isElectron = true
+    MockNotification.permission = 'default'
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(mocks.requestNotificationPermission).not.toHaveBeenCalled()
+  })
+
+  it('starts the browser timer when notification permission API is unavailable', async () => {
+    runtime.isElectron = false
+    MockNotification.permission = 'default'
+    const requestPermission = MockNotification.requestPermission
+    delete (MockNotification as Partial<typeof MockNotification>).requestPermission
+    try {
+      const { result } = renderPomodoroHook()
+
+      await act(async () => {
+        await result.current.actions.toggleTimer()
+      })
+
+      expect(result.current.timer.isRunning).toBe(true)
+    } finally {
+      MockNotification.requestPermission = requestPermission
+    }
+  })
+
+  it('starts the browser timer when notification permission rejects', async () => {
+    runtime.isElectron = false
+    MockNotification.permission = 'default'
+    mocks.requestNotificationPermission.mockRejectedValueOnce(new Error('permission rejected'))
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+    await flushAsyncWork()
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(mocks.loggerWarn).toHaveBeenCalled()
+  })
+
+  it('starts the browser timer when notification permission throws', async () => {
+    runtime.isElectron = false
+    MockNotification.permission = 'default'
+    mocks.requestNotificationPermission.mockImplementationOnce(() => {
+      throw new Error('permission failed')
+    })
+    const { result } = renderPomodoroHook()
+
+    await act(async () => {
+      await result.current.actions.toggleTimer()
+    })
+
+    expect(result.current.timer.isRunning).toBe(true)
+    expect(mocks.loggerWarn).toHaveBeenCalled()
   })
 
   it('opens a settlement prompt after a completed countdown focus session is saved', async () => {
