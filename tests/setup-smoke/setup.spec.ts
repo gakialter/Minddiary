@@ -54,6 +54,27 @@ async function uninstallAndWait(uninstaller: string, installPath: string, label:
   return result;
 }
 
+async function waitForUninstallCleanup(installPath: string, version: string, label: string): Promise<{
+  shortcuts: ReturnType<typeof snapshotShortcuts>;
+  registry: ReturnType<typeof snapshotUninstallRegistry>;
+  processes: ReturnType<typeof snapshotMindDiaryProcesses>;
+}> {
+  await waitForCondition(() => {
+    const shortcuts = snapshotShortcuts();
+    const registry = snapshotUninstallRegistry(installPath, version);
+    const processes = snapshotMindDiaryProcesses();
+    return !shortcuts.desktop
+      && !shortcuts.startMenu
+      && registry.length === 0
+      && processes.mindDiaryProcessCount === 0;
+  }, `${label} shortcut, registry, and process cleanup`);
+  return {
+    shortcuts: snapshotShortcuts(),
+    registry: snapshotUninstallRegistry(installPath, version),
+    processes: snapshotMindDiaryProcesses(),
+  };
+}
+
 test('installs, launches, retains fake data, reopens it, and uninstalls Windows Setup', async () => {
   test.skip(process.platform !== 'win32', 'Windows Setup smoke requires Windows');
   const setupPath = findSetupExecutable(projectRoot, packageJson.version);
@@ -137,9 +158,10 @@ test('installs, launches, retains fake data, reopens it, and uninstalls Windows 
 
     uninstall = await uninstallAndWait(installedFiles.uninstaller, installPath, 'Windows Setup uninstall');
     installedFiles = undefined;
-    const shortcutsAfterUninstall = snapshotShortcuts();
-    const registryAfterUninstall = snapshotUninstallRegistry(installPath, packageJson.version);
-    const processesAfterUninstall = snapshotMindDiaryProcesses();
+    const firstCleanup = await waitForUninstallCleanup(installPath, packageJson.version, 'Windows Setup uninstall');
+    const shortcutsAfterUninstall = firstCleanup.shortcuts;
+    const registryAfterUninstall = firstCleanup.registry;
+    const processesAfterUninstall = firstCleanup.processes;
     expect(shortcutsAfterUninstall).toEqual({ desktop: false, startMenu: false });
     expect(registryAfterUninstall).toEqual([]);
     expect(processesAfterUninstall).toEqual({ mindDiaryProcessCount: 0 });
@@ -191,9 +213,14 @@ test('installs, launches, retains fake data, reopens it, and uninstalls Windows 
       'Windows Setup final uninstall',
     );
     installedFiles = undefined;
-    const shortcutsFinal = snapshotShortcuts();
-    const registryFinal = snapshotUninstallRegistry(installPath, packageJson.version);
-    const processesFinal = snapshotMindDiaryProcesses();
+    const finalCleanup = await waitForUninstallCleanup(
+      installPath,
+      packageJson.version,
+      'Windows Setup final uninstall',
+    );
+    const shortcutsFinal = finalCleanup.shortcuts;
+    const registryFinal = finalCleanup.registry;
+    const processesFinal = finalCleanup.processes;
     const afterDefaultApplicationData = snapshotDefaultApplicationData();
     expect(shortcutsFinal).toEqual({ desktop: false, startMenu: false });
     expect(registryFinal).toEqual([]);
