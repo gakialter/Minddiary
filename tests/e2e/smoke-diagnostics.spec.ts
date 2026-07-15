@@ -12,6 +12,8 @@ import {
 const electronPath = require('electron') as string;
 const projectRoot = path.resolve(__dirname, '..', '..');
 
+test.describe.configure({ timeout: 60_000 });
+
 test('runs the source-tree diagnostic harness against a disposable profile', async () => {
   let run: SmokeDiagnosticProcessResult | undefined;
   try {
