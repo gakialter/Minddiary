@@ -103,6 +103,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Run Windows Setup install and uninstall smoke
+        run: npm run test:e2e:setup-smoke
+
+      - name: Upload Windows Setup smoke evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-setup-smoke-evidence
+          path: test-results/windows-setup-smoke-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run Windows packaged ASAR integrity negative tests
         run: npm run test:asar-integrity:packaged
 

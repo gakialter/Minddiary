@@ -38,6 +38,7 @@ function makeFixture(): {
       result: 'passed',
       evidence: [{ check: 'portable-wrapper', passed: true }],
     },
+    profileFilesBeforeRun: ['.minddiary-smoke-profile'],
     profileFiles: ['minddiary.db'],
     profilePath: 'private-profile-path',
     outputPath: 'private-output-path',

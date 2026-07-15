@@ -11,6 +11,7 @@ export const IMPLEMENTED_SMOKE_SCENARIOS = [
     'startup',
     'sqlite-read-write',
     'portable-profile',
+    'install-profile',
 ] as const;
 
 export const PLANNED_SMOKE_SCENARIOS = [
@@ -22,7 +23,6 @@ export const PLANNED_SMOKE_SCENARIOS = [
     'pdf-export',
     'updater-status',
     'date-rollover',
-    'install-profile',
 ] as const;
 
 export type SmokeDiagnosticScenario = typeof IMPLEMENTED_SMOKE_SCENARIOS[number];
@@ -86,6 +86,14 @@ export type SmokeDiagnosticDependencies = {
     verifyPortableWrapper: () => boolean;
     runProfileRoundTrip: () => Promise<{
         created: boolean;
+        readBack: boolean;
+        localProtocol: boolean;
+        cleaned: boolean;
+    }>;
+    runInstallProfileRoundTrip: () => Promise<{
+        phase: 'seeded' | 'reopened';
+        created: boolean;
+        retained: boolean;
         readBack: boolean;
         localProtocol: boolean;
         cleaned: boolean;
@@ -181,6 +189,26 @@ function assertNoExistingApplicationData(profilePath: string): void {
     }
 }
 
+function assertPhysicalManagedTree(filepath: string): void {
+    const stat = fs.lstatSync(filepath);
+    if (stat.isSymbolicLink()) throw new Error('Initialized diagnostic profile contains a managed link');
+    if (stat.isFile()) {
+        if (stat.nlink !== 1) throw new Error('Initialized diagnostic profile contains a linked managed file');
+        return;
+    }
+    if (!stat.isDirectory()) throw new Error('Initialized diagnostic profile contains unsupported managed data');
+    for (const name of fs.readdirSync(filepath)) {
+        assertPhysicalManagedTree(path.join(filepath, name));
+    }
+}
+
+function assertInitializedApplicationDataSafe(profilePath: string): void {
+    for (const name of ['minddiary.db', 'attachments', 'mistake_images']) {
+        const filepath = path.join(profilePath, name);
+        if (fs.existsSync(filepath)) assertPhysicalManagedTree(filepath);
+    }
+}
+
 export function createSmokeDiagnosticProfileMarker(profilePath: string, token: string): void {
     assertPhysicalDirectory(profilePath, 'Diagnostic profile');
     const validatedToken = validateToken(token);
@@ -241,7 +269,8 @@ export function parseSmokeDiagnosticRequest(options: {
         throw new Error('Diagnostic profile must remain inside the temporary directory');
     }
     assertProfileMarker(profilePath, token);
-    assertNoExistingApplicationData(profilePath);
+    if (scenarioValue === 'install-profile') assertInitializedApplicationDataSafe(profilePath);
+    else assertNoExistingApplicationData(profilePath);
 
     const outputPath = assertDirectTempChild(
         outputValue,
@@ -288,9 +317,22 @@ export function validateSmokeRuntimeProfile(
     if (!options.allowInitializedProfile) assertNoExistingApplicationData(request.profilePath);
 }
 
-export function prepareSmokeDiagnosticDatabase(request: SmokeDiagnosticRequest): string {
-    validateSmokeRuntimeProfile(request, request.profilePath);
+export function prepareSmokeDiagnosticDatabase(
+    request: SmokeDiagnosticRequest,
+    options: { allowExisting?: boolean } = {},
+): string {
+    validateSmokeRuntimeProfile(request, request.profilePath, {
+        allowInitializedProfile: options.allowExisting,
+    });
     const databasePath = path.join(request.profilePath, 'minddiary.db');
+    if (options.allowExisting && fs.existsSync(databasePath)) {
+        assertInitializedApplicationDataSafe(request.profilePath);
+        const stat = fs.lstatSync(databasePath);
+        if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) {
+            throw new Error('Existing diagnostic database must be a private physical file');
+        }
+        return databasePath;
+    }
     const descriptor = fs.openSync(databasePath, 'wx', 0o600);
     fs.closeSync(descriptor);
     validateSmokeRuntimeProfile(request, request.profilePath, { allowInitializedProfile: true });
@@ -335,6 +377,30 @@ export async function runSmokeDiagnostic(
             { check: 'profile-data-read-back', passed: profileRoundTrip.readBack },
             { check: 'local-protocol-load', passed: profileRoundTrip.localProtocol },
             { check: 'profile-data-cleanup', passed: profileRoundTrip.cleaned },
+        );
+    }
+
+    if (request.scenario === 'install-profile') {
+        const profileRoundTrip = await dependencies.runInstallProfileRoundTrip();
+        const expectedPhaseChecksPassed = profileRoundTrip.phase === 'seeded'
+            ? profileRoundTrip.created && profileRoundTrip.retained && !profileRoundTrip.cleaned
+            : !profileRoundTrip.created && profileRoundTrip.retained && profileRoundTrip.cleaned;
+        evidence.push(
+            {
+                check: profileRoundTrip.phase === 'seeded'
+                    ? 'installed-profile-seeded'
+                    : 'installed-profile-reopened',
+                passed: true,
+            },
+            ...(profileRoundTrip.phase === 'seeded'
+                ? [{ check: 'profile-data-create', passed: profileRoundTrip.created }]
+                : [{ check: 'profile-data-retained', passed: profileRoundTrip.retained }]),
+            { check: 'profile-data-read-back', passed: profileRoundTrip.readBack },
+            { check: 'local-protocol-load', passed: profileRoundTrip.localProtocol },
+            ...(profileRoundTrip.phase === 'reopened'
+                ? [{ check: 'profile-data-cleanup', passed: profileRoundTrip.cleaned }]
+                : []),
+            { check: 'install-profile-phase-consistent', passed: expectedPhaseChecksPassed },
         );
     }
 

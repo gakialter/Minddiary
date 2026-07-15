@@ -363,6 +363,97 @@ async function runPortableProfileRoundTrip(
     })()`, true) as Promise<{ created: boolean; readBack: boolean; localProtocol: boolean; cleaned: boolean }>;
 }
 
+async function runInstallProfileRoundTrip(
+    window: InstanceType<typeof BrowserWindow>,
+): Promise<{
+    phase: 'seeded' | 'reopened';
+    created: boolean;
+    retained: boolean;
+    readBack: boolean;
+    localProtocol: boolean;
+    cleaned: boolean;
+}> {
+    return window.webContents.executeJavaScript(`(async () => {
+        const probe = {
+            phase: 'seeded',
+            created: false,
+            retained: false,
+            readBack: false,
+            localProtocol: false,
+            cleaned: false,
+        };
+        const matches = (await globalThis.api.entries.getAll()).filter(entry =>
+            entry.date === '2099-12-30' && entry.title === 'MindDiary install smoke');
+        if (matches.length > 1) throw new Error('install profile contains duplicate probes');
+        let entryId = 0;
+        let attachmentId = 0;
+        try {
+            if (matches.length === 0) {
+                const entry = await globalThis.api.entries.create({
+                    date: '2099-12-30',
+                    title: 'MindDiary install smoke',
+                    content: 'Disposable installed profile retention probe',
+                    mood: null,
+                });
+                entryId = entry.id;
+                probe.created = Number.isInteger(entryId) && entryId > 0;
+                const attachment = await globalThis.api.attachments.save(entryId, {
+                    name: 'install-smoke.png',
+                    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+                    mimetype: 'image/png',
+                });
+                attachmentId = attachment.id;
+            } else {
+                probe.phase = 'reopened';
+                entryId = matches[0].id;
+                const existingAttachments = await globalThis.api.attachments.getByEntry(entryId);
+                if (existingAttachments.length !== 1 || existingAttachments[0]?.name !== 'install-smoke.png') {
+                    throw new Error('install profile attachment probe is invalid');
+                }
+                attachmentId = existingAttachments[0].id;
+            }
+
+            const readEntry = await globalThis.api.entries.getById(entryId);
+            const attachments = await globalThis.api.attachments.getByEntry(entryId);
+            probe.readBack = readEntry?.content === 'Disposable installed profile retention probe'
+                && attachments.length === 1
+                && attachments[0]?.id === attachmentId;
+            probe.retained = probe.readBack;
+            const attachment = attachments[0];
+            if (!attachment) throw new Error('install profile attachment is unavailable');
+            const dimensions = await new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+                image.onerror = () => reject(new Error('install profile local protocol probe failed'));
+                image.src = 'local://attachments/' + encodeURIComponent(attachment.filepath);
+            });
+            probe.localProtocol = dimensions.width === 1 && dimensions.height === 1;
+
+            if (probe.phase === 'reopened') {
+                await globalThis.api.attachments.delete(attachmentId);
+                await globalThis.api.entries.delete(entryId);
+                const remainingEntry = await globalThis.api.entries.getById(entryId);
+                const remainingAttachments = await globalThis.api.attachments.getByEntry(entryId);
+                probe.cleaned = remainingEntry == null && remainingAttachments.length === 0;
+            }
+            return probe;
+        } catch (error) {
+            if (probe.phase === 'seeded') {
+                if (attachmentId > 0) await globalThis.api.attachments.delete(attachmentId).catch(() => undefined);
+                if (entryId > 0) await globalThis.api.entries.delete(entryId).catch(() => undefined);
+            }
+            throw error;
+        }
+    })()`, true) as Promise<{
+        phase: 'seeded' | 'reopened';
+        created: boolean;
+        retained: boolean;
+        readBack: boolean;
+        localProtocol: boolean;
+        cleaned: boolean;
+    }>;
+}
+
 async function runConfiguredSmokeDiagnostic(
     request: SmokeDiagnosticRequest,
     runtimeMode: RendererRuntimeMode,
@@ -376,10 +467,13 @@ async function runConfiguredSmokeDiagnostic(
         isPackaged: app.isPackaged,
     };
     try {
-        validateSmokeRuntimeProfile(request, app.getPath('userData'));
-        prepareSmokeDiagnosticDatabase(request);
+        const allowInitializedProfile = request.scenario === 'install-profile';
+        validateSmokeRuntimeProfile(request, app.getPath('userData'), { allowInitializedProfile });
+        prepareSmokeDiagnosticDatabase(request, { allowExisting: allowInitializedProfile });
         db.initialize();
-        if (request.scenario === 'portable-profile') fileManager.initialize();
+        if (request.scenario === 'portable-profile' || request.scenario === 'install-profile') {
+            fileManager.initialize();
+        }
         const createdWindow = createWindow(runtimeMode, { show: false });
         window = createdWindow.window;
         await waitForWindowLoad(createdWindow.rendererLoad);
@@ -424,6 +518,7 @@ async function runConfiguredSmokeDiagnostic(
             })(),
             verifyPortableWrapper,
             runProfileRoundTrip: () => runPortableProfileRoundTrip(window),
+            runInstallProfileRoundTrip: () => runInstallProfileRoundTrip(window),
         });
         writeSmokeDiagnosticResult(request, result);
         window.destroy();

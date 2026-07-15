@@ -33,6 +33,13 @@ describe('release workflow Windows signing policy', () => {
     expect(workflow).toContain("pattern: '*-release'")
   })
 
+  it('runs and archives bounded Windows Setup smoke without publishing that evidence', () => {
+    expect(workflow).toContain('run: npm run test:e2e:setup-smoke')
+    expect(workflow).toContain('name: windows-setup-smoke-evidence')
+    expect(workflow).toContain('path: test-results/windows-setup-smoke-evidence/*')
+    expect(workflow).toContain("pattern: '*-release'")
+  })
+
   it('requires valid Windows signatures when both signing secrets are configured', () => {
     expect(workflow).toContain("HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}")
     expect(workflow).toContain("HAS_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD != '' }}")

@@ -14,6 +14,7 @@ const resultPrefix = 'minddiary-smoke-result-';
 
 export type SmokeDiagnosticProcessResult = {
   result: SmokeDiagnosticResult;
+  profileFilesBeforeRun: string[];
   profileFiles: string[];
   profilePath: string;
   outputPath: string;
@@ -103,67 +104,104 @@ function cleanupDisposablePaths(profilePath: string, outputPath: string): void {
   fs.rmSync(outputPath, { force: true });
 }
 
-export async function runSmokeDiagnosticProcess(options: {
+type RunSmokeDiagnosticProcessOptions = {
   executablePath: string;
   leadingArgs?: string[];
   scenario: SmokeDiagnosticScenario;
   expectedPackaged: boolean;
   timeoutMs?: number;
-}): Promise<SmokeDiagnosticProcessResult> {
+};
+
+async function executeSmokeDiagnosticProcess(
+  options: RunSmokeDiagnosticProcessOptions,
+  activation: { profilePath: string; outputPath: string; token: string },
+): Promise<SmokeDiagnosticProcessResult> {
+  const profileFilesBeforeRun = collectRelativeFiles(activation.profilePath);
+  const args = [
+    ...(options.leadingArgs ?? []),
+    `--minddiary-smoke-scenario=${options.scenario}`,
+    `--minddiary-smoke-output=${activation.outputPath}`,
+    `--user-data-dir=${activation.profilePath}`,
+  ];
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    MINDDIARY_SMOKE_TOKEN: activation.token,
+  };
+  delete childEnvironment.NODE_ENV;
+  const child = spawn(options.executablePath, args, {
+    env: childEnvironment,
+    stdio: 'pipe',
+    windowsHide: true,
+  });
+  let outputText = '';
+  const capture = (chunk: Buffer) => {
+    outputText = `${outputText}${chunk.toString('utf8')}`.slice(-32_000);
+  };
+  child.stdout.on('data', capture);
+  child.stderr.on('data', capture);
+
+  const exitCode = await waitForProcessClose(
+    child,
+    options.timeoutMs ?? 45_000,
+    'Diagnostic process',
+    () => outputText,
+  );
+  if (exitCode !== 0) {
+    throw new Error(`Diagnostic process exited with code ${String(exitCode)}. Output:\n${outputText}`);
+  }
+  if (!fs.existsSync(activation.outputPath)) throw new Error('Diagnostic result file was not created');
+
+  const result = JSON.parse(fs.readFileSync(activation.outputPath, 'utf8')) as SmokeDiagnosticResult;
+  if (result.isPackaged !== options.expectedPackaged) {
+    throw new Error(`Diagnostic packaged state mismatch: ${String(result.isPackaged)}`);
+  }
+  return {
+    result,
+    profileFilesBeforeRun,
+    profileFiles: collectRelativeFiles(activation.profilePath),
+    profilePath: activation.profilePath,
+    outputPath: activation.outputPath,
+    token: activation.token,
+    outputText,
+  };
+}
+
+export async function runSmokeDiagnosticProcess(
+  options: RunSmokeDiagnosticProcessOptions,
+): Promise<SmokeDiagnosticProcessResult> {
   const token = randomBytes(32).toString('base64url');
   const digest = createHash('sha256').update(token).digest('hex');
   const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), `${profilePrefix}${digest.slice(0, 16)}-`));
   const outputPath = path.join(os.tmpdir(), `${resultPrefix}${randomUUID()}.json`);
   createSmokeDiagnosticProfileMarker(profilePath, token);
-  const args = [
-    ...(options.leadingArgs ?? []),
-    `--minddiary-smoke-scenario=${options.scenario}`,
-    `--minddiary-smoke-output=${outputPath}`,
-    `--user-data-dir=${profilePath}`,
-  ];
   try {
-    const childEnvironment: NodeJS.ProcessEnv = {
-      ...process.env,
-      MINDDIARY_SMOKE_TOKEN: token,
-    };
-    delete childEnvironment.NODE_ENV;
-    const child = spawn(options.executablePath, args, {
-      env: childEnvironment,
-      stdio: 'pipe',
-      windowsHide: true,
-    });
-    let outputText = '';
-    const capture = (chunk: Buffer) => {
-      outputText = `${outputText}${chunk.toString('utf8')}`.slice(-32_000);
-    };
-    child.stdout.on('data', capture);
-    child.stderr.on('data', capture);
-
-    const exitCode = await waitForProcessClose(
-      child,
-      options.timeoutMs ?? 45_000,
-      'Diagnostic process',
-      () => outputText,
-    );
-    if (exitCode !== 0) {
-      throw new Error(`Diagnostic process exited with code ${String(exitCode)}. Output:\n${outputText}`);
-    }
-    if (!fs.existsSync(outputPath)) throw new Error('Diagnostic result file was not created');
-
-    const result = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as SmokeDiagnosticResult;
-    if (result.isPackaged !== options.expectedPackaged) {
-      throw new Error(`Diagnostic packaged state mismatch: ${String(result.isPackaged)}`);
-    }
-    return {
-      result,
-      profileFiles: collectRelativeFiles(profilePath),
-      profilePath,
-      outputPath,
-      token,
-      outputText,
-    };
+    return await executeSmokeDiagnosticProcess(options, { profilePath, outputPath, token });
   } catch (error) {
     cleanupDisposablePaths(profilePath, outputPath);
+    throw error;
+  }
+}
+
+export async function rerunSmokeDiagnosticProcess(options: RunSmokeDiagnosticProcessOptions & {
+  previous: SmokeDiagnosticProcessResult;
+}): Promise<SmokeDiagnosticProcessResult> {
+  if (options.scenario !== 'install-profile' || options.previous.result.scenario !== 'install-profile') {
+    throw new Error('Only the fixed install-profile diagnostic may reuse a profile');
+  }
+  assertDisposablePath(options.previous.profilePath, profilePrefix);
+  const digest = createHash('sha256').update(options.previous.token).digest('hex');
+  if (!path.basename(options.previous.profilePath).startsWith(`${profilePrefix}${digest.slice(0, 16)}-`)) {
+    throw new Error('Reusable diagnostic profile does not match its activation token');
+  }
+  const outputPath = path.join(os.tmpdir(), `${resultPrefix}${randomUUID()}.json`);
+  try {
+    return await executeSmokeDiagnosticProcess(options, {
+      profilePath: options.previous.profilePath,
+      outputPath,
+      token: options.previous.token,
+    });
+  } catch (error) {
+    fs.rmSync(outputPath, { force: true });
     throw error;
   }
 }
