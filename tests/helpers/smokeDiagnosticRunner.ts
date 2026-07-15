@@ -108,6 +108,7 @@ export async function runSmokeDiagnosticProcess(options: {
   leadingArgs?: string[];
   scenario: SmokeDiagnosticScenario;
   expectedPackaged: boolean;
+  timeoutMs?: number;
 }): Promise<SmokeDiagnosticProcessResult> {
   const token = randomBytes(32).toString('base64url');
   const digest = createHash('sha256').update(token).digest('hex');
@@ -138,7 +139,12 @@ export async function runSmokeDiagnosticProcess(options: {
     child.stdout.on('data', capture);
     child.stderr.on('data', capture);
 
-    const exitCode = await waitForProcessClose(child, 45_000, 'Diagnostic process', () => outputText);
+    const exitCode = await waitForProcessClose(
+      child,
+      options.timeoutMs ?? 45_000,
+      'Diagnostic process',
+      () => outputText,
+    );
     if (exitCode !== 0) {
       throw new Error(`Diagnostic process exited with code ${String(exitCode)}. Output:\n${outputText}`);
     }

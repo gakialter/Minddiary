@@ -1,13 +1,12 @@
 # MindDiary AI Study Planning Agent Roadmap
 
-Status: current product-direction roadmap as of 2026-07-11.
+Status: current product-direction roadmap as of 2026-07-15.
 
 This is a planning document. It authorizes documentation alignment only. It does not start a product version or authorize runtime changes, schema changes, migrations, a PR, merge, tag, release, or publication.
 
 ## Verified Baseline
 
-- Release-prep package candidate: `1.16.0`.
-- Latest published GitHub Release remains `v1.13.3` until the separately authorized tag and Release workflow complete.
+- Current application and latest published GitHub Release: `v1.16.0`.
 - SQLite schema: `CURRENT_SCHEMA_VERSION = 5`.
 - SQLite remains the local source of truth.
 - MindDiary already provides diary, Pomodoro, mistake review, study tasks, Dashboard, AI assistance, backup/restore, and local SQLite persistence.
@@ -142,9 +141,9 @@ Context Collector
 
 ### v1.16.0 - Daily Review Agent
 
-**Implementation status:** merged into `main` through PR #132 and included in the v1.16.0 release-prep candidate.
+**Implementation status:** merged into `main` through PR #132 and included in the published v1.16.0 release.
 
-**Publication status:** not tagged or released. Candidate packaging, packaged smoke, asset review, tag and GitHub Release remain separately authorized gates.
+**Publication status:** published as v1.16.0 on 2026-07-12. Later post-release maintenance and packaged-smoke evidence do not mutate or retroactively revalidate that immutable tag, Release, or its assets.
 
 **Core problem:** users lack one bounded, explainable daily review that connects today's plan, execution, and next-day candidates.
 

@@ -92,6 +92,17 @@ jobs:
       - name: Run packaged application security smoke
         run: npm run test:e2e:packaged-security
 
+      - name: Run Windows Portable packaged smoke
+        run: npm run test:e2e:portable-smoke
+
+      - name: Upload Windows Portable smoke evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-portable-smoke-evidence
+          path: test-results/windows-portable-smoke-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run Windows packaged ASAR integrity negative tests
         run: npm run test:asar-integrity:packaged
 
@@ -226,6 +237,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: release-artifacts
+          pattern: '*-release'
           merge-multiple: true
 
       - name: Verify release asset manifest

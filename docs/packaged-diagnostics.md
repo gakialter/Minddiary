@@ -23,6 +23,7 @@ The harness rechecks the actual Electron `userData` path at runtime and always l
 | --- | --- |
 | `startup` | Hidden real production-bundle renderer, sandbox, context isolation, preload availability, application/runtime metadata, and a native SQLite query |
 | `sqlite-read-write` | Every `startup` check plus a fixed settings-table write, read-back, and deletion inside the disposable profile |
+| `portable-profile` | Every `startup` check plus proof of the real Windows Portable wrapper, a fixed fake diary/PNG create and read-back through the existing preload API, a real `local://` image load, and cleanup |
 
 The SQLite round trip uses a one-way digest of the token to derive a reserved key and fixed statements. It does not store token material or accept SQL or data from command-line arguments. The transaction removes the probe row and rolls back on failure.
 
@@ -38,7 +39,6 @@ clipboard-ipc
 pdf-export
 updater-status
 date-rollover
-portable-profile
 install-profile
 ```
 
@@ -52,4 +52,6 @@ Results never contain the token, profile or output path, environment variables, 
 
 ## Current evidence boundary
 
-The source Electron test and the configured Windows/macOS `--dir` package jobs exercise this harness. Exact-head CI is still required before this Phase 4 implementation can claim Windows and macOS coverage. Even successful `--dir` results are not evidence that the Windows Portable wrapper, Windows Setup install/uninstall flow, macOS DMG or ZIP user flow, updater download/install/restart, signing identity, notarization, Gatekeeper, or SmartScreen has passed. Those stages require their own scenarios and evidence artifacts.
+The source Electron test and the configured Windows/macOS unpacked package jobs exercise the base harness. Windows CI additionally builds the actual Portable executable and runs `portable-profile` through that wrapper with a fresh token-bound profile. It compares metadata snapshots of the normal roaming and local application-data locations only in memory, then archives exactly `manifest.json`, `hashes.txt`, `diagnostic-result.json`, `process-log.txt`, `paths-before.txt`, and `paths-after.txt`. Those files contain artifact/evidence hashes, fixed process facts, bounded diagnostic booleans, and only the unchanged/changed path comparison conclusion—not real paths, path existence, entry counts, metadata fingerprints, tokens, raw process output, user files, database contents, or attachment contents.
+
+Portable smoke proves only the tested executable and exact workflow head. It is not Windows Setup install/uninstall evidence, updater download/install/restart evidence, a signature or SmartScreen reputation claim, or proof about the already-published v1.16.0 asset. The macOS DMG/ZIP user flow, notarization, Gatekeeper, and physical Apple-silicon acceptance remain separate gates.

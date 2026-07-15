@@ -82,9 +82,9 @@ jobs:
       - name: Verify Electron native dependencies
         run: npm run verify:electron-native
 
-      - name: Package Windows app for native verification
+      - name: Package Windows app and Portable for verification
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder --dir --win --x64 --publish never
+        run: npx electron-builder --win portable --x64 --publish never
 
       - name: Package macOS ARM64 app for native verification
         if: matrix.os == 'macos-14'
@@ -98,6 +98,19 @@ jobs:
 
       - name: Run packaged application security smoke
         run: npm run test:e2e:packaged-security
+
+      - name: Run Windows Portable packaged smoke
+        if: matrix.os == 'windows-latest'
+        run: npm run test:e2e:portable-smoke
+
+      - name: Upload Windows Portable smoke evidence
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-portable-smoke-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/windows-portable-smoke-evidence/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run Windows packaged ASAR integrity negative tests
         if: matrix.os == 'windows-latest'
