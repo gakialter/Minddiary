@@ -15,7 +15,10 @@ import {
   expectRejectedStartup,
   findParseableAsarHeaderMutation,
 } from '../scripts/test-packaged-asar-integrity.mjs'
-import { findPackagedArchives } from '../scripts/verify-electron-native.mjs'
+import {
+  findPackagedArchives,
+  validatePackagedNativeResolution,
+} from '../scripts/verify-electron-native.mjs'
 
 const tempRoots: string[] = []
 
@@ -101,6 +104,39 @@ describe('packaged Electron security verifier', () => {
     }
 
     expect(findPackagedArchives(root)).toEqual([macAsar, windowsAsar].sort())
+  })
+
+  it('binds packaged native resolution to the selected ASAR and unpacked tree', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-native-resolution-'))
+    tempRoots.push(root)
+    const appAsar = path.join(root, 'resources', 'app.asar')
+    const packageJsonPath = path.join(appAsar, 'node_modules', 'better-sqlite3', 'package.json')
+    const virtualNative = path.join(
+      appAsar,
+      'node_modules',
+      'better-sqlite3',
+      'build',
+      'Release',
+      'better_sqlite3.node',
+    )
+    const physicalNative = virtualNative.replace(`${appAsar}${path.sep}`, `${appAsar}.unpacked${path.sep}`)
+    fs.mkdirSync(path.dirname(physicalNative), { recursive: true })
+    fs.writeFileSync(physicalNative, 'native binary')
+
+    expect(validatePackagedNativeResolution(appAsar, packageJsonPath, virtualNative)).toBe(physicalNative)
+    expect(() => validatePackagedNativeResolution(
+      appAsar,
+      path.join(root, 'node_modules', 'better-sqlite3', 'package.json'),
+      virtualNative,
+    )).toThrow(/metadata resolves outside packaged app\.asar/)
+    expect(() => validatePackagedNativeResolution(
+      appAsar,
+      packageJsonPath,
+      path.join(root, 'node_modules', 'better-sqlite3', 'better_sqlite3.node'),
+    )).toThrow(/better_sqlite3\.node resolves outside packaged app\.asar/)
+    fs.rmSync(physicalNative)
+    expect(() => validatePackagedNativeResolution(appAsar, packageJsonPath, virtualNative))
+      .toThrow(/does not exist/)
   })
 
   it('rejects unpacked JavaScript and fallback application code', () => {
