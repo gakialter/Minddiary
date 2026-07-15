@@ -286,9 +286,19 @@ export function snapshotUninstallRegistry(installPath: string, version: string):
   });
 }
 
+function resolvesAsDirectPhysicalChild(filepath: string): boolean {
+  const resolved = path.resolve(filepath);
+  const canonicalParent = fs.realpathSync.native(path.dirname(resolved));
+  const canonicalPath = fs.realpathSync.native(resolved);
+  const expectedPath = path.join(canonicalParent, path.basename(resolved));
+  return process.platform === 'win32'
+    ? canonicalPath.toLowerCase() === expectedPath.toLowerCase()
+    : canonicalPath === expectedPath;
+}
+
 export function collectPhysicalInstallTree(installPath: string): string[] {
   const rootStat = fs.lstatSync(installPath);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory() || fs.realpathSync(installPath) !== path.resolve(installPath)) {
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory() || !resolvesAsDirectPhysicalChild(installPath)) {
     throw new Error('Installed application root must be a physical directory');
   }
   const records: string[] = [];
@@ -323,7 +333,7 @@ function prepareEvidenceDirectory(projectRoot: string): string {
   const resolvedProjectRoot = path.resolve(projectRoot);
   const projectRootStat = fs.lstatSync(resolvedProjectRoot);
   if (projectRootStat.isSymbolicLink() || !projectRootStat.isDirectory()
-    || fs.realpathSync(resolvedProjectRoot) !== resolvedProjectRoot) {
+    || !resolvesAsDirectPhysicalChild(resolvedProjectRoot)) {
     throw new Error('Setup evidence project root must be a physical directory');
   }
   const testResultsRoot = path.join(resolvedProjectRoot, 'test-results');
@@ -331,7 +341,7 @@ function prepareEvidenceDirectory(projectRoot: string): string {
   fs.mkdirSync(testResultsRoot, { recursive: true });
   const rootStat = fs.lstatSync(testResultsRoot);
   if (rootStat.isSymbolicLink() || !rootStat.isDirectory()
-    || fs.realpathSync(testResultsRoot) !== path.resolve(testResultsRoot)) {
+    || !resolvesAsDirectPhysicalChild(testResultsRoot)) {
     throw new Error('Setup evidence root must be a physical test-results directory');
   }
   if (fs.existsSync(evidenceDirectory)) {

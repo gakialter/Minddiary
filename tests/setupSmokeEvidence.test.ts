@@ -167,6 +167,16 @@ describe('Windows Setup smoke evidence', () => {
     expect(() => collectPhysicalInstallTree(installRoot)).toThrow(/contains a link/);
   });
 
+  it.runIf(process.platform === 'win32')('accepts a physical install root through different path casing', () => {
+    const fixture = makeFixture();
+    const installRoot = path.join(fixture.projectRoot, 'installed casing');
+    fs.mkdirSync(installRoot);
+    fs.writeFileSync(path.join(installRoot, 'MindDiary.exe'), 'application');
+
+    expect(collectPhysicalInstallTree(installRoot.toUpperCase()))
+      .toContain('file|MindDiary.exe|11');
+  });
+
   it('binds the uninstall registry command to the installed physical uninstaller', () => {
     const fixture = makeFixture();
     const installRoot = path.join(fixture.projectRoot, 'installed command');
