@@ -10,6 +10,7 @@ export const SMOKE_PROFILE_MARKER = '.minddiary-smoke-profile';
 export const IMPLEMENTED_SMOKE_SCENARIOS = [
     'startup',
     'sqlite-read-write',
+    'portable-profile',
 ] as const;
 
 export const PLANNED_SMOKE_SCENARIOS = [
@@ -21,7 +22,6 @@ export const PLANNED_SMOKE_SCENARIOS = [
     'pdf-export',
     'updater-status',
     'date-rollover',
-    'portable-profile',
     'install-profile',
 ] as const;
 
@@ -83,6 +83,13 @@ export type SmokeDiagnosticDependencies = {
         readBack: boolean;
         cleaned: boolean;
     };
+    verifyPortableWrapper: () => boolean;
+    runProfileRoundTrip: () => Promise<{
+        created: boolean;
+        readBack: boolean;
+        localProtocol: boolean;
+        cleaned: boolean;
+    }>;
 };
 
 function getUniqueValueArgument(argv: readonly string[], name: string): string | undefined {
@@ -317,6 +324,17 @@ export async function runSmokeDiagnostic(
             { check: 'sqlite-write', passed: roundTrip.written },
             { check: 'sqlite-read-back', passed: roundTrip.readBack },
             { check: 'sqlite-cleanup', passed: roundTrip.cleaned },
+        );
+    }
+
+    if (request.scenario === 'portable-profile') {
+        const profileRoundTrip = await dependencies.runProfileRoundTrip();
+        evidence.push(
+            { check: 'portable-wrapper', passed: dependencies.verifyPortableWrapper() },
+            { check: 'profile-data-create', passed: profileRoundTrip.created },
+            { check: 'profile-data-read-back', passed: profileRoundTrip.readBack },
+            { check: 'local-protocol-load', passed: profileRoundTrip.localProtocol },
+            { check: 'profile-data-cleanup', passed: profileRoundTrip.cleaned },
         );
     }
 

@@ -20,7 +20,7 @@ import {
 const token = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
 const tempRoots: string[] = [];
 
-function makeRequest(scenario: 'startup' | 'sqlite-read-write' = 'startup'): SmokeDiagnosticRequest {
+function makeRequest(scenario: 'startup' | 'sqlite-read-write' | 'portable-profile' = 'startup'): SmokeDiagnosticRequest {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-smoke-tests-'));
   tempRoots.push(tempRoot);
   const digest = createHash('sha256').update(token).digest('hex');
@@ -62,6 +62,13 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
       productionDocument: true,
     }),
     roundTripSetting: () => ({ written: true, readBack: true, cleaned: true }),
+    verifyPortableWrapper: () => true,
+    runProfileRoundTrip: async () => ({
+      created: true,
+      readBack: true,
+      localProtocol: true,
+      cleaned: true,
+    }),
   };
 }
 
@@ -82,13 +89,13 @@ describe('packaged smoke diagnostics', () => {
   it('accepts only complete requests for implemented scenarios', () => {
     const request = makeRequest();
     expect(request.scenario).toBe('startup');
-    expect(IMPLEMENTED_SMOKE_SCENARIOS).toEqual(['startup', 'sqlite-read-write']);
+    expect(IMPLEMENTED_SMOKE_SCENARIOS).toEqual(['startup', 'sqlite-read-write', 'portable-profile']);
 
     expect(() => parseSmokeDiagnosticRequest({
       argv: [
         'electron',
         '.',
-        '--minddiary-smoke-scenario=portable-profile',
+        '--minddiary-smoke-scenario=install-profile',
         `--minddiary-smoke-output=${request.outputPath}`,
         `--user-data-dir=${request.profilePath}`,
       ],
@@ -231,5 +238,47 @@ describe('packaged smoke diagnostics', () => {
       { check: 'sqlite-cleanup', passed: true },
     ]));
     expect(result.result).toBe('passed');
+  });
+
+  it('records the fixed Portable wrapper, profile, local protocol, and cleanup checks', async () => {
+    const request = makeRequest('portable-profile');
+    const dependencies = makeDependencies(request);
+    const profileRoundTrip = vi.fn(async () => ({
+      created: true,
+      readBack: true,
+      localProtocol: true,
+      cleaned: true,
+    }));
+    dependencies.runProfileRoundTrip = profileRoundTrip;
+
+    const result = await runSmokeDiagnostic(request, dependencies);
+
+    expect(profileRoundTrip).toHaveBeenCalledOnce();
+    expect(result.evidence).toEqual(expect.arrayContaining([
+      { check: 'portable-wrapper', passed: true },
+      { check: 'profile-data-create', passed: true },
+      { check: 'profile-data-read-back', passed: true },
+      { check: 'local-protocol-load', passed: true },
+      { check: 'profile-data-cleanup', passed: true },
+    ]));
+    expect(result.result).toBe('passed');
+  });
+
+  it('fails the Portable scenario when the wrapper or cleanup proof fails', async () => {
+    const request = makeRequest('portable-profile');
+    const dependencies = makeDependencies(request);
+    dependencies.verifyPortableWrapper = () => false;
+    dependencies.runProfileRoundTrip = async () => ({
+      created: true,
+      readBack: true,
+      localProtocol: true,
+      cleaned: false,
+    });
+
+    const result = await runSmokeDiagnostic(request, dependencies);
+
+    expect(result.result).toBe('failed');
+    expect(result.evidence).toContainEqual({ check: 'portable-wrapper', passed: false });
+    expect(result.evidence).toContainEqual({ check: 'profile-data-cleanup', passed: false });
   });
 });

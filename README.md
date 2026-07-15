@@ -138,7 +138,7 @@ MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Ag
 
 | 层       | 选型                                                         |
 | -------- | ------------------------------------------------------------ |
-| 外壳     | Electron 34 · contextIsolation · 安全 IPC                    |
+| 外壳     | Electron 42 · contextIsolation · 安全 IPC                    |
 | 前端     | React 18 · TypeScript strict · Vite                          |
 | 数据库   | better-sqlite3 (WAL 模式，外键约束)                          |
 | 样式     | CSS Variables + Tailwind utilities · Zen Forest 设计语言      |

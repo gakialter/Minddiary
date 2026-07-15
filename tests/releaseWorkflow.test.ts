@@ -18,11 +18,19 @@ describe('release workflow Windows signing policy', () => {
     expect(workflow).toContain('actions/setup-node@v5')
     expect(workflow).toContain('actions/upload-artifact@v6')
     expect(workflow).toContain('actions/download-artifact@v7')
+    expect(workflow).toContain("pattern: '*-release'")
     expect(workflow).toContain('softprops/action-gh-release@v3')
     expect(ciWorkflow).toContain('actions/checkout@v5')
     expect(ciWorkflow).toContain('actions/setup-node@v5')
     expect(`${workflow}\n${ciWorkflow}`).not.toMatch(/@(v4|v2)\b/)
     expect(workflow).toContain('node-version: 22')
+  })
+
+  it('runs and archives bounded Windows Portable smoke without publishing that evidence', () => {
+    expect(workflow).toContain('run: npm run test:e2e:portable-smoke')
+    expect(workflow).toContain('name: windows-portable-smoke-evidence')
+    expect(workflow).toContain('path: test-results/windows-portable-smoke-evidence/*')
+    expect(workflow).toContain("pattern: '*-release'")
   })
 
   it('requires valid Windows signatures when both signing secrets are configured', () => {

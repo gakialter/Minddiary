@@ -297,6 +297,72 @@ function waitForWindowLoad(rendererLoad: Promise<void>): Promise<void> {
     });
 }
 
+function verifyPortableWrapper(): boolean {
+    if (process.platform !== 'win32') return false;
+    const wrapperFile = process.env.PORTABLE_EXECUTABLE_FILE;
+    const wrapperDirectory = process.env.PORTABLE_EXECUTABLE_DIR;
+    if (!wrapperFile || !wrapperDirectory || !path.isAbsolute(wrapperFile) || !path.isAbsolute(wrapperDirectory)) {
+        return false;
+    }
+    if (path.resolve(path.dirname(wrapperFile)) !== path.resolve(wrapperDirectory)) return false;
+    if (path.basename(wrapperFile) !== `MindDiary-Portable-${app.getVersion()}.exe`) return false;
+    if (path.basename(process.execPath).toLowerCase() !== 'minddiary.exe') return false;
+    try {
+        const stat = fs.lstatSync(wrapperFile);
+        return stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1;
+    } catch {
+        return false;
+    }
+}
+
+async function runPortableProfileRoundTrip(
+    window: InstanceType<typeof BrowserWindow>,
+): Promise<{ created: boolean; readBack: boolean; localProtocol: boolean; cleaned: boolean }> {
+    return window.webContents.executeJavaScript(`(async () => {
+        const probe = { created: false, readBack: false, localProtocol: false, cleaned: false };
+        let entryId = 0;
+        let attachmentId = 0;
+        try {
+            const entry = await globalThis.api.entries.create({
+                date: '2099-12-31',
+                title: 'MindDiary portable smoke',
+                content: 'Disposable packaged profile probe',
+                mood: null,
+            });
+            entryId = entry.id;
+            probe.created = Number.isInteger(entryId) && entryId > 0;
+            const attachment = await globalThis.api.attachments.save(entryId, {
+                name: 'portable-smoke.png',
+                data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+                mimetype: 'image/png',
+            });
+            attachmentId = attachment.id;
+            const readEntry = await globalThis.api.entries.getById(entryId);
+            const attachments = await globalThis.api.attachments.getByEntry(entryId);
+            probe.readBack = readEntry?.title === 'MindDiary portable smoke'
+                && attachments.length === 1
+                && attachments[0]?.id === attachmentId
+                && attachments[0]?.filepath === attachment.filepath;
+            const dimensions = await new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+                image.onerror = () => reject(new Error('local protocol probe failed'));
+                image.src = 'local://attachments/' + encodeURIComponent(attachment.filepath);
+            });
+            probe.localProtocol = dimensions.width === 1 && dimensions.height === 1;
+        } finally {
+            if (attachmentId > 0) await globalThis.api.attachments.delete(attachmentId);
+            if (entryId > 0) await globalThis.api.entries.delete(entryId);
+            if (entryId > 0) {
+                const remainingEntry = await globalThis.api.entries.getById(entryId);
+                const remainingAttachments = await globalThis.api.attachments.getByEntry(entryId);
+                probe.cleaned = remainingEntry == null && remainingAttachments.length === 0;
+            }
+        }
+        return probe;
+    })()`, true) as Promise<{ created: boolean; readBack: boolean; localProtocol: boolean; cleaned: boolean }>;
+}
+
 async function runConfiguredSmokeDiagnostic(
     request: SmokeDiagnosticRequest,
     runtimeMode: RendererRuntimeMode,
@@ -313,6 +379,7 @@ async function runConfiguredSmokeDiagnostic(
         validateSmokeRuntimeProfile(request, app.getPath('userData'));
         prepareSmokeDiagnosticDatabase(request);
         db.initialize();
+        if (request.scenario === 'portable-profile') fileManager.initialize();
         const createdWindow = createWindow(runtimeMode, { show: false });
         window = createdWindow.window;
         await waitForWindowLoad(createdWindow.rendererLoad);
@@ -355,6 +422,8 @@ async function runConfiguredSmokeDiagnostic(
                     cleaned: after === undefined,
                 };
             })(),
+            verifyPortableWrapper,
+            runProfileRoundTrip: () => runPortableProfileRoundTrip(window),
         });
         writeSmokeDiagnosticResult(request, result);
         window.destroy();

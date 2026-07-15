@@ -80,10 +80,11 @@ CI acceptance proves only that:
 - typecheck, unit/integration tests, and build complete;
 - Windows and macOS packages are produced;
 - configured Windows signing policy is enforced;
+- the newly built Windows Portable wrapper launches with a disposable profile, exercises packaged preload/native SQLite/fake data/`local://`, exits cleanly, leaves default app-data metadata unchanged, and emits bounded evidence;
 - update metadata and the exact Release asset manifest pass validation;
 - the publish job receives only allowlisted root assets.
 
-CI does not install the Windows Setup package, launch Portable on a clean Windows host, mount the DMG on a user Mac, or evaluate macOS Gatekeeper/notarization behavior.
+CI does not install the Windows Setup package, download the published Portable asset or exercise it on a clean user-managed host, mount the DMG on a user Mac, or evaluate macOS Gatekeeper/notarization behavior. The automated Portable wrapper smoke is a separate, narrower gate and does not replace the manual candidate-asset check below.
 
 ## Manual Install Smoke Tests
 
@@ -157,10 +158,10 @@ These are manual release gates, not claims made by CI. Do not publish if an expe
 
 ### Candidate acceptance boundary
 
-自动 CI 和源代码 Electron smoke 不能替代以下 packaged checks：
+自动 CI 的 Portable wrapper smoke 已覆盖本次构建 EXE 的一次性 profile 基本启动、preload/native SQLite、假数据与 `local://` 往返；它和源代码 Electron smoke 仍不能替代以下人工候选资产/平台 checks：
 
 - Windows Setup 安装并启动；
-- Windows Portable 直接启动；
+- 从候选资产下载 Windows Portable 后在干净或一次性 Windows 主机直接启动；
 - macOS ARM64 DMG 挂载、复制并启动；
 - macOS ARM64 ZIP 解压并启动；
 - 设置页显示 `v1.16.0` 和本版本内置更新摘要；
