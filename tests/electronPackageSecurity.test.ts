@@ -15,6 +15,7 @@ import {
   expectRejectedStartup,
   findParseableAsarHeaderMutation,
 } from '../scripts/test-packaged-asar-integrity.mjs'
+import { findPackagedArchives } from '../scripts/verify-electron-native.mjs'
 
 const tempRoots: string[] = []
 
@@ -87,6 +88,19 @@ describe('packaged Electron security verifier', () => {
     const resourcesDir = makeResources()
 
     expect(verifyUnpackedLayout(resourcesDir).unpackedFiles).toEqual(ALLOWED_UNPACKED_FILES)
+  })
+
+  it('discovers packaged archives in Windows resources and macOS Resources directories', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-native-archives-'))
+    tempRoots.push(root)
+    const windowsAsar = path.join(root, 'win-unpacked', 'resources', 'app.asar')
+    const macAsar = path.join(root, 'mac-arm64', 'MindDiary.app', 'Contents', 'Resources', 'app.asar')
+    for (const archive of [windowsAsar, macAsar]) {
+      fs.mkdirSync(path.dirname(archive), { recursive: true })
+      fs.writeFileSync(archive, 'test archive')
+    }
+
+    expect(findPackagedArchives(root)).toEqual([macAsar, windowsAsar].sort())
   })
 
   it('rejects unpacked JavaScript and fallback application code', () => {

@@ -46,7 +46,7 @@ function runElectronProbe(extraArgs = []) {
   }
 }
 
-function findPackagedArchives(root) {
+export function findPackagedArchives(root) {
   const matches = []
   const pending = [root]
 
@@ -56,7 +56,9 @@ function findPackagedArchives(root) {
       const fullPath = path.join(current, entry.name)
       if (entry.isDirectory()) {
         pending.push(fullPath)
-      } else if (entry.isFile() && entry.name === 'app.asar' && path.basename(current) === 'resources') {
+      } else if (entry.isFile()
+        && entry.name === 'app.asar'
+        && path.basename(current).toLowerCase() === 'resources') {
         matches.push(fullPath)
       }
     }
@@ -65,7 +67,7 @@ function findPackagedArchives(root) {
   return matches.sort()
 }
 
-if (process.argv.includes(probeFlag)) {
+if (path.resolve(process.argv[1] ?? '') === scriptPath && process.argv.includes(probeFlag)) {
   try {
     const appAsarIndex = process.argv.indexOf(appAsarFlag)
     let appAsar
@@ -109,7 +111,7 @@ if (process.argv.includes(probeFlag)) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exit(1)
   }
-} else {
+} else if (path.resolve(process.argv[1] ?? '') === scriptPath) {
   const releaseDirIndex = process.argv.indexOf('--release-dir')
   if (releaseDirIndex >= 0) {
     const releaseDir = process.argv[releaseDirIndex + 1]
