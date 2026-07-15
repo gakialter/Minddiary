@@ -31,6 +31,10 @@ export type RegistrySnapshot = Array<{
   displayVersionMatches: boolean;
 }>;
 
+type RawRegistrySnapshot = Array<Omit<RegistrySnapshot[number], 'installLocationMatches'> & {
+  installLocation: string;
+}>;
+
 export type ProcessSnapshot = {
   mindDiaryProcessCount: number;
 };
@@ -112,7 +116,7 @@ foreach ($root in $roots) {
     $entries += [pscustomobject]@{
       hive = $root.label
       displayNameMatches = $displayNameMatches
-      installLocationMatches = $installLocationMatches
+      installLocation = $location
       uninstallCommandPresent = -not [string]::IsNullOrWhiteSpace([string]$item.UninstallString)
       displayVersionMatches = [string]$item.DisplayVersion -eq $env:MINDDIARY_EXPECTED_VERSION
     }
@@ -258,7 +262,32 @@ export function snapshotUninstallRegistry(installPath: string, version: string):
   if (result.error || result.status !== 0) {
     throw new Error(`Unable to snapshot uninstall registry: ${result.stderr}`);
   }
-  return JSON.parse(result.stdout || '[]') as RegistrySnapshot;
+  const expectedExecutable = path.join(installPath, 'MindDiary.exe');
+  return (JSON.parse(result.stdout || '[]') as RawRegistrySnapshot).map(entry => {
+    let installLocationMatches = false;
+    try {
+      const registeredExecutable = path.join(entry.installLocation, 'MindDiary.exe');
+      const expectedStat = fs.lstatSync(expectedExecutable);
+      const registeredStat = fs.lstatSync(registeredExecutable);
+      installLocationMatches = expectedStat.isFile()
+        && registeredStat.isFile()
+        && !expectedStat.isSymbolicLink()
+        && !registeredStat.isSymbolicLink()
+        && expectedStat.nlink === 1
+        && registeredStat.nlink === 1
+        && fs.realpathSync.native(expectedExecutable).toLowerCase()
+          === fs.realpathSync.native(registeredExecutable).toLowerCase();
+    } catch {
+      installLocationMatches = false;
+    }
+    return {
+      hive: entry.hive,
+      displayNameMatches: entry.displayNameMatches,
+      installLocationMatches,
+      uninstallCommandPresent: entry.uninstallCommandPresent,
+      displayVersionMatches: entry.displayVersionMatches,
+    };
+  });
 }
 
 export function collectPhysicalInstallTree(installPath: string): string[] {
