@@ -204,6 +204,25 @@ describe('release metadata verification', () => {
     })).toThrow(/owner other-owner does not match package\.json publish owner gakialter/)
   })
 
+  it('rejects duplicate updater metadata keys with runtime-equivalent YAML semantics', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeLatestYml(releaseDir)
+    writeAppUpdateYml(releaseDir)
+    fs.appendFileSync(
+      path.join(releaseDir, 'win-unpacked', 'resources', 'app-update.yml'),
+      'repo: Minddiary\n',
+    )
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/duplicated mapping key|duplicate/i)
+  })
+
   it('accepts valid macOS latest-mac.yml, assets, and packaged app-update.yml metadata', () => {
     const root = makeTempRoot()
     const releaseDir = path.join(root, 'release')

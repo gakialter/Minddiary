@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { JSON_SCHEMA, load as parseYaml } from 'js-yaml'
 
 type ReleasePlatform = 'win' | 'mac'
 
@@ -44,84 +45,19 @@ export class ReleaseMetadataError extends Error {
   }
 }
 
-function parseScalar(value: string): string {
-  const trimmed = value.trim()
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"'))
-    || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1)
-  }
-  return trimmed
-}
-
-function assignYamlPair(target: Record<string, unknown>, line: string): void {
-  const match = /^([^:#][^:]*):(?:\s*(.*))?$/.exec(line)
-  if (!match) {
-    throw new ReleaseMetadataError(`Unsupported YAML line: ${line}`)
-  }
-
-  const key = match[1]?.trim()
-  if (!key) {
-    throw new ReleaseMetadataError(`Unsupported YAML key in line: ${line}`)
-  }
-
-  target[key] = parseScalar(match[2] ?? '')
-}
-
 export function parseSimpleYaml(content: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  let activeArray: Record<string, unknown>[] | null = null
-  let activeItem: Record<string, unknown> | null = null
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.replace(/\s+$/, '')
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-
-    const indent = line.length - line.trimStart().length
-    if (indent === 0) {
-      const match = /^([^:#][^:]*):(?:\s*(.*))?$/.exec(trimmed)
-      if (!match) {
-        throw new ReleaseMetadataError(`Unsupported YAML line: ${trimmed}`)
-      }
-
-      const key = match[1]?.trim()
-      if (!key) {
-        throw new ReleaseMetadataError(`Unsupported YAML key in line: ${trimmed}`)
-      }
-
-      const value = match[2] ?? ''
-      if (value.trim() === '') {
-        const arrayValue: Record<string, unknown>[] = []
-        result[key] = arrayValue
-        activeArray = arrayValue
-        activeItem = null
-      } else {
-        result[key] = parseScalar(value)
-        activeArray = null
-        activeItem = null
-      }
-      continue
+  try {
+    const parsed = parseYaml(content, { schema: JSON_SCHEMA })
+    if (!isRecord(parsed)) {
+      throw new ReleaseMetadataError('YAML document must contain an object')
     }
-
-    if (!activeArray) {
-      throw new ReleaseMetadataError(`Unsupported YAML nesting: ${trimmed}`)
-    }
-
-    if (trimmed.startsWith('- ')) {
-      activeItem = {}
-      activeArray.push(activeItem)
-      const inline = trimmed.slice(2).trim()
-      if (inline) assignYamlPair(activeItem, inline)
-      continue
-    }
-
-    if (!activeItem) {
-      throw new ReleaseMetadataError(`Unsupported YAML array item: ${trimmed}`)
-    }
-    assignYamlPair(activeItem, trimmed)
+    return parsed
+  } catch (error) {
+    if (error instanceof ReleaseMetadataError) throw error
+    throw new ReleaseMetadataError(
+      `Invalid YAML metadata: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
-
-  return result
 }
 
 function readJsonFile(filepath: string): unknown {

@@ -20,9 +20,13 @@
         "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
         "verify:electron-native": "node scripts/verify-electron-native.mjs",
         "verify:electron-native:packaged": "node scripts/verify-electron-native.mjs --release-dir release",
-        "build": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder && npm run verify:electron-native:packaged",
-        "build:mac": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --mac && npm run verify:electron-native:packaged",
-        "build:win": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --win && npm run verify:electron-native:packaged",
+        "verify:electron-package-security": "node scripts/verify-electron-package-security.mjs --release-dir release",
+        "verify:electron-package-security:release": "node scripts/verify-electron-package-security.mjs --release-dir release --require-updater-metadata",
+        "test:e2e:packaged-security": "playwright test --config playwright.packaged.config.ts",
+        "test:asar-integrity:packaged": "node scripts/test-packaged-asar-integrity.mjs --release-dir release",
+        "build": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
+        "build:mac": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --mac && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
+        "build:win": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --win && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
         "preview": "vite preview",
         "test": "vitest",
         "test:e2e": "playwright test",
@@ -43,6 +47,7 @@
         "remark-gfm": "^4.0.1"
     },
     "devDependencies": {
+        "@electron/fuses": "2.1.2",
         "@electron/rebuild": "^4.2.0",
         "@playwright/test": "^1.61.1",
         "@testing-library/jest-dom": "^6.9.1",
@@ -50,6 +55,7 @@
         "@testing-library/user-event": "^14.6.1",
         "@types/better-sqlite3": "^7.6.13",
         "@types/file-saver": "^2.0.7",
+        "@types/js-yaml": "4.0.9",
         "@types/node": "^25.6.0",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.0",
@@ -59,6 +65,7 @@
         "concurrently": "^8.2.2",
         "electron": "42.6.1",
         "electron-builder": "^26.15.6",
+        "js-yaml": "4.3.0",
         "jsdom": "^29.1.1",
         "playwright": "^1.61.1",
         "png-to-ico": "^3.0.1",
@@ -94,6 +101,23 @@
             "electron-dist/**/*",
             "package.json"
         ],
+        "asar": {
+            "smartUnpack": false
+        },
+        "asarUnpack": [
+            "node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+        ],
+        "electronFuses": {
+            "runAsNode": false,
+            "enableCookieEncryption": false,
+            "enableNodeOptionsEnvironmentVariable": false,
+            "enableNodeCliInspectArguments": false,
+            "enableEmbeddedAsarIntegrityValidation": true,
+            "onlyLoadAppFromAsar": true,
+            "loadBrowserProcessSpecificV8Snapshot": false,
+            "grantFileProtocolExtraPrivileges": true,
+            "resetAdHocDarwinSignature": true
+        },
         "win": {
             "target": [
                 "nsis",

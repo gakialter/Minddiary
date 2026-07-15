@@ -83,8 +83,17 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --x64 --publish never
 
+      - name: Verify packaged Electron security policy
+        run: npm run verify:electron-package-security:release
+
       - name: Verify packaged Electron native dependencies
         run: npm run verify:electron-native:packaged
+
+      - name: Run packaged application security smoke
+        run: npm run test:e2e:packaged-security
+
+      - name: Run Windows packaged ASAR integrity negative tests
+        run: npm run test:asar-integrity:packaged
 
       - name: Verify Windows signing
         shell: pwsh
@@ -145,8 +154,29 @@ jobs:
       - name: Prepare build resources
         run: npm run build:resources
 
+      - name: Confirm macOS ARM64 runner
+        run: node -e "if (process.arch !== 'arm64') throw new Error('Expected macOS ARM64 runner, got ' + process.arch)"
+
+      - name: Rebuild native dependencies for Electron
+        run: npm run rebuild:electron
+
+      - name: Verify Electron native dependencies
+        run: npm run verify:electron-native
+
       - name: Package macOS arm64 build
         run: npx electron-builder --mac --arm64 --publish never
+
+      - name: Verify packaged Electron security policy
+        run: npm run verify:electron-package-security:release
+
+      - name: Verify packaged Electron native dependencies
+        run: npm run verify:electron-native:packaged
+
+      - name: Run packaged application security smoke
+        run: npm run test:e2e:packaged-security
+
+      - name: Verify macOS package code integrity
+        run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/MindDiary.app
 
       - name: Verify macOS update metadata
         run: npx tsx scripts/verify-release-metadata.ts --platform mac --release-dir release --package package.json
