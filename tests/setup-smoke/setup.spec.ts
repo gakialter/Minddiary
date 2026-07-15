@@ -92,7 +92,7 @@ test('installs, launches, retains fake data, reopens it, and uninstalls Windows 
     expect(registryAfterInstall[0]).toEqual({
       hive: expect.any(String),
       displayNameMatches: true,
-      installLocationMatches: true,
+      uninstallTargetMatches: true,
       uninstallCommandPresent: true,
       displayVersionMatches: true,
     });

@@ -6,6 +6,7 @@ import type { SmokeDiagnosticProcessResult } from './helpers/smokeDiagnosticRunn
 import {
   SETUP_EVIDENCE_FILES,
   collectPhysicalInstallTree,
+  uninstallCommandTargetsPhysicalFile,
   writeSetupSmokeEvidence,
   type SetupSmokeEvidenceInput,
 } from './helpers/setupSmokeEvidence';
@@ -55,7 +56,7 @@ function makeFixture(): SetupSmokeEvidenceInput {
   const registryEntry = [{
     hive: 'hkcu-native',
     displayNameMatches: true,
-    installLocationMatches: true,
+    uninstallTargetMatches: true,
     uninstallCommandPresent: true,
     displayVersionMatches: true,
   }];
@@ -164,5 +165,21 @@ describe('Windows Setup smoke evidence', () => {
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(installRoot, 'linked'), 'junction');
     expect(() => collectPhysicalInstallTree(installRoot)).toThrow(/contains a link/);
+  });
+
+  it('binds the uninstall registry command to the installed physical uninstaller', () => {
+    const fixture = makeFixture();
+    const installRoot = path.join(fixture.projectRoot, 'installed command');
+    const otherRoot = path.join(fixture.projectRoot, 'other command');
+    fs.mkdirSync(installRoot);
+    fs.mkdirSync(otherRoot);
+    const uninstaller = path.join(installRoot, 'Uninstall MindDiary.exe');
+    const otherUninstaller = path.join(otherRoot, 'Uninstall MindDiary.exe');
+    fs.writeFileSync(uninstaller, 'expected uninstaller');
+    fs.writeFileSync(otherUninstaller, 'other uninstaller');
+
+    expect(uninstallCommandTargetsPhysicalFile(installRoot, `"${uninstaller}" /currentuser`)).toBe(true);
+    expect(uninstallCommandTargetsPhysicalFile(installRoot, `"${otherUninstaller}" /currentuser`)).toBe(false);
+    expect(uninstallCommandTargetsPhysicalFile(installRoot, `${uninstaller} /currentuser`)).toBe(false);
   });
 });

@@ -26,13 +26,13 @@ export type ShortcutSnapshot = {
 export type RegistrySnapshot = Array<{
   hive: string;
   displayNameMatches: boolean;
-  installLocationMatches: boolean;
+  uninstallTargetMatches: boolean;
   uninstallCommandPresent: boolean;
   displayVersionMatches: boolean;
 }>;
 
-type RawRegistrySnapshot = Array<Omit<RegistrySnapshot[number], 'installLocationMatches'> & {
-  installLocation: string;
+type RawRegistrySnapshot = Array<Omit<RegistrySnapshot[number], 'uninstallTargetMatches' | 'uninstallCommandPresent'> & {
+  uninstallCommand: string;
 }>;
 
 export type ProcessSnapshot = {
@@ -102,22 +102,14 @@ foreach ($root in $roots) {
   foreach ($key in Get-ChildItem -LiteralPath $root.path -ErrorAction SilentlyContinue) {
     $item = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction SilentlyContinue
     if ($null -eq $item) { continue }
-    $location = ''
-    if (-not [string]::IsNullOrWhiteSpace([string]$item.InstallLocation)) {
-      try {
-        $location = [System.IO.Path]::GetFullPath([string]$item.InstallLocation).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-      } catch {
-        continue
-      }
-    }
+    $uninstallCommand = [string]$item.UninstallString
     $displayNameMatches = [string]$item.DisplayName -eq $env:MINDDIARY_EXPECTED_DISPLAY_NAME
-    $installLocationMatches = [System.StringComparer]::OrdinalIgnoreCase.Equals($location, $expected)
-    if (-not $displayNameMatches -and -not $installLocationMatches) { continue }
+    $uninstallTargetMatchesLexically = $uninstallCommand.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    if (-not $displayNameMatches -and -not $uninstallTargetMatchesLexically) { continue }
     $entries += [pscustomobject]@{
       hive = $root.label
       displayNameMatches = $displayNameMatches
-      installLocation = $location
-      uninstallCommandPresent = -not [string]::IsNullOrWhiteSpace([string]$item.UninstallString)
+      uninstallCommand = $uninstallCommand
       displayVersionMatches = [string]$item.DisplayVersion -eq $env:MINDDIARY_EXPECTED_VERSION
     }
   }
@@ -240,6 +232,27 @@ export function snapshotMindDiaryProcesses(): ProcessSnapshot {
   };
 }
 
+export function uninstallCommandTargetsPhysicalFile(installPath: string, uninstallCommand: string): boolean {
+  const commandMatch = /^"([^"]+)"(?:\s|$)/.exec(uninstallCommand.trim());
+  try {
+    if (!commandMatch?.[1]) return false;
+    const expectedUninstaller = path.join(installPath, 'Uninstall MindDiary.exe');
+    const registeredUninstaller = commandMatch[1];
+    const expectedStat = fs.lstatSync(expectedUninstaller);
+    const registeredStat = fs.lstatSync(registeredUninstaller);
+    return expectedStat.isFile()
+      && registeredStat.isFile()
+      && !expectedStat.isSymbolicLink()
+      && !registeredStat.isSymbolicLink()
+      && expectedStat.nlink === 1
+      && registeredStat.nlink === 1
+      && fs.realpathSync.native(expectedUninstaller).toLowerCase()
+        === fs.realpathSync.native(registeredUninstaller).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export function snapshotUninstallRegistry(installPath: string, version: string): RegistrySnapshot {
   const env = {
     ...process.env,
@@ -262,29 +275,12 @@ export function snapshotUninstallRegistry(installPath: string, version: string):
   if (result.error || result.status !== 0) {
     throw new Error(`Unable to snapshot uninstall registry: ${result.stderr}`);
   }
-  const expectedExecutable = path.join(installPath, 'MindDiary.exe');
   return (JSON.parse(result.stdout || '[]') as RawRegistrySnapshot).map(entry => {
-    let installLocationMatches = false;
-    try {
-      const registeredExecutable = path.join(entry.installLocation, 'MindDiary.exe');
-      const expectedStat = fs.lstatSync(expectedExecutable);
-      const registeredStat = fs.lstatSync(registeredExecutable);
-      installLocationMatches = expectedStat.isFile()
-        && registeredStat.isFile()
-        && !expectedStat.isSymbolicLink()
-        && !registeredStat.isSymbolicLink()
-        && expectedStat.nlink === 1
-        && registeredStat.nlink === 1
-        && fs.realpathSync.native(expectedExecutable).toLowerCase()
-          === fs.realpathSync.native(registeredExecutable).toLowerCase();
-    } catch {
-      installLocationMatches = false;
-    }
     return {
       hive: entry.hive,
       displayNameMatches: entry.displayNameMatches,
-      installLocationMatches,
-      uninstallCommandPresent: entry.uninstallCommandPresent,
+      uninstallTargetMatches: uninstallCommandTargetsPhysicalFile(installPath, entry.uninstallCommand),
+      uninstallCommandPresent: entry.uninstallCommand.trim().length > 0,
       displayVersionMatches: entry.displayVersionMatches,
     };
   });
@@ -370,7 +366,7 @@ function hasValidRegistryEntry(snapshot: RegistrySnapshot): boolean {
   return snapshot.length === 1
     && entry !== undefined
     && entry.displayNameMatches
-    && entry.installLocationMatches
+    && entry.uninstallTargetMatches
     && entry.uninstallCommandPresent
     && entry.displayVersionMatches;
 }
