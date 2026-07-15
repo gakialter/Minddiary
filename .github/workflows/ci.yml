@@ -107,7 +107,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v6
         with:
-          name: windows-portable-smoke-${{ github.sha }}
+          name: windows-portable-smoke-${{ github.event.pull_request.head.sha || github.sha }}
           path: test-results/windows-portable-smoke-evidence/*
           if-no-files-found: error
           retention-days: 14

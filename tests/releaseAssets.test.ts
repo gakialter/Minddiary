@@ -179,6 +179,9 @@ describe('release asset allowlist', () => {
     expect(ciWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:portable-smoke/g)).toHaveLength(1)
     expect(ciWorkflow).toContain('npx electron-builder --win portable --x64 --publish never')
+    expect(ciWorkflow).toContain(
+      'name: windows-portable-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
+    )
     expect(ciWorkflow).toContain('test-results/windows-portable-smoke-evidence/*')
     expect(ciWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
     expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
