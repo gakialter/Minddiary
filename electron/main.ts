@@ -407,7 +407,7 @@ async function runInstallProfileRoundTrip(
                 probe.phase = 'reopened';
                 entryId = matches[0].id;
                 const existingAttachments = await globalThis.api.attachments.getByEntry(entryId);
-                if (existingAttachments.length !== 1 || existingAttachments[0]?.name !== 'install-smoke.png') {
+                if (existingAttachments.length !== 1 || existingAttachments[0]?.filename !== 'install-smoke.png') {
                     throw new Error('install profile attachment probe is invalid');
                 }
                 attachmentId = existingAttachments[0].id;
@@ -417,7 +417,8 @@ async function runInstallProfileRoundTrip(
             const attachments = await globalThis.api.attachments.getByEntry(entryId);
             probe.readBack = readEntry?.content === 'Disposable installed profile retention probe'
                 && attachments.length === 1
-                && attachments[0]?.id === attachmentId;
+                && attachments[0]?.id === attachmentId
+                && attachments[0]?.filename === 'install-smoke.png';
             probe.retained = probe.readBack;
             const attachment = attachments[0];
             if (!attachment) throw new Error('install profile attachment is unavailable');
