@@ -1,5 +1,7 @@
 # Electron package integrity threat model
 
+The bounded, default-off runtime validation entry is documented in [Packaged diagnostic harness](./packaged-diagnostics.md).
+
 ## Scope
 
 This document defines what MindDiary's packaged-code controls protect, what remains intentionally writable, and what each automated check proves. The policy applies to the Electron package produced from the current repository; it does not retroactively alter an existing Git tag or GitHub Release.
