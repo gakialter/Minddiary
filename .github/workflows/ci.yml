@@ -37,6 +37,12 @@ jobs:
           npm run build:electron
           npx vite build
 
+      - name: Rebuild native dependency for Electron E2E
+        run: npm run rebuild:electron
+
+      - name: Run source-tree Electron E2E
+        run: npm run test:e2e
+
   build-verification:
     strategy:
       matrix:
@@ -68,7 +74,7 @@ jobs:
 
       - name: Confirm macOS ARM64 runner
         if: matrix.os == 'macos-14'
-        run: node -e "if (process.arch !== 'arm64') throw new Error(`Expected macOS ARM64 runner, got ${process.arch}`)"
+        run: node -e "if (process.arch !== 'arm64') throw new Error('Expected macOS ARM64 runner, got ' + process.arch)"
 
       - name: Rebuild native dependencies for Electron
         run: npm run rebuild:electron
@@ -84,8 +90,29 @@ jobs:
         if: matrix.os == 'macos-14'
         run: npx electron-builder --dir --mac --arm64 --publish never
 
+      - name: Verify packaged Electron security policy
+        run: npm run verify:electron-package-security
+
       - name: Verify packaged Electron native dependencies
         run: npm run verify:electron-native:packaged
+
+      - name: Run packaged application security smoke
+        run: npm run test:e2e:packaged-security
+
+      - name: Run Windows packaged ASAR integrity negative tests
+        if: matrix.os == 'windows-latest'
+        run: npm run test:asar-integrity:packaged
+
+      - name: Verify macOS ad-hoc code integrity
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="release/mac-arm64/MindDiary.app"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature_info="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          echo "$signature_info"
+          echo "$signature_info" | grep -q 'Signature=adhoc'
 
       - name: Verify macOS ARM64 package architecture
         if: matrix.os == 'macos-14'

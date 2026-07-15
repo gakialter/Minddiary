@@ -112,6 +112,11 @@ describe('release asset allowlist', () => {
     )) as {
       scripts: Record<string, string>
       devDependencies: Record<string, string>
+      build: {
+        asar: { smartUnpack: boolean }
+        asarUnpack: string[]
+        electronFuses: Record<string, boolean>
+      }
     }
     const ciWorkflow = fs.readFileSync(
       path.resolve(process.cwd(), '.github/workflows/ci.yml'),
@@ -123,27 +128,59 @@ describe('release asset allowlist', () => {
     )
 
     expect(packageJson.devDependencies['@electron/rebuild']).toBeDefined()
+    expect(packageJson.devDependencies['@electron/fuses']).toBe('2.1.2')
     expect(packageJson.scripts['rebuild:electron'])
       .toBe('electron-rebuild -f -w better-sqlite3')
     expect(packageJson.scripts['verify:electron-native'])
       .toBe('node scripts/verify-electron-native.mjs')
     expect(packageJson.scripts['verify:electron-native:packaged'])
       .toBe('node scripts/verify-electron-native.mjs --release-dir release')
+    expect(packageJson.scripts['verify:electron-package-security'])
+      .toBe('node scripts/verify-electron-package-security.mjs --release-dir release')
+    expect(packageJson.scripts['verify:electron-package-security:release'])
+      .toBe('node scripts/verify-electron-package-security.mjs --release-dir release --require-updater-metadata')
+    expect(packageJson.scripts['test:e2e:packaged-security'])
+      .toBe('playwright test --config playwright.packaged.config.ts')
+    expect(packageJson.scripts['test:asar-integrity:packaged'])
+      .toBe('node scripts/test-packaged-asar-integrity.mjs --release-dir release')
+
+    expect(packageJson.build.asar).toEqual({ smartUnpack: false })
+    expect(packageJson.build.asarUnpack).toEqual([
+      'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+    ])
+    expect(packageJson.build.electronFuses).toEqual({
+      runAsNode: false,
+      enableCookieEncryption: false,
+      enableNodeOptionsEnvironmentVariable: false,
+      enableNodeCliInspectArguments: false,
+      enableEmbeddedAsarIntegrityValidation: true,
+      onlyLoadAppFromAsar: true,
+      loadBrowserProcessSpecificV8Snapshot: false,
+      grantFileProtocolExtraPrivileges: true,
+      resetAdHocDarwinSignature: true,
+    })
 
     for (const scriptName of ['build', 'build:win', 'build:mac']) {
       expect(packageJson.scripts[scriptName]).toMatch(
         /npm run rebuild:electron && npm run verify:electron-native && electron-builder/,
       )
       expect(packageJson.scripts[scriptName]).toMatch(
-        /electron-builder(?: --(?:win|mac))? && npm run verify:electron-native:packaged$/,
+        /electron-builder(?: --(?:win|mac))? && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged$/,
       )
     }
 
-    expect(ciWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
+    expect(ciWorkflow.match(/run: npm run test:e2e$/gm)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(1)
-    expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(1)
-    expect(releaseWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(1)
-    expect(releaseWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run verify:electron-package-security/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
+    expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
+    expect(releaseWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(2)
+    expect(releaseWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(2)
+    expect(releaseWorkflow.match(/run: npm run verify:electron-package-security:release/g)).toHaveLength(2)
+    expect(releaseWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(2)
+    expect(releaseWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
   })
 })
