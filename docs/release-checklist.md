@@ -81,10 +81,11 @@ CI acceptance proves only that:
 - Windows and macOS packages are produced;
 - configured Windows signing policy is enforced;
 - the newly built Windows Portable wrapper launches with a disposable profile, exercises packaged preload/native SQLite/fake data/`local://`, exits cleanly, leaves default app-data metadata unchanged, and emits bounded evidence;
+- the newly built Windows Setup candidate silently installs to a disposable path, launches installed diagnostics, preserves a token-bound disposable diagnostic profile through normal uninstall, reopens and cleans it after reinstall, removes files/shortcuts/registry/processes on final uninstall, and emits bounded evidence; `deleteAppDataOnUninstall: false` separately locks the default user-data retention policy;
 - update metadata and the exact Release asset manifest pass validation;
 - the publish job receives only allowlisted root assets.
 
-CI does not install the Windows Setup package, download the published Portable asset or exercise it on a clean user-managed host, mount the DMG on a user Mac, or evaluate macOS Gatekeeper/notarization behavior. The automated Portable wrapper smoke is a separate, narrower gate and does not replace the manual candidate-asset check below.
+CI installs and uninstalls its own newly built Windows Setup candidate on a disposable hosted runner. It does not browser-download or execute the published Setup/Portable assets on a clean user-managed host, mount the DMG on a user Mac, or evaluate SmartScreen, macOS Gatekeeper, or notarization behavior. The automated Setup and Portable smoke gates do not replace the manual downloaded-candidate checks below.
 
 ## Manual Install Smoke Tests
 

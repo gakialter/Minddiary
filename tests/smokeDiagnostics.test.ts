@@ -20,7 +20,9 @@ import {
 const token = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
 const tempRoots: string[] = [];
 
-function makeRequest(scenario: 'startup' | 'sqlite-read-write' | 'portable-profile' = 'startup'): SmokeDiagnosticRequest {
+function makeRequest(
+  scenario: 'startup' | 'sqlite-read-write' | 'portable-profile' | 'install-profile' = 'startup',
+): SmokeDiagnosticRequest {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-smoke-tests-'));
   tempRoots.push(tempRoot);
   const digest = createHash('sha256').update(token).digest('hex');
@@ -69,6 +71,14 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
       localProtocol: true,
       cleaned: true,
     }),
+    runInstallProfileRoundTrip: async () => ({
+      phase: 'seeded',
+      created: true,
+      retained: true,
+      readBack: true,
+      localProtocol: true,
+      cleaned: false,
+    }),
   };
 }
 
@@ -89,13 +99,18 @@ describe('packaged smoke diagnostics', () => {
   it('accepts only complete requests for implemented scenarios', () => {
     const request = makeRequest();
     expect(request.scenario).toBe('startup');
-    expect(IMPLEMENTED_SMOKE_SCENARIOS).toEqual(['startup', 'sqlite-read-write', 'portable-profile']);
+    expect(IMPLEMENTED_SMOKE_SCENARIOS).toEqual([
+      'startup',
+      'sqlite-read-write',
+      'portable-profile',
+      'install-profile',
+    ]);
 
     expect(() => parseSmokeDiagnosticRequest({
       argv: [
         'electron',
         '.',
-        '--minddiary-smoke-scenario=install-profile',
+        '--minddiary-smoke-scenario=date-rollover',
         `--minddiary-smoke-output=${request.outputPath}`,
         `--user-data-dir=${request.profilePath}`,
       ],
@@ -184,6 +199,53 @@ describe('packaged smoke diagnostics', () => {
       env: { MINDDIARY_SMOKE_TOKEN: token },
       tempRoot: request.tempRoot,
     })).toThrow(/existing application data/);
+  });
+
+  it('allows only install-profile to reopen physical managed application data', () => {
+    const request = makeRequest('install-profile');
+    const databasePath = prepareSmokeDiagnosticDatabase(request, { allowExisting: true });
+    expect(prepareSmokeDiagnosticDatabase(request, { allowExisting: true })).toBe(databasePath);
+    expect(parseSmokeDiagnosticRequest({
+      argv: [
+        'electron',
+        '.',
+        '--minddiary-smoke-scenario=install-profile',
+        `--minddiary-smoke-output=${request.outputPath}`,
+        `--user-data-dir=${request.profilePath}`,
+      ],
+      env: { MINDDIARY_SMOKE_TOKEN: token },
+      tempRoot: request.tempRoot,
+    })?.scenario).toBe('install-profile');
+
+    expect(() => parseSmokeDiagnosticRequest({
+      argv: [
+        'electron',
+        '.',
+        '--minddiary-smoke-scenario=startup',
+        `--minddiary-smoke-output=${request.outputPath}`,
+        `--user-data-dir=${request.profilePath}`,
+      ],
+      env: { MINDDIARY_SMOKE_TOKEN: token },
+      tempRoot: request.tempRoot,
+    })).toThrow(/existing application data/);
+  });
+
+  it('rejects linked managed data when reopening an install profile', () => {
+    const request = makeRequest('install-profile');
+    const outside = fs.mkdtempSync(path.join(request.tempRoot, 'outside-managed-data-'));
+    fs.symlinkSync(outside, path.join(request.profilePath, 'attachments'), 'junction');
+
+    expect(() => parseSmokeDiagnosticRequest({
+      argv: [
+        'electron',
+        '.',
+        '--minddiary-smoke-scenario=install-profile',
+        `--minddiary-smoke-output=${request.outputPath}`,
+        `--user-data-dir=${request.profilePath}`,
+      ],
+      env: { MINDDIARY_SMOKE_TOKEN: token },
+      tempRoot: request.tempRoot,
+    })).toThrow(/managed link/);
   });
 
   it('rejects a profile whose marker does not match the activation token', () => {
@@ -280,5 +342,38 @@ describe('packaged smoke diagnostics', () => {
     expect(result.result).toBe('failed');
     expect(result.evidence).toContainEqual({ check: 'portable-wrapper', passed: false });
     expect(result.evidence).toContainEqual({ check: 'profile-data-cleanup', passed: false });
+  });
+
+  it('records distinct seed and reopen evidence for the fixed installed profile probe', async () => {
+    const request = makeRequest('install-profile');
+    const dependencies = makeDependencies(request);
+    const seeded = await runSmokeDiagnostic(request, dependencies);
+    expect(seeded.result).toBe('passed');
+    expect(seeded.evidence).toEqual(expect.arrayContaining([
+      { check: 'installed-profile-seeded', passed: true },
+      { check: 'profile-data-create', passed: true },
+      { check: 'profile-data-read-back', passed: true },
+      { check: 'local-protocol-load', passed: true },
+      { check: 'install-profile-phase-consistent', passed: true },
+    ]));
+    expect(seeded.evidence.some(item => item.check === 'profile-data-cleanup')).toBe(false);
+
+    dependencies.runInstallProfileRoundTrip = async () => ({
+      phase: 'reopened',
+      created: false,
+      retained: true,
+      readBack: true,
+      localProtocol: true,
+      cleaned: true,
+    });
+    const reopened = await runSmokeDiagnostic(request, dependencies);
+    expect(reopened.result).toBe('passed');
+    expect(reopened.evidence).toEqual(expect.arrayContaining([
+      { check: 'installed-profile-reopened', passed: true },
+      { check: 'profile-data-retained', passed: true },
+      { check: 'profile-data-cleanup', passed: true },
+      { check: 'install-profile-phase-consistent', passed: true },
+    ]));
+    expect(reopened.evidence.some(item => item.check === 'profile-data-create')).toBe(false);
   });
 });

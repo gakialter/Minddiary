@@ -116,6 +116,7 @@ describe('release asset allowlist', () => {
         asar: { smartUnpack: boolean }
         asarUnpack: string[]
         electronFuses: Record<string, boolean>
+        nsis: { deleteAppDataOnUninstall: boolean }
       }
     }
     const ciWorkflow = fs.readFileSync(
@@ -143,6 +144,8 @@ describe('release asset allowlist', () => {
       .toBe('playwright test --config playwright.packaged.config.ts')
     expect(packageJson.scripts['test:e2e:portable-smoke'])
       .toBe('playwright test --config playwright.portable.config.ts')
+    expect(packageJson.scripts['test:e2e:setup-smoke'])
+      .toBe('playwright test --config playwright.setup.config.ts')
     expect(packageJson.scripts['test:asar-integrity:packaged'])
       .toBe('node scripts/test-packaged-asar-integrity.mjs --release-dir release')
 
@@ -161,6 +164,7 @@ describe('release asset allowlist', () => {
       grantFileProtocolExtraPrivileges: true,
       resetAdHocDarwinSignature: true,
     })
+    expect(packageJson.build.nsis.deleteAppDataOnUninstall).toBe(false)
 
     for (const scriptName of ['build', 'build:win', 'build:mac']) {
       expect(packageJson.scripts[scriptName]).toMatch(
@@ -178,11 +182,16 @@ describe('release asset allowlist', () => {
     expect(ciWorkflow.match(/run: npm run verify:electron-package-security/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:portable-smoke/g)).toHaveLength(1)
-    expect(ciWorkflow).toContain('npx electron-builder --win portable --x64 --publish never')
+    expect(ciWorkflow.match(/run: npm run test:e2e:setup-smoke/g)).toHaveLength(1)
+    expect(ciWorkflow).toContain('npx electron-builder --win nsis portable --x64 --publish never')
     expect(ciWorkflow).toContain(
       'name: windows-portable-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
     )
     expect(ciWorkflow).toContain('test-results/windows-portable-smoke-evidence/*')
+    expect(ciWorkflow).toContain(
+      'name: windows-setup-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
+    )
+    expect(ciWorkflow).toContain('test-results/windows-setup-smoke-evidence/*')
     expect(ciWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
     expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
     expect(releaseWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(2)
@@ -190,6 +199,9 @@ describe('release asset allowlist', () => {
     expect(releaseWorkflow.match(/run: npm run verify:electron-package-security:release/g)).toHaveLength(2)
     expect(releaseWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(2)
     expect(releaseWorkflow.match(/run: npm run test:e2e:portable-smoke/g)).toHaveLength(1)
+    expect(releaseWorkflow.match(/run: npm run test:e2e:setup-smoke/g)).toHaveLength(1)
+    expect(releaseWorkflow).toContain('name: windows-setup-smoke-evidence')
+    expect(releaseWorkflow).toContain('path: test-results/windows-setup-smoke-evidence/*')
     expect(releaseWorkflow).toContain("pattern: '*-release'")
     expect(releaseWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
   })
