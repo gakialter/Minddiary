@@ -32,6 +32,15 @@ import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
 import { normalizeUpdaterReleaseNotes, preserveUpdaterReleaseDetails } from './updaterReleaseNotes';
 import {
+    createFailedSmokeDiagnosticResult,
+    parseSmokeDiagnosticRequest,
+    prepareSmokeDiagnosticDatabase,
+    runSmokeDiagnostic,
+    validateSmokeRuntimeProfile,
+    writeSmokeDiagnosticResult,
+    type SmokeDiagnosticRequest,
+} from './smokeDiagnostics';
+import {
     validateAiMessagesPayload,
     validateAiSummaryPayload,
     validateBulkSubjectChaptersPayload,
@@ -60,6 +69,15 @@ import type {
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
+let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
+let smokeDiagnosticConfigurationFailed = false;
+
+try {
+    smokeDiagnosticRequest = parseSmokeDiagnosticRequest({ argv: process.argv, env: process.env });
+} catch {
+    smokeDiagnosticConfigurationFailed = true;
+    process.stderr.write('[smoke-diagnostic] Invalid diagnostic configuration\n');
+}
 
 function getRendererRuntimeMode(): RendererRuntimeMode {
     return resolveRendererRuntimeMode(app.isPackaged, process.env.NODE_ENV);
@@ -80,7 +98,7 @@ function configureWindowsAppUserModelId() {
     app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
-function createWindow(runtimeMode: RendererRuntimeMode) {
+function createWindow(runtimeMode: RendererRuntimeMode, options: { show?: boolean } = {}) {
     const isMac = process.platform === 'darwin';
     const preloadPath = path.join(__dirname, 'preload.js');
     const appDocumentPath = getAppDocumentPath();
@@ -94,6 +112,7 @@ function createWindow(runtimeMode: RendererRuntimeMode) {
         frame: isMac,
         ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
         backgroundColor: '#0f0f14',
+        show: options.show ?? true,
         webPreferences: createMainWindowWebPreferences(preloadPath),
         icon: path.join(__dirname, '..', '..', 'build', 'icon.png')
     });
@@ -123,12 +142,14 @@ function createWindow(runtimeMode: RendererRuntimeMode) {
     mainWindow.webContents.session.setPermissionRequestHandler(denyPermissionRequest);
     mainWindow.webContents.session.setPermissionCheckHandler(denyPermissionCheck);
 
+    let rendererLoad: Promise<void>;
     if (isDev) {
-        mainWindow.loadURL('http://localhost:5173');
+        rendererLoad = mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
-        mainWindow.loadFile(appDocumentPath);
+        rendererLoad = mainWindow.loadFile(appDocumentPath);
     }
+    return { window: mainWindow, rendererLoad };
 }
 
 // ==================== Auto Updater ====================
@@ -236,13 +257,7 @@ ipcMain.handle('updater:getStatus', () => {
     return lastUpdaterStatus;
 });
 
-app.whenReady().then(() => {
-    const runtimeMode = getRendererRuntimeMode();
-
-    if (process.platform === 'win32') {
-        configureWindowsAppUserModelId();
-    }
-
+function configureRuntimeSecurity(runtimeMode: RendererRuntimeMode): void {
     protocol.handle('local', (request: { url: string }) => {
         try {
             const resolved = resolveLocalProtocolPath(request.url, app.getPath('userData'));
@@ -267,7 +282,112 @@ app.whenReady().then(() => {
             }
         });
     });
+}
 
+function waitForWindowLoad(rendererLoad: Promise<void>): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Diagnostic renderer load timed out')), 30_000);
+        rendererLoad.then(() => {
+            clearTimeout(timer);
+            resolve();
+        }, error => {
+            clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
+
+async function runConfiguredSmokeDiagnostic(
+    request: SmokeDiagnosticRequest,
+    runtimeMode: RendererRuntimeMode,
+): Promise<void> {
+    let window: InstanceType<typeof BrowserWindow> | null = null;
+    const baseDependencies = {
+        applicationVersion: app.getVersion(),
+        electronVersion: process.versions.electron ?? '',
+        platform: process.platform,
+        arch: process.arch,
+        isPackaged: app.isPackaged,
+    };
+    try {
+        validateSmokeRuntimeProfile(request, app.getPath('userData'));
+        prepareSmokeDiagnosticDatabase(request);
+        db.initialize();
+        const createdWindow = createWindow(runtimeMode, { show: false });
+        window = createdWindow.window;
+        await waitForWindowLoad(createdWindow.rendererLoad);
+        const result = await runSmokeDiagnostic(request, {
+            ...baseDependencies,
+            actualUserDataPath: app.getPath('userData'),
+            queryNativeSqlite: () => {
+                const row = db.getDb().prepare('SELECT 1 AS query, sqlite_version() AS sqliteVersion').get() as {
+                    query: number;
+                    sqliteVersion: string;
+                };
+                return row;
+            },
+            getRendererSecurityState: async () => {
+                const preferences = window.webContents.getLastWebPreferences();
+                const preloadAvailable = await window.webContents.executeJavaScript(
+                    "Boolean(globalThis.api?.entries && typeof globalThis.api.entries.getAll === 'function')",
+                    true,
+                ) as boolean;
+                return {
+                    sandbox: preferences.sandbox === true,
+                    contextIsolation: preferences.contextIsolation === true,
+                    preloadAvailable,
+                    productionDocument: runtimeMode === 'production'
+                        && window.webContents.getURL().startsWith('file:'),
+                };
+            },
+            roundTripSetting: (key, value) => db.getDb().transaction(() => {
+                const existing = db.getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
+                if (existing) throw new Error('Diagnostic setting key already exists');
+                const write = db.getDb().prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, value);
+                const read = db.getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as {
+                    value?: unknown;
+                } | undefined;
+                db.getDb().prepare('DELETE FROM settings WHERE key = ?').run(key);
+                const after = db.getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
+                return {
+                    written: write.changes === 1,
+                    readBack: read?.value === value,
+                    cleaned: after === undefined,
+                };
+            })(),
+        });
+        writeSmokeDiagnosticResult(request, result);
+        window.destroy();
+        app.exit(result.result === 'passed' ? 0 : 1);
+    } catch {
+        try {
+            writeSmokeDiagnosticResult(request, createFailedSmokeDiagnosticResult(request, baseDependencies));
+        } catch {
+        }
+        if (window && !window.isDestroyed()) window.destroy();
+        process.stderr.write('[smoke-diagnostic] Diagnostic run failed\n');
+        app.exit(1);
+    }
+}
+
+app.whenReady().then(async () => {
+    if (smokeDiagnosticConfigurationFailed) {
+        app.exit(2);
+        return;
+    }
+
+    const runtimeMode: RendererRuntimeMode = smokeDiagnosticRequest ? 'production' : getRendererRuntimeMode();
+
+    if (process.platform === 'win32') {
+        configureWindowsAppUserModelId();
+    }
+
+    configureRuntimeSecurity(runtimeMode);
+
+    if (smokeDiagnosticRequest) {
+        await runConfiguredSmokeDiagnostic(smokeDiagnosticRequest, runtimeMode);
+        return;
+    }
     db.initialize();
     fileManager.initialize();
     createWindow(runtimeMode);
@@ -279,6 +399,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
+    if (smokeDiagnosticRequest || smokeDiagnosticConfigurationFailed) return;
     if (BrowserWindow.getAllWindows().length === 0) createWindow(getRendererRuntimeMode());
 });
 
