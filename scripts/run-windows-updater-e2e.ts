@@ -33,6 +33,8 @@ const stagingBundlePath = path.join(projectRoot, 'test-results', 'windows-update
 const evidenceDirectory = path.join(projectRoot, 'test-results', 'windows-updater-e2e-evidence');
 const temporaryPrefix = 'minddiary-updater-e2e-build-';
 const childEnvironment = createUpdaterE2eChildEnvironment(process.env);
+const nodeExecutable = process.execPath;
+const npmCliPath = path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js');
 
 function run(
   executable: string,
@@ -63,6 +65,23 @@ function capture(executable: string, args: string[], cwd: string): string {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${executable} failed: ${result.stderr}`);
   return result.stdout.trim();
+}
+
+function runNpm(args: string[], cwd: string, timeout: number): void {
+  run(nodeExecutable, [npmCliPath, ...args], cwd, timeout);
+}
+
+function runWorkspaceCli(
+  worktree: string,
+  relativeCliPath: string,
+  args: string[],
+  timeout: number,
+  environment: NodeJS.ProcessEnv = childEnvironment,
+): void {
+  const cliPath = path.join(worktree, relativeCliPath);
+  const stat = fs.lstatSync(cliPath);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Workspace CLI is not a physical file');
+  run(nodeExecutable, [cliPath, ...args], worktree, timeout, environment);
 }
 
 async function reservePort(): Promise<number> {
@@ -103,14 +122,13 @@ function readCandidateFixture(worktree: string, expectedVersion: string): Candid
 }
 
 function buildCandidate(worktree: string, version: string, providerUrl: string): CandidateFixture {
-  run('npm.cmd', ['ci'], worktree, 600_000);
-  run('npm.cmd', ['run', 'build:electron'], worktree, 300_000);
-  run('npx.cmd', ['vite', 'build'], worktree, 300_000);
-  run('npm.cmd', ['run', 'build:resources'], worktree, 300_000);
-  run('npm.cmd', ['run', 'rebuild:electron'], worktree, 600_000);
-  run('npm.cmd', ['run', 'verify:electron-native'], worktree, 180_000);
-  run('npx.cmd', [
-    'electron-builder',
+  runNpm(['ci'], worktree, 600_000);
+  runNpm(['run', 'build:electron'], worktree, 300_000);
+  runWorkspaceCli(worktree, 'node_modules/vite/bin/vite.js', ['build'], 300_000);
+  runNpm(['run', 'build:resources'], worktree, 300_000);
+  runNpm(['run', 'rebuild:electron'], worktree, 600_000);
+  runNpm(['run', 'verify:electron-native'], worktree, 180_000);
+  runWorkspaceCli(worktree, 'node_modules/electron-builder/out/cli/cli.js', [
     '--win',
     'nsis',
     '--x64',
@@ -119,7 +137,7 @@ function buildCandidate(worktree: string, version: string, providerUrl: string):
     '--config.publish.provider=generic',
     `--config.publish.url=${providerUrl}`,
     '--config.publish.useMultipleRangeRequest=false',
-  ], worktree, 900_000);
+  ], 900_000);
   const fixture = readCandidateFixture(worktree, version);
   const appUpdate = load(fs.readFileSync(fixture.appUpdatePath, 'utf8')) as {
     provider?: unknown;
@@ -139,6 +157,10 @@ function buildCandidate(worktree: string, version: string, providerUrl: string):
 async function main(): Promise<void> {
   if (process.platform !== 'win32') throw new Error('Windows NSIS updater E2E requires Windows');
   assertNoUpdaterE2eSigningEnvironment(process.env);
+  const npmCliStat = fs.lstatSync(npmCliPath);
+  if (!npmCliStat.isFile() || npmCliStat.isSymbolicLink()) {
+    throw new Error('Updater E2E requires the physical npm CLI bundled with the active Node runtime');
+  }
   process.chdir(projectRoot);
   fs.mkdirSync(path.dirname(stagingBundlePath), { recursive: true });
   fs.rmSync(stagingBundlePath, { force: true });
@@ -160,7 +182,7 @@ async function main(): Promise<void> {
     createdWorktrees.push(oldWorktree);
     run('git', ['worktree', 'add', '--detach', newWorktree, headSha], projectRoot, 180_000);
     createdWorktrees.push(newWorktree);
-    run('npm.cmd', ['version', '1.16.1', '--no-git-tag-version'], newWorktree, 120_000);
+    runNpm(['version', '1.16.1', '--no-git-tag-version'], newWorktree, 120_000);
     const oldFixture = buildCandidate(oldWorktree, '1.16.0', providerUrl);
     const newFixture = buildCandidate(newWorktree, '1.16.1', providerUrl);
     const manifest: FixtureManifest = {
@@ -172,7 +194,11 @@ async function main(): Promise<void> {
     };
     const manifestPath = path.join(temporaryRoot, 'fixture-manifest.json');
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
-    run('npx.cmd', ['playwright', 'test', '--config', 'playwright.updater.config.ts'], projectRoot, 4_500_000, {
+    runWorkspaceCli(projectRoot, 'node_modules/@playwright/test/cli.js', [
+      'test',
+      '--config',
+      'playwright.updater.config.ts',
+    ], 4_500_000, {
       ...childEnvironment,
       MINDDIARY_UPDATER_FIXTURE_MANIFEST: manifestPath,
     });
@@ -217,7 +243,7 @@ async function main(): Promise<void> {
     throw new Error('Temporary 1.16.1 version leaked into the main worktree');
   }
   run('git', ['diff', '--exit-code', '--', 'package.json', 'package-lock.json'], projectRoot, 120_000);
-  run('npm.cmd', ['run', 'verify:electron-native'], projectRoot, 180_000);
+  runNpm(['run', 'verify:electron-native'], projectRoot, 180_000);
 
   const bundle = JSON.parse(fs.readFileSync(stagingBundlePath, 'utf8')) as UpdaterEvidenceBundle;
   if (bundle['cleanup-result.json'].headSha !== headSha) {

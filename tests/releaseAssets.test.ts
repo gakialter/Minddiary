@@ -148,6 +148,12 @@ describe('release asset allowlist', () => {
       .toBe('playwright test --config playwright.setup.config.ts')
     expect(packageJson.scripts['test:e2e:updater'])
       .toBe('tsx scripts/run-windows-updater-e2e.ts')
+    const updaterOrchestrator = fs.readFileSync(path.resolve(process.cwd(), 'scripts/run-windows-updater-e2e.ts'), 'utf8')
+    expect(updaterOrchestrator).toContain("const nodeExecutable = process.execPath")
+    expect(updaterOrchestrator).toContain("'node_modules', 'npm', 'bin', 'npm-cli.js'")
+    expect(updaterOrchestrator).toContain("runWorkspaceCli(projectRoot, 'node_modules/@playwright/test/cli.js'")
+    expect(updaterOrchestrator).not.toContain("run('npm.cmd'")
+    expect(updaterOrchestrator).not.toContain("run('npx.cmd'")
     expect(packageJson.scripts['test:asar-integrity:packaged'])
       .toBe('node scripts/test-packaged-asar-integrity.mjs --release-dir release')
 
