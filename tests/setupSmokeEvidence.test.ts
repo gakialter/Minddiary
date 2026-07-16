@@ -6,6 +6,7 @@ import type { SmokeDiagnosticProcessResult } from './helpers/smokeDiagnosticRunn
 import {
   SETUP_EVIDENCE_FILES,
   collectPhysicalInstallTree,
+  runSetupProcess,
   uninstallCommandTargetsPhysicalFile,
   writeSetupSmokeEvidence,
   type SetupSmokeEvidenceInput,
@@ -193,4 +194,19 @@ describe('Windows Setup smoke evidence', () => {
     expect(uninstallCommandTargetsPhysicalFile(installRoot, `"${otherUninstaller}" /currentuser`)).toBe(false);
     expect(uninstallCommandTargetsPhysicalFile(installRoot, `${uninstaller} /currentuser`)).toBe(false);
   });
+
+  it.runIf(process.platform === 'win32')(
+    'reports only bounded process lifecycle state when installer execution times out',
+    async () => {
+      await expect(runSetupProcess(
+        process.execPath,
+        ['-e', 'setTimeout(() => process.exit(0), 1000)'],
+        'bounded-timeout fixture',
+        100,
+      )).rejects.toThrow(
+        'bounded-timeout fixture timed out '
+        + '(exitObserved=false; closeObserved=false; exitCode=null; stdoutEnded=false; stderrEnded=false)',
+      );
+    },
+  );
 });

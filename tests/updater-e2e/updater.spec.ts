@@ -644,11 +644,22 @@ test('updates a real installed NSIS application through electron-updater and pre
   try {
     expect(await server.start(manifest.port)).toBe(manifest.port);
     server.setMode('no-update');
-    const install = await runSetupProcess(
-      manifest.old.setupPath,
-      ['/S', `/D=${installPath}`],
-      'Windows updater E2E old candidate install',
-    );
+    let install: Awaited<ReturnType<typeof runSetupProcess>>;
+    try {
+      install = await runSetupProcess(
+        manifest.old.setupPath,
+        ['/S', `/D=${installPath}`],
+        'Windows updater E2E old candidate install',
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Windows updater E2E old candidate install timed out')) {
+        throw new Error(
+          `${error.message}; installedExecutablePresent=${fs.existsSync(installedExecutable)}; `
+          + `installedUninstallerPresent=${fs.existsSync(installedUninstaller)}`,
+        );
+      }
+      throw error;
+    }
     expect(install.exitCode).toBe(0);
     await waitForCondition(
       () => fs.existsSync(installedExecutable) && fs.existsSync(installedUninstaller),

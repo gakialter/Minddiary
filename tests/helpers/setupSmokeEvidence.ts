@@ -169,18 +169,31 @@ export async function runSetupProcess(
   const capture = (chunk: Buffer) => {
     outputText = `${outputText}${chunk.toString('utf8')}`.slice(-32_000);
   };
+  let exitObserved = false;
+  let closeObserved = false;
+  let stdoutEnded = false;
+  let stderrEnded = false;
   child.stdout.on('data', capture);
   child.stderr.on('data', capture);
+  child.stdout.once('end', () => { stdoutEnded = true; });
+  child.stderr.once('end', () => { stderrEnded = true; });
+  child.once('exit', () => { exitObserved = true; });
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      const exitCode = child.exitCode;
       killProcessTree(child);
-      reject(new Error(`${label} timed out`));
+      reject(new Error(
+        `${label} timed out `
+        + `(exitObserved=${exitObserved}; closeObserved=${closeObserved}; exitCode=${exitCode ?? 'null'}; `
+        + `stdoutEnded=${stdoutEnded}; stderrEnded=${stderrEnded})`,
+      ));
     }, timeoutMs);
     child.once('error', error => {
       clearTimeout(timer);
       reject(error);
     });
     child.once('close', exitCode => {
+      closeObserved = true;
       clearTimeout(timer);
       resolve({ exitCode, outputText });
     });
