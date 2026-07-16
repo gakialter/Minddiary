@@ -176,6 +176,7 @@ function listProcesses(names: ReadonlySet<string>): Array<{ pid: number; name: s
 
 function createProcessWatcher(names: ReadonlySet<string>): {
   seen: Map<number, SeenProcess>;
+  start: () => void;
   stop: () => void;
   sample: () => void;
 } {
@@ -188,9 +189,21 @@ function createProcessWatcher(names: ReadonlySet<string>): {
       }
     }
   };
-  sample();
-  const timer = setInterval(sample, 250);
-  return { seen, sample, stop: () => clearInterval(timer) };
+  let timer: NodeJS.Timeout | undefined;
+  const start = () => {
+    if (timer) throw new Error('Process watcher already started');
+    sample();
+    timer = setInterval(sample, 250);
+  };
+  return {
+    seen,
+    sample,
+    start,
+    stop: () => {
+      if (timer) clearInterval(timer);
+      timer = undefined;
+    },
+  };
 }
 
 function listLiveProcesses(): LiveProcess[] {
@@ -666,6 +679,7 @@ test('updates a real installed NSIS application through electron-updater and pre
       'updater E2E installed files',
     );
     expect(readProductVersion(installedExecutable)).toBe('1.16.0');
+    watcher.start();
 
     const installedAppUpdatePath = path.join(installPath, 'resources', 'app-update.yml');
     const installedAppUpdate = load(fs.readFileSync(installedAppUpdatePath, 'utf8')) as {
