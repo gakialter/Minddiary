@@ -226,11 +226,12 @@ export interface UpdateStatus {
   total?: number
   /** Human-readable error message */
   message?: string
+  errorCode?: 'invalid-metadata' | 'checksum-mismatch' | 'invalid-signature' | 'network' | 'invalid-transition' | 'update-failed'
 }
 
 export interface ElectronUpdaterAPI {
   check: () => Promise<{ success: boolean; message?: string; status?: UpdateStatusType; info?: unknown }>
-  install: () => Promise<void>
+  install: () => Promise<{ success: boolean; message?: string }>
   getStatus: () => Promise<UpdateStatus>
   onStatusChange: (callback: (status: UpdateStatus) => void) => () => void
 }

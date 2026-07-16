@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -44,6 +46,7 @@ jobs:
         run: npm run test:e2e
 
   build-verification:
+    timeout-minutes: 300
     strategy:
       matrix:
         os: [windows-latest, macos-14]
@@ -53,6 +56,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -131,6 +136,19 @@ jobs:
         with:
           name: windows-setup-smoke-${{ github.event.pull_request.head.sha || github.sha }}
           path: test-results/windows-setup-smoke-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Run Windows NSIS installed updater end-to-end
+        if: matrix.os == 'windows-latest'
+        run: npm run test:e2e:updater
+
+      - name: Upload Windows NSIS updater evidence
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-updater-e2e-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/windows-updater-e2e-evidence/*
           if-no-files-found: error
           retention-days: 14
 

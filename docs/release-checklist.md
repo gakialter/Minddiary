@@ -175,6 +175,12 @@ These are manual release gates, not claims made by CI. Do not publish if an expe
 
 没有完成的项目必须标记为 blocked，不得描述为 passed。
 
+### Windows NSIS updater E2E
+
+The Windows CI updater gate builds temporary old/new NSIS candidates from the exact workflow head, installs the old candidate to a disposable path, serves generated updater metadata and files from an IPv4-loopback generic provider, and exercises no-update, invalid-metadata, invalid-checksum, and full check/download/`quitAndInstall`/install/updated-launch paths. It must verify the updated version, Electron ABI, SQLite schema, retained fixed fake data and attachment, bounded request/event evidence, and complete process/profile/install/cache/server/worktree cleanup before uploading `windows-updater-e2e-<HEAD_SHA>`.
+
+This gate is candidate-only. It must not change the committed package version or lockfile, call or modify the production GitHub Release, disable Windows signature validation, treat Portable as an updater target, or claim Authenticode, SmartScreen, the published release channel, published-asset updateability, or macOS updater parity.
+
 ## Final Published Release Verification
 
 - Verify the tag and Release target the intended commit.

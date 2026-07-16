@@ -30,7 +30,14 @@ import {
 } from './electronSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
-import { normalizeUpdaterReleaseNotes, preserveUpdaterReleaseDetails } from './updaterReleaseNotes';
+import { normalizeUpdaterReleaseNotes } from './updaterReleaseNotes';
+import {
+    canQuitAndInstall,
+    classifyUpdaterError,
+    transitionUpdaterStatus,
+    type UpdaterEvent,
+    type UpdaterStatus,
+} from './updaterState';
 import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
 import { getLocalDateKey } from '../src/utils/dateKey';
@@ -165,13 +172,26 @@ function getCurrentTaskCreationDateKey(): string {
 
 // ==================== Auto Updater ====================
 
-let lastUpdaterStatus: Record<string, unknown> = { status: 'idle' }
+let lastUpdaterStatus: UpdaterStatus = { status: 'idle' }
 
 /** Push updater status to renderer via webContents.send (matches window:maximized-change pattern). */
-function pushUpdaterStatus(status: Record<string, unknown>) {
+function pushUpdaterStatus(status: UpdaterStatus) {
     lastUpdaterStatus = status
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('updater:status', status);
+    }
+}
+
+function applyUpdaterEvent(event: UpdaterEvent): void {
+    try {
+        pushUpdaterStatus(transitionUpdaterStatus(lastUpdaterStatus, event));
+    } catch {
+        logger.warn('[updater] Rejected invalid updater state transition');
+        pushUpdaterStatus({
+            status: 'error',
+            message: '自动更新状态异常，请重试',
+            errorCode: 'invalid-transition',
+        });
     }
 }
 
@@ -203,13 +223,19 @@ function initAutoUpdater() {
         return;
     }
 
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoRunAppAfterInstall = true;
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
+
     autoUpdater.on('checking-for-update', () => {
-        pushUpdaterStatus({ status: 'checking' });
+        applyUpdaterEvent({ type: 'checking' });
     });
 
     autoUpdater.on('update-available', (info: { version: string; releaseNotes?: unknown; releaseDate?: unknown }) => {
-        pushUpdaterStatus({
-            status: 'available',
+        applyUpdaterEvent({
+            type: 'available',
             version: info.version,
             releaseNotes: normalizeUpdaterReleaseNotes(info.releaseNotes),
             releaseDate: typeof info.releaseDate === 'string' ? info.releaseDate : undefined,
@@ -217,28 +243,28 @@ function initAutoUpdater() {
     });
 
     autoUpdater.on('update-not-available', () => {
-        pushUpdaterStatus({ status: 'not-available' });
+        applyUpdaterEvent({ type: 'not-available' });
     });
 
     autoUpdater.on('download-progress', (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
-        pushUpdaterStatus(preserveUpdaterReleaseDetails(lastUpdaterStatus, {
-            status: 'downloading',
-            percent: Math.round(progress.percent),
+        applyUpdaterEvent({
+            type: 'download-progress',
+            percent: progress.percent,
             bytesPerSecond: progress.bytesPerSecond,
             transferred: progress.transferred,
             total: progress.total,
-        }));
+        });
     });
 
     autoUpdater.on('update-downloaded', (info: { version: string }) => {
-        pushUpdaterStatus(preserveUpdaterReleaseDetails(lastUpdaterStatus, {
-            status: 'downloaded',
+        applyUpdaterEvent({
+            type: 'downloaded',
             version: info.version,
-        }));
+        });
     });
 
     autoUpdater.on('error', (err: Error) => {
-        pushUpdaterStatus({ status: 'error', message: err.message || String(err) });
+        applyUpdaterEvent({ type: 'error', error: err });
     });
 
     // Silent check on startup (errors are pushed via the 'error' event)
@@ -254,14 +280,19 @@ ipcMain.handle('updater:check', async () => {
         // Status transitions are pushed to renderer via autoUpdater events
         return { success: true };
     } catch (e: unknown) {
-        logger.error('Update check failed:', e instanceof Error ? e.message : String(e));
-        return { success: false, message: '检查更新失败: ' + (e instanceof Error ? e.message : String(e)) };
+        logger.error('[updater] Update check failed');
+        const safeError = classifyUpdaterError(e);
+        return { success: false, ...safeError };
     }
 });
 
 ipcMain.handle('updater:install', () => {
-    if (!autoUpdater) return;
-    autoUpdater.quitAndInstall(false, true); // 强制重启应用，避免闪退感
+    if (!autoUpdater) return { success: false, message: '环境不支持自动更新' };
+    if (!canQuitAndInstall(lastUpdaterStatus)) {
+        return { success: false, message: '更新尚未下载完成' };
+    }
+    autoUpdater.quitAndInstall(false, true);
+    return { success: true };
 });
 
 ipcMain.handle('updater:getStatus', () => {
@@ -383,8 +414,37 @@ async function runInstallProfileRoundTrip(
     readBack: boolean;
     localProtocol: boolean;
     cleaned: boolean;
+    businessDataExact: boolean;
 }> {
-    return window.webContents.executeJavaScript(`(async () => {
+    const businessTables = [
+        'entries',
+        'tags',
+        'entry_tags',
+        'attachments',
+        'subjects',
+        'subject_chapters',
+        'pomodoro_sessions',
+        'mistakes',
+        'study_tasks',
+        'ai_chats',
+        'diary_templates',
+    ] as const;
+    const snapshotBusinessRows = (): Record<typeof businessTables[number], number> => Object.fromEntries(
+        businessTables.map(table => {
+            const row = db.getDb().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
+            return [table, row.count];
+        }),
+    ) as Record<typeof businessTables[number], number>;
+    const isEmptySnapshot = (snapshot: Record<typeof businessTables[number], number>): boolean => (
+        businessTables.every(table => snapshot[table] === 0)
+    );
+    const isSeededSnapshot = (snapshot: Record<typeof businessTables[number], number>): boolean => (
+        snapshot.entries === 1
+        && snapshot.attachments === 1
+        && businessTables.every(table => table === 'entries' || table === 'attachments' || snapshot[table] === 0)
+    );
+    const before = snapshotBusinessRows();
+    const probe = await window.webContents.executeJavaScript(`(async () => {
         const probe = {
             phase: 'seeded',
             created: false,
@@ -456,14 +516,19 @@ async function runInstallProfileRoundTrip(
             }
             throw error;
         }
-    })()`, true) as Promise<{
+    })()`, true) as {
         phase: 'seeded' | 'reopened';
         created: boolean;
         retained: boolean;
         readBack: boolean;
         localProtocol: boolean;
         cleaned: boolean;
-    }>;
+    };
+    const after = snapshotBusinessRows();
+    const businessDataExact = probe.phase === 'seeded'
+        ? isEmptySnapshot(before) && isSeededSnapshot(after)
+        : isSeededSnapshot(before) && isEmptySnapshot(after);
+    return { ...probe, businessDataExact };
 }
 
 async function runConfiguredSmokeDiagnostic(
@@ -474,6 +539,7 @@ async function runConfiguredSmokeDiagnostic(
     const baseDependencies = {
         applicationVersion: app.getVersion(),
         electronVersion: process.versions.electron ?? '',
+        nodeModuleAbi: process.versions.modules ?? '',
         platform: process.platform,
         arch: process.arch,
         isPackaged: app.isPackaged,
@@ -497,7 +563,10 @@ async function runConfiguredSmokeDiagnostic(
                     query: number;
                     sqliteVersion: string;
                 };
-                return row;
+                return {
+                    ...row,
+                    schemaVersion: db.getDb().pragma('user_version', { simple: true }) as number,
+                };
             },
             getRendererSecurityState: async () => {
                 const preferences = window.webContents.getLastWebPreferences();

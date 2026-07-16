@@ -146,6 +146,8 @@ describe('release asset allowlist', () => {
       .toBe('playwright test --config playwright.portable.config.ts')
     expect(packageJson.scripts['test:e2e:setup-smoke'])
       .toBe('playwright test --config playwright.setup.config.ts')
+    expect(packageJson.scripts['test:e2e:updater'])
+      .toBe('tsx scripts/run-windows-updater-e2e.ts')
     expect(packageJson.scripts['test:asar-integrity:packaged'])
       .toBe('node scripts/test-packaged-asar-integrity.mjs --release-dir release')
 
@@ -183,6 +185,7 @@ describe('release asset allowlist', () => {
     expect(ciWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:portable-smoke/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:setup-smoke/g)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run test:e2e:updater/g)).toHaveLength(1)
     expect(ciWorkflow).toContain('npx electron-builder --win nsis portable --x64 --publish never')
     expect(ciWorkflow).toContain(
       'name: windows-portable-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
@@ -192,6 +195,12 @@ describe('release asset allowlist', () => {
       'name: windows-setup-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
     )
     expect(ciWorkflow).toContain('test-results/windows-setup-smoke-evidence/*')
+    expect(ciWorkflow).toContain(
+      'name: windows-updater-e2e-${{ github.event.pull_request.head.sha || github.sha }}',
+    )
+    expect(ciWorkflow).toContain('test-results/windows-updater-e2e-evidence/*')
+    expect(ciWorkflow).toContain('timeout-minutes: 300')
+    expect(ciWorkflow.match(/ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/g)).toHaveLength(2)
     expect(ciWorkflow).toContain(
       'name: windows-date-rollover-${{ github.event.pull_request.head.sha || github.sha }}',
     )

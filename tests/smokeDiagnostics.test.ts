@@ -53,11 +53,12 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
   return {
     applicationVersion: '1.16.0',
     electronVersion: '42.6.1',
+    nodeModuleAbi: '146',
     platform: process.platform,
     arch: process.arch,
     isPackaged: true,
     actualUserDataPath: request.profilePath,
-    queryNativeSqlite: () => ({ query: 1, sqliteVersion: '3.53.2' }),
+    queryNativeSqlite: () => ({ query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 }),
     getRendererSecurityState: async () => ({
       sandbox: true,
       contextIsolation: true,
@@ -79,6 +80,7 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
       readBack: true,
       localProtocol: true,
       cleaned: false,
+      businessDataExact: true,
     }),
     runDateRollover: async () => makeDateRolloverDetails(),
   };
@@ -314,7 +316,7 @@ describe('packaged smoke diagnostics', () => {
     writeSmokeDiagnosticResult(request, result);
 
     expect(result.result).toBe('passed');
-    expect(result.nativeSqlite).toEqual({ loaded: true, query: 1, sqliteVersion: '3.53.2' });
+    expect(result.nativeSqlite).toEqual({ loaded: true, query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 });
     const serialized = fs.readFileSync(request.outputPath, 'utf8');
     expect(serialized).not.toContain(request.profilePath);
     expect(serialized).not.toContain(request.outputPath);
@@ -398,6 +400,7 @@ describe('packaged smoke diagnostics', () => {
       { check: 'profile-data-create', passed: true },
       { check: 'profile-data-read-back', passed: true },
       { check: 'local-protocol-load', passed: true },
+      { check: 'install-profile-business-data-exact', passed: true },
       { check: 'install-profile-phase-consistent', passed: true },
     ]));
     expect(seeded.evidence.some(item => item.check === 'profile-data-cleanup')).toBe(false);
@@ -409,6 +412,7 @@ describe('packaged smoke diagnostics', () => {
       readBack: true,
       localProtocol: true,
       cleaned: true,
+      businessDataExact: true,
     });
     const reopened = await runSmokeDiagnostic(request, dependencies);
     expect(reopened.result).toBe('passed');
@@ -416,6 +420,7 @@ describe('packaged smoke diagnostics', () => {
       { check: 'installed-profile-reopened', passed: true },
       { check: 'profile-data-retained', passed: true },
       { check: 'profile-data-cleanup', passed: true },
+      { check: 'install-profile-business-data-exact', passed: true },
       { check: 'install-profile-phase-consistent', passed: true },
     ]));
     expect(reopened.evidence.some(item => item.check === 'profile-data-create')).toBe(false);

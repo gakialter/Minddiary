@@ -47,6 +47,14 @@ describe('release workflow Windows signing policy', () => {
     expect(workflow).not.toContain('name: windows-date-rollover-evidence-release')
   })
 
+  it('runs the installed Windows NSIS updater E2E only in CI and keeps evidence out of releases', () => {
+    expect(ciWorkflow).toContain('run: npm run test:e2e:updater')
+    expect(ciWorkflow).toContain('name: windows-updater-e2e-${{ github.event.pull_request.head.sha || github.sha }}')
+    expect(ciWorkflow).toContain('path: test-results/windows-updater-e2e-evidence/*')
+    expect(ciWorkflow).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}')
+    expect(workflow).not.toContain('windows-updater-e2e')
+  })
+
   it('requires valid Windows signatures when both signing secrets are configured', () => {
     expect(workflow).toContain("HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}")
     expect(workflow).toContain("HAS_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD != '' }}")
