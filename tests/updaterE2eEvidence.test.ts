@@ -1,11 +1,15 @@
 // @vitest-environment node
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { validateConfiguration } from 'app-builder-lib/out/util/config/config';
+import { DebugLogger } from 'builder-util/out/DebugLogger';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   UPDATER_EVIDENCE_FILES,
   assertNoUpdaterE2eSigningEnvironment,
+  configureDisposableUpdaterPublish,
   createUpdaterE2eChildEnvironment,
   scanUpdaterEvidencePrivacy,
   validateLoopbackProviderUrl,
@@ -16,10 +20,23 @@ import {
 } from './helpers/updaterE2eEvidence';
 
 const evidenceDirectory = path.resolve('test-results', 'windows-updater-e2e-evidence');
+const disposableBuildDirectories: string[] = [];
 
 afterEach(() => {
   fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+  for (const directory of disposableBuildDirectories.splice(0)) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
+
+function createDisposableBuildPackage(version = '1.16.0'): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-updater-config-'));
+  disposableBuildDirectories.push(directory);
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as Record<string, unknown>;
+  packageJson.version = version;
+  fs.writeFileSync(path.join(directory, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
+  return directory;
+}
 
 function makeRecord(filename: UpdaterJsonEvidenceFile): Record<string, unknown> {
   const common = {
@@ -87,6 +104,37 @@ describe('updater E2E evidence', () => {
     expect(() => validateLoopbackProviderUrl('https://github.com/releases')).toThrow(/loopback/);
     expect(() => validateLoopbackProviderUrl('http://127.0.0.1:43123/?key=secret')).toThrow(/loopback/);
     expect(() => validateLoopbackProviderUrl('http://user:pass@127.0.0.1:43123/')).toThrow(/loopback/);
+  });
+
+  it('writes a schema-valid generic provider only inside a disposable package', async () => {
+    const directory = createDisposableBuildPackage();
+    configureDisposableUpdaterPublish(directory, '1.16.0', 'http://127.0.0.1:43123/');
+    const packageJson = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8')) as {
+      version: string;
+      build: Record<string, unknown>;
+    };
+    expect(packageJson.version).toBe('1.16.0');
+    expect(packageJson.build.publish).toEqual([{
+      provider: 'generic',
+      url: 'http://127.0.0.1:43123/',
+      useMultipleRangeRequest: false,
+    }]);
+    await expect(validateConfiguration(packageJson.build, new DebugLogger(false))).resolves.toBeUndefined();
+  });
+
+  it('refuses remote providers, unexpected versions, and altered production publishing', () => {
+    const remote = createDisposableBuildPackage();
+    expect(() => configureDisposableUpdaterPublish(remote, '1.16.0', 'https://github.com/releases/')).toThrow(/loopback/);
+
+    const wrongVersion = createDisposableBuildPackage();
+    expect(() => configureDisposableUpdaterPublish(wrongVersion, '1.16.1', 'http://127.0.0.1:43123/')).toThrow(/version/);
+
+    const altered = createDisposableBuildPackage();
+    const packagePath = path.join(altered, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as { build: { publish: unknown } };
+    packageJson.build.publish = [{ provider: 'generic', url: 'http://127.0.0.1:43123/' }];
+    fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+    expect(() => configureDisposableUpdaterPublish(altered, '1.16.0', 'http://127.0.0.1:43123/')).toThrow(/production publish/);
   });
 
   it('rejects path, secret, query, and database-content leakage', () => {

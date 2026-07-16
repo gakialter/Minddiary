@@ -292,6 +292,67 @@ export function validateLoopbackProviderUrl(value: string): URL {
   return url;
 }
 
+export function configureDisposableUpdaterPublish(
+  worktree: string,
+  expectedVersion: string,
+  providerUrl: string,
+): void {
+  validateLoopbackProviderUrl(providerUrl);
+  const worktreeStat = fs.lstatSync(worktree);
+  if (!worktreeStat.isDirectory() || worktreeStat.isSymbolicLink()) {
+    throw new Error('Updater build worktree must be a physical directory');
+  }
+  const packagePath = path.join(worktree, 'package.json');
+  const packageStat = fs.lstatSync(packagePath);
+  if (!packageStat.isFile() || packageStat.isSymbolicLink()) {
+    throw new Error('Updater build package.json must be a physical file');
+  }
+  const normalizeRealPath = (value: string): string => {
+    const normalized = path.normalize(value);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const realWorktree = normalizeRealPath(fs.realpathSync(worktree));
+  const realPackageParent = normalizeRealPath(path.dirname(fs.realpathSync(packagePath)));
+  if (realPackageParent !== realWorktree) {
+    throw new Error('Updater build package.json escaped its physical worktree');
+  }
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as Record<string, unknown>;
+  if (packageJson.version !== expectedVersion) {
+    throw new Error('Updater build package version does not match the disposable candidate');
+  }
+  if (!packageJson.build || typeof packageJson.build !== 'object' || Array.isArray(packageJson.build)) {
+    throw new Error('Updater build configuration is unavailable');
+  }
+  const build = packageJson.build as Record<string, unknown>;
+  const publish = build.publish;
+  if (!Array.isArray(publish)
+    || publish.length !== 1
+    || !publish[0]
+    || typeof publish[0] !== 'object'
+    || Array.isArray(publish[0])) {
+    throw new Error('Updater build requires the reviewed production publish configuration');
+  }
+  const productionProvider = publish[0] as Record<string, unknown>;
+  if (productionProvider.provider !== 'github'
+    || productionProvider.owner !== 'gakialter'
+    || productionProvider.repo !== 'Minddiary'
+    || 'token' in productionProvider) {
+    throw new Error('Updater build refuses an unexpected production publish configuration');
+  }
+  build.publish = [{
+    provider: 'generic',
+    url: providerUrl,
+    useMultipleRangeRequest: false,
+  }];
+  fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, { encoding: 'utf8' });
+  const configured = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as {
+    build?: { publish?: unknown };
+  };
+  if (JSON.stringify(configured.build?.publish) !== JSON.stringify(build.publish)) {
+    throw new Error('Updater build publish configuration did not persist exactly');
+  }
+}
+
 export function assertDisposableUpdaterPath(candidate: string, prefix: string): string {
   const resolved = path.resolve(candidate);
   const temporaryRoot = path.resolve(os.tmpdir());

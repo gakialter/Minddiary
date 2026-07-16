@@ -152,6 +152,8 @@ describe('release asset allowlist', () => {
     expect(updaterOrchestrator).toContain("const nodeExecutable = process.execPath")
     expect(updaterOrchestrator).toContain("'node_modules', 'npm', 'bin', 'npm-cli.js'")
     expect(updaterOrchestrator).toContain("runWorkspaceCli(projectRoot, 'node_modules/@playwright/test/cli.js'")
+    expect(updaterOrchestrator).toContain('configureDisposableUpdaterPublish(worktree, version, providerUrl)')
+    expect(updaterOrchestrator).not.toContain('--config.publish')
     expect(updaterOrchestrator).not.toContain("run('npm.cmd'")
     expect(updaterOrchestrator).not.toContain("run('npx.cmd'")
     expect(packageJson.scripts['test:asar-integrity:packaged'])

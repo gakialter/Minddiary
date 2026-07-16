@@ -6,6 +6,7 @@ import path from 'node:path';
 import { load } from 'js-yaml';
 import {
   assertNoUpdaterE2eSigningEnvironment,
+  configureDisposableUpdaterPublish,
   createUpdaterE2eChildEnvironment,
   validateLoopbackProviderUrl,
   writeUpdaterEvidence,
@@ -122,6 +123,7 @@ function readCandidateFixture(worktree: string, expectedVersion: string): Candid
 }
 
 function buildCandidate(worktree: string, version: string, providerUrl: string): CandidateFixture {
+  configureDisposableUpdaterPublish(worktree, version, providerUrl);
   runNpm(['ci'], worktree, 600_000);
   runNpm(['run', 'build:electron'], worktree, 300_000);
   runWorkspaceCli(worktree, 'node_modules/vite/bin/vite.js', ['build'], 300_000);
@@ -134,9 +136,6 @@ function buildCandidate(worktree: string, version: string, providerUrl: string):
     '--x64',
     '--publish',
     'never',
-    '--config.publish.provider=generic',
-    `--config.publish.url=${providerUrl}`,
-    '--config.publish.useMultipleRangeRequest=false',
   ], 900_000);
   const fixture = readCandidateFixture(worktree, version);
   const appUpdate = load(fs.readFileSync(fixture.appUpdatePath, 'utf8')) as {
