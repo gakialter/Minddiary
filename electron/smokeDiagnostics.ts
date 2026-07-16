@@ -45,6 +45,46 @@ export type SmokeEvidence = {
     passed: boolean;
 };
 
+export const INSTALL_PROFILE_BUSINESS_TABLES = [
+    'entries',
+    'tags',
+    'entry_tags',
+    'attachments',
+    'subjects',
+    'subject_chapters',
+    'pomodoro_sessions',
+    'mistakes',
+    'study_tasks',
+    'ai_chats',
+    'diary_templates',
+] as const;
+
+export type InstallProfileBusinessSnapshot = Record<typeof INSTALL_PROFILE_BUSINESS_TABLES[number], number>;
+
+function isInstallProfileBaseline(snapshot: InstallProfileBusinessSnapshot): boolean {
+    return INSTALL_PROFILE_BUSINESS_TABLES.every(table => (
+        snapshot[table] === (table === 'diary_templates' ? 3 : 0)
+    ));
+}
+
+function isInstallProfileSeeded(snapshot: InstallProfileBusinessSnapshot): boolean {
+    return INSTALL_PROFILE_BUSINESS_TABLES.every(table => {
+        if (table === 'entries' || table === 'attachments') return snapshot[table] === 1;
+        if (table === 'diary_templates') return snapshot[table] === 3;
+        return snapshot[table] === 0;
+    });
+}
+
+export function validateInstallProfileBusinessSnapshots(
+    phase: 'seeded' | 'reopened',
+    before: InstallProfileBusinessSnapshot,
+    after: InstallProfileBusinessSnapshot,
+): boolean {
+    return phase === 'seeded'
+        ? isInstallProfileBaseline(before) && isInstallProfileSeeded(after)
+        : isInstallProfileSeeded(before) && isInstallProfileBaseline(after);
+}
+
 export type SmokeDiagnosticResult = {
     schemaVersion: 1;
     scenario: SmokeDiagnosticScenario;

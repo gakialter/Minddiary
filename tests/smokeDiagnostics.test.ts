@@ -5,12 +5,14 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   IMPLEMENTED_SMOKE_SCENARIOS,
+  INSTALL_PROFILE_BUSINESS_TABLES,
   SMOKE_PROFILE_MARKER,
   SMOKE_PROFILE_PREFIX,
   SMOKE_RESULT_PREFIX,
   parseSmokeDiagnosticRequest,
   prepareSmokeDiagnosticDatabase,
   runSmokeDiagnostic,
+  validateInstallProfileBusinessSnapshots,
   validateSmokeRuntimeProfile,
   writeSmokeDiagnosticResult,
   type SmokeDiagnosticDependencies,
@@ -128,6 +130,19 @@ function makeDateRolloverDetails(): DateRolloverDiagnosticDetails {
 }
 
 describe('packaged smoke diagnostics', () => {
+  it('accepts only the default-template baseline and fixed install probe delta', () => {
+    const baseline = Object.fromEntries(INSTALL_PROFILE_BUSINESS_TABLES.map(table => [
+      table,
+      table === 'diary_templates' ? 3 : 0,
+    ])) as Record<typeof INSTALL_PROFILE_BUSINESS_TABLES[number], number>;
+    const seeded = { ...baseline, entries: 1, attachments: 1 };
+
+    expect(validateInstallProfileBusinessSnapshots('seeded', baseline, seeded)).toBe(true);
+    expect(validateInstallProfileBusinessSnapshots('reopened', seeded, baseline)).toBe(true);
+    expect(validateInstallProfileBusinessSnapshots('seeded', { ...baseline, study_tasks: 1 }, seeded)).toBe(false);
+    expect(validateInstallProfileBusinessSnapshots('reopened', seeded, { ...baseline, entries: 1 })).toBe(false);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });

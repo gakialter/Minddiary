@@ -43,11 +43,14 @@ import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
 import { getLocalDateKey } from '../src/utils/dateKey';
 import {
     createFailedSmokeDiagnosticResult,
+    INSTALL_PROFILE_BUSINESS_TABLES,
     parseSmokeDiagnosticRequest,
     prepareSmokeDiagnosticDatabase,
     runSmokeDiagnostic,
+    validateInstallProfileBusinessSnapshots,
     validateSmokeRuntimeProfile,
     writeSmokeDiagnosticResult,
+    type InstallProfileBusinessSnapshot,
     type SmokeDiagnosticRequest,
 } from './smokeDiagnostics';
 import {
@@ -416,33 +419,12 @@ async function runInstallProfileRoundTrip(
     cleaned: boolean;
     businessDataExact: boolean;
 }> {
-    const businessTables = [
-        'entries',
-        'tags',
-        'entry_tags',
-        'attachments',
-        'subjects',
-        'subject_chapters',
-        'pomodoro_sessions',
-        'mistakes',
-        'study_tasks',
-        'ai_chats',
-        'diary_templates',
-    ] as const;
-    const snapshotBusinessRows = (): Record<typeof businessTables[number], number> => Object.fromEntries(
-        businessTables.map(table => {
+    const snapshotBusinessRows = (): InstallProfileBusinessSnapshot => Object.fromEntries(
+        INSTALL_PROFILE_BUSINESS_TABLES.map(table => {
             const row = db.getDb().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
             return [table, row.count];
         }),
-    ) as Record<typeof businessTables[number], number>;
-    const isEmptySnapshot = (snapshot: Record<typeof businessTables[number], number>): boolean => (
-        businessTables.every(table => snapshot[table] === 0)
-    );
-    const isSeededSnapshot = (snapshot: Record<typeof businessTables[number], number>): boolean => (
-        snapshot.entries === 1
-        && snapshot.attachments === 1
-        && businessTables.every(table => table === 'entries' || table === 'attachments' || snapshot[table] === 0)
-    );
+    ) as InstallProfileBusinessSnapshot;
     const before = snapshotBusinessRows();
     const probe = await window.webContents.executeJavaScript(`(async () => {
         const probe = {
@@ -525,9 +507,7 @@ async function runInstallProfileRoundTrip(
         cleaned: boolean;
     };
     const after = snapshotBusinessRows();
-    const businessDataExact = probe.phase === 'seeded'
-        ? isEmptySnapshot(before) && isSeededSnapshot(after)
-        : isSeededSnapshot(before) && isEmptySnapshot(after);
+    const businessDataExact = validateInstallProfileBusinessSnapshots(probe.phase, before, after);
     return { ...probe, businessDataExact };
 }
 
