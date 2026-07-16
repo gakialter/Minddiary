@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import type { DateRolloverDiagnosticDetails } from './dateRolloverDiagnostic';
 
 export const SMOKE_PROFILE_PREFIX = 'minddiary-smoke-profile-';
 export const SMOKE_RESULT_PREFIX = 'minddiary-smoke-result-';
@@ -12,6 +13,7 @@ export const IMPLEMENTED_SMOKE_SCENARIOS = [
     'sqlite-read-write',
     'portable-profile',
     'install-profile',
+    'date-rollover',
 ] as const;
 
 export const PLANNED_SMOKE_SCENARIOS = [
@@ -22,7 +24,6 @@ export const PLANNED_SMOKE_SCENARIOS = [
     'clipboard-ipc',
     'pdf-export',
     'updater-status',
-    'date-rollover',
 ] as const;
 
 export type SmokeDiagnosticScenario = typeof IMPLEMENTED_SMOKE_SCENARIOS[number];
@@ -62,6 +63,7 @@ export type SmokeDiagnosticResult = {
     };
     result: 'passed' | 'failed';
     evidence: SmokeEvidence[];
+    dateRollover?: DateRolloverDiagnosticDetails;
 };
 
 export type SmokeDiagnosticDependencies = {
@@ -98,6 +100,7 @@ export type SmokeDiagnosticDependencies = {
         localProtocol: boolean;
         cleaned: boolean;
     }>;
+    runDateRollover: () => Promise<DateRolloverDiagnosticDetails>;
 };
 
 function getUniqueValueArgument(argv: readonly string[], name: string): string | undefined {
@@ -404,6 +407,19 @@ export async function runSmokeDiagnostic(
         );
     }
 
+    let dateRollover: DateRolloverDiagnosticDetails | undefined;
+    if (request.scenario === 'date-rollover') {
+        dateRollover = await dependencies.runDateRollover();
+        evidence.push(
+            ...Object.entries(dateRollover.checks).map(([check, passed]) => ({
+                check: `date-rollover-${check}`,
+                passed,
+            })),
+            { check: 'date-rollover-zero-business-write', passed: dateRollover.businessWrites.duringRollover === 0 },
+            { check: 'date-rollover-confirmed-write', passed: dateRollover.businessWrites.confirmedAfterRollover === 1 },
+        );
+    }
+
     const passed = evidence.every(item => item.passed);
     return {
         schemaVersion: 1,
@@ -423,6 +439,7 @@ export async function runSmokeDiagnostic(
         },
         result: passed ? 'passed' : 'failed',
         evidence,
+        ...(dateRollover ? { dateRollover } : {}),
     };
 }
 

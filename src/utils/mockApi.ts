@@ -3,6 +3,8 @@ import type { ElectronAPI } from '../types/api'
 import { logger } from './logger'
 import { calculateWordCount } from './helpers'
 import { normalizeTag } from './tagStyle'
+import { getLocalDateKey } from './dateKey'
+import { assertTaskCreationDateIsCurrent } from './dateBoundTaskGuard'
 
 const mockEntries: Record<string, unknown> = {}
 
@@ -143,6 +145,12 @@ const mockApi: ElectronAPI = {
                 created_at: now,
                 updated_at: now,
             }
+        },
+        createForCurrentDate: async (task, expectedCurrentDate) => {
+            assertTaskCreationDateIsCurrent(expectedCurrentDate, getLocalDateKey())
+            const createdTask = await mockApi.tasks.create(task)
+            assertTaskCreationDateIsCurrent(expectedCurrentDate, getLocalDateKey())
+            return createdTask
         },
         update: async (id, patch) => ({
             id,

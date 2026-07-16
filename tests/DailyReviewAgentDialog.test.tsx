@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useState } from 'react'
+import { StrictMode, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DailyReviewAgentDialog from '../src/components/DailyReviewAgentDialog'
 import type { AIResponse, DiaryEntry, Mistake, PomodoroStat, StudyTask, Subject } from '../src/types'
@@ -133,7 +133,7 @@ describe('DailyReviewAgentDialog', () => {
   const dialogProps = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => ({
     date,
     aiAPI: { chat: mocks.aiChat },
-    tasksAPI: { getByDate: mocks.tasksGetByDate, create: mocks.tasksCreate },
+    tasksAPI: { getByDate: mocks.tasksGetByDate, createForCurrentDate: mocks.tasksCreate },
     mistakesAPI: { getAll: mocks.mistakesGetAll, getDueCount: mocks.mistakesGetDueCount },
     subjectsAPI: { getAll: mocks.subjectsGetAll },
     entriesAPI: { getByDate: mocks.entriesGetByDate },
@@ -466,7 +466,7 @@ describe('DailyReviewAgentDialog', () => {
         source: 'ai',
         related_entry_id: null,
         related_chapter_id: null,
-      }))
+      }), REVIEW_DATE)
       expect(mocks.onCreated).toHaveBeenCalledTimes(1)
     })
   })
@@ -523,5 +523,38 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not create an old-date candidate when the dialog unmounts during the pre-create refresh', async () => {
+    const view = renderDialog()
+    await generateCandidates()
+    const pendingTasks = createDeferred<StudyTask[]>()
+    mocks.tasksGetByDate.mockReturnValueOnce(Promise.resolve([])).mockReturnValueOnce(pendingTasks.promise)
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+    view.unmount()
+
+    await act(async () => {
+      pendingTasks.resolve([])
+      await pendingTasks.promise
+    })
+
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('creates normally after the StrictMode mount-effect replay', async () => {
+    render(
+      <StrictMode>
+        <DailyReviewAgentDialog {...dialogProps()} />
+      </StrictMode>,
+    )
+    await generateCandidates()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ planned_date: CANDIDATE_DATE, source: 'ai' }),
+      REVIEW_DATE,
+    ))
   })
 })

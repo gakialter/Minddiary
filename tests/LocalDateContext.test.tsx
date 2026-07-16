@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LocalDateProvider, useCurrentLocalDateKey } from '../src/contexts/LocalDateContext'
+import { LocalDateProvider, useCurrentLocalDate, useCurrentLocalDateKey } from '../src/contexts/LocalDateContext'
 
 describe('LocalDateProvider', () => {
   beforeEach(() => {
@@ -24,6 +24,23 @@ describe('LocalDateProvider', () => {
     })
 
     expect(result.current).toBe('2026-05-05')
+  })
+
+  it('supports an injected clock without changing the process-wide system date', () => {
+    const actualSystemDate = new Date()
+    let now = new Date(2026, 4, 31, 23, 59, 59)
+    const { result } = renderHook(() => useCurrentLocalDate(), {
+      wrapper: ({ children }) => <LocalDateProvider getNow={() => now}>{children}</LocalDateProvider>,
+    })
+
+    expect(result.current.currentDateKey).toBe('2026-05-31')
+    now = new Date(2026, 5, 1, 0, 0, 1)
+    act(() => {
+      expect(result.current.refreshCurrentDateKey()).toBe('2026-06-01')
+    })
+
+    expect(result.current.currentDateKey).toBe('2026-06-01')
+    expect(Math.abs(Date.now() - actualSystemDate.getTime())).toBeLessThan(5_000)
   })
 
   it('reschedules after each rollover instead of using a fixed one-shot timer', async () => {

@@ -6,6 +6,7 @@ import {
   runSmokeDiagnosticProcess,
   type SmokeDiagnosticProcessResult,
 } from '../helpers/smokeDiagnosticRunner';
+import { writeDateRolloverEvidence } from '../helpers/dateRolloverEvidence';
 
 const projectRoot = path.resolve(__dirname, '..', '..');
 
@@ -54,6 +55,48 @@ test('runs the packaged diagnostic harness without exposing secrets or paths', a
     expect(run.outputText).not.toContain(run.profilePath);
     expect(run.outputText).not.toContain(run.outputPath);
     expect(run.outputText).not.toContain(run.token);
+  } finally {
+    if (run) cleanupSmokeDiagnosticProcess(run);
+  }
+});
+
+test('runs packaged local-date rollover with bounded UI, request, and SQLite evidence', async () => {
+  test.skip(process.platform !== 'win32', 'Packaged rollover evidence currently targets Windows');
+  let run: SmokeDiagnosticProcessResult | undefined;
+  try {
+    run = await runSmokeDiagnosticProcess({
+      executablePath: findPackagedExecutable(),
+      scenario: 'date-rollover',
+      expectedPackaged: true,
+      timeoutMs: 90_000,
+    });
+
+    expect(run.result.result).toBe('passed');
+    expect(run.result.dateRollover).toMatchObject({
+      oldDate: '2026-05-31',
+      newDate: '2026-06-01',
+      oldCandidateDate: '2026-06-01',
+      newCandidateDate: '2026-06-02',
+      businessWrites: { duringRollover: 0, confirmedAfterRollover: 1 },
+      createdTask: { plannedDate: '2026-06-02', status: 'todo', source: 'ai' },
+      checks: {
+        oldDialogOpened: true,
+        oldCandidateGenerated: true,
+        oldDialogClosedAtRollover: true,
+        oldCandidateDetached: true,
+        oldCandidateMainWriteRejected: true,
+        rolloverZeroWrite: true,
+        newDialogOpened: true,
+        newCandidateGenerated: true,
+        requestDatesCorrect: true,
+        confirmedTaskUsesNewCandidateDate: true,
+        cleanupComplete: true,
+      },
+    });
+    expect(run.result.dateRollover?.mockRequests).toHaveLength(2);
+    expect(JSON.stringify(run.result)).not.toContain(run.token);
+    expect(JSON.stringify(run.result)).not.toContain(run.profilePath);
+    writeDateRolloverEvidence({ result: run.result, projectRoot });
   } finally {
     if (run) cleanupSmokeDiagnosticProcess(run);
   }

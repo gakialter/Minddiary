@@ -192,6 +192,10 @@ describe('release asset allowlist', () => {
       'name: windows-setup-smoke-${{ github.event.pull_request.head.sha || github.sha }}',
     )
     expect(ciWorkflow).toContain('test-results/windows-setup-smoke-evidence/*')
+    expect(ciWorkflow).toContain(
+      'name: windows-date-rollover-${{ github.event.pull_request.head.sha || github.sha }}',
+    )
+    expect(ciWorkflow).toContain('test-results/date-rollover-evidence/*')
     expect(ciWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
     expect(releaseWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
     expect(releaseWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(2)
@@ -202,6 +206,8 @@ describe('release asset allowlist', () => {
     expect(releaseWorkflow.match(/run: npm run test:e2e:setup-smoke/g)).toHaveLength(1)
     expect(releaseWorkflow).toContain('name: windows-setup-smoke-evidence')
     expect(releaseWorkflow).toContain('path: test-results/windows-setup-smoke-evidence/*')
+    expect(releaseWorkflow).toContain('name: windows-date-rollover-evidence')
+    expect(releaseWorkflow).toContain('path: test-results/date-rollover-evidence/*')
     expect(releaseWorkflow).toContain("pattern: '*-release'")
     expect(releaseWorkflow.match(/run: npm run test:asar-integrity:packaged/g)).toHaveLength(1)
   })

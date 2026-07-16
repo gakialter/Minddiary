@@ -173,6 +173,7 @@ npm run build:mac    # macOS
 - `npm run build` 必须在没有签名 secrets 的情况下继续工作；只有在存在完整证书变量时，才启用并强制验证发布签名。
 - Release workflow 只上传根目录正式资产：Windows Setup、Portable 与 blockmap，macOS DMG、ZIP 与 blockmap，以及 `latest.yml` / `latest-mac.yml`；`MindDiary.exe`、`elevate.exe` 和 unpacked/app bundle 内部文件不得作为独立 Release 资产上传。
 - Windows CI 会对本次构建的 Setup 执行一次性目录安装、token-bound disposable diagnostic profile 的保留/重装读回和正常卸载，并将脱敏证据作为 CI artifact；NSIS 配置显式锁定 `deleteAppDataOnUninstall: false`，但该自动化不等于已发布 Setup 的浏览器下载、SmartScreen、签名或真实用户主机验收。
+- Windows CI 还会在 unpacked packaged app 中用 renderer-local clock、loopback mock AI 和一次性 profile 执行 Daily Review 跨本地午夜场景，验证旧候选在 main/SQLite 日期绑定写入门禁处被拒绝、rollover 零业务写入、新日期请求/确认写入与最终清理；该测试不更改 runner 系统时间，也不访问真实 AI provider。
 - macOS 资产仍为 ad-hoc signature，未完成 Apple notarization；DMG / ZIP 基本启动属于发布阶段人工验收，不等同于 CI 构建通过。
 - 有关签名验证、更新元数据检查和 SmartScreen 的指导，请参见 [Release Checklist](./docs/release-checklist.md)。
 

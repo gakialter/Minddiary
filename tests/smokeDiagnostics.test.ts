@@ -16,12 +16,13 @@ import {
   type SmokeDiagnosticDependencies,
   type SmokeDiagnosticRequest,
 } from '../electron/smokeDiagnostics';
+import type { DateRolloverDiagnosticDetails } from '../electron/dateRolloverDiagnostic';
 
 const token = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
 const tempRoots: string[] = [];
 
 function makeRequest(
-  scenario: 'startup' | 'sqlite-read-write' | 'portable-profile' | 'install-profile' = 'startup',
+  scenario: 'startup' | 'sqlite-read-write' | 'portable-profile' | 'install-profile' | 'date-rollover' = 'startup',
 ): SmokeDiagnosticRequest {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-smoke-tests-'));
   tempRoots.push(tempRoot);
@@ -79,6 +80,48 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
       localProtocol: true,
       cleaned: false,
     }),
+    runDateRollover: async () => makeDateRolloverDetails(),
+  };
+}
+
+function makeDateRolloverDetails(): DateRolloverDiagnosticDetails {
+  const empty = { entries: 0, studyTasks: 0, mistakes: 0, pomodoroSessions: 0, attachments: 0 };
+  const afterCreate = { ...empty, studyTasks: 1 };
+  return {
+    schemaVersion: 1,
+    oldDate: '2026-05-31',
+    newDate: '2026-06-01',
+    oldCandidateDate: '2026-06-01',
+    newCandidateDate: '2026-06-02',
+    eventSequence: [
+      'old-dialog-opened',
+      'old-candidate-generated:2026-06-01',
+      'logical-midnight-crossed:2026-06-01T00:00:01-local',
+      'old-dialog-closed',
+      'new-dialog-opened',
+      'new-candidate-generated:2026-06-02',
+      'new-candidate-confirmed',
+    ],
+    mockRequests: [
+      { sequence: 1, method: 'POST', path: '/v1/chat/completions', authorizationPresent: true, reviewDate: '2026-05-31', candidateDate: '2026-06-01' },
+      { sequence: 2, method: 'POST', path: '/v1/chat/completions', authorizationPresent: true, reviewDate: '2026-06-01', candidateDate: '2026-06-02' },
+    ],
+    database: { beforeRollover: empty, afterRollover: empty, afterConfirmedCreate: afterCreate, afterCleanup: empty },
+    businessWrites: { duringRollover: 0, confirmedAfterRollover: 1 },
+    createdTask: { plannedDate: '2026-06-02', status: 'todo', source: 'ai' },
+    checks: {
+      oldDialogOpened: true,
+      oldCandidateGenerated: true,
+      oldDialogClosedAtRollover: true,
+      oldCandidateDetached: true,
+      oldCandidateMainWriteRejected: true,
+      rolloverZeroWrite: true,
+      newDialogOpened: true,
+      newCandidateGenerated: true,
+      requestDatesCorrect: true,
+      confirmedTaskUsesNewCandidateDate: true,
+      cleanupComplete: true,
+    },
   };
 }
 
@@ -104,19 +147,20 @@ describe('packaged smoke diagnostics', () => {
       'sqlite-read-write',
       'portable-profile',
       'install-profile',
+      'date-rollover',
     ]);
 
-    expect(() => parseSmokeDiagnosticRequest({
+    expect(parseSmokeDiagnosticRequest({
       argv: [
         'electron',
         '.',
         '--minddiary-smoke-scenario=date-rollover',
-        `--minddiary-smoke-output=${request.outputPath}`,
+        `--minddiary-smoke-output=${path.join(request.tempRoot, `${SMOKE_RESULT_PREFIX}rollover.json`)}`,
         `--user-data-dir=${request.profilePath}`,
       ],
       env: { MINDDIARY_SMOKE_TOKEN: token },
       tempRoot: request.tempRoot,
-    })).toThrow(/Unsupported diagnostic scenario/);
+    })?.scenario).toBe('date-rollover');
     expect(() => parseSmokeDiagnosticRequest({
       argv: ['electron', '.', '--minddiary-smoke-scenario=startup'],
       env: { MINDDIARY_SMOKE_TOKEN: token },
@@ -375,5 +419,27 @@ describe('packaged smoke diagnostics', () => {
       { check: 'install-profile-phase-consistent', passed: true },
     ]));
     expect(reopened.evidence.some(item => item.check === 'profile-data-create')).toBe(false);
+  });
+
+  it('records the fixed local-date rollover sequence, request dates, zero-write gate, and confirmed new-date write', async () => {
+    const request = makeRequest('date-rollover');
+    const dependencies = makeDependencies(request);
+    const details = makeDateRolloverDetails();
+    const runDateRollover = vi.fn(async () => details);
+    dependencies.runDateRollover = runDateRollover;
+
+    const result = await runSmokeDiagnostic(request, dependencies);
+
+    expect(runDateRollover).toHaveBeenCalledOnce();
+    expect(result.dateRollover).toEqual(details);
+    expect(result.evidence).toEqual(expect.arrayContaining([
+      { check: 'date-rollover-oldDialogClosedAtRollover', passed: true },
+      { check: 'date-rollover-oldCandidateDetached', passed: true },
+      { check: 'date-rollover-oldCandidateMainWriteRejected', passed: true },
+      { check: 'date-rollover-requestDatesCorrect', passed: true },
+      { check: 'date-rollover-zero-business-write', passed: true },
+      { check: 'date-rollover-confirmed-write', passed: true },
+    ]));
+    expect(result.result).toBe('passed');
   });
 });

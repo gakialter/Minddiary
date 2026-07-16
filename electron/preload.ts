@@ -149,6 +149,9 @@ contextBridge.exposeInMainWorld('api', {
         getByDate: (date: string) => ipcRenderer.invoke('tasks:getByDate', date),
         find: (query: StudyTaskQuery) => ipcRenderer.invoke('tasks:find', query),
         create: (task: NewStudyTask) => ipcRenderer.invoke('tasks:create', task),
+        createForCurrentDate: (task: NewStudyTask, expectedCurrentDate: string) => (
+            ipcRenderer.invoke('tasks:createForCurrentDate', task, expectedCurrentDate)
+        ),
         update: (id: number, patch: Partial<StudyTask>) => ipcRenderer.invoke('tasks:update', id, patch),
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),
         complete: (id: number) => ipcRenderer.invoke('tasks:complete', id),

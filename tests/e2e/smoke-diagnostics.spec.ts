@@ -12,7 +12,7 @@ import {
 const electronPath = require('electron') as string;
 const projectRoot = path.resolve(__dirname, '..', '..');
 
-test.describe.configure({ timeout: 60_000 });
+test.describe.configure({ timeout: 120_000 });
 
 test('runs the source-tree diagnostic harness against a disposable profile', async () => {
   let run: SmokeDiagnosticProcessResult | undefined;
@@ -65,5 +65,45 @@ test('rejects incomplete diagnostic activation without opening normal mode', asy
     expect(run.profileFiles).not.toContain('minddiary.db');
   } finally {
     if (run) cleanupRejectedSmokeDiagnosticProcess(run);
+  }
+});
+
+test('runs the source-tree local-date rollover through the production renderer and IPC boundary', async () => {
+  let run: SmokeDiagnosticProcessResult | undefined;
+  try {
+    run = await runSmokeDiagnosticProcess({
+      executablePath: electronPath,
+      leadingArgs: [projectRoot],
+      scenario: 'date-rollover',
+      expectedPackaged: false,
+      timeoutMs: 90_000,
+    });
+
+    expect(run.result.result).toBe('passed');
+    expect(run.result.dateRollover).toMatchObject({
+      oldDate: '2026-05-31',
+      newDate: '2026-06-01',
+      oldCandidateDate: '2026-06-01',
+      newCandidateDate: '2026-06-02',
+      businessWrites: { duringRollover: 0, confirmedAfterRollover: 1 },
+      createdTask: { plannedDate: '2026-06-02', status: 'todo', source: 'ai' },
+      checks: {
+        oldDialogClosedAtRollover: true,
+        oldCandidateDetached: true,
+        oldCandidateMainWriteRejected: true,
+        rolloverZeroWrite: true,
+        requestDatesCorrect: true,
+        confirmedTaskUsesNewCandidateDate: true,
+        cleanupComplete: true,
+      },
+    });
+    expect(run.result.dateRollover?.mockRequests).toEqual([
+      expect.objectContaining({ sequence: 1, reviewDate: '2026-05-31', candidateDate: '2026-06-01', authorizationPresent: true }),
+      expect.objectContaining({ sequence: 2, reviewDate: '2026-06-01', candidateDate: '2026-06-02', authorizationPresent: true }),
+    ]);
+    expect(JSON.stringify(run.result)).not.toContain(run.token);
+    expect(JSON.stringify(run.result)).not.toContain(run.profilePath);
+  } finally {
+    if (run) cleanupSmokeDiagnosticProcess(run);
   }
 });
