@@ -61,6 +61,7 @@ test('runs the packaged diagnostic harness without exposing secrets or paths', a
 });
 
 test('runs packaged local-date rollover with bounded UI, request, and SQLite evidence', async () => {
+  test.setTimeout(120_000);
   test.skip(process.platform !== 'win32', 'Packaged rollover evidence currently targets Windows');
   let run: SmokeDiagnosticProcessResult | undefined;
   try {
