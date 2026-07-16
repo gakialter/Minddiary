@@ -40,6 +40,13 @@ describe('release workflow Windows signing policy', () => {
     expect(workflow).toContain("pattern: '*-release'")
   })
 
+  it('archives bounded Windows date-rollover evidence without publishing it', () => {
+    expect(workflow).toContain('name: windows-date-rollover-evidence')
+    expect(workflow).toContain('path: test-results/date-rollover-evidence/*')
+    expect(workflow).toContain("pattern: '*-release'")
+    expect(workflow).not.toContain('name: windows-date-rollover-evidence-release')
+  })
+
   it('requires valid Windows signatures when both signing secrets are configured', () => {
     expect(workflow).toContain("HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}")
     expect(workflow).toContain("HAS_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD != '' }}")

@@ -82,6 +82,7 @@ CI acceptance proves only that:
 - configured Windows signing policy is enforced;
 - the newly built Windows Portable wrapper launches with a disposable profile, exercises packaged preload/native SQLite/fake data/`local://`, exits cleanly, leaves default app-data metadata unchanged, and emits bounded evidence;
 - the newly built Windows Setup candidate silently installs to a disposable path, launches installed diagnostics, preserves a token-bound disposable diagnostic profile through normal uninstall, reopens and cleans it after reinstall, removes files/shortcuts/registry/processes on final uninstall, and emits bounded evidence; `deleteAppDataOnUninstall: false` separately locks the default user-data retention policy;
+- the Windows unpacked package runs Daily Review across a renderer-local logical midnight without changing host time, closes the old-date dialog, proves the main/SQLite transaction rejects a stale old-date IPC, records zero business writes during rollover, sends only to a loopback mock endpoint with correct old/new date provenance, creates one explicitly confirmed new-date task, cleans it, and emits the bounded five-file rollover evidence set;
 - update metadata and the exact Release asset manifest pass validation;
 - the publish job receives only allowlisted root assets.
 
@@ -151,7 +152,11 @@ These are manual release gates, not claims made by CI. Do not publish if an expe
 
 ### Local-date rollover
 
-- 只在一次性虚拟机、隔离测试系统或可安全控制本地日期的环境执行，不要更改日常使用主机的系统时间。
+- 自动化只允许在 token-bound disposable profile 中使用 renderer-local clock 和 loopback mock endpoint；不得更改 runner 或日常使用主机的系统时间。
+- 保持日期 A 的 Daily Review 打开并生成内存候选，推进逻辑午夜后确认旧 dialog 关闭、旧候选 control 已 detached、固定旧日期 IPC 被 main/SQLite transaction guard 拒绝，且业务表 row-count snapshot 完全不变。
+- 在日期 B 重新打开 Daily Review，确认 mock request 的 `reviewDate` / `candidateDate` 分别来自日期 A/B 的正确本地日期链。
+- 用户明确确认后只允许新增 1 条日期 B 对应的下一日 task；验证 `status=todo`、`source=ai`，随后清理并恢复业务表 baseline。
+- 归档仅允许 `business-write-count.txt`、`database-before-after.json`、`date-rollover-result.json`、`mock-request-log.json`、`ui-event-sequence.json`；不得归档 request body、API key、数据库行内容或路径。
 - 日期 A 成功加载后切换到日期 B，并让日期 B 请求保持 pending，确认日期 A 统计不再显示在日期 B 下。
 - 让日期 B 请求失败，确认显示日期 B 的整页错误而不是保留日期 A Dashboard。
 - 让日期 B 请求成功，确认只显示日期 B 数据。

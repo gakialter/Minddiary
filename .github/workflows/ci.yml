@@ -99,6 +99,15 @@ jobs:
       - name: Run packaged application security smoke
         run: npm run test:e2e:packaged-security
 
+      - name: Upload Windows date rollover evidence
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-date-rollover-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/date-rollover-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run Windows Portable packaged smoke
         if: matrix.os == 'windows-latest'
         run: npm run test:e2e:portable-smoke

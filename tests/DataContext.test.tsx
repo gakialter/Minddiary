@@ -147,6 +147,22 @@ const createWindowApiMock = (): ElectronAPI => ({
       created_at: '2026-05-31T00:00:00.000Z',
       updated_at: '2026-05-31T00:00:00.000Z',
     }),
+    createForCurrentDate: vi.fn().mockResolvedValue({
+      id: 1,
+      title: 'task',
+      description: '',
+      type: 'custom',
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: null,
+      related_chapter_id: null,
+      planned_date: '2026-05-31',
+      estimate_minutes: 25,
+      status: 'todo',
+      source: 'manual',
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }),
     update: vi.fn().mockResolvedValue({
       id: 1,
       title: 'task',
@@ -396,6 +412,10 @@ describe('DataContext', () => {
       await result.current.tasks.getByDate('2026-05-05')
       await result.current.tasks.find({ planned_date: '2026-05-05', status: ['todo', 'doing'] })
       await result.current.tasks.create({ title: 'task', planned_date: '2026-05-05' })
+      await result.current.tasks.createForCurrentDate(
+        { title: 'date-bound task', planned_date: '2026-05-06' },
+        '2026-05-05',
+      )
       await result.current.tasks.update(1, { status: 'doing' })
       await result.current.tasks.startFocus(1, '2026-05-05')
       await result.current.tasks.complete(1)
@@ -443,6 +463,10 @@ describe('DataContext', () => {
     expect(window.api.tasks.getByDate).toHaveBeenCalledWith('2026-05-05')
     expect(window.api.tasks.find).toHaveBeenCalledWith({ planned_date: '2026-05-05', status: ['todo', 'doing'] })
     expect(window.api.tasks.create).toHaveBeenCalledWith({ title: 'task', planned_date: '2026-05-05' })
+    expect(window.api.tasks.createForCurrentDate).toHaveBeenCalledWith(
+      { title: 'date-bound task', planned_date: '2026-05-06' },
+      '2026-05-05',
+    )
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
     expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
     expect(window.api.tasks.complete).toHaveBeenCalledWith(1)

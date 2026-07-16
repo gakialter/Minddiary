@@ -12,6 +12,8 @@ import type {
     SubjectChapter,
 } from '../../types'
 import type { TasksContextAPI } from '../../types/api'
+import { getLocalDateKey } from '../../utils/dateKey'
+import { assertTaskCreationDateIsCurrent } from '../../utils/dateBoundTaskGuard'
 import type { MutableRefObject } from 'react'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
@@ -160,6 +162,26 @@ export const createTasksApi = (
         tasksRef.current = [...tasksRef.current, newTask]
         saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
         return newTask
+    },
+    createForCurrentDate: async (data: NewStudyTask, expectedCurrentDate: string) => {
+        if (IS_ELECTRON) return window.api.tasks.createForCurrentDate(data, expectedCurrentDate)
+        const validatedExpectedDate = requireDateKey(expectedCurrentDate)
+        assertTaskCreationDateIsCurrent(validatedExpectedDate, getLocalDateKey())
+        const previousTasks = tasksRef.current
+        const createdTask = await createTasksApi(
+            tasksRef,
+            saveToLocal,
+            pomodoroSessionsRef,
+            subjectChaptersRef,
+        ).create(data)
+        try {
+            assertTaskCreationDateIsCurrent(validatedExpectedDate, getLocalDateKey())
+            return createdTask
+        } catch (error) {
+            tasksRef.current = previousTasks
+            saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
+            throw error
+        }
     },
     update: async (id: number, patch: Partial<StudyTask>) => {
         if (IS_ELECTRON) return window.api.tasks.update(id, patch)

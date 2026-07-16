@@ -46,7 +46,7 @@ interface CreationSummary {
 interface DailyReviewAgentDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'create'>
+  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createForCurrentDate'>
   mistakesAPI: Pick<MistakesContextAPI, 'getAll' | 'getDueCount'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
@@ -150,6 +150,7 @@ export default function DailyReviewAgentDialog({
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
+  const mountedRef = useRef(true)
 
   const refreshReviewContext = useCallback(async (): Promise<DailyReviewSafeContext | null> => {
     const request = ++contextRequestRef.current
@@ -206,9 +207,13 @@ export default function DailyReviewAgentDialog({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [creating, generating, onClose])
 
-  useEffect(() => () => {
-    generationRef.current += 1
-    contextRequestRef.current += 1
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      generationRef.current += 1
+      contextRequestRef.current += 1
+    }
   }, [])
 
   const revalidateCandidates = (nextCandidates: DailyReviewCandidateDraft[], context = reviewContext) => (
@@ -284,7 +289,7 @@ export default function DailyReviewAgentDialog({
         entriesAPI,
         pomodoroAPI,
       })
-      if (currentDateRef.current !== createDate) return
+      if (!mountedRef.current || currentDateRef.current !== createDate) return
       const latestSignature = buildDailyReviewContextSignature(latestContext)
       setReviewContext(latestContext)
       let currentCandidates = validateDailyReviewCandidateDrafts(candidates, latestContext)
@@ -303,7 +308,7 @@ export default function DailyReviewAgentDialog({
       const candidateIds = currentCandidates.map(candidate => candidate.clientId)
 
       for (const clientId of candidateIds) {
-        if (currentDateRef.current !== createDate) return
+        if (!mountedRef.current || currentDateRef.current !== createDate) return
         currentCandidates = validateDailyReviewCandidateDrafts(currentCandidates, currentContext)
         setCandidates(currentCandidates)
         const candidate = currentCandidates.find(item => item.clientId === clientId)
@@ -317,7 +322,7 @@ export default function DailyReviewAgentDialog({
         setCandidates(currentCandidates)
 
         try {
-          const task = await tasksAPI.create({
+          const task = await tasksAPI.createForCurrentDate({
             title: candidate.title,
             description: candidate.reason,
             type: candidate.type,
@@ -329,7 +334,8 @@ export default function DailyReviewAgentDialog({
             estimate_minutes: candidate.estimate_minutes,
             status: 'todo',
             source: 'ai',
-          })
+          }, createDate)
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
           createdCount += 1
           currentContext = {
             ...currentContext,
@@ -342,6 +348,7 @@ export default function DailyReviewAgentDialog({
           ))
           setCandidates(currentCandidates)
         } catch (error) {
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
           failedCount += 1
           const creationError = error instanceof Error ? error.message : String(error)
           currentCandidates = currentCandidates.map(item => (
@@ -353,6 +360,7 @@ export default function DailyReviewAgentDialog({
         }
       }
 
+      if (!mountedRef.current || currentDateRef.current !== createDate) return
       setReviewContext(currentContext)
       setGeneratedContextSignature(buildDailyReviewContextSignature(currentContext))
       setCandidates(currentCandidates)
@@ -360,7 +368,9 @@ export default function DailyReviewAgentDialog({
       if (createdCount > 0) {
         try {
           await onCreated()
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
         } catch (error) {
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
           setCreationSummary({
             created: createdCount,
             failed: failedCount,
@@ -369,9 +379,11 @@ export default function DailyReviewAgentDialog({
         }
       }
     } catch (error) {
-      setCreationError(`创建前无法刷新复盘依据：${error instanceof Error ? error.message : String(error)}`)
+      if (mountedRef.current && currentDateRef.current === createDate) {
+        setCreationError(`创建前无法刷新复盘依据：${error instanceof Error ? error.message : String(error)}`)
+      }
     } finally {
-      setCreating(false)
+      if (mountedRef.current && currentDateRef.current === createDate) setCreating(false)
     }
   }
 

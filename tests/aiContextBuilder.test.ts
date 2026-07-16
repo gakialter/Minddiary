@@ -50,6 +50,7 @@ const makeDeps = (chapters: SubjectChapter[]): AIContextBuildDeps => ({
     getByDate: vi.fn().mockResolvedValue([]),
     find: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
+    createForCurrentDate: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     complete: vi.fn(),

@@ -92,6 +92,14 @@ jobs:
       - name: Run packaged application security smoke
         run: npm run test:e2e:packaged-security
 
+      - name: Upload Windows date rollover evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-date-rollover-evidence
+          path: test-results/date-rollover-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run Windows Portable packaged smoke
         run: npm run test:e2e:portable-smoke
 

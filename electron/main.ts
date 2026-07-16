@@ -31,6 +31,9 @@ import {
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
 import { normalizeUpdaterReleaseNotes, preserveUpdaterReleaseDetails } from './updaterReleaseNotes';
+import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
+import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
+import { getLocalDateKey } from '../src/utils/dateKey';
 import {
     createFailedSmokeDiagnosticResult,
     parseSmokeDiagnosticRequest,
@@ -71,6 +74,7 @@ let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
 let smokeDiagnosticConfigurationFailed = false;
+let smokeDiagnosticCurrentDateKey: string | null = null;
 
 try {
     smokeDiagnosticRequest = parseSmokeDiagnosticRequest({ argv: process.argv, env: process.env });
@@ -150,6 +154,13 @@ function createWindow(runtimeMode: RendererRuntimeMode, options: { show?: boolea
         rendererLoad = mainWindow.loadFile(appDocumentPath);
     }
     return { window: mainWindow, rendererLoad };
+}
+
+function getCurrentTaskCreationDateKey(): string {
+    if (smokeDiagnosticRequest?.scenario === 'date-rollover' && smokeDiagnosticCurrentDateKey) {
+        return smokeDiagnosticCurrentDateKey;
+    }
+    return getLocalDateKey();
 }
 
 // ==================== Auto Updater ====================
@@ -520,6 +531,11 @@ async function runConfiguredSmokeDiagnostic(
             verifyPortableWrapper,
             runProfileRoundTrip: () => runPortableProfileRoundTrip(window),
             runInstallProfileRoundTrip: () => runInstallProfileRoundTrip(window),
+            runDateRollover: () => runDateRolloverDiagnostic(
+                window,
+                db,
+                dateKey => { smokeDiagnosticCurrentDateKey = dateKey; },
+            ),
         });
         writeSmokeDiagnosticResult(request, result);
         window.destroy();
@@ -971,6 +987,13 @@ ipcMain.handle('pomodoro:getRange', (_: unknown, start: string, end: string) => 
 ipcMain.handle('tasks:getByDate', (_: unknown, date: string) => db.getStudyTasksByDate(date));
 ipcMain.handle('tasks:find', (_: unknown, query: unknown) => db.findStudyTasks(validateStudyTaskQueryPayload(query)));
 ipcMain.handle('tasks:create', (_: unknown, task: unknown) => db.createStudyTask(validateStudyTaskCreatePayload(task)));
+ipcMain.handle('tasks:createForCurrentDate', (_: unknown, task: unknown, expectedCurrentDate: unknown) => (
+    createStudyTaskForCurrentDate(task, expectedCurrentDate, {
+        getCurrentDateKey: getCurrentTaskCreationDateKey,
+        createTask: db.createStudyTask,
+        runInTransaction: operation => db.getDb().transaction(operation)(),
+    })
+));
 ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
     return db.updateStudyTask(
         validatePositiveIdPayload(id, 'task id'),

@@ -25,6 +25,7 @@ The harness rechecks the actual Electron `userData` path at runtime and always l
 | `sqlite-read-write` | Every `startup` check plus a fixed settings-table write, read-back, and deletion inside the disposable profile |
 | `portable-profile` | Every `startup` check plus proof of the real Windows Portable wrapper, a fixed fake diary/PNG create and read-back through the existing preload API, a real `local://` image load, and cleanup |
 | `install-profile` | Every `startup` check plus a two-stage fixed fake diary/PNG retention probe: seed after Setup install, retain through normal uninstall, reopen through the existing preload and `local://` paths after reinstall, then clean up |
+| `date-rollover` | Every `startup` check plus a production-renderer Daily Review flow driven by a renderer-local clock and loopback-only mock AI endpoint: old-date candidate generation, logical-midnight dialog invalidation, a stale old-date IPC rejected by the main/SQLite transaction guard, zero business writes during rollover, new-date request provenance, one explicit confirmed write to the new candidate date, and cleanup |
 
 The SQLite round trip uses a one-way digest of the token to derive a reserved key and fixed statements. It does not store token material or accept SQL or data from command-line arguments. The transaction removes the probe row and rolls back on failure.
 
@@ -39,7 +40,6 @@ window-security
 clipboard-ipc
 pdf-export
 updater-status
-date-rollover
 ```
 
 Adding a scenario requires a predefined handler, parser allowlist update, redaction review, unit tests, source Electron E2E, and packaged Windows/macOS E2E where applicable.
@@ -50,10 +50,14 @@ Successful and failed runtime scenarios produce schema version `1`. Results cont
 
 Results never contain the token, profile or output path, environment variables, API keys, database contents, attachment contents, or arbitrary error text. Process stderr uses fixed diagnostic messages so validation errors do not disclose supplied paths or secrets.
 
+The `date-rollover` result adds only fixed local date keys, an allowlisted UI event sequence, request method/path plus extracted review/candidate dates, aggregate business-table row counts, the confirmed task's locally controlled date/status/source, and boolean gates. It never archives mock request bodies, the fake API key, task contents, database rows, paths, or the host clock. Its clock replacement exists inside the disposable diagnostic renderer, while a fixed internal main-process date provider exists only for the token-bound `date-rollover` scenario so the real date-bound IPC can be exercised without changing runner time; neither changes the runner or host system clock.
+
 ## Current evidence boundary
 
 The source Electron test and the configured Windows/macOS unpacked package jobs exercise the base harness. Windows CI additionally builds the actual Portable executable and runs `portable-profile` through that wrapper with a fresh token-bound profile. It compares metadata snapshots of the normal roaming and local application-data locations only in memory, then archives exactly `manifest.json`, `hashes.txt`, `diagnostic-result.json`, `process-log.txt`, `paths-before.txt`, and `paths-after.txt`. Those files contain artifact/evidence hashes, fixed process facts, bounded diagnostic booleans, and only the unchanged/changed path comparison conclusion—not real paths, path existence, entry counts, metadata fingerprints, tokens, raw process output, user files, database contents, or attachment contents.
 
 Windows CI also runs the root Setup executable with the official case-sensitive NSIS `/S` flag and a last-position `/D=<absolute-disposable-path>` argument, verifies installed files, shortcuts, uninstall registration, packaged diagnostics, normal silent uninstall, a token-bound disposable diagnostic profile through uninstall/reinstall, read-back/cleanup, and a final uninstall. The package configuration explicitly locks the default user-data policy with `deleteAppDataOnUninstall: false`; the runtime probe does not claim to exercise deletion against a real default user profile. It archives exactly `setup-sha256.txt`, `install-command.txt`, `install-tree.txt`, `shortcut-before-after.txt`, `registry-before-after.txt`, `process-before-after.txt`, `diagnostic-result.json`, `uninstall-result.json`, and `retention-result.json`, without real paths, raw process output, tokens, database contents, or attachment contents.
+
+The Windows unpacked package job also runs `date-rollover` and archives exactly `business-write-count.txt`, `database-before-after.json`, `date-rollover-result.json`, `mock-request-log.json`, and `ui-event-sequence.json`. This proves the CI-built unpacked application and its production renderer/IPC/SQLite flow; it does not prove a browser-downloaded asset, Setup/Portable wrapper behavior, updater behavior, signing, or reputation.
 
 Portable and Setup smoke prove only the CI-built candidates and exact workflow head. They are not clean-host browser-download evidence, updater download/install/restart evidence, a signature or SmartScreen reputation claim, or proof about the already-published v1.16.0 assets. The macOS DMG/ZIP user flow, notarization, Gatekeeper, and physical Apple-silicon acceptance remain separate gates.

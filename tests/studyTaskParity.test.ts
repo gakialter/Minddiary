@@ -38,14 +38,14 @@ function createSqliteFixture() {
   }
 }
 
-function createFallbackFixture() {
+function createFallbackFixture(persist: SaveToLocalFn = saveToLocal) {
   const subjectsRef = createRef<Subject[]>([])
   const chaptersRef = createRef<SubjectChapter[]>([])
   const tasksRef = createRef<StudyTask[]>([])
   const pomodoroSessionsRef = createRef<PomodoroSession[]>([])
   const tasks = createTasksApi(
     tasksRef,
-    saveToLocal,
+    persist,
     pomodoroSessionsRef,
     chaptersRef,
   )
@@ -95,9 +95,50 @@ function overwriteTaskTimestamps(
 
 describe('study task SQLite/browser fallback parity', () => {
   afterEach(() => {
+    vi.useRealTimers()
     for (const database of databases.splice(0)) {
       database.close()
     }
+  })
+
+  it('keeps browser fallback date-bound creation zero-write after logical midnight', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 31, 23, 59, 59))
+    const fallback = createFallbackFixture()
+    const task = {
+      title: 'Old-date candidate',
+      planned_date: '2026-06-01',
+      status: 'todo' as const,
+      source: 'ai' as const,
+    }
+
+    await fallback.tasks.createForCurrentDate(task, '2026-05-31')
+    expect(fallback.tasksRef.current).toHaveLength(1)
+
+    vi.setSystemTime(new Date(2026, 5, 1, 0, 0, 1))
+    await expect(fallback.tasks.createForCurrentDate(task, '2026-05-31'))
+      .rejects.toThrow('The current local date changed before task creation')
+    expect(fallback.tasksRef.current).toHaveLength(1)
+  })
+
+  it('rolls back browser fallback creation when the date changes inside the call', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 31, 23, 59, 59))
+    let persistenceWrites = 0
+    const fallback = createFallbackFixture(() => {
+      persistenceWrites += 1
+      if (persistenceWrites === 1) vi.setSystemTime(new Date(2026, 5, 1, 0, 0, 1))
+    })
+
+    await expect(fallback.tasks.createForCurrentDate({
+      title: 'Mid-call rollover candidate',
+      planned_date: '2026-06-01',
+      status: 'todo',
+      source: 'ai',
+    }, '2026-05-31')).rejects.toThrow('The current local date changed before task creation')
+
+    expect(fallback.tasksRef.current).toEqual([])
+    expect(persistenceWrites).toBe(2)
   })
 
   it('returns the same shape and deterministic order for the same planned-date fixture', async () => {
