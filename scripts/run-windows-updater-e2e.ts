@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -33,6 +34,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const stagingBundlePath = path.join(projectRoot, 'test-results', 'windows-updater-e2e-bundle.json');
 const evidenceDirectory = path.join(projectRoot, 'test-results', 'windows-updater-e2e-evidence');
 const temporaryPrefix = 'minddiary-updater-e2e-build-';
+const runtimePrefix = 'windows-updater-e2e-runtime-';
 const childEnvironment = createUpdaterE2eChildEnvironment(process.env);
 const nodeExecutable = process.execPath;
 const npmCliPath = path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js');
@@ -105,6 +107,115 @@ function assertTemporaryBuildPath(candidate: string, temporaryRoot: string): voi
   }
 }
 
+function normalizePhysicalPath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function assertPhysicalDirectory(directory: string, label: string): void {
+  const stat = fs.lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()
+    || normalizePhysicalPath(fs.realpathSync(directory)) !== normalizePhysicalPath(directory)) {
+    throw new Error(`${label} must be a physical directory`);
+  }
+}
+
+function assertRuntimeRoot(runtimeRoot: string): void {
+  const testResultsRoot = path.join(projectRoot, 'test-results');
+  assertPhysicalDirectory(testResultsRoot, 'Updater runtime parent');
+  assertPhysicalDirectory(runtimeRoot, 'Updater runtime root');
+  if (normalizePhysicalPath(path.dirname(runtimeRoot)) !== normalizePhysicalPath(testResultsRoot)
+    || !path.basename(runtimeRoot).startsWith(runtimePrefix)) {
+    throw new Error('Updater runtime root escaped its workspace parent');
+  }
+}
+
+function assertTemporaryRoot(temporaryRoot: string): void {
+  assertPhysicalDirectory(temporaryRoot, 'Updater temporary root');
+  if (normalizePhysicalPath(path.dirname(temporaryRoot)) !== normalizePhysicalPath(os.tmpdir())
+    || !path.basename(temporaryRoot).startsWith(temporaryPrefix)) {
+    throw new Error('Updater temporary root escaped the system temporary directory');
+  }
+}
+
+function createRuntimeRoot(): string {
+  const testResultsRoot = path.join(projectRoot, 'test-results');
+  fs.mkdirSync(testResultsRoot, { recursive: true });
+  assertPhysicalDirectory(projectRoot, 'Project root');
+  assertPhysicalDirectory(testResultsRoot, 'Updater runtime parent');
+  let runtimeRoot: string | undefined;
+  try {
+    runtimeRoot = fs.mkdtempSync(path.join(testResultsRoot, runtimePrefix));
+    assertRuntimeRoot(runtimeRoot);
+    return runtimeRoot;
+  } catch (error) {
+    if (runtimeRoot && fs.existsSync(runtimeRoot)) {
+      try {
+        assertRuntimeRoot(runtimeRoot);
+        fs.rmSync(runtimeRoot, { recursive: true, force: true });
+      } catch {}
+    }
+    throw error;
+  }
+}
+
+function sha256FileSync(filepath: string): string {
+  const hash = createHash('sha256');
+  const descriptor = fs.openSync(filepath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return hash.digest('hex');
+}
+
+function stageCandidateFixture(
+  source: CandidateFixture,
+  runtimeRoot: string,
+  workspace: 'old' | 'new',
+): CandidateFixture {
+  if (source.version !== (workspace === 'old' ? '1.16.0' : '1.16.1')) {
+    throw new Error('Updater runtime candidate version does not match its fixed workspace');
+  }
+  const releaseDirectory = path.join(runtimeRoot, workspace, 'release');
+  const resourcesDirectory = path.join(releaseDirectory, 'win-unpacked', 'resources');
+  fs.mkdirSync(resourcesDirectory, { recursive: true });
+  assertPhysicalDirectory(releaseDirectory, 'Staged release directory');
+  assertPhysicalDirectory(resourcesDirectory, 'Staged resources directory');
+  const setupPath = path.join(releaseDirectory, `MindDiary-Setup-${source.version}.exe`);
+  const staged: CandidateFixture = {
+    version: source.version,
+    setupPath,
+    blockmapPath: `${setupPath}.blockmap`,
+    latestPath: path.join(releaseDirectory, 'latest.yml'),
+    appUpdatePath: path.join(resourcesDirectory, 'app-update.yml'),
+  };
+  for (const key of ['setupPath', 'blockmapPath', 'latestPath', 'appUpdatePath'] as const) {
+    const sourcePath = source[key];
+    const destinationPath = staged[key];
+    const sourceStat = fs.lstatSync(sourcePath);
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink()
+      || normalizePhysicalPath(fs.realpathSync(sourcePath)) !== normalizePhysicalPath(sourcePath)) {
+      throw new Error('Updater runtime source artifact must be a physical file');
+    }
+    fs.copyFileSync(sourcePath, destinationPath, fs.constants.COPYFILE_EXCL);
+    const destinationStat = fs.lstatSync(destinationPath);
+    if (!destinationStat.isFile() || destinationStat.isSymbolicLink()
+      || normalizePhysicalPath(fs.realpathSync(destinationPath)) !== normalizePhysicalPath(destinationPath)
+      || sourceStat.size !== destinationStat.size
+      || sha256FileSync(sourcePath) !== sha256FileSync(destinationPath)) {
+      throw new Error('Updater runtime staging changed a candidate artifact');
+    }
+  }
+  return staged;
+}
+
 function readCandidateFixture(worktree: string, expectedVersion: string): CandidateFixture {
   const releaseDirectory = path.join(worktree, 'release');
   const setupPath = path.join(releaseDirectory, `MindDiary-Setup-${expectedVersion}.exe`);
@@ -168,15 +279,21 @@ async function main(): Promise<void> {
   const port = await reservePort();
   const providerUrl = `http://127.0.0.1:${port}/`;
   validateLoopbackProviderUrl(providerUrl);
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), temporaryPrefix));
-  const oldWorktree = path.join(temporaryRoot, 'old');
-  const newWorktree = path.join(temporaryRoot, 'new');
-  assertTemporaryBuildPath(oldWorktree, temporaryRoot);
-  assertTemporaryBuildPath(newWorktree, temporaryRoot);
+  let temporaryRoot: string | undefined;
+  let runtimeRoot: string | undefined;
+  let oldWorktree: string | undefined;
+  let newWorktree: string | undefined;
   const createdWorktrees: string[] = [];
   let runtimePassed = false;
 
   try {
+    temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), temporaryPrefix));
+    assertTemporaryRoot(temporaryRoot);
+    runtimeRoot = createRuntimeRoot();
+    oldWorktree = path.join(temporaryRoot, 'old');
+    newWorktree = path.join(temporaryRoot, 'new');
+    assertTemporaryBuildPath(oldWorktree, temporaryRoot);
+    assertTemporaryBuildPath(newWorktree, temporaryRoot);
     run('git', ['worktree', 'add', '--detach', oldWorktree, headSha], projectRoot, 180_000);
     createdWorktrees.push(oldWorktree);
     run('git', ['worktree', 'add', '--detach', newWorktree, headSha], projectRoot, 180_000);
@@ -184,14 +301,16 @@ async function main(): Promise<void> {
     runNpm(['version', '1.16.1', '--no-git-tag-version'], newWorktree, 120_000);
     const oldFixture = buildCandidate(oldWorktree, '1.16.0', providerUrl);
     const newFixture = buildCandidate(newWorktree, '1.16.1', providerUrl);
+    const stagedOldFixture = stageCandidateFixture(oldFixture, runtimeRoot, 'old');
+    const stagedNewFixture = stageCandidateFixture(newFixture, runtimeRoot, 'new');
     const manifest: FixtureManifest = {
       schemaVersion: 1,
       headSha,
       port,
-      old: oldFixture,
-      next: newFixture,
+      old: stagedOldFixture,
+      next: stagedNewFixture,
     };
-    const manifestPath = path.join(temporaryRoot, 'fixture-manifest.json');
+    const manifestPath = path.join(runtimeRoot, 'fixture-manifest.json');
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
     runWorkspaceCli(projectRoot, 'node_modules/@playwright/test/cli.js', [
       'test',
@@ -203,29 +322,57 @@ async function main(): Promise<void> {
     });
     runtimePassed = true;
   } finally {
-    if (createdWorktrees.length > 0) {
+    const cleanupErrors: unknown[] = [];
+    if (temporaryRoot) {
       for (const worktree of [...createdWorktrees].reverse()) {
-        assertTemporaryBuildPath(worktree, temporaryRoot);
-        if (fs.existsSync(worktree)) {
-          const removal = spawnSync('git', ['worktree', 'remove', '--force', worktree], {
-            cwd: projectRoot,
-            encoding: 'utf8',
-            windowsHide: true,
-            timeout: 180_000,
-          });
-          if (removal.status !== 0 && fs.existsSync(worktree)) {
-            fs.rmSync(worktree, { recursive: true, force: true });
+        try {
+          assertTemporaryRoot(temporaryRoot);
+          assertTemporaryBuildPath(worktree, temporaryRoot);
+          if (fs.existsSync(worktree)) {
+            assertPhysicalDirectory(worktree, 'Disposable updater worktree');
+            const removal = spawnSync('git', ['worktree', 'remove', '--force', worktree], {
+              cwd: projectRoot,
+              encoding: 'utf8',
+              windowsHide: true,
+              timeout: 180_000,
+            });
+            if (removal.status !== 0 && fs.existsSync(worktree)) {
+              assertPhysicalDirectory(worktree, 'Disposable updater worktree');
+              fs.rmSync(worktree, { recursive: true, force: true });
+            }
           }
+        } catch (error) {
+          cleanupErrors.push(error);
         }
       }
+      try {
+        assertTemporaryRoot(temporaryRoot);
+        fs.rmSync(temporaryRoot, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    try {
       run('git', ['worktree', 'prune'], projectRoot, 120_000);
+    } catch (error) {
+      cleanupErrors.push(error);
     }
-    assertTemporaryBuildPath(oldWorktree, temporaryRoot);
-    assertTemporaryBuildPath(newWorktree, temporaryRoot);
-    if (fs.existsSync(oldWorktree) || fs.existsSync(newWorktree)) {
-      throw new Error('Disposable updater worktree cleanup failed');
+    if (runtimeRoot) {
+      try {
+        assertRuntimeRoot(runtimeRoot);
+        fs.rmSync(runtimeRoot, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
     }
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    for (const cleanupPath of [oldWorktree, newWorktree, temporaryRoot, runtimeRoot]) {
+      if (cleanupPath && fs.existsSync(cleanupPath)) {
+        cleanupErrors.push(new Error('Disposable updater cleanup left a bounded path behind'));
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new Error(`Disposable updater cleanup failed (${cleanupErrors.length} bounded errors)`);
+    }
   }
 
   if (!runtimePassed || !fs.existsSync(stagingBundlePath)) {

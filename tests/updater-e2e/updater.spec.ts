@@ -72,29 +72,42 @@ const projectRoot = path.resolve(__dirname, '..', '..');
 const stagingBundlePath = path.join(projectRoot, 'test-results', 'windows-updater-e2e-bundle.json');
 const releaseNotes = 'MindDiary Windows NSIS updater E2E candidate';
 
+function normalizePhysicalPath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
 function readManifest(): FixtureManifest {
   const manifestPath = process.env.MINDDIARY_UPDATER_FIXTURE_MANIFEST;
   if (!manifestPath || !path.isAbsolute(manifestPath)) throw new Error('Updater fixture manifest is unavailable');
   const resolvedManifestPath = path.resolve(manifestPath);
-  const temporaryRoot = path.dirname(resolvedManifestPath);
-  if (path.dirname(temporaryRoot) !== path.resolve(os.tmpdir())
-    || !path.basename(temporaryRoot).startsWith('minddiary-updater-e2e-build-')
+  const runtimeRoot = path.dirname(resolvedManifestPath);
+  const runtimeParent = path.join(projectRoot, 'test-results');
+  if (normalizePhysicalPath(path.dirname(runtimeRoot)) !== normalizePhysicalPath(runtimeParent)
+    || !path.basename(runtimeRoot).startsWith('windows-updater-e2e-runtime-')
     || path.basename(resolvedManifestPath) !== 'fixture-manifest.json') {
-    throw new Error('Updater fixture manifest escaped its direct disposable temporary root');
+    throw new Error('Updater fixture manifest escaped its direct workspace runtime root');
   }
-  for (const [label, directory] of Object.entries({ temporaryRoot, old: path.join(temporaryRoot, 'old'), next: path.join(temporaryRoot, 'new') })) {
+  for (const [label, directory] of Object.entries({
+    runtimeParent,
+    runtimeRoot,
+    old: path.join(runtimeRoot, 'old'),
+    next: path.join(runtimeRoot, 'new'),
+  })) {
     const stat = fs.lstatSync(directory);
-    if (stat.isSymbolicLink() || !stat.isDirectory() || fs.realpathSync(directory) !== directory) {
+    if (stat.isSymbolicLink() || !stat.isDirectory()
+      || normalizePhysicalPath(fs.realpathSync(directory)) !== normalizePhysicalPath(directory)) {
       throw new Error(`Updater fixture ${label} must be a physical directory`);
     }
   }
   const manifestStat = fs.lstatSync(resolvedManifestPath);
-  if (manifestStat.isSymbolicLink() || !manifestStat.isFile() || fs.realpathSync(resolvedManifestPath) !== resolvedManifestPath) {
+  if (manifestStat.isSymbolicLink() || !manifestStat.isFile()
+    || normalizePhysicalPath(fs.realpathSync(resolvedManifestPath)) !== normalizePhysicalPath(resolvedManifestPath)) {
     throw new Error('Updater fixture manifest must be a physical file');
   }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as FixtureManifest;
   const expectedCandidate = (workspace: 'old' | 'new', version: '1.16.0' | '1.16.1'): CandidateFixture => {
-    const releaseDirectory = path.join(temporaryRoot, workspace, 'release');
+    const releaseDirectory = path.join(runtimeRoot, workspace, 'release');
     const setupPath = path.join(releaseDirectory, `MindDiary-Setup-${version}.exe`);
     return {
       version,
@@ -130,7 +143,8 @@ function readManifest(): FixtureManifest {
     expectedNew.appUpdatePath,
   ]) {
     const stat = fs.lstatSync(filepath);
-    if (stat.isSymbolicLink() || !stat.isFile() || fs.realpathSync(filepath) !== filepath) {
+    if (stat.isSymbolicLink() || !stat.isFile()
+      || normalizePhysicalPath(fs.realpathSync(filepath)) !== normalizePhysicalPath(filepath)) {
       throw new Error('Updater fixture contains a non-physical build artifact');
     }
   }
