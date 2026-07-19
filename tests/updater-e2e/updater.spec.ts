@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Browser, type Page } from '@playwright/test';
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -174,36 +174,79 @@ function listProcesses(names: ReadonlySet<string>): Array<{ pid: number; name: s
   return processes;
 }
 
+async function listProcessesAsync(names: ReadonlySet<string>): Promise<Array<{ pid: number; name: string }>> {
+  return await new Promise((resolve, reject) => {
+    execFile(
+      'tasklist.exe',
+      ['/FO', 'CSV', '/NH'],
+      { encoding: 'utf8', windowsHide: true, timeout: 15_000 },
+      (error, stdout) => {
+        if (error) {
+          reject(new Error('Unable to enumerate Windows processes asynchronously'));
+          return;
+        }
+        const processes: Array<{ pid: number; name: string }> = [];
+        for (const line of stdout.split(/\r?\n/)) {
+          const match = /^"([^"]+)","(\d+)"/.exec(line);
+          if (!match || !match[1] || !match[2] || !names.has(match[1].toLowerCase())) continue;
+          processes.push({ pid: Number(match[2]), name: match[1] });
+        }
+        resolve(processes);
+      },
+    );
+  });
+}
+
 function createProcessWatcher(names: ReadonlySet<string>): {
   seen: Map<number, SeenProcess>;
+  sample: () => Promise<void>;
   start: () => void;
-  stop: () => void;
-  sample: () => void;
+  stop: () => Promise<void>;
 } {
   const seen = new Map<number, SeenProcess>();
-  const sample = () => {
-    const now = Date.now();
-    for (const processInfo of listProcesses(names)) {
-      if (!seen.has(processInfo.pid)) {
-        seen.set(processInfo.pid, { ...processInfo, firstSeenAt: now });
-      }
+  let active = false;
+  let loopPromise: Promise<void> | undefined;
+  let samplePromise: Promise<void> | undefined;
+  let loopError: Error | undefined;
+  const sample = async () => {
+    if (!samplePromise) {
+      samplePromise = (async () => {
+        const now = Date.now();
+        for (const processInfo of await listProcessesAsync(names)) {
+          if (!seen.has(processInfo.pid)) {
+            seen.set(processInfo.pid, { ...processInfo, firstSeenAt: now });
+          }
+        }
+      })().finally(() => { samplePromise = undefined; });
     }
+    await samplePromise;
   };
-  let timer: NodeJS.Timeout | undefined;
   const start = () => {
-    if (timer) throw new Error('Process watcher already started');
-    sample();
-    timer = setInterval(sample, 250);
+    if (active || loopPromise) throw new Error('Process watcher already started');
+    active = true;
+    loopError = undefined;
+    loopPromise = (async () => {
+      try {
+        while (active) {
+          await sample();
+          if (active) await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      } catch (error) {
+        loopError = error instanceof Error ? error : new Error('Process watcher failed');
+      } finally {
+        active = false;
+      }
+    })();
   };
-  return {
-    seen,
-    sample,
-    start,
-    stop: () => {
-      if (timer) clearInterval(timer);
-      timer = undefined;
-    },
+  const stop = async () => {
+    active = false;
+    if (!loopPromise) return;
+    await loopPromise;
+    loopPromise = undefined;
+    await sample();
+    if (loopError) throw loopError;
   };
+  return { seen, sample, start, stop };
 }
 
 function listLiveProcesses(): LiveProcess[] {
@@ -272,7 +315,7 @@ async function waitForOwnedInstaller(
 ): Promise<number[]> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    watcher.sample();
+    await watcher.sample();
     const candidates = new Set([...watcher.seen.values()]
       .filter(processInfo => processInfo.firstSeenAt >= startedAt && processInfo.name.toLowerCase() === installerName)
       .map(processInfo => processInfo.pid));
@@ -350,7 +393,7 @@ async function settleOwnedRestart(
   const deadline = Date.now() + 45_000;
   let stableSince = Date.now();
   while (Date.now() < deadline) {
-    watcher.sample();
+    await watcher.sample();
     const candidatePids = new Set([...watcher.seen.values()]
       .filter(processInfo => processInfo.firstSeenAt >= startedAt
         && processInfo.name.toLowerCase() === 'minddiary.exe'
@@ -679,7 +722,6 @@ test('updates a real installed NSIS application through electron-updater and pre
       'updater E2E installed files',
     );
     expect(readProductVersion(installedExecutable)).toBe('1.16.0');
-    watcher.start();
 
     const installedAppUpdatePath = path.join(installPath, 'resources', 'app-update.yml');
     const installedAppUpdate = load(fs.readFileSync(installedAppUpdatePath, 'utf8')) as {
@@ -718,6 +760,7 @@ test('updates a real installed NSIS application through electron-updater and pre
 
     let requestMarker = lastRequestSequence(server.getRequests());
     const noUpdateProcessMarker = Date.now();
+    watcher.start();
     await clearUpdaterEvents(session.page);
     const noUpdateCheck = await session.page.evaluate(() => window.api.updater.check());
     expect(noUpdateCheck.success).toBe(true);
@@ -726,7 +769,7 @@ test('updates a real installed NSIS application through electron-updater and pre
     const noUpdateRequests = requestsAfter(server.getRequests(), requestMarker);
     const rejectedInstall = await session.page.evaluate(() => window.api.updater.install());
     expect(rejectedInstall.success).toBe(false);
-    watcher.sample();
+    await watcher.stop();
     const noUpdateInstallAttempted = [...watcher.seen.values()].some(processInfo =>
       processInfo.firstSeenAt >= noUpdateProcessMarker
       && processInfo.name.toLowerCase() === path.basename(manifest.next.setupPath).toLowerCase());
@@ -735,6 +778,7 @@ test('updates a real installed NSIS application through electron-updater and pre
 
     requestMarker = lastRequestSequence(server.getRequests());
     const invalidProcessMarker = Date.now();
+    watcher.start();
     server.setMode('invalid-metadata');
     await clearUpdaterEvents(session.page);
     const invalidCheck = await session.page.evaluate(() => window.api.updater.check());
@@ -743,7 +787,7 @@ test('updates a real installed NSIS application through electron-updater and pre
     expect(invalidStatus).toMatchObject({ errorCode: 'invalid-metadata', message: '更新元数据无效' });
     const invalidRequests = requestsAfter(server.getRequests(), requestMarker);
     const invalidOldVersionPreserved = readProductVersion(installedExecutable) === '1.16.0';
-    watcher.sample();
+    await watcher.stop();
     const invalidInstallAttempted = [...watcher.seen.values()].some(processInfo =>
       processInfo.firstSeenAt >= invalidProcessMarker
       && processInfo.name.toLowerCase() === path.basename(manifest.next.setupPath).toLowerCase());
@@ -755,6 +799,7 @@ test('updates a real installed NSIS application through electron-updater and pre
     server.setMode('bad-checksum');
     await clearUpdaterEvents(session.page);
     const checksumProcessMarker = Date.now();
+    watcher.start();
     const checksumCheck = await session.page.evaluate(() => window.api.updater.check());
     expect(checksumCheck.success).toBe(true);
     const checksumStatus = await waitForUpdaterStatus(session.page, 'error', 240_000);
@@ -764,7 +809,7 @@ test('updates a real installed NSIS application through electron-updater and pre
     expect(checksumEvents.some(event => event.status === 'downloaded')).toBe(false);
     expect(attemptedInstallerDownload(checksumRequests, path.basename(manifest.next.setupPath))).toBe(true);
     expect((await session.page.evaluate(() => window.api.updater.install())).success).toBe(false);
-    watcher.sample();
+    await watcher.stop();
     expect([...watcher.seen.values()].some(processInfo =>
       processInfo.firstSeenAt >= checksumProcessMarker
       && processInfo.name.toLowerCase() === path.basename(manifest.next.setupPath).toLowerCase())).toBe(false);
@@ -809,6 +854,7 @@ test('updates a real installed NSIS application through electron-updater and pre
 
     const installStartedAt = Date.now();
     const oldPid = session.child.pid;
+    watcher.start();
     await session.page.getByTestId('update-install-btn').click();
     expect(await waitForExit(session.child, 60_000)).toBe(true);
     await session.browser.close().catch(() => undefined);
@@ -834,6 +880,7 @@ test('updates a real installed NSIS application through electron-updater and pre
       oldPid,
       installStartedAt,
     );
+    await watcher.stop();
 
     reopenedRun = await rerunSmokeDiagnosticProcess({
       previous: seededRun,
@@ -1006,9 +1053,9 @@ test('updates a real installed NSIS application through electron-updater and pre
     if (fs.existsSync(installedUninstaller)) {
       await runSetupProcess(installedUninstaller, ['/S'], 'Windows updater E2E failure uninstall').catch(() => undefined);
     }
-    try { watcher.stop(); } catch {
+    try { await watcher.stop(); } catch {
     }
-    try { watcher.sample(); } catch {
+    try { await watcher.sample(); } catch {
     }
     try { terminateOwnedProcesses(ownership); } catch {
     }
