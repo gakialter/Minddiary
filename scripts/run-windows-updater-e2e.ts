@@ -13,6 +13,11 @@ import {
   writeUpdaterEvidence,
   type UpdaterEvidenceBundle,
 } from '../tests/helpers/updaterE2eEvidence';
+import {
+  createUpdaterRuntimeRoot,
+  removeUpdaterPlaywrightOutputDirectory,
+  removeUpdaterRuntimeRoot,
+} from '../tests/helpers/updaterRuntimeWorkspace';
 
 type CandidateFixture = {
   version: string;
@@ -34,7 +39,6 @@ const projectRoot = path.resolve(__dirname, '..');
 const stagingBundlePath = path.join(projectRoot, 'test-results', 'windows-updater-e2e-bundle.json');
 const evidenceDirectory = path.join(projectRoot, 'test-results', 'windows-updater-e2e-evidence');
 const temporaryPrefix = 'minddiary-updater-e2e-build-';
-const runtimePrefix = 'windows-updater-e2e-runtime-';
 const childEnvironment = createUpdaterE2eChildEnvironment(process.env);
 const nodeExecutable = process.execPath;
 const npmCliPath = path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js');
@@ -120,42 +124,11 @@ function assertPhysicalDirectory(directory: string, label: string): void {
   }
 }
 
-function assertRuntimeRoot(runtimeRoot: string): void {
-  const testResultsRoot = path.join(projectRoot, 'test-results');
-  assertPhysicalDirectory(testResultsRoot, 'Updater runtime parent');
-  assertPhysicalDirectory(runtimeRoot, 'Updater runtime root');
-  if (normalizePhysicalPath(path.dirname(runtimeRoot)) !== normalizePhysicalPath(testResultsRoot)
-    || !path.basename(runtimeRoot).startsWith(runtimePrefix)) {
-    throw new Error('Updater runtime root escaped its workspace parent');
-  }
-}
-
 function assertTemporaryRoot(temporaryRoot: string): void {
   assertPhysicalDirectory(temporaryRoot, 'Updater temporary root');
   if (normalizePhysicalPath(path.dirname(temporaryRoot)) !== normalizePhysicalPath(os.tmpdir())
     || !path.basename(temporaryRoot).startsWith(temporaryPrefix)) {
     throw new Error('Updater temporary root escaped the system temporary directory');
-  }
-}
-
-function createRuntimeRoot(): string {
-  const testResultsRoot = path.join(projectRoot, 'test-results');
-  fs.mkdirSync(testResultsRoot, { recursive: true });
-  assertPhysicalDirectory(projectRoot, 'Project root');
-  assertPhysicalDirectory(testResultsRoot, 'Updater runtime parent');
-  let runtimeRoot: string | undefined;
-  try {
-    runtimeRoot = fs.mkdtempSync(path.join(testResultsRoot, runtimePrefix));
-    assertRuntimeRoot(runtimeRoot);
-    return runtimeRoot;
-  } catch (error) {
-    if (runtimeRoot && fs.existsSync(runtimeRoot)) {
-      try {
-        assertRuntimeRoot(runtimeRoot);
-        fs.rmSync(runtimeRoot, { recursive: true, force: true });
-      } catch {}
-    }
-    throw error;
   }
 }
 
@@ -289,7 +262,7 @@ async function main(): Promise<void> {
   try {
     temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), temporaryPrefix));
     assertTemporaryRoot(temporaryRoot);
-    runtimeRoot = createRuntimeRoot();
+    runtimeRoot = createUpdaterRuntimeRoot(projectRoot);
     oldWorktree = path.join(temporaryRoot, 'old');
     newWorktree = path.join(temporaryRoot, 'new');
     assertTemporaryBuildPath(oldWorktree, temporaryRoot);
@@ -359,13 +332,17 @@ async function main(): Promise<void> {
     }
     if (runtimeRoot) {
       try {
-        assertRuntimeRoot(runtimeRoot);
-        fs.rmSync(runtimeRoot, { recursive: true, force: true });
+        removeUpdaterRuntimeRoot(runtimeRoot, projectRoot);
       } catch (error) {
         cleanupErrors.push(error);
       }
     }
-    for (const cleanupPath of [oldWorktree, newWorktree, temporaryRoot, runtimeRoot]) {
+    try {
+      removeUpdaterPlaywrightOutputDirectory(projectRoot);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    for (const cleanupPath of [oldWorktree, newWorktree, temporaryRoot]) {
       if (cleanupPath && fs.existsSync(cleanupPath)) {
         cleanupErrors.push(new Error('Disposable updater cleanup left a bounded path behind'));
       }
