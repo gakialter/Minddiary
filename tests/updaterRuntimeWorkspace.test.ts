@@ -52,6 +52,10 @@ describe('updater runtime workspace cleanup', () => {
 
     expect(fs.existsSync(path.join(runtimeRoot, 'runtime-marker'))).toBe(true);
     expect(fs.existsSync(outputDirectory)).toBe(false);
+    fs.mkdirSync(outputDirectory);
+    fs.writeFileSync(path.join(outputDirectory, 'final-cleanup-marker'), 'playwright');
+    removeUpdaterPlaywrightOutputDirectory(projectRoot);
+    expect(fs.existsSync(outputDirectory)).toBe(false);
     removeUpdaterRuntimeRoot(runtimeRoot, projectRoot);
     removeUpdaterPlaywrightOutputDirectory(projectRoot);
     expect(fs.existsSync(runtimeRoot)).toBe(false);
