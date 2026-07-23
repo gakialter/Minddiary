@@ -17,6 +17,7 @@ import type {
 } from '../types/api'
 import { sanitizeUserInput } from './promptTemplates'
 import { AI_CONTEXT_LABELS, type AIContextKind } from './aiQuickPrompts'
+import { getPrimaryCountdownEvent, normalizeCountdownEvents } from './countdown'
 
 export interface AIContextSection {
     kind: AIContextKind
@@ -179,14 +180,17 @@ async function buildStudyOverviewContext(deps: AIContextBuildDeps): Promise<AICo
 
 async function buildExamCountdownContext(deps: AIContextBuildDeps): Promise<AIContextSection> {
     const today = getLocalDateKey()
-    const examDate = deps.settingsData.examDate
-    if (!examDate) {
-        throw new Error('当前没有考试日期设置。你可以移除“考试倒计时”上下文后作为普通请求发送。')
+    const primaryEvent = getPrimaryCountdownEvent(normalizeCountdownEvents(
+        deps.settingsData.countdownEvents,
+        deps.settingsData.examDate,
+    ))
+    if (!primaryEvent) {
+        throw new Error('当前没有主目标日期设置。你可以移除“主目标倒计时”上下文后作为普通请求发送。')
     }
     const todayDate = new Date(`${today}T00:00:00`)
-    const exam = new Date(`${examDate}T00:00:00`)
+    const exam = new Date(`${primaryEvent.date}T00:00:00`)
     const daysLeft = Math.ceil((exam.getTime() - todayDate.getTime()) / (24 * 60 * 60 * 1000))
-    const content = `本地日期：${today}\n考试日期：${examDate}\n剩余天数：${daysLeft}`
+    const content = `本地日期：${today}\n主目标名称：${sanitizeUserInput(primaryEvent.title)}\n主目标日期：${primaryEvent.date}\n剩余天数：${daysLeft}`
     return { kind: 'exam-countdown', label: AI_CONTEXT_LABELS['exam-countdown'], content, truncated: false }
 }
 

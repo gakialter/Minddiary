@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockSettings, STORAGE_KEYS } from '../src/data/mockData'
 import type { AppSettings } from '../src/types'
 import type { ElectronSettingsAPI, SanitizedSettings } from '../src/types/api'
+import { DEFAULT_EXAM_EVENT_ID } from '../src/utils/countdown'
 
 const mocks = vi.hoisted(() => ({
   isElectron: true,
@@ -144,6 +145,166 @@ describe('SettingsContext', () => {
       JSON.stringify(mockSettings),
     )
     expect(localStorage.getItem(STORAGE_KEYS.SETTINGS)).toBe(JSON.stringify(mockSettings))
+  })
+
+  it('migrates legacy browser examDate-only settings to the default primary event', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({
+      examDate: '2027-02-20',
+      theme: 'light',
+    }))
+
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+
+    expect(result.current.settingsData.examDate).toBe('2027-02-20')
+    expect(result.current.settingsData.countdownEvents).toEqual([
+      expect.objectContaining({
+        id: DEFAULT_EXAM_EVENT_ID,
+        title: '考研初试',
+        date: '2027-02-20',
+      }),
+    ])
+  })
+
+  it('keeps a custom primary title and mirrors its date when legacy examDate is missing', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({
+      countdownEvents: [
+        {
+          id: DEFAULT_EXAM_EVENT_ID,
+          title: '论文提交',
+          date: '2027-03-15',
+          type: 'exam',
+          pinned: true,
+          archived: false,
+        },
+      ],
+    }))
+
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+
+    expect(result.current.settingsData.examDate).toBe('2027-03-15')
+    expect(result.current.settingsData.countdownEvents?.[0]).toEqual(expect.objectContaining({
+      title: '论文提交',
+      date: '2027-03-15',
+      pinned: true,
+      archived: false,
+    }))
+
+    await act(async () => {
+      await result.current.settings.updateGeneral({
+        countdownEvents: [
+          {
+            id: 'registration',
+            title: '报名截止',
+            date: '2027-02-01',
+            type: 'deadline',
+          },
+        ],
+      })
+    })
+    expect(result.current.settingsData.examDate).toBe('2027-03-15')
+    expect(result.current.settingsData.countdownEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: DEFAULT_EXAM_EVENT_ID,
+        title: '论文提交',
+        date: '2027-03-15',
+        pinned: true,
+        archived: false,
+      }),
+      expect.objectContaining({ id: 'registration', title: '报名截止' }),
+    ]))
+  })
+
+  it('persists a renamed primary target across browser provider reloads', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(mockSettings))
+    const first = renderSettingsHook()
+    await waitFor(() => expect(first.result.current.settingsReady).toBe(true))
+
+    await act(async () => {
+      await first.result.current.settings.updateGeneral({
+        examDate: '2027-04-01',
+        countdownEvents: [
+          {
+            id: DEFAULT_EXAM_EVENT_ID,
+            title: '教师资格证',
+            date: '2027-04-01',
+            type: 'exam',
+            pinned: true,
+          },
+        ],
+      })
+    })
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}').countdownEvents[0].title)
+        .toBe('教师资格证')
+    })
+    first.unmount()
+
+    const second = renderSettingsHook()
+    await waitFor(() => expect(second.result.current.settingsReady).toBe(true))
+    expect(second.result.current.settingsData.examDate).toBe('2027-04-01')
+    expect(second.result.current.settingsData.countdownEvents?.[0]).toEqual(expect.objectContaining({
+      title: '教师资格证',
+      date: '2027-04-01',
+    }))
+  })
+
+  it('recovers malformed browser settings without blocking initialization', async () => {
+    mocks.isElectron = false
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, '{not-json')
+
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+
+    expect(mocks.loggerError).toHaveBeenCalledWith('[SettingsContext] Ignored malformed browser settings')
+    expect(result.current.settingsData.countdownEvents).toEqual([
+      expect.objectContaining({
+        id: DEFAULT_EXAM_EVENT_ID,
+        title: '考研初试',
+      }),
+    ])
+  })
+
+  it('rejects an invalid primary title before calling the Electron settings API', async () => {
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+
+    await expect(result.current.settings.updateGeneral({
+      examDate: '2027-05-01',
+      countdownEvents: [
+        {
+          id: DEFAULT_EXAM_EVENT_ID,
+          title: '   ',
+          date: '2027-05-01',
+          type: 'exam',
+        },
+      ],
+    })).rejects.toThrow('主目标名称不能为空')
+    await expect(result.current.settings.updateGeneral({
+      examDate: '2027-02-30',
+    })).rejects.toThrow('Invalid examDate: expected a valid YYYY-MM-DD date')
+    await expect(result.current.settings.updateGeneral({
+      examDate: '2027-05-01',
+      countdownEvents: [
+        {
+          id: DEFAULT_EXAM_EVENT_ID,
+          title: '教师资格证',
+          date: '2027-05-01',
+          type: 'exam',
+        },
+        {
+          id: DEFAULT_EXAM_EVENT_ID,
+          title: '   ',
+          date: '2027-05-01',
+          type: 'exam',
+        },
+      ],
+    })).rejects.toThrow('主目标名称不能为空')
+    expect(window.api.settings.updateGeneral).not.toHaveBeenCalled()
   })
 
   it('computes isDarkMode as true when theme is dark', async () => {

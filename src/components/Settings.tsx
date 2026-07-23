@@ -3,7 +3,7 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { sanitizeSettingsForExport } from '../utils/sanitize'
 import { coerceBoolean } from '../utils/helpers'
-import { normalizeCountdownEvents } from '../utils/countdown'
+import { normalizeCountdownEvents, normalizeCountdownSettings } from '../utils/countdown'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { validateMistakeWritePayload } from '../utils/mistakePayload'
@@ -60,6 +60,8 @@ function Settings() {
   const [focusGuardEnabled, setFocusGuardEnabled] = useState(false)
   const [focusGuardIntervalSec, setFocusGuardIntervalSec] = useState(5)
   const [focusWhitelist, setFocusWhitelist] = useState<FocusWhitelistItem[]>([])
+  const [countdownFieldsValid, setCountdownFieldsValid] = useState(true)
+  const [countdownResetVersion, setCountdownResetVersion] = useState(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -105,9 +107,10 @@ function Settings() {
     try {
       const settings = await diary.settings.getAll()
       if (!settings) return
-      const loadedExamDate = (settings.examDate as string) || '2025-12-21'
+      const normalizedCountdown = normalizeCountdownSettings(settings.countdownEvents, settings.examDate)
+      const loadedExamDate = normalizedCountdown.examDate || '2025-12-21'
       setExamDate(loadedExamDate)
-      setCountdownEvents(normalizeCountdownEvents(settings.countdownEvents, loadedExamDate))
+      setCountdownEvents(normalizeCountdownEvents(normalizedCountdown.countdownEvents, loadedExamDate))
       setAiEndpoint((settings.aiEndpoint as string) || '')
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
@@ -122,6 +125,7 @@ function Settings() {
       setFocusGuardEnabled(coerceBoolean(settings.focusGuardEnabled, false))
       setFocusGuardIntervalSec(Math.max(3, Math.min(30, parseInt(String(settings.focusGuardIntervalSec)) || 5)))
       setFocusWhitelist(normalizeFocusWhitelist(settings.focusWhitelist))
+      setCountdownResetVersion(version => version + 1)
       setSettingsLoaded(true)
     } catch (error) {
       logger.error('Failed to load settings:', error)
@@ -130,15 +134,19 @@ function Settings() {
 
   // Auto-save: debounced 500ms (only after initial load)
   useEffect(() => {
-    if (!settingsLoaded) return
+    if (!settingsLoaded || !countdownFieldsValid) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, countdownEvents, aiEndpoint, aiModel, aiVisionEnabled, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
+  }, [examDate, countdownEvents, countdownFieldsValid, aiEndpoint, aiModel, aiVisionEnabled, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
 
   const saveSettings = async () => {
+    if (!countdownFieldsValid) {
+      showToast('请先修正主目标名称或日期', 'error')
+      return
+    }
     setSaving(true)
     try {
       await Promise.all([
@@ -409,7 +417,7 @@ function Settings() {
         <SettingsIcon size={22} style={{ color: 'var(--accent)' }} /> 设置
       </h2>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 'var(--space-md)' }}>
         <SettingsAI
             aiEndpoint={aiEndpoint} setAiEndpoint={setAiEndpoint}
             aiApiKeyPresent={aiApiKeyPresent}
@@ -423,6 +431,8 @@ function Settings() {
         <SettingsGeneral 
             examDate={examDate} setExamDate={setExamDate}
             countdownEvents={countdownEvents} setCountdownEvents={setCountdownEvents}
+            onCountdownValidityChange={setCountdownFieldsValid}
+            countdownResetVersion={countdownResetVersion}
             theme={diary.theme} changeTheme={diary.changeTheme}
             pomodoroMinutes={pomodoroMinutes} setPomodoroMinutes={setPomodoroMinutes}
             pomodoroSound={pomodoroSound} setPomodoroSound={setPomodoroSound}
@@ -453,7 +463,7 @@ function Settings() {
         <button className="button button-secondary" onClick={loadSettings}>
           重置
         </button>
-        <button className="button button-primary" onClick={saveSettings} disabled={saving}>
+        <button className="button button-primary" onClick={saveSettings} disabled={saving || !countdownFieldsValid}>
            {saving ? '保存中...' : <><Check size={15} /> 保存设置</>}
         </button>
       </div>

@@ -35,6 +35,15 @@ import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
 import { getLocalDateKey } from '../src/utils/dateKey';
 import {
+    DEFAULT_EXAM_EVENT_ID,
+    getPrimaryCountdownEvent,
+    getPrimaryCountdownTitleError,
+    isValidCountdownDate,
+    normalizeCountdownEvents,
+    normalizeCountdownSettings,
+    parseCountdownEvents,
+} from '../src/utils/countdown';
+import {
     createFailedSmokeDiagnosticResult,
     parseSmokeDiagnosticRequest,
     prepareSmokeDiagnosticDatabase,
@@ -702,16 +711,6 @@ function isCountdownEventType(value: unknown): value is CountdownEventType {
     return typeof value === 'string' && COUNTDOWN_EVENT_TYPES.has(value);
 }
 
-function isCalendarDate(value: string): boolean {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) return false;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const date = new Date(year, month - 1, day);
-    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
 function sanitizeCountdownEvents(rawEvents: unknown): CountdownEvent[] {
     if (!Array.isArray(rawEvents)) {
         throw new Error('Invalid countdownEvents: expected an array');
@@ -724,9 +723,16 @@ function sanitizeCountdownEvents(rawEvents: unknown): CountdownEvent[] {
 
         const event = rawEvent as Record<string, unknown>;
         const id = typeof event.id === 'string' ? event.id.trim() : '';
-        const title = typeof event.title === 'string' ? event.title.trim() : '';
+        const rawTitle = typeof event.title === 'string' ? event.title : '';
+        const title = rawTitle.trim();
         const date = typeof event.date === 'string' ? event.date.trim() : '';
-        if (!id || !title || !isCalendarDate(date)) {
+        if (!id || !isValidCountdownDate(date)) {
+            throw new Error(`Invalid countdownEvents[${index}]: id, title, and YYYY-MM-DD date are required`);
+        }
+        if (id === DEFAULT_EXAM_EVENT_ID) {
+            const titleError = getPrimaryCountdownTitleError(rawTitle);
+            if (titleError) throw new Error(titleError);
+        } else if (!title) {
             throw new Error(`Invalid countdownEvents[${index}]: id, title, and YYYY-MM-DD date are required`);
         }
 
@@ -742,12 +748,12 @@ function sanitizeCountdownEvents(rawEvents: unknown): CountdownEvent[] {
 }
 
 function parseStoredCountdownEvents(value: unknown): CountdownEvent[] | undefined {
-    if (Array.isArray(value)) return sanitizeCountdownEvents(value);
+    if (Array.isArray(value)) return parseCountdownEvents(value);
     if (typeof value !== 'string' || !value.trim()) return undefined;
 
     try {
         const parsed: unknown = JSON.parse(value);
-        return sanitizeCountdownEvents(parsed);
+        return parseCountdownEvents(parsed);
     } catch {
         logger.warn('[settings:getAll] Ignored invalid countdownEvents payload');
         return undefined;
@@ -849,6 +855,9 @@ ipcMain.handle('settings:getAll', () => {
             safe[k] = parseStoredFocusWhitelist(v) || [];
         }
     }
+    const normalizedCountdown = normalizeCountdownSettings(safe.countdownEvents, safe.examDate);
+    safe.examDate = normalizedCountdown.examDate;
+    safe.countdownEvents = normalizedCountdown.countdownEvents;
     return safe;
 });
 
@@ -869,14 +878,39 @@ ipcMain.handle('settings:updateGeneral', (_: unknown, rawPatch: unknown) => {
     const focusGuardIntervalSec = patch.focusGuardIntervalSec === undefined
         ? undefined
         : sanitizeFocusGuardIntervalSec(patch.focusGuardIntervalSec);
+    if (patch.examDate !== undefined && !isValidCountdownDate(patch.examDate)) {
+        throw new Error('Invalid examDate: expected a valid YYYY-MM-DD date');
+    }
+    const touchesCountdown = patch.examDate !== undefined || countdownEvents !== undefined;
+    const storedCountdownEvents = parseStoredCountdownEvents(db.getSetting('countdownEvents')) || [];
+    const storedPrimary = getPrimaryCountdownEvent(normalizeCountdownEvents(
+        storedCountdownEvents,
+        db.getSetting('examDate'),
+    ));
+    const patchedPrimary = countdownEvents === undefined
+        ? undefined
+        : getPrimaryCountdownEvent(normalizeCountdownEvents(countdownEvents));
+    const countdownEventsForUpdate = countdownEvents === undefined
+        ? storedCountdownEvents
+        : patchedPrimary || !storedPrimary
+            ? countdownEvents
+            : [storedPrimary, ...countdownEvents];
+    const normalizedCountdown = touchesCountdown
+        ? normalizeCountdownSettings(
+            countdownEventsForUpdate,
+            patch.examDate ?? patchedPrimary?.date ?? storedPrimary?.date ?? db.getSetting('examDate'),
+        )
+        : undefined;
     const txn = db.getDb().transaction(() => {
-        if (patch.examDate !== undefined) db.setSetting('examDate', patch.examDate);
+        if (normalizedCountdown !== undefined) {
+            db.setSetting('examDate', normalizedCountdown.examDate);
+            db.setSetting('countdownEvents', JSON.stringify(normalizedCountdown.countdownEvents));
+        }
         if (patch.theme !== undefined) db.setSetting('theme', patch.theme);
         if (patch.pomodoroMinutes !== undefined) db.setSetting('pomodoroMinutes', String(patch.pomodoroMinutes));
         if (patch.autoSave !== undefined) db.setSetting('autoSave', String(patch.autoSave));
         if (patch.pomodoroSound !== undefined) db.setSetting('pomodoroSound', String(patch.pomodoroSound));
         if (patch.pomodoroAlert !== undefined) db.setSetting('pomodoroAlert', String(patch.pomodoroAlert));
-        if (countdownEvents !== undefined) db.setSetting('countdownEvents', JSON.stringify(countdownEvents));
         if (patch.focusGuardEnabled !== undefined) db.setSetting('focusGuardEnabled', String(patch.focusGuardEnabled));
         if (focusGuardIntervalSec !== undefined) db.setSetting('focusGuardIntervalSec', String(focusGuardIntervalSec));
         if (focusWhitelist !== undefined) db.setSetting('focusWhitelist', JSON.stringify(focusWhitelist));

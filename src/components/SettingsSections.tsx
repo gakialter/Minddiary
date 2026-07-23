@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, type Dispatch, type SetStateAction } from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2, Monitor } from 'lucide-react'
 import { AI_PROVIDERS, getKnownModelCapabilities, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
@@ -9,7 +9,9 @@ import { CURRENT_RELEASE_NOTES } from '../releaseNotes'
 
 interface SettingsGeneralProps {
   examDate: string; setExamDate: (v: string) => void
-  countdownEvents: CountdownEvent[]; setCountdownEvents: (v: CountdownEvent[]) => void
+  countdownEvents: CountdownEvent[]; setCountdownEvents: Dispatch<SetStateAction<CountdownEvent[]>>
+  onCountdownValidityChange: (valid: boolean) => void
+  countdownResetVersion: number
   theme: string; changeTheme: (v: string) => void
   pomodoroMinutes: number; setPomodoroMinutes: (v: number) => void
   pomodoroSound: boolean; setPomodoroSound: (v: boolean) => void
@@ -129,6 +131,8 @@ const fieldGroupStyle: React.CSSProperties = {
 export function SettingsGeneral({
     examDate, setExamDate,
     countdownEvents, setCountdownEvents,
+    onCountdownValidityChange,
+    countdownResetVersion,
     theme, changeTheme,
     pomodoroMinutes, setPomodoroMinutes,
     pomodoroSound, setPomodoroSound,
@@ -146,6 +150,8 @@ export function SettingsGeneral({
                     setExamDate={setExamDate}
                     events={countdownEvents}
                     setEvents={setCountdownEvents}
+                    onValidityChange={onCountdownValidityChange}
+                    resetVersion={countdownResetVersion}
                 />
                 <div>
                     <label style={labelStyle}>主题</label>

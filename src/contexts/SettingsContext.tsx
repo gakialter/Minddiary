@@ -1,7 +1,14 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react'
 import { mockSettings, STORAGE_KEYS } from '../data/mockData'
 import { IS_ELECTRON } from '../utils/apiAdapter'
-import { normalizeCountdownEvents } from '../utils/countdown'
+import {
+    DEFAULT_EXAM_EVENT_ID,
+    getPrimaryCountdownEvent,
+    getPrimaryCountdownTitleError,
+    isValidCountdownDate,
+    normalizeCountdownEvents,
+    normalizeCountdownSettings,
+} from '../utils/countdown'
 import { logger } from '../utils/logger'
 import type { AppSettings } from '../types'
 import type { SettingsContextAPI, SanitizedSettings } from '../types/api'
@@ -37,12 +44,63 @@ const getSystemDarkPreference = (): boolean => (
 )
 
 const normalizeSettings = (rawSettings: Partial<AppSettings> | null | undefined): AppSettings => {
-    const merged = { ...mockSettings, ...(rawSettings || {}) }
+    const incoming = rawSettings || {}
+    const merged = { ...mockSettings, ...incoming }
+    const hasExamDate = Object.prototype.hasOwnProperty.call(incoming, 'examDate')
+    const hasCountdownEvents = Object.prototype.hasOwnProperty.call(incoming, 'countdownEvents')
+    const initialCountdown = normalizeCountdownSettings(
+        hasCountdownEvents ? incoming.countdownEvents : (hasExamDate ? undefined : merged.countdownEvents),
+        hasExamDate ? incoming.examDate : (hasCountdownEvents ? undefined : merged.examDate),
+    )
+    const countdown = initialCountdown.countdownEvents.some(event => event.id === DEFAULT_EXAM_EVENT_ID)
+        ? initialCountdown
+        : normalizeCountdownSettings(initialCountdown.countdownEvents, mockSettings.examDate)
     return {
         ...merged,
         theme: normalizeTheme(merged.theme),
-        countdownEvents: normalizeCountdownEvents(merged.countdownEvents, merged.examDate),
+        examDate: countdown.examDate,
+        countdownEvents: countdown.countdownEvents,
     }
+}
+
+function parseBrowserSettings(raw: string | null): Partial<AppSettings> | null {
+    if (!raw) return null
+    try {
+        const parsed: unknown = JSON.parse(raw)
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Partial<AppSettings>
+            : null
+    } catch {
+        logger.error('[SettingsContext] Ignored malformed browser settings')
+        return null
+    }
+}
+
+function validateCountdownEventsPatch(rawEvents: unknown): void {
+    if (rawEvents === undefined) return
+    if (!Array.isArray(rawEvents)) {
+        throw new Error('Invalid countdownEvents: expected an array')
+    }
+    rawEvents.forEach((rawEvent, index) => {
+        if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) {
+            throw new Error(`Invalid countdownEvents[${index}]: expected an object`)
+        }
+        const event = rawEvent as Record<string, unknown>
+        const id = typeof event.id === 'string' ? event.id.trim() : ''
+        const title = typeof event.title === 'string' ? event.title.trim() : ''
+        const date = typeof event.date === 'string' ? event.date.trim() : ''
+        if (!id || !isValidCountdownDate(date)) {
+            throw new Error(`Invalid countdownEvents[${index}]: id, title, and YYYY-MM-DD date are required`)
+        }
+        if (id === DEFAULT_EXAM_EVENT_ID) {
+            const error = getPrimaryCountdownTitleError(
+                typeof event.title === 'string' ? event.title : '',
+            )
+            if (error) throw new Error(error)
+        } else if (!title) {
+            throw new Error(`Invalid countdownEvents[${index}]: id, title, and YYYY-MM-DD date are required`)
+        }
+    })
 }
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
@@ -73,9 +131,12 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 .finally(() => setSettingsInitialized(true))
         } else {
             const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS)
-            const val = normalizeSettings(raw ? JSON.parse(raw) as Partial<AppSettings> : mockSettings)
+            const parsed = parseBrowserSettings(raw)
+            const val = normalizeSettings(parsed || mockSettings)
             setSettings(val)
-            if (!raw) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(val))
+            if (!raw || !parsed) {
+                localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(val))
+            }
             setSettingsInitialized(true)
         }
     }, [])
@@ -94,15 +155,49 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 if (!s) return s
                 const normalized = normalizeSettings(s as unknown as Partial<AppSettings>)
                 setSettings(normalized)
-                return { ...s, theme: normalized.theme, countdownEvents: normalized.countdownEvents }
+                return {
+                    ...s,
+                    theme: normalized.theme,
+                    examDate: normalized.examDate,
+                    countdownEvents: normalized.countdownEvents,
+                }
             }
             return { ...settings, aiApiKeyMasked: null, aiApiKeyPresent: false } as unknown as SanitizedSettings
         },
         updateGeneral: async (patch) => {
-            if (IS_ELECTRON) {
-                await window.api.settings.updateGeneral(patch)
+            if (patch.examDate !== undefined && !isValidCountdownDate(patch.examDate)) {
+                throw new Error('Invalid examDate: expected a valid YYYY-MM-DD date')
             }
-            setSettings(prev => normalizeSettings({ ...prev, ...patch }))
+            validateCountdownEventsPatch(patch.countdownEvents)
+            let normalizedPatch = patch
+            if (patch.examDate !== undefined || patch.countdownEvents !== undefined) {
+                const currentPrimary = getPrimaryCountdownEvent(normalizeCountdownEvents(
+                    settings.countdownEvents,
+                    settings.examDate,
+                ))
+                const patchedEvents = patch.countdownEvents === undefined
+                    ? settings.countdownEvents
+                    : patch.countdownEvents
+                const patchedPrimary = getPrimaryCountdownEvent(normalizeCountdownEvents(patchedEvents))
+                const eventsForUpdate = patch.countdownEvents !== undefined
+                    && !patchedPrimary
+                    && currentPrimary
+                    ? [currentPrimary, ...patch.countdownEvents]
+                    : patchedEvents
+                const countdown = normalizeCountdownSettings(
+                    eventsForUpdate,
+                    patch.examDate ?? patchedPrimary?.date ?? currentPrimary?.date ?? settings.examDate,
+                )
+                normalizedPatch = {
+                    ...patch,
+                    examDate: countdown.examDate,
+                    countdownEvents: countdown.countdownEvents,
+                }
+            }
+            if (IS_ELECTRON) {
+                await window.api.settings.updateGeneral(normalizedPatch)
+            }
+            setSettings(prev => normalizeSettings({ ...prev, ...normalizedPatch }))
             return { success: true }
         },
         updateAI: async (patch) => {

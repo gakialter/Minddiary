@@ -32,7 +32,7 @@ export const AI_CONTEXT_LABELS: Record<AIContextKind, string> = {
     'mistake-patterns': '错题规律',
     'unmastered-mistakes': '未掌握错题',
     'study-overview': '学习概况',
-    'exam-countdown': '考试倒计时',
+    'exam-countdown': '主目标倒计时',
     'recent-reflection': '近期复盘',
 }
 

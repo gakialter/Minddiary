@@ -59,6 +59,19 @@ async function openMistakes(page: Page): Promise<void> {
   await expect(page.getByTestId('mistake-add-btn')).toBeVisible()
 }
 
+async function openSettings(page: Page): Promise<void> {
+  await page.goto(baseUrl)
+  await page.evaluate(() => {
+    localStorage.clear()
+    localStorage.setItem('started', 'true')
+  })
+  await page.reload()
+  const startButton = page.getByRole('button', { name: '开始使用' })
+  if (await startButton.isVisible().catch(() => false)) await startButton.click()
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
+}
+
 async function openForm(page: Page): Promise<void> {
   await page.getByTestId('mistake-add-btn').click()
   await expect(page.getByTestId('mistake-form')).toBeVisible()
@@ -181,5 +194,42 @@ test.describe('browser fallback repeated mistakes', () => {
     await expect(page.getByPlaceholder('问题 / 知识点')).toHaveValue('')
     await expect(page.getByPlaceholder('答案 / 解析')).toHaveValue('')
     await expect(page.getByPlaceholder('备注（可选）')).toHaveValue('')
+  })
+
+  test('persists a custom primary target across browser reload and ordinary event changes', async ({ page }) => {
+    await openSettings(page)
+
+    const primaryTitle = page.getByLabel('主目标名称')
+    await expect(primaryTitle).toHaveValue('考研初试')
+    await primaryTitle.fill('公务员考试')
+    await primaryTitle.press('Tab')
+    await page.getByLabel('主目标日期').fill('2027-01-10')
+
+    await page.getByLabel('关键日期标题').fill('论文提交')
+    await page.getByLabel('关键日期日期').fill('2026-11-01')
+    await page.getByRole('button', { name: '添加日期' }).click()
+    await page.getByRole('button', { name: '置顶 论文提交' }).click()
+    await page.getByRole('button', { name: '删除 论文提交' }).click()
+    await expect(page.getByRole('button', { name: '删除 公务员考试' })).toBeDisabled()
+    await page.getByRole('button', { name: /保存设置/ }).click()
+
+    await page.reload()
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    await expect(page.getByLabel('主目标名称')).toHaveValue('公务员考试')
+    await expect(page.getByLabel('主目标日期')).toHaveValue('2027-01-10')
+    await page.setViewportSize({ width: 640, height: 480 })
+    await page.getByLabel('主目标名称').scrollIntoViewIfNeeded()
+    const primaryRect = await page.getByLabel('主目标名称').boundingBox()
+    if (!primaryRect) throw new Error('Primary target title is not visible')
+    expect(primaryRect.x + primaryRect.width).toBeLessThanOrEqual(640)
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('mindiary_settings') || '{}'))
+    expect(stored.examDate).toBe('2027-01-10')
+    expect(stored.countdownEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'default-exam',
+        title: '公务员考试',
+        date: '2027-01-10',
+      }),
+    ]))
   })
 })

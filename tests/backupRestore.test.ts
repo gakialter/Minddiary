@@ -60,7 +60,18 @@ function makeDatabasePayload(overrides: Record<string, unknown> = {}): Record<st
       tags: [],
       subjects: [],
       mistakes: [],
-      settings: { theme: 'dark' },
+      settings: {
+        theme: 'dark',
+        examDate: '2027-01-15',
+        countdownEvents: [
+          {
+            id: 'default-exam',
+            title: '论文提交',
+            date: '2027-01-15',
+            type: 'exam',
+          },
+        ],
+      },
     },
     ...overrides,
   }
@@ -204,6 +215,16 @@ describe('automatic backup ZIP restore', () => {
 
     expect(result.manifest).toEqual(makeManifest())
     expect(restoredData).toEqual(makeDatabasePayload().data)
+    const restoredSettings = (restoredData as unknown as {
+      settings?: { countdownEvents?: unknown }
+    } | null)?.settings
+    expect(restoredSettings?.countdownEvents).toEqual([
+      expect.objectContaining({
+        id: 'default-exam',
+        title: '论文提交',
+        date: '2027-01-15',
+      }),
+    ])
     expect(fs.readFileSync(path.join(userDataPath, 'attachments', 'new.txt'), 'utf8')).toBe('new attachment')
     expect(fs.readFileSync(path.join(userDataPath, 'mistake_images', 'new.png'), 'utf8')).toBe('new mistake')
     expect(fs.existsSync(path.join(userDataPath, 'attachments', 'old.txt'))).toBe(false)

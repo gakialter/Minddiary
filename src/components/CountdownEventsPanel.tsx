@@ -22,7 +22,7 @@ export default function CountdownEventsPanel({ events, maxItems = 3 }: Countdown
 
       {upcomingEvents.length === 0 ? (
         <div className="text-sm text-muted" style={{ lineHeight: 1.6 }}>
-          还没有设置关键日期。添加一个目标日期，让备考节奏更清晰。
+          还没有设置关键日期。添加考试、论文、报名或自定义目标，让长期节奏更清晰。
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>

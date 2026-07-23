@@ -262,6 +262,95 @@ describe('Settings Component', () => {
     expect(lastPatch?.countdownEvents.some((event: { id: string }) => event.id === 'summer')).toBe(false)
   })
 
+  it('renames the primary target and preserves the title through date and ordinary-event changes', async () => {
+    vi.useFakeTimers()
+    await act(async () => {
+      render(<Settings />)
+    })
+
+    const primaryTitle = screen.getByLabelText('主目标名称')
+    expect(primaryTitle).toHaveValue('考研初试')
+    settingsApi.updateGeneral.mockClear()
+
+    await act(async () => {
+      fireEvent.change(primaryTitle, { target: { value: '  公务员考试  ' } })
+      fireEvent.blur(primaryTitle)
+      fireEvent.change(screen.getByLabelText('主目标日期'), { target: { value: '2027-01-10' } })
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    let calls = settingsApi.updateGeneral.mock.calls
+    let lastPatch = calls[calls.length - 1]?.[0]
+    expect(lastPatch).toEqual(expect.objectContaining({
+      examDate: '2027-01-10',
+      countdownEvents: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'default-exam',
+          title: '公务员考试',
+          date: '2027-01-10',
+          type: 'exam',
+        }),
+      ]),
+    }))
+    expect(screen.getByRole('button', { name: '删除 公务员考试' })).toBeDisabled()
+
+    settingsApi.updateGeneral.mockClear()
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('关键日期标题'), { target: { value: '论文提交' } })
+      fireEvent.change(screen.getByLabelText('关键日期日期'), { target: { value: '2026-11-01' } })
+      fireEvent.click(screen.getByRole('button', { name: /添加日期/ }))
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    calls = settingsApi.updateGeneral.mock.calls
+    lastPatch = calls[calls.length - 1]?.[0]
+    expect(lastPatch?.countdownEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'default-exam', title: '公务员考试', date: '2027-01-10' }),
+      expect.objectContaining({ title: '论文提交', date: '2026-11-01' }),
+    ]))
+  })
+
+  it('rejects empty, whitespace-only, and overlong primary target titles before saving', async () => {
+    vi.useFakeTimers()
+    await act(async () => {
+      render(<Settings />)
+    })
+    settingsApi.updateGeneral.mockClear()
+
+    const primaryTitle = screen.getByLabelText('主目标名称')
+    for (const invalidTitle of ['', '   ', '目'.repeat(41)]) {
+      await act(async () => {
+        fireEvent.change(primaryTitle, { target: { value: invalidTitle } })
+      })
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /保存设置/ })).toBeDisabled()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(settingsApi.updateGeneral).not.toHaveBeenCalled()
+    }
+  })
+
+  it('resets an invalid primary title draft without briefly enabling stale settings', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    const primaryTitle = screen.getByLabelText('主目标名称')
+    fireEvent.change(primaryTitle, { target: { value: '' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('主目标名称不能为空')
+    expect(screen.getByRole('button', { name: /保存设置/ })).toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    })
+
+    expect(primaryTitle).toHaveValue('考研初试')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /保存设置/ })).toBeEnabled()
+  })
+
   // ==================== Update Status Tests ====================
 
   it('subscribes to onStatusChange on mount', async () => {

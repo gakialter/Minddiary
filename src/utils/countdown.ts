@@ -6,6 +6,12 @@ const VALID_EVENT_TYPES: readonly CountdownEventType[] = ['exam', 'holiday', 'de
 
 export const DEFAULT_EXAM_EVENT_ID = 'default-exam'
 export const DEFAULT_EXAM_TITLE = '考研初试'
+export const PRIMARY_COUNTDOWN_TITLE_MAX_LENGTH = 40
+
+export interface NormalizedCountdownSettings {
+  examDate: string
+  countdownEvents: CountdownEvent[]
+}
 
 export function parseLocalDate(dateStr: string): Date | null {
   const match = DATE_PATTERN.exec(dateStr)
@@ -60,14 +66,16 @@ export function normalizeCountdownEvents(
     ? examDate
     : ''
 
-  if (!examDateStr) return events
-
   const examIndex = events.findIndex(event => event.id === DEFAULT_EXAM_EVENT_ID)
+  const existingExamEvent = examIndex >= 0 ? events[examIndex] : undefined
+  const primaryDate = examDateStr || existingExamEvent?.date || ''
+  if (!primaryDate) return events
+
   const examEvent: CountdownEvent = {
-    ...(examIndex >= 0 ? events[examIndex] : {}),
+    ...existingExamEvent,
     id: DEFAULT_EXAM_EVENT_ID,
-    title: DEFAULT_EXAM_TITLE,
-    date: examDateStr,
+    title: normalizePrimaryCountdownTitle(existingExamEvent?.title),
+    date: primaryDate,
     type: 'exam',
   }
 
@@ -76,6 +84,39 @@ export function normalizeCountdownEvents(
   }
 
   return [examEvent, ...events]
+}
+
+export function normalizeCountdownSettings(
+  rawEvents: unknown,
+  examDate?: unknown,
+): NormalizedCountdownSettings {
+  const countdownEvents = normalizeCountdownEvents(rawEvents, examDate)
+  const primaryEvent = getPrimaryCountdownEvent(countdownEvents)
+  return {
+    examDate: primaryEvent?.date || (
+      typeof examDate === 'string' && isValidCountdownDate(examDate) ? examDate : ''
+    ),
+    countdownEvents,
+  }
+}
+
+export function getPrimaryCountdownEvent(events: CountdownEvent[]): CountdownEvent | undefined {
+  return events.find(event => event.id === DEFAULT_EXAM_EVENT_ID)
+}
+
+export function normalizePrimaryCountdownTitle(title: unknown): string {
+  if (typeof title !== 'string') return DEFAULT_EXAM_TITLE
+  const trimmed = title.trim()
+  return trimmed ? trimmed.slice(0, PRIMARY_COUNTDOWN_TITLE_MAX_LENGTH) : DEFAULT_EXAM_TITLE
+}
+
+export function getPrimaryCountdownTitleError(title: string): string | null {
+  const trimmed = title.trim()
+  if (!trimmed) return '主目标名称不能为空'
+  if (trimmed.length > PRIMARY_COUNTDOWN_TITLE_MAX_LENGTH) {
+    return `主目标名称不能超过 ${PRIMARY_COUNTDOWN_TITLE_MAX_LENGTH} 个字符`
+  }
+  return null
 }
 
 export function sortUpcomingEvents(
@@ -129,7 +170,10 @@ function coerceCountdownEvent(rawEvent: unknown): CountdownEvent[] {
 
   const event = rawEvent as Record<string, unknown>
   const id = typeof event.id === 'string' ? event.id.trim() : ''
-  const title = typeof event.title === 'string' ? event.title.trim() : ''
+  const rawTitle = typeof event.title === 'string' ? event.title : ''
+  const title = id === DEFAULT_EXAM_EVENT_ID
+    ? normalizePrimaryCountdownTitle(rawTitle)
+    : rawTitle.trim()
   const date = typeof event.date === 'string' ? event.date.trim() : ''
   if (!id || !title || !isValidCountdownDate(date)) return []
 
