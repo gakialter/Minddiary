@@ -1602,13 +1602,22 @@ describe('database mistake image cleanup', () => {
       question: '',
       answer: 'Answer',
       notes: '',
+      mastered: true,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
       image_path: '',
       answer_image_path: '',
     })).toEqual({ id: 1 })
     const insertCall = state.preparedCalls.find(call => call.sql.includes('INSERT INTO mistakes'))
     expect(insertCall).toEqual({
-      sql: 'INSERT INTO mistakes (subject_id, question, answer, notes, image_path, answer_image_path) VALUES (?, ?, ?, ?, ?, ?)',
-      params: [null, '', 'Answer', '', null, null],
+      sql: `INSERT INTO mistakes (
+                subject_id, question, answer, notes, mastered,
+                ease_factor, review_interval, next_review_date, review_count,
+                image_path, answer_image_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [null, '', 'Answer', '', 1, 1.8, 14, '2027-01-15', 4, null, null],
     })
 
     state.mistakeRows = [{ id: 3, image_path: null, answer_image_path: null, mastered: 0 }]
@@ -1618,13 +1627,17 @@ describe('database mistake image cleanup', () => {
       answer: 'Answer',
       notes: 'Notes',
       mastered: false,
+      ease_factor: 2.2,
+      review_interval: 21,
+      next_review_date: null,
+      review_count: 5,
       image_path: 'mistake_images/new.png',
       answer_image_path: 'mistake_images/answer.png',
     })).resolves.toEqual({ success: true })
     const updateCall = state.preparedCalls.find(call => call.sql.includes('UPDATE mistakes SET subject_id = ?'))
     expect(updateCall).toEqual({
-      sql: 'UPDATE mistakes SET subject_id = ?, question = ?, answer = ?, notes = ?, mastered = ?, image_path = ?, answer_image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
-      params: [2, 'Question', 'Answer', 'Notes', 0, 'mistake_images/new.png', 'mistake_images/answer.png', 3],
+      sql: 'UPDATE mistakes SET subject_id = ?, question = ?, answer = ?, notes = ?, mastered = ?, ease_factor = ?, review_interval = ?, next_review_date = ?, review_count = ?, image_path = ?, answer_image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id=?',
+      params: [2, 'Question', 'Answer', 'Notes', 0, 2.2, 21, null, 5, 'mistake_images/new.png', 'mistake_images/answer.png', 3],
     })
 
     expect(database.toggleMistakeMastered(3)).toEqual({ mastered: 1 })

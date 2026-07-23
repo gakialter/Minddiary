@@ -53,6 +53,8 @@ import {
     validateEntryCreatePayload,
     validateEntryUpdatePayload,
     validateMistakeReviewPayload,
+    validateMistakeId,
+    validateMistakeWritePayload,
     validatePomodoroSessionPayload,
     validatePositiveIdPayload,
     validateSubjectChapterCompletedPayload,
@@ -1038,10 +1040,12 @@ ipcMain.handle('todayDashboard:getData', (_: unknown, date: string) => {
 
 // ==================== Mistakes ====================
 ipcMain.handle('mistakes:getAll', (_: unknown, filters: MistakeFilters) => db.getAllMistakes(filters));
-ipcMain.handle('mistakes:create', (_: unknown, mistake: Partial<Mistake>) => db.createMistake(mistake));
-ipcMain.handle('mistakes:update', (_: unknown, id: number, mistake: Partial<Mistake>) => db.updateMistake(id, mistake));
-ipcMain.handle('mistakes:delete', (_: unknown, id: number) => db.deleteMistake(id));
-ipcMain.handle('mistakes:toggleMastered', (_: unknown, id: number) => db.toggleMistakeMastered(id));
+ipcMain.handle('mistakes:create', (_: unknown, mistake: unknown) => db.createMistake(validateMistakeWritePayload(mistake)));
+ipcMain.handle('mistakes:update', (_: unknown, id: unknown, mistake: unknown) => (
+    db.updateMistake(validateMistakeId(id), validateMistakeWritePayload(mistake))
+));
+ipcMain.handle('mistakes:delete', (_: unknown, id: unknown) => db.deleteMistake(validateMistakeId(id)));
+ipcMain.handle('mistakes:toggleMastered', (_: unknown, id: unknown) => db.toggleMistakeMastered(validateMistakeId(id)));
 ipcMain.handle('mistakes:review', (_: unknown, id: unknown, data: unknown) => {
     const validated = validateMistakeReviewPayload(id, data);
     return db.reviewMistake(validated.id, validated.data);

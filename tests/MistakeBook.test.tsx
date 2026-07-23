@@ -1,7 +1,8 @@
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import MistakeBook from '../src/components/MistakeBook'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
+import type { Mistake } from '../src/types'
 
 const toastMock = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -1143,5 +1144,166 @@ describe('MistakeBook Component', () => {
     // Only one format toolbar should exist (for notes)
     const toolbars = screen.getAllByTestId('format-toolbar')
     expect(toolbars).toHaveLength(1)
+  })
+
+  it('keeps three consecutive Chinese drafts and later edits bound to the active form', async () => {
+    const records: Mistake[] = []
+    mistakesApi.getAll.mockImplementation(async () => ({
+      data: [...records].reverse(),
+      total: records.length,
+      masteredTotal: 0,
+    }))
+    mistakesApi.create.mockImplementation(async (data: Partial<Mistake>) => {
+      const record: Mistake = {
+        id: records.length + 1,
+        subject_id: data.subject_id ?? null,
+        question: data.question || '',
+        answer: data.answer || '',
+        notes: data.notes || '',
+        mastered: false,
+        ease_factor: 2.5,
+        review_interval: 1,
+        next_review_date: null,
+        review_count: 0,
+        image_path: data.image_path ?? null,
+        answer_image_path: data.answer_image_path ?? null,
+        created_at: `2026-07-23T00:00:0${records.length}Z`,
+      }
+      records.push(record)
+      return record
+    })
+    mistakesApi.update.mockImplementation(async (id: number, data: Partial<Mistake>) => {
+      const index = records.findIndex(record => record.id === id)
+      if (index < 0) throw new Error('Mistake not found')
+      records[index] = { ...records[index]!, ...data }
+      return data
+    })
+
+    render(<MistakeBook />)
+    await screen.findByTestId('mistake-add-btn')
+
+    for (const [question, answer, notes] of [
+      ['第一题', '答案一', '笔记一'],
+      ['第二题', '答案二', '笔记二'],
+      ['第三题', '答案三', '笔记三'],
+    ] as const) {
+      fireEvent.click(screen.getByTestId('mistake-add-btn'))
+      const form = screen.getByTestId('mistake-form')
+      const fields = [
+        [screen.getByPlaceholderText('问题 / 知识点'), question],
+        [screen.getByPlaceholderText('答案 / 解析'), answer],
+        [screen.getByPlaceholderText('备注（可选）'), notes],
+      ] as const
+      for (const [field, value] of fields) {
+        fireEvent.compositionStart(field)
+        fireEvent.compositionUpdate(field, { data: value.slice(0, 1) })
+        fireEvent.change(field, { target: { value } })
+        expect(form).toBeInTheDocument()
+        fireEvent.compositionEnd(field, { data: value })
+        expect(field).toHaveValue(value)
+      }
+      await act(async () => {
+        fireEvent.submit(form)
+      })
+      await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+    }
+
+    expect(records.map(record => [record.question, record.answer, record.notes])).toEqual([
+      ['第一题', '答案一', '笔记一'],
+      ['第二题', '答案二', '笔记二'],
+      ['第三题', '答案三', '笔记三'],
+    ])
+
+    const secondCard = screen.getByText('第二题').closest('.card')
+    expect(secondCard).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(within(secondCard as HTMLElement).getByRole('button', { name: '编辑错题' }))
+    })
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: '第二题（修改）' } })
+    fireEvent.change(screen.getByPlaceholderText('答案 / 解析'), { target: { value: '答案二（修改）' } })
+    fireEvent.change(screen.getByPlaceholderText('备注（可选）'), { target: { value: '笔记二（修改）' } })
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId('mistake-form'))
+    })
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+
+    const firstCard = screen.getByText('第一题').closest('.card')
+    expect(firstCard).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(within(firstCard as HTMLElement).getByRole('button', { name: '编辑错题' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    })
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    expect(screen.getByPlaceholderText('问题 / 知识点')).toHaveValue('')
+    expect(screen.getByPlaceholderText('答案 / 解析')).toHaveValue('')
+    const notes = screen.getByPlaceholderText('备注（可选）') as HTMLTextAreaElement
+    expect(notes).toHaveValue('')
+    fireEvent.change(notes, { target: { value: '当前备注' } })
+    notes.setSelectionRange(0, 2)
+    fireEvent.mouseDown(screen.getByTestId('format-bold'))
+    expect(notes).toHaveValue('**当前**备注')
+    expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'ready_to_save')
+  })
+
+  it('retains all text after a failed save and allows a successful retry', async () => {
+    mistakesApi.create
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce({ id: 3 })
+
+    render(<MistakeBook />)
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: '重试问题' } })
+    fireEvent.change(screen.getByPlaceholderText('答案 / 解析'), { target: { value: '重试答案' } })
+    fireEvent.change(screen.getByPlaceholderText('备注（可选）'), { target: { value: '重试笔记' } })
+
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+    await waitFor(() => expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'save_failed'))
+    expect(screen.getByPlaceholderText('问题 / 知识点')).toHaveValue('重试问题')
+    expect(screen.getByPlaceholderText('答案 / 解析')).toHaveValue('重试答案')
+    expect(screen.getByPlaceholderText('备注（可选）')).toHaveValue('重试笔记')
+
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+    expect(mistakesApi.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses the synchronous save lock to reject duplicate submissions', async () => {
+    let resolveCreate: (() => void) | undefined
+    mistakesApi.create.mockImplementation(() => new Promise(resolve => {
+      resolveCreate = () => resolve({ id: 3 })
+    }))
+
+    render(<MistakeBook />)
+    await screen.findByTestId('mistake-add-btn')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: '只保存一次' } })
+
+    const form = screen.getByTestId('mistake-form')
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    expect(mistakesApi.create).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveCreate?.()
+    })
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+  })
+
+  it('exposes form visibility for floating-control collision avoidance', async () => {
+    const { container } = render(<MistakeBook />)
+    await screen.findByTestId('mistake-add-btn')
+    const root = container.querySelector('[data-mistake-form-open]')
+    expect(root).toHaveAttribute('data-mistake-form-open', 'false')
+
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    expect(root).toHaveAttribute('data-mistake-form-open', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(root).toHaveAttribute('data-mistake-form-open', 'false'))
   })
 })

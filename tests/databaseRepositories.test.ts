@@ -1308,6 +1308,7 @@ describe('database repositories', () => {
       'gamma question',
       'question needle',
     ])
+    expect(all.data.map(mistake => mistake.mastered)).toEqual([true, false, false])
     expect(all.data[0]).toEqual(expect.objectContaining({
       subject_name: 'English',
       subject_color: '#854D0E',
@@ -1450,6 +1451,107 @@ describe('database repositories', () => {
       subject_id: 999,
       question: 'Missing subject',
     })).toThrow(/FOREIGN KEY constraint failed/)
+  })
+
+  it('preserves consecutive SQLite mistake ids and neighboring rows during a middle update', () => {
+    const first = repositories.mistakes.createMistake({
+      question: '第一题',
+      answer: '答案一',
+      notes: '笔记一',
+    })
+    const second = repositories.mistakes.createMistake({
+      question: '第二题',
+      answer: '答案二',
+      notes: '笔记二',
+      image_path: 'mistake_images/q2.png',
+    })
+    const third = repositories.mistakes.createMistake({
+      question: '第三题',
+      answer: '答案三',
+      notes: '笔记三',
+      answer_image_path: 'mistake_images/a3.png',
+    })
+
+    expect([first.id, second.id, third.id].map(Number)).toEqual([1, 2, 3])
+    repositories.mistakes.updateMistake(Number(second.id), {
+      question: '第二题（修改）',
+      answer: '答案二（修改）',
+      notes: '笔记二（修改）',
+    })
+
+    expect(database.prepare(`
+      SELECT id, question, answer, notes, image_path, answer_image_path
+      FROM mistakes
+      ORDER BY id ASC
+    `).all()).toEqual([
+      {
+        id: 1,
+        question: '第一题',
+        answer: '答案一',
+        notes: '笔记一',
+        image_path: null,
+        answer_image_path: null,
+      },
+      {
+        id: 2,
+        question: '第二题（修改）',
+        answer: '答案二（修改）',
+        notes: '笔记二（修改）',
+        image_path: 'mistake_images/q2.png',
+        answer_image_path: null,
+      },
+      {
+        id: 3,
+        question: '第三题',
+        answer: '答案三',
+        notes: '笔记三',
+        image_path: null,
+        answer_image_path: 'mistake_images/a3.png',
+      },
+    ])
+  })
+
+  it('preserves imported review progress during SQLite create and update', () => {
+    const created = repositories.mistakes.createMistake({
+      question: '带复习进度的导入记录',
+      answer: '导入答案',
+      notes: '导入笔记',
+      mastered: true,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+    })
+    const id = Number(created.id)
+
+    expect(database.prepare(`
+      SELECT mastered, ease_factor, review_interval, next_review_date, review_count
+      FROM mistakes WHERE id=?
+    `).get(id)).toEqual({
+      mastered: 1,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+    })
+
+    repositories.mistakes.updateMistake(id, {
+      mastered: false,
+      ease_factor: 2.2,
+      review_interval: 21,
+      next_review_date: null,
+      review_count: 5,
+    })
+    expect(database.prepare(`
+      SELECT mastered, ease_factor, review_interval, next_review_date, review_count
+      FROM mistakes WHERE id=?
+    `).get(id)).toEqual({
+      mastered: 0,
+      ease_factor: 2.2,
+      review_interval: 21,
+      next_review_date: null,
+      review_count: 5,
+    })
   })
 
   it('updates mistakes with stable field semantics and empty patch behavior', () => {

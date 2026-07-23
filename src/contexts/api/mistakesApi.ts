@@ -4,6 +4,7 @@ import { getLocalDateKey } from '../../utils/dateKey'
 import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData, StudyTask } from '../../types'
 import type { MistakesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
+import { validateMistakeId, validateMistakeWritePayload } from '../../utils/mistakePayload'
 
 export const createMistakesApi = (
     mistakesRef: MutableRefObject<Mistake[]>,
@@ -48,53 +49,78 @@ export const createMistakesApi = (
         return { data: result, total, masteredTotal };
     },
     create: async (data: Partial<Mistake>) => {
+        const validated = validateMistakeWritePayload(data)
         if (IS_ELECTRON) {
-            const { id } = await window.api.mistakes.create(data)
-            return { ...data, id, mastered: false } as Mistake
+            const { id } = await window.api.mistakes.create(validated)
+            return {
+                question: '',
+                answer: '',
+                notes: '',
+                subject_id: null,
+                image_path: null,
+                answer_image_path: null,
+                ...validated,
+                mastered: validated.mastered ?? false,
+                ease_factor: validated.ease_factor ?? 2.5,
+                review_interval: validated.review_interval ?? 1,
+                next_review_date: validated.next_review_date ?? null,
+                review_count: validated.review_count ?? 0,
+                id,
+                created_at: new Date().toISOString(),
+            }
         }
         
         const newMistake: Mistake = {
             question: '', answer: '', notes: '', subject_id: null,
-            ease_factor: 2.5, review_interval: 1, next_review_date: null, review_count: 0,
             image_path: null, answer_image_path: null,
-            ...data,
             id: Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1,
-            mastered: false,
             created_at: new Date().toISOString(),
+            ...validated,
+            mastered: validated.mastered ?? false,
+            ease_factor: validated.ease_factor ?? 2.5,
+            review_interval: validated.review_interval ?? 1,
+            next_review_date: validated.next_review_date ?? null,
+            review_count: validated.review_count ?? 0,
         }
-        mistakesRef.current = [...mistakesRef.current, newMistake]
-        saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
+        const nextMistakes = [...mistakesRef.current, newMistake]
+        saveToLocal(STORAGE_KEYS.MISTAKES, nextMistakes)
+        mistakesRef.current = nextMistakes
         return newMistake
     },
     update: async (id: number, data: Partial<Mistake>) => {
+        const validatedId = validateMistakeId(id)
+        const validated = validateMistakeWritePayload(data)
         if (IS_ELECTRON) {
-            await window.api.mistakes.update(id, data)
-            return data
+            await window.api.mistakes.update(validatedId, validated)
+            return validated
         }
-        mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, ...data } : m)
-        saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
-        return data
+        const nextMistakes = mistakesRef.current.map(m => m.id === validatedId ? { ...m, ...validated } : m)
+        saveToLocal(STORAGE_KEYS.MISTAKES, nextMistakes)
+        mistakesRef.current = nextMistakes
+        return validated
     },
     delete: async (id: number) => {
+        const validatedId = validateMistakeId(id)
         if (IS_ELECTRON) {
-            await window.api.mistakes.delete(id)
+            await window.api.mistakes.delete(validatedId)
             return true
         }
-        mistakesRef.current = mistakesRef.current.filter(m => m.id !== id)
+        mistakesRef.current = mistakesRef.current.filter(m => m.id !== validatedId)
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
         tasksRef.current = tasksRef.current.map(task => (
-            task.related_mistake_id === id ? { ...task, related_mistake_id: null } : task
+            task.related_mistake_id === validatedId ? { ...task, related_mistake_id: null } : task
         ))
         saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
         return true
     },
     toggleMastered: async (id: number) => {
+        const validatedId = validateMistakeId(id)
         if (IS_ELECTRON) {
-            const res = await window.api.mistakes.toggleMastered(id);
+            const res = await window.api.mistakes.toggleMastered(validatedId);
             return { mastered: !!res.mastered };
         }
         
-        mistakesRef.current = mistakesRef.current.map(m => m.id === id ? { ...m, mastered: !m.mastered } : m)
+        mistakesRef.current = mistakesRef.current.map(m => m.id === validatedId ? { ...m, mastered: !m.mastered } : m)
         saveToLocal(STORAGE_KEYS.MISTAKES, mistakesRef.current)
         return { mastered: true }
     },

@@ -6,6 +6,7 @@ import { coerceBoolean } from '../utils/helpers'
 import { normalizeCountdownEvents } from '../utils/countdown'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
+import { validateMistakeWritePayload } from '../utils/mistakePayload'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbout } from './SettingsSections'
 import type { CountdownEvent, FocusWhitelistItem } from '../types'
@@ -194,7 +195,9 @@ function Settings() {
         timestamp: new Date().toISOString(),
         data: {
           entries, tags, subjects, 
-          mistakes: mistakes && typeof mistakes === 'object' && 'data' in (mistakes as any) ? (mistakes as any).data : mistakes,
+          mistakes: mistakes && typeof mistakes === 'object' && 'data' in mistakes
+            ? (mistakes as { data: unknown }).data
+            : mistakes,
           pomodoro,
           settings: sanitizeSettingsForExport(allSettings as Record<string, unknown>),
         }
@@ -271,6 +274,18 @@ function Settings() {
 
           const data = backup.data
           let importCount = 0
+          let mistakeImportCount = 0
+          const validatedMistakes = data.mistakes
+            ? data.mistakes.map((mistake: unknown, index: number) => {
+                try {
+                  return validateMistakeWritePayload(mistake)
+                } catch (error: unknown) {
+                  throw new Error(
+                    `第 ${index + 1} 道错题导入失败: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }
+              })
+            : []
 
           if (data.entries) {
             for (const entry of data.entries) {
@@ -302,13 +317,24 @@ function Settings() {
             }
           }
 
-          if (data.mistakes) {
-            for (const mis of data.mistakes) {
-              await diary.mistakes.create(mis).catch(() => { })
+          if (validatedMistakes.length > 0) {
+            for (const [index, mistake] of validatedMistakes.entries()) {
+              try {
+                await diary.mistakes.create(mistake)
+                mistakeImportCount++
+              } catch (error: unknown) {
+                throw new Error(
+                  `第 ${index + 1} 道错题导入失败: ${error instanceof Error ? error.message : String(error)}`,
+                )
+              }
             }
           }
 
-          showToast(`导入完成，处理了 ${importCount} 篇日记。请重启应用以刷新状态。`, 'success', 5000)
+          showToast(
+            `导入完成，处理了 ${importCount} 篇日记、${mistakeImportCount} 道错题。请重启应用以刷新状态。`,
+            'success',
+            5000,
+          )
 
         } catch (error: unknown) {
           logger.error('Import failed:', error)

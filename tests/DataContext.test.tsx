@@ -1346,6 +1346,141 @@ describe('DataContext', () => {
     ])
   })
 
+  it('preserves consecutive browser mistake ids, fields, and neighboring records during updates', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const created: Mistake[] = []
+    for (const [question, answer, notes, image_path, answer_image_path] of [
+      ['第一题', '答案一', '笔记一', null, null],
+      ['第二题', '答案二', '笔记二', 'mistake_images/q2.png', null],
+      ['第三题', '答案三', '笔记三', null, 'mistake_images/a3.png'],
+    ] as const) {
+      created.push(await result.current.mistakes.create({
+        question,
+        answer,
+        notes,
+        image_path,
+        answer_image_path,
+      }))
+    }
+
+    expect(created.map(mistake => mistake.id)).toEqual([1, 2, 3])
+    const legacyUnselected = await result.current.mistakes.create({
+      subject_id: 0,
+      question: '旧导入未选科目',
+      answer: '兼容答案',
+      notes: '兼容笔记',
+    })
+    expect(legacyUnselected).toEqual(expect.objectContaining({
+      id: 4,
+      subject_id: null,
+    }))
+    const importedReviewProgress = await result.current.mistakes.create({
+      question: '带复习进度的导入记录',
+      answer: '导入答案',
+      notes: '导入笔记',
+      mastered: true,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+    })
+    expect(importedReviewProgress).toEqual(expect.objectContaining({
+      id: 5,
+      mastered: true,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+    }))
+    await result.current.mistakes.update(2, {
+      question: '第二题（修改）',
+      answer: '答案二（修改）',
+      notes: '笔记二（修改）',
+    })
+
+    const stored = await result.current.mistakes.getAll()
+    expect(stored.data.find(mistake => mistake.id === 1)).toEqual(expect.objectContaining({
+      question: '第一题',
+      answer: '答案一',
+      notes: '笔记一',
+      image_path: null,
+      answer_image_path: null,
+    }))
+    expect(stored.data.find(mistake => mistake.id === 2)).toEqual(expect.objectContaining({
+      question: '第二题（修改）',
+      answer: '答案二（修改）',
+      notes: '笔记二（修改）',
+      image_path: 'mistake_images/q2.png',
+      answer_image_path: null,
+    }))
+    expect(stored.data.find(mistake => mistake.id === 3)).toEqual(expect.objectContaining({
+      question: '第三题',
+      answer: '答案三',
+      notes: '笔记三',
+      image_path: null,
+      answer_image_path: 'mistake_images/a3.png',
+    }))
+    expect(stored.data.find(mistake => mistake.id === 4)).toEqual(expect.objectContaining({
+      subject_id: null,
+      question: '旧导入未选科目',
+    }))
+    expect(stored.data.find(mistake => mistake.id === 5)).toEqual(expect.objectContaining({
+      question: '带复习进度的导入记录',
+      mastered: true,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+    }))
+    await expect(result.current.mistakes.update(0, { question: '非法' })).rejects.toThrow(
+      'mistake id must be a positive integer',
+    )
+    await expect(result.current.mistakes.update(1, { question: 42 as unknown as string })).rejects.toThrow(
+      'mistake question must be a string',
+    )
+  })
+
+  it('keeps browser mistake memory and storage unchanged when persistence fails before retry', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('quota exceeded')
+    })
+    await expect(result.current.mistakes.create({
+      question: '重试问题',
+      answer: '重试答案',
+      notes: '重试笔记',
+    })).rejects.toThrow('quota exceeded')
+    setItem.mockRestore()
+
+    expect(await result.current.mistakes.getAll()).toMatchObject({ data: [], total: 0 })
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MISTAKES) || '[]')).toEqual([])
+
+    const created = await result.current.mistakes.create({
+      question: '重试问题',
+      answer: '重试答案',
+      notes: '重试笔记',
+    })
+    expect(created.id).toBe(1)
+    expect(await result.current.mistakes.getAll()).toMatchObject({
+      data: [expect.objectContaining({ id: 1, question: '重试问题' })],
+      total: 1,
+    })
+  })
+
   it('stably orders and paginates browser fallback mistakes with equal or invalid timestamps', async () => {
     mocks.isElectron = false
     seedEmptyBrowserStorage()

@@ -759,7 +759,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const pagedMistakes = mistakes
 
     return (
-        <div style={{ padding: 'var(--space-xl)' }}>
+        <div
+            data-mistake-form-open={showForm ? 'true' : 'false'}
+            style={{ padding: 'var(--space-xl)' }}
+        >
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-lg)' }}>
                 <div className="text-sm text-muted">
                     共 <strong style={{ color: 'var(--text-primary)' }}>{totalCount}</strong> 条记录，已吃透 <strong style={{ color: 'var(--success)' }}>{masteredCount}</strong> 条
