@@ -13,6 +13,7 @@ const mockRequestDataRefresh = vi.fn()
 const mockTasksGetByDate = vi.fn()
 const mockTasksFind = vi.fn()
 const mockTasksCreate = vi.fn()
+const mockTasksUpdate = vi.fn()
 const mockTasksComplete = vi.fn()
 const mockTasksSkip = vi.fn()
 const mockTasksDelete = vi.fn()
@@ -173,6 +174,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     mockTasksGetByDate.mockResolvedValue([])
     mockTasksFind.mockResolvedValue([])
     mockTasksCreate.mockResolvedValue(makeTask())
+    mockTasksUpdate.mockResolvedValue(makeTask())
     mockTasksComplete.mockResolvedValue({ id: 1, status: 'done' })
     mockTasksSkip.mockResolvedValue({ id: 2, status: 'skipped' })
     mockTasksDelete.mockResolvedValue(true)
@@ -187,7 +189,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
         getByDate: mockTasksGetByDate,
         find: mockTasksFind,
         create: mockTasksCreate,
-        update: vi.fn(),
+        update: mockTasksUpdate,
         delete: mockTasksDelete,
         complete: mockTasksComplete,
         skip: mockTasksSkip,
@@ -897,6 +899,155 @@ describe('HomeDashboard Component - Commander Engine', () => {
         source: 'manual',
       }))
     })
+  })
+
+  it('edits a completed chapter task and refreshes its row and planned minutes immediately', async () => {
+    const original = makeTask({
+      id: 51,
+      title: '学习章节',
+      type: 'focus',
+      subject_id: 7,
+      related_chapter_id: 70,
+      estimate_minutes: 25,
+      status: 'done',
+      source: 'dashboard',
+    })
+    const updated = makeTask({
+      ...original,
+      title: '深入学习章节',
+      estimate_minutes: 70,
+      updated_at: '2026-05-31T01:00:00.000Z',
+    })
+    mockTasksGetByDate.mockResolvedValue([original])
+    mockTasksUpdate.mockResolvedValue(updated)
+    mockSubjectsGetAll.mockResolvedValue([
+      { id: 7, name: '数学', color: '#2563eb', total_chapters: 2, completed_chapters: 1 },
+    ])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([
+      {
+        id: 70,
+        subject_id: 7,
+        title: '函数',
+        notes: '',
+        completed: true,
+        sort_order: 0,
+        created_at: '2026-05-31T00:00:00.000Z',
+        updated_at: '2026-05-31T00:00:00.000Z',
+      },
+    ])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByTestId('task-edit-51'))
+    const titleInput = screen.getByTestId('task-edit-title-51')
+    const estimateInput = screen.getByTestId('task-edit-estimate-51')
+    expect(titleInput).toHaveValue('学习章节')
+    expect(estimateInput).toHaveValue(25)
+
+    fireEvent.change(titleInput, { target: { value: '深入学习章节' } })
+    fireEvent.change(estimateInput, { target: { value: '70' } })
+    fireEvent.click(screen.getByTestId('task-edit-save-51'))
+
+    await waitFor(() => {
+      expect(mockTasksUpdate).toHaveBeenCalledWith(51, {
+        title: '深入学习章节',
+        estimate_minutes: 70,
+      })
+    })
+    expect(await screen.findByText('深入学习章节')).toBeInTheDocument()
+    expect(screen.getByText('focus · 70m')).toBeInTheDocument()
+    expect(screen.getByTestId('task-focus-loop-metrics')).toHaveTextContent('70m / 0m')
+    expect(screen.getByTestId('task-source-51')).toHaveTextContent('数学 · 函数')
+    expect(screen.getByTestId('task-edit-51')).toBeEnabled()
+    expect(mockRequestDataRefresh).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['空值', ''],
+    ['零', '0'],
+    ['负数', '-1'],
+    ['小数', '1.5'],
+    ['超过上限', '241'],
+  ])('rejects an invalid task estimate: %s', async (_label, estimate) => {
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 52 })])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByTestId('task-edit-52'))
+    fireEvent.change(screen.getByTestId('task-edit-estimate-52'), { target: { value: estimate } })
+    fireEvent.click(screen.getByTestId('task-edit-save-52'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('预计分钟数必须是 1 到 240 的整数。')
+    expect(mockTasksUpdate).not.toHaveBeenCalled()
+    expect(screen.getByTestId('task-edit-estimate-52')).toHaveValue(estimate === '' ? null : Number(estimate))
+  })
+
+  it('keeps the editor, user input, and original task after an update failure', async () => {
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 53, title: '原任务', estimate_minutes: 25 })])
+    mockTasksUpdate.mockRejectedValue(new Error('database unavailable'))
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByTestId('task-edit-53'))
+    fireEvent.change(screen.getByTestId('task-edit-title-53'), { target: { value: '用户输入标题' } })
+    fireEvent.change(screen.getByTestId('task-edit-estimate-53'), { target: { value: '70' } })
+    fireEvent.click(screen.getByTestId('task-edit-save-53'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('保存任务修改失败：database unavailable')
+    expect(screen.getByTestId('task-edit-title-53')).toHaveValue('用户输入标题')
+    expect(screen.getByTestId('task-edit-estimate-53')).toHaveValue(70)
+
+    fireEvent.click(screen.getByTestId('task-edit-cancel-53'))
+    expect(screen.getByText('原任务')).toBeInTheDocument()
+    expect(screen.getByText('review · 25m')).toBeInTheDocument()
+  })
+
+  it('prevents concurrent task updates while a save is pending', async () => {
+    const original = makeTask({ id: 54 })
+    const updateResult = createDeferredTask()
+    mockTasksGetByDate.mockResolvedValue([original])
+    mockTasksUpdate.mockReturnValue(updateResult.promise)
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByTestId('task-edit-54'))
+    fireEvent.change(screen.getByTestId('task-edit-estimate-54'), { target: { value: '70' } })
+    const saveButton = screen.getByTestId('task-edit-save-54')
+    fireEvent.click(saveButton)
+    fireEvent.click(saveButton)
+
+    expect(mockTasksUpdate).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(saveButton).toBeDisabled())
+
+    await act(async () => {
+      updateResult.resolve({ ...original, estimate_minutes: 70 })
+    })
+    expect(await screen.findByText('review · 70m')).toBeInTheDocument()
+  })
+
+  it('keeps editing available for done, skipped, and linked tasks', async () => {
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({ id: 55, status: 'done' }),
+      makeTask({ id: 56, status: 'skipped' }),
+      makeTask({ id: 57, subject_id: 7, related_chapter_id: 70 }),
+    ])
+    mockSubjectsGetAll.mockResolvedValue([{ id: 7, name: '数学', color: '#2563eb' }])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([{
+      id: 70,
+      subject_id: 7,
+      title: '函数',
+      notes: '',
+      completed: false,
+      sort_order: 0,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    }])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByTestId('task-edit-55')).toBeEnabled()
+    expect(screen.getByTestId('task-edit-56')).toBeEnabled()
+    expect(screen.getByTestId('task-edit-57')).toBeEnabled()
   })
 
   it('completes, skips, and deletes action queue tasks', async () => {

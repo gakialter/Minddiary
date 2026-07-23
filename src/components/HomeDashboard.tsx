@@ -17,6 +17,9 @@ import {
 } from '../utils/todayExecution'
 import type { NewStudyTask, StudyTask, StudyTaskType, Subject, SubjectChapter } from '../types'
 
+const TASK_ESTIMATE_MINUTES_MIN = 1
+const TASK_ESTIMATE_MINUTES_MAX = 240
+
 interface HomeDashboardProps {
   setActiveView: (view: string) => void
   setSelectedDate?: (date: string) => void
@@ -49,6 +52,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
+  const [editTaskTitle, setEditTaskTitle] = useState('')
+  const [editTaskEstimate, setEditTaskEstimate] = useState('')
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
   const [dailyReviewAgentOpenDate, setDailyReviewAgentOpenDate] = useState<string | null>(null)
@@ -152,6 +158,70 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     setNewTaskTitle('')
     setNewTaskType('custom')
     setNewTaskEstimate(25)
+  }
+
+  const openTaskEditor = (task: StudyTask) => {
+    setEditingTaskId(task.id)
+    setEditTaskTitle(task.title)
+    setEditTaskEstimate(String(task.estimate_minutes))
+    setTaskError(null)
+  }
+
+  const closeTaskEditor = () => {
+    setEditingTaskId(null)
+    setEditTaskTitle('')
+    setEditTaskEstimate('')
+    setTaskError(null)
+  }
+
+  const handleTaskEditSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (editingTaskId === null || taskMutationLockedRef.current) return
+
+    const title = editTaskTitle.trim()
+    if (!title) {
+      setTaskError('任务标题不能为空。')
+      return
+    }
+    if (title.length > 200) {
+      setTaskError('任务标题不能超过 200 个字符。')
+      return
+    }
+
+    let estimateMinutes: number
+    const parsedEstimate = Number(editTaskEstimate)
+    if (
+      !Number.isInteger(parsedEstimate)
+      || parsedEstimate < TASK_ESTIMATE_MINUTES_MIN
+      || parsedEstimate > TASK_ESTIMATE_MINUTES_MAX
+    ) {
+      setTaskError(
+        `预计分钟数必须是 ${TASK_ESTIMATE_MINUTES_MIN} 到 ${TASK_ESTIMATE_MINUTES_MAX} 的整数。`,
+      )
+      return
+    }
+    estimateMinutes = parsedEstimate
+
+    taskMutationLockedRef.current = true
+    setTaskMutating(true)
+    setTaskError(null)
+    try {
+      const updated = await tasksAPI.update(editingTaskId, {
+        title,
+        estimate_minutes: estimateMinutes,
+      })
+      setTasks(current => current.map(task => task.id === updated.id ? updated : task))
+      setEditingTaskId(null)
+      setEditTaskTitle('')
+      setEditTaskEstimate('')
+      requestDataRefresh()
+    } catch (taskUpdateError) {
+      const message = taskUpdateError instanceof Error ? taskUpdateError.message : String(taskUpdateError)
+      setTaskError(`保存任务修改失败：${message}`)
+    } finally {
+      taskMutationLockedRef.current = false
+      setTaskMutating(false)
+    }
   }
 
   const hasResolvedCurrentDashboardDate = resolvedDateKey === todayDate
@@ -561,106 +631,171 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               ) : tasks.map(task => (
                 <div
                   key={task.id}
-                  className="flex flex-col gap-3 rounded-xl px-4 py-3 md:flex-row md:items-center md:justify-between"
+                  className="min-w-0 rounded-xl px-4 py-3"
                   style={{
                     border: '1px solid var(--border)',
                     background: 'var(--bg-tertiary)',
                   }}
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{task.title}</span>
-                      <span
-                        data-testid={`task-status-${task.id}`}
-                        className="rounded-full px-2 py-0.5 text-xs"
-                        style={{
-                          border: '1px solid var(--border)',
-                          color: 'var(--text-secondary)',
-                          background: 'var(--bg-secondary)',
-                        }}
-                      >
-                        {task.status}
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {task.type} · {task.estimate_minutes}m
-                      </span>
-                      {task.source === 'ai' && (
-                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--accent)', border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
-                          AI 建议
-                        </span>
-                      )}
-                      {task.related_mistake_id !== null && (
-                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
-                          关联错题 #{task.related_mistake_id}
-                        </span>
-                      )}
-                      {task.related_entry_id !== null && (
-                        <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 45%, transparent)', background: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
-                          关联日记 #{task.related_entry_id}
-                        </span>
-                      )}
-                      {task.related_chapter_id !== null && (
-                        <>
+                  {editingTaskId === task.id ? (
+                    <form className="min-w-0 space-y-3" noValidate onSubmit={handleTaskEditSubmit}>
+                      <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
+                        <label className="min-w-0 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                          任务标题
+                          <input
+                            data-testid={`task-edit-title-${task.id}`}
+                            className="input mt-1 w-full min-w-0"
+                            value={editTaskTitle}
+                            maxLength={200}
+                            disabled={taskMutating}
+                            onChange={event => setEditTaskTitle(event.target.value)}
+                          />
+                        </label>
+                        <label className="min-w-0 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                          预计分钟数
+                          <input
+                            data-testid={`task-edit-estimate-${task.id}`}
+                            className="input mt-1 w-full min-w-0"
+                            type="number"
+                            min={TASK_ESTIMATE_MINUTES_MIN}
+                            max={TASK_ESTIMATE_MINUTES_MAX}
+                            step={1}
+                            value={editTaskEstimate}
+                            disabled={taskMutating}
+                            onChange={event => setEditTaskEstimate(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          className="button"
+                          data-testid={`task-edit-cancel-${task.id}`}
+                          disabled={taskMutating}
+                          onClick={closeTaskEditor}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="submit"
+                          className="button button-primary"
+                          data-testid={`task-edit-save-${task.id}`}
+                          disabled={taskMutating}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                        >
+                          {taskMutating ? '保存中...' : '保存'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="min-w-0 max-w-full break-words font-medium" style={{ color: 'var(--text-primary)' }}>{task.title}</span>
                           <span
+                            data-testid={`task-status-${task.id}`}
                             className="rounded-full px-2 py-0.5 text-xs"
-                            style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
+                            style={{
+                              border: '1px solid var(--border)',
+                              color: 'var(--text-secondary)',
+                              background: 'var(--bg-secondary)',
+                            }}
                           >
-                            章节任务
+                            {task.status}
                           </span>
-                          {taskSourceLabels[task.id] && (
-                            <span
-                              data-testid={`task-source-${task.id}`}
-                              className="text-xs"
-                              style={{ color: taskSourceLabels[task.id]?.missingChapter ? 'var(--warning)' : 'var(--text-secondary)' }}
-                            >
-                              {taskSourceLabels[task.id]?.label}
+                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {task.type} · {task.estimate_minutes}m
+                          </span>
+                          {task.source === 'ai' && (
+                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--accent)', border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                              AI 建议
                             </span>
                           )}
-                        </>
-                      )}
+                          {task.related_mistake_id !== null && (
+                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
+                              关联错题 #{task.related_mistake_id}
+                            </span>
+                          )}
+                          {task.related_entry_id !== null && (
+                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 45%, transparent)', background: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
+                              关联日记 #{task.related_entry_id}
+                            </span>
+                          )}
+                          {task.related_chapter_id !== null && (
+                            <>
+                              <span
+                                className="rounded-full px-2 py-0.5 text-xs"
+                                style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
+                              >
+                                章节任务
+                              </span>
+                              {taskSourceLabels[task.id] && (
+                                <span
+                                  data-testid={`task-source-${task.id}`}
+                                  className="text-xs"
+                                  style={{ color: taskSourceLabels[task.id]?.missingChapter ? 'var(--warning)' : 'var(--text-secondary)' }}
+                                >
+                                  {taskSourceLabels[task.id]?.label}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {task.description && (
+                          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          data-testid={`task-edit-${task.id}`}
+                          type="button"
+                          className="button"
+                          disabled={taskMutating}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                          onClick={() => openTaskEditor(task)}
+                        >
+                          修改
+                        </button>
+                        <button
+                          data-testid={`task-complete-${task.id}`}
+                          type="button"
+                          className="button"
+                          disabled={taskMutating || task.status === 'done'}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                          onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
+                        >
+                          完成
+                        </button>
+                        <button
+                          data-testid={`task-skip-${task.id}`}
+                          type="button"
+                          className="button"
+                          disabled={taskMutating || task.status === 'skipped'}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                          onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
+                        >
+                          跳过
+                        </button>
+                        <button
+                          data-testid={`task-delete-${task.id}`}
+                          type="button"
+                          className="button"
+                          disabled={taskMutating}
+                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
+                          onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
+                        >
+                          删除
+                        </button>
+                      </div>
                     </div>
-                    {task.description && (
-                      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      data-testid={`task-complete-${task.id}`}
-                      type="button"
-                      className="button"
-                      disabled={taskMutating || task.status === 'done'}
-                      style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
-                      onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
-                    >
-                      完成
-                    </button>
-                    <button
-                      data-testid={`task-skip-${task.id}`}
-                      type="button"
-                      className="button"
-                      disabled={taskMutating || task.status === 'skipped'}
-                      style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
-                      onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
-                    >
-                      跳过
-                    </button>
-                    <button
-                      data-testid={`task-delete-${task.id}`}
-                      type="button"
-                      className="button"
-                      disabled={taskMutating}
-                      style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
-                      onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
-                    >
-                      删除
-                    </button>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
 
             {taskError && (
-              <p className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>{taskError}</p>
+              <p role="alert" data-testid="task-error" className="mt-3 break-words text-sm" style={{ color: 'var(--danger)' }}>{taskError}</p>
             )}
           </section>
 

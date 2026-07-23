@@ -333,4 +333,79 @@ describe('study task SQLite/browser fallback parity', () => {
     expect(sqlite.repositories.studyTasks.getStudyTasksByDate('2026-06-23')).toEqual([])
     expect(fallback.tasksRef.current).toEqual([])
   })
+
+  it('updates title and estimate consistently without changing task identity or chapter attribution', async () => {
+    const sqlite = createSqliteFixture()
+    const fallback = createFallbackFixture()
+    const subject = sqlite.repositories.subjects.createSubject({
+      name: 'Math',
+      color: '#0F766E',
+    }) as Subject
+    fallback.subjectsRef.current = [{ ...subject, id: Number(subject.id) }]
+    const chapter = sqlite.repositories.subjectChapters.createChapter({
+      subject_id: Number(subject.id),
+      title: 'Functions',
+    })
+    fallback.chaptersRef.current = [chapter]
+    const input = {
+      title: 'Study functions',
+      type: 'focus' as const,
+      subject_id: Number(subject.id),
+      related_chapter_id: chapter.id,
+      planned_date: '2026-06-24',
+      estimate_minutes: 25,
+      status: 'done' as const,
+      source: 'dashboard' as const,
+    }
+    const sqliteCreated = sqlite.repositories.studyTasks.createStudyTask(input)
+    const fallbackCreated = await fallback.tasks.create(input)
+
+    const sqliteUpdated = sqlite.repositories.studyTasks.updateStudyTask(Number(sqliteCreated.id), {
+      title: 'Study functions deeply',
+      estimate_minutes: 70,
+    })
+    const fallbackUpdated = await fallback.tasks.update(fallbackCreated.id, {
+      title: 'Study functions deeply',
+      estimate_minutes: 70,
+    })
+
+    for (const updated of [sqliteUpdated, fallbackUpdated]) {
+      expect(updated).toEqual(expect.objectContaining({
+        id: Number(sqliteCreated.id),
+        title: 'Study functions deeply',
+        estimate_minutes: 70,
+        status: 'done',
+        source: 'dashboard',
+        planned_date: '2026-06-24',
+        subject_id: Number(subject.id),
+        related_chapter_id: chapter.id,
+        related_mistake_id: null,
+        related_entry_id: null,
+      }))
+    }
+    expect(sqlite.database.prepare('SELECT estimate_minutes FROM study_tasks WHERE id = ?').get(sqliteCreated.id))
+      .toEqual({ estimate_minutes: 70 })
+    expect(fallback.tasksRef.current).toEqual([
+      expect.objectContaining({ id: fallbackCreated.id, estimate_minutes: 70, related_chapter_id: chapter.id }),
+    ])
+  })
+
+  it.each([0, -1, 1.5])('rejects invalid estimate %s consistently without mutating stored values', async estimate => {
+    const sqlite = createSqliteFixture()
+    const fallback = createFallbackFixture()
+    const input = {
+      title: 'Bounded estimate',
+      planned_date: '2026-06-25',
+      estimate_minutes: 25,
+    }
+    const sqliteTask = sqlite.repositories.studyTasks.createStudyTask(input)
+    const fallbackTask = await fallback.tasks.create(input)
+
+    expect(() => sqlite.repositories.studyTasks.updateStudyTask(Number(sqliteTask.id), { estimate_minutes: estimate }))
+      .toThrow('estimate_minutes must be a positive integer')
+    await expect(fallback.tasks.update(fallbackTask.id, { estimate_minutes: estimate }))
+      .rejects.toThrow('estimate_minutes must be a positive integer')
+    expect(sqlite.repositories.studyTasks.getStudyTasksByDate('2026-06-25')[0]?.estimate_minutes).toBe(25)
+    expect(fallback.tasksRef.current[0]?.estimate_minutes).toBe(25)
+  })
 })
