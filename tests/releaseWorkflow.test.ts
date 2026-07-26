@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.17.0', () => {
-    expect(packageJson.version).toBe('1.17.0')
-    expect(packageLock.version).toBe('1.17.0')
-    expect(packageLock.packages['']?.version).toBe('1.17.0')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.17.0')
+  it('locks every current release version surface to v1.17.1', () => {
+    expect(packageJson.version).toBe('1.17.1')
+    expect(packageLock.version).toBe('1.17.1')
+    expect(packageLock.packages['']?.version).toBe('1.17.1')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.17.1')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -68,14 +68,27 @@ describe('release workflow Windows signing policy', () => {
 
   it('records updater, signing, notarization, and platform limitations without claiming completion', () => {
     expect(releaseNotes).toContain('Windows 自动更新的完整下载、安装、重启端到端链路尚未完成最终验收')
-    expect(releaseNotes).toContain('PR #144（Windows NSIS updater E2E）不包含在 v1.17.0')
+    expect(releaseNotes).toContain('PR #144（Windows NSIS updater E2E）不包含在 v1.17.1')
     expect(releaseNotes).toContain('建议从 GitHub Release 手动下载安装包')
     expect(releaseNotes).toContain('未进行 Apple notarization')
     expect(releaseNotes).toContain('本版本不支持 Intel macOS')
-    expect(releaseNotes).not.toContain('v1.17.0 已发布')
+    expect(releaseNotes).not.toContain('v1.17.1 已发布')
     expect(releaseNotes).not.toContain('自动更新已完全可靠')
     expect(releaseNotes).not.toContain('Windows 已签名')
     expect(releaseNotes).not.toContain('macOS 已 notarize')
+  })
+
+  it('records the v1.17.0 recovery boundary without implying a product updater failure', () => {
+    expect(releaseNotes).toContain('v1.17.0 tag')
+    expect(releaseNotes).toContain('未生成 GitHub Release')
+    expect(releaseNotes).toContain('未发布任何安装资产')
+    expect(releaseNotes).toContain('测试路径判断错误')
+    expect(releaseNotes).not.toContain('用户产品崩溃')
+    expect(releaseNotes).not.toContain('updater 产品故障')
+    expect(releaseNotes).not.toContain('计划作为')
+    expect(releaseNotes).not.toContain('release-prep')
+    expect(releaseNotes).not.toContain('30192295231')
+    expect(releaseNotes).not.toContain('0e3ae25501b74cdea3c242509017e269d3bcd440')
   })
 
   it('uses Node 24 action majors without changing the project Node version', () => {

@@ -131,7 +131,7 @@ MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Ag
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 当前 release-prep 应用版本为 MindDiary v1.17.0，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。最新已发布版本仍为 v1.16.0。
+- 当前待发布应用版本为 MindDiary v1.17.1，SQLite schema version 为 5；数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。最新已发布版本仍为 v1.16.0。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈

@@ -410,14 +410,14 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.17.0 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.17.1 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.17.0')).toBeInTheDocument()
+    expect(screen.getByText('v1.17.1')).toBeInTheDocument()
     expect(screen.getByTestId('current-release-notes')).toHaveTextContent('今日任务')
     expect(screen.getByTestId('current-release-notes')).toHaveTextContent('Windows 自动更新完整 E2E 仍待后续验收')
   })
