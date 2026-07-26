@@ -81,6 +81,18 @@ function getOptionalString(source: Record<string, unknown>, key: string): string
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
+function getRequiredPositiveSafeInteger(
+  source: Record<string, unknown>,
+  key: string,
+  context: string,
+): number {
+  const value = source[key]
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new ReleaseMetadataError(`${context} ${key} must be a positive safe integer`)
+  }
+  return value
+}
+
 function getPackageMetadata(packageJsonPath: string): PackageMetadata {
   const metadata = readJsonFile(packageJsonPath)
   if (!isRecord(metadata)) {
@@ -238,7 +250,22 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
       )
     }
     getRequiredString(fileEntry, 'sha512', `${latestFilename} files[${index}]`)
-    resolveReleaseAsset(releaseDir, filePath, `${latestFilename} files[${index}].url`)
+    const expectedSize = getRequiredPositiveSafeInteger(
+      fileEntry,
+      'size',
+      `${latestFilename} files[${index}]`,
+    )
+    const resolvedAsset = resolveReleaseAsset(
+      releaseDir,
+      filePath,
+      `${latestFilename} files[${index}].url`,
+    )
+    const actualSize = fs.statSync(resolvedAsset).size
+    if (expectedSize !== actualSize) {
+      throw new ReleaseMetadataError(
+        `${latestFilename} files[${index}] size ${expectedSize} does not match asset size ${actualSize}: ${filePath}`,
+      )
+    }
   })
 
   if (platform === 'mac') {

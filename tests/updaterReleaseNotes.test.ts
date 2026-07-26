@@ -4,11 +4,12 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.16.0 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.16.0')
+  it('bundles the current v1.17.0 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.17.0')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('每日复盘')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('今日任务')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Windows 自动更新完整 E2E 仍待后续验收')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 5')
   })
 

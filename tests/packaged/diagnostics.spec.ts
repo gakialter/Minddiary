@@ -35,7 +35,7 @@ test('runs the packaged diagnostic harness without exposing secrets or paths', a
     expect(run.result).toMatchObject({
       schemaVersion: 1,
       scenario: 'sqlite-read-write',
-      applicationVersion: '1.16.0',
+      applicationVersion: '1.17.0',
       electronVersion: '42.6.1',
       platform: process.platform,
       arch: process.arch,

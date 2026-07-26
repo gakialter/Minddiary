@@ -189,6 +189,80 @@ describe('release metadata verification', () => {
     })).toThrow(/Missing latest\.yml sha512/)
   })
 
+  it('rejects latest.yml when an asset size is missing', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-Setup-1.9.3.exe',
+      '    sha512: abc123',
+      'path: MindDiary-Setup-1.9.3.exe',
+      'sha512: abc123',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest\.yml files\[0\] size must be a positive safe integer/)
+  })
+
+  it('rejects latest.yml when an asset size is non-numeric', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-Setup-1.9.3.exe',
+      '    sha512: abc123',
+      '    size: invalid',
+      'path: MindDiary-Setup-1.9.3.exe',
+      'sha512: abc123',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest\.yml files\[0\] size must be a positive safe integer/)
+  })
+
+  it('rejects latest.yml when an asset size does not match the actual file', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-Setup-1.9.3.exe',
+      '    sha512: abc123',
+      '    size: 10',
+      'path: MindDiary-Setup-1.9.3.exe',
+      'sha512: abc123',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest\.yml files\[0\] size 10 does not match asset size 9/)
+  })
+
   it('rejects packaged app-update.yml when GitHub owner or repo does not match publish config', () => {
     const root = makeTempRoot()
     const releaseDir = path.join(root, 'release')
@@ -286,5 +360,33 @@ describe('release metadata verification', () => {
       packageJsonPath: packagePath,
       releaseDir,
     })).toThrow(/path must point to the root release asset MindDiary-1\.9\.3-arm64-mac\.zip/)
+  })
+
+  it('rejects macOS latest-mac.yml when an asset size does not match the actual file', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeMacLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-1.9.3-arm64-mac.zip',
+      '    sha512: ziphash',
+      '    size: 4',
+      '  - url: MindDiary-1.9.3-arm64.dmg',
+      '    sha512: dmghash',
+      '    size: 3',
+      'path: MindDiary-1.9.3-arm64-mac.zip',
+      'sha512: ziphash',
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeMacAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'mac',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest-mac\.yml files\[0\] size 4 does not match asset size 3/)
   })
 })
