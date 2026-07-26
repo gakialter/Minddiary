@@ -1,98 +1,84 @@
-# MindDiary v1.16.0
+# MindDiary v1.17.0
 
-MindDiary v1.16.0 是从 v1.13.3 累积而来的 AI 学习规划功能版本，整合了产品方向说明、可解释的 Today Action 上下文、更严格的候选建议校验，以及 schema-free Daily Review Agent。
+MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 仍为 **5**，本版本不新增数据库 migration，现有 schema 5 数据继续兼容。
 
-SQLite schema unchanged，仍为 schema **5**。本版本不新增 migration、`agent_runs`、依赖或后台 Agent。
+## 今日计划更容易调整
 
-## AI Study Planning direction
+- 今日任务现在支持直接修改标题和预计时长。
+- 章节任务可从默认 25 分钟调整为实际所需时长，允许范围为 1–240 分钟。
+- 保存后任务行和今日总预计时长会即时更新。
+- 编辑只改变标题和预计时长，不改变任务身份、来源、计划日期、科目或章节关联；保存失败时可保留输入后重试。
 
-- MindDiary 的产品方向进一步明确为本地优先、面向长期备考的 AI Study Planning Agent，而不是通用自主 Agent 平台。
-- AI 只生成可解释、可编辑的候选计划；SQLite 和现有应用 API 仍是本地数据与任务状态的唯一权威来源。
-- 不运行计划外的后台 Agent，不允许 AI 绕过用户确认直接修改学习数据。
+## 主目标不再固定为“考研初试”
 
-## Explainable Today Action context
+- 用户可以在设置中修改主目标名称和日期，用于考公、论文、考证、毕业设计等不同长期计划。
+- 旧 `examDate` 数据继续作为主目标日期镜像兼容，无需 migration。
+- 普通关键日期的新增、置顶、归档和删除行为保持不变。
+- 缺失、重复或旧格式的主目标数据会在现有设置归一化流程中处理，同时保留用户自定义标题。
 
-- 「AI 规划今日行动」会展示受控的本地规划依据及来源说明，帮助用户理解哪些信息参与了建议生成。
-- 上下文只从既有本地 API 中收集有界数据；查看规划依据不会创建、完成、跳过或删除任务。
-- AI 请求前的本地上下文会经过裁剪、投影和字段限制。
+## 错题本稳定性改进
 
-## Stronger Today Action suggestions
+- 修复浮动 Pomodoro 控件在受限窗口高度下遮挡错题输入区域的问题。
+- 改进连续创建、编辑、输入法组合输入和保存失败后的安全重试，避免重复或状态不同步。
+- 错题创建和更新在浏览器 fallback 与 Electron/SQLite 路径使用一致的运行时校验。
+- 手动 JSON 备份导入会先校验整个错题批次，再原子写入；跨 profile 科目引用会映射并校验。
+- 失败批次保持零写入；修正问题后重试不会遗留部分记录或额外重复记录。
 
-- AI 输出必须通过严格 JSON 解析、字段 allowlist 和本地业务校验。
-- 非法类型、越界时长、无效错题引用、重复 active task、预算超限及未知字段会被拒绝或标记。
-- 候选任务可以在本地编辑、删除和选择；只有用户明确确认的有效候选才会通过普通任务 API 创建。
-- 当本地规划依据发生变化时，第一次确认执行零写入并要求用户查看最新结果后再次确认。
-- 部分创建失败不会回滚已经成功创建的任务；失败候选会保留并可单独修改、重试。
-- `planned_date`、`status` 和 `source` 始终由本地代码控制，不能由模型指定。
+## Electron 与安全性升级
 
-## Schema-free Daily Review Agent
+- Electron 升级到 **42.6.1**，`better-sqlite3` 升级到 **12.11.1**。
+- 主窗口显式启用 renderer sandbox，并保持 context isolation、Node integration 禁用等边界。
+- 导航、重定向、子窗口、权限、外部链接、剪贴板 IPC 和 PDF helper 使用更严格的主进程校验。
+- 启用 ASAR integrity、Electron fuse hardening 和最小 native module unpack allowlist。
+- 构建流程会验证 Electron ABI、打包后的 native SQLite 加载和关键 package security 配置。
 
-- 「每日复盘」是用户手动触发的有界复盘流程，连接当天任务、执行结果和下一日候选计划。
-- 打开每日复盘只读取并展示确定性的本地复盘依据，不调用 AI，也不写入任务。
-- 用户点击生成后，AI 才会基于安全上下文生成解释性观察和可编辑的下一日任务候选。
-- 候选任务在用户明确确认前只存在于内存中，不持久化复盘 run 或模型输出历史。
-- 每日复盘沿用严格解析、本地校验、stale-context 二次确认和 partial-success retry 边界。
+这些改进是具体的运行时与打包边界增强，不代表不存在漏洞，也不构成第三方安全审计结论。
 
-## Privacy and confirmation boundaries
+## 本地日期可靠性
 
-Daily Review 专用 AI 上下文不包含：
+- Daily Review 在任务持久化前后都会重新校验本地日期。
+- 跨过本地午夜后，旧日期 dialog 和候选会失效，旧候选不能写入新日期或错误日期。
+- Electron/SQLite 与 browser fallback 都会保持零写入或回滚，不会留下跨日的部分任务。
 
-- 日记正文；
-- 错题答案和错题笔记；
-- 图片路径、附件路径或附件内容；
-- API Key 或其他敏感配置；
-- 现有任务 description。
+## 安装和打包可靠性
 
-原始日记、错题和任务 API 结果会先投影为 Daily Review 专用 safe DTO，再进入 React state、签名、预览、prompt 或校验逻辑。
-
-AI 不会直接写 SQLite，也不会自动创建、完成、跳过、删除或修改任务。
-
-## Reliability fixes
-
-- Daily Review modal 通过 `document.body` portal 渲染，在 Dashboard 顶部、中部和底部滚动位置均保持 viewport-fixed。
-- Dashboard 同日期后台刷新不再卸载已打开的 Daily Review，成功、失败、可重试候选和创建摘要会继续保留。
-- `useTodayStats` 记录 `resolvedDateKey` 和 `errorDateKey`，避免本地日期切换时把前一天统计显示在新日期下。
-- 新日期请求 pending、失败或请求乱序时，不会把旧日期数据或错误误标为当前日期。
-- 本地日期切换后，Dashboard 会关闭旧日期的 Daily Review；待新日期数据加载完成后，用户可重新打开，旧日期复盘不会被误解释为新日期。
-
-## Verification
-
-- PR #128、#130、#131 和 #132 的合并范围共同构成本次累计 Release 内容。
-- PR #129 仍处于 open 状态，不包含在本次 v1.16.0 Release 范围内。
-- 当前合并后 `main` 已通过 GitHub CI 的 test、Windows build verification 和 macOS build verification。
-- Daily Review 最终 focused Vitest 集合为 **107/107**。
-- 日期切换 targeted suite 为 **41/41**。
-- Daily Review 使用隔离 Electron profile 和本地 mock AI 完成了打开零写入、隐私 payload、stale-confirmation、成功创建、partial failure/retry、modal viewport 和回归 smoke。
-- 本 release-prep 阶段尚未生成或验收 v1.16.0 packaged candidate assets。
+- 增加 Windows Setup 安装、覆盖重装、卸载和应用数据保留 smoke。
+- 增加 Windows Portable wrapper 启动 smoke。
+- 增加 packaged local-date rollover、packaged security 和 ASAR integrity 验证。
+- PR exact-head CI 门槛将在 Apple silicon ARM64 runner 上验证 macOS 打包、native dependency、架构和 ad-hoc code integrity。
 
 ## Compatibility
 
-- schema unchanged；`CURRENT_SCHEMA_VERSION` remains **5**。
-- migration unchanged；不新增或修改数据库 migration。
-- dependency unchanged；不新增、删除或升级依赖。
-- Electron main、preload 和 IPC contract unchanged。
-- 不新增 `agent_runs` 或其他持久化 Agent run history。
-- 从 v1.13.3 升级到 v1.16.0 时继续使用既有 schema 5 数据库和现有 migration 链。
-- v1.15.x 路线中依赖 schema 6 的持久化 Agent Run 能力未实现，也不包含在本版本中。
+- SQLite schema 仍为 **5**；`CURRENT_SCHEMA_VERSION` 未变化。
+- `electron/databaseMigrations.ts` 未变化，不新增 migration、数据库表或字段迁移。
+- 现有用户数据目录继续使用；Windows Setup 覆盖安装预期保留应用数据。
+- 旧 `examDate`、普通关键日期、错题和手动备份数据继续使用现有兼容路径。
+- macOS target 仍为 Apple silicon ARM64，最低系统版本为 macOS 12.0。
+
+## Known limitations
+
+1. Windows 自动更新的完整下载、安装、重启端到端链路尚未完成最终验收。
+2. PR #144（Windows NSIS updater E2E）不包含在 v1.17.0；遇到自动更新问题时，建议从 GitHub Release 手动下载安装包。
+3. 如果未配置 Windows 代码签名，安装包可能显示 Unknown Publisher，并可能触发 Windows SmartScreen。
+4. macOS 资产仅面向 Apple silicon ARM64，使用 ad-hoc signing，未进行 Apple notarization。
+5. 本版本不支持 Intel macOS；当前 workflow 不生成 x64 或 universal 资产。
+6. CI 的 macOS 构建和代码完整性验证不等于已在另一台 Mac 上通过所有 Gatekeeper 场景。
 
 ## Windows 安装包说明
 
-- 本版本不预先声明 Windows 资产已完成代码签名。
-- Release workflow 只有在同时配置 `CSC_LINK` 和 `CSC_KEY_PASSWORD` 时才要求并验证签名。
-- 如果正式资产未配置代码签名，Windows 可能显示 Unknown Publisher，或触发 Windows SmartScreen。
-- 代码签名不能保证立即建立 SmartScreen reputation。
+- 当前仓库未配置 `CSC_LINK` 和 `CSC_KEY_PASSWORD` secret 名称，因此后续正式 workflow 若状态不变，将按允许的 unsigned 路径构建。
+- 未签名的 Windows 正式资产可能显示 Unknown Publisher 或触发 Windows SmartScreen。
+- Authenticode 签名即使配置成功，也不代表已经建立 SmartScreen reputation。
 
 ## macOS 安装包说明
 
-- 当前 macOS target 为 Apple silicon ARM64。
-- 当前构建使用 ad-hoc signature，没有 Apple notarization。
-- CI 构建成功不等同于在另一台 Mac 上通过 Gatekeeper 验收。
-- DMG 和 ZIP 必须在候选资产阶段单独记录启动边界。
+- 正式 DMG、ZIP 和 update metadata 只会在后续获授权的 tag-triggered Release workflow 中生成并复核。
+- 本轮 Windows 开发机不提供真实 macOS DMG/ZIP 本地验收或另一台 Mac 的人工 Gatekeeper 证据。
+- 不得把 ad-hoc code integrity 描述为 Developer ID 签名或 Apple notarization。
 
-## Release gate
+## Verification
 
-- release-prep PR 必须在精确 head 上通过 typecheck、测试及 Windows/macOS build verification。
-- tag 前必须再次确认 `package.json`、`package-lock.json`、内置更新摘要和 `RELEASE_NOTES.md` 均为 `1.16.0`。
-- 必须先生成并审核候选资产，完成 Windows Setup、Windows Portable、macOS DMG 和 macOS ZIP 的 packaged smoke。
-- 必须验证最终资产严格符合 allowlist，且 update metadata 不指向 unpacked 或内部文件。
-- tag、GitHub Release、资产发布和 latest 标记仍需要独立授权。
+- 当前 `main` post-merge CI run **30188538365**（commit `ec230fda1f7fecb8684259a9d62e0190cffe1583`）中，`test`、`build-verification (windows-latest)` 和 `build-verification (macos-14)` 均为 SUCCESS。
+- v1.17.0 release-prep exact-head CI 将在 PR 阶段补充，不在此预写尚未发生的 run ID。
+- 正式 tag workflow、最终 Windows/macOS 资产检查和发布后验证仍属于后续独立发布门槛。
+- 本文件仅记录 release-prep 状态；目标版本的发布、正式资产生成和正式资产验收均属于后续独立门槛。

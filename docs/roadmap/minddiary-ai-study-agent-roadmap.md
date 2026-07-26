@@ -6,7 +6,7 @@ This is a planning document. It authorizes documentation alignment only. It does
 
 ## Verified Baseline
 
-- Current application and latest published GitHub Release: `v1.16.0`.
+- Current release-prep application version: `v1.17.0`. Latest published GitHub Release: `v1.16.0`.
 - SQLite schema: `CURRENT_SCHEMA_VERSION = 5`.
 - SQLite remains the local source of truth.
 - MindDiary already provides diary, Pomodoro, mistake review, study tasks, Dashboard, AI assistance, backup/restore, and local SQLite persistence.
