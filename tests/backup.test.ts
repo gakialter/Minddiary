@@ -57,6 +57,15 @@ describe('auto backup package', () => {
         settings: {
           theme: 'dark',
           aiApiKey: 'sk-secret-key',
+          examDate: '2027-01-15',
+          countdownEvents: [
+            {
+              id: 'default-exam',
+              title: '论文提交',
+              date: '2027-01-15',
+              type: 'exam',
+            },
+          ],
         },
       },
     })
@@ -76,6 +85,8 @@ describe('auto backup package', () => {
     expect(zipText).toContain('"schemaVersion": 4')
     expect(zipText).toContain('subject_chapters')
     expect(zipText).toContain('第一章 函数')
+    expect(zipText).toContain('论文提交')
+    expect(zipText).toContain('2027-01-15')
     expect(zipText).not.toContain('sk-secret-key')
     expect(zipText).not.toContain('aiApiKey')
   })

@@ -382,6 +382,11 @@ body {
   padding: var(--space);
 }
 
+.app-container:has([data-mistake-form-open="true"]) .pomodoro-mini {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Empty state */
 .empty-state {
   display: flex;

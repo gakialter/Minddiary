@@ -3,9 +3,13 @@ import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { sanitizeSettingsForExport } from '../utils/sanitize'
 import { coerceBoolean } from '../utils/helpers'
-import { normalizeCountdownEvents } from '../utils/countdown'
+import { normalizeCountdownEvents, normalizeCountdownSettings } from '../utils/countdown'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
+import {
+  validateMistakeWritePayload,
+  type MistakeWritePayload,
+} from '../utils/mistakePayload'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbout } from './SettingsSections'
 import type { CountdownEvent, FocusWhitelistItem } from '../types'
@@ -59,6 +63,8 @@ function Settings() {
   const [focusGuardEnabled, setFocusGuardEnabled] = useState(false)
   const [focusGuardIntervalSec, setFocusGuardIntervalSec] = useState(5)
   const [focusWhitelist, setFocusWhitelist] = useState<FocusWhitelistItem[]>([])
+  const [countdownFieldsValid, setCountdownFieldsValid] = useState(true)
+  const [countdownResetVersion, setCountdownResetVersion] = useState(0)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -104,9 +110,10 @@ function Settings() {
     try {
       const settings = await diary.settings.getAll()
       if (!settings) return
-      const loadedExamDate = (settings.examDate as string) || '2025-12-21'
+      const normalizedCountdown = normalizeCountdownSettings(settings.countdownEvents, settings.examDate)
+      const loadedExamDate = normalizedCountdown.examDate || '2025-12-21'
       setExamDate(loadedExamDate)
-      setCountdownEvents(normalizeCountdownEvents(settings.countdownEvents, loadedExamDate))
+      setCountdownEvents(normalizeCountdownEvents(normalizedCountdown.countdownEvents, loadedExamDate))
       setAiEndpoint((settings.aiEndpoint as string) || '')
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
@@ -121,6 +128,7 @@ function Settings() {
       setFocusGuardEnabled(coerceBoolean(settings.focusGuardEnabled, false))
       setFocusGuardIntervalSec(Math.max(3, Math.min(30, parseInt(String(settings.focusGuardIntervalSec)) || 5)))
       setFocusWhitelist(normalizeFocusWhitelist(settings.focusWhitelist))
+      setCountdownResetVersion(version => version + 1)
       setSettingsLoaded(true)
     } catch (error) {
       logger.error('Failed to load settings:', error)
@@ -129,15 +137,19 @@ function Settings() {
 
   // Auto-save: debounced 500ms (only after initial load)
   useEffect(() => {
-    if (!settingsLoaded) return
+    if (!settingsLoaded || !countdownFieldsValid) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       saveSettings()
     }, 500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [examDate, countdownEvents, aiEndpoint, aiModel, aiVisionEnabled, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
+  }, [examDate, countdownEvents, countdownFieldsValid, aiEndpoint, aiModel, aiVisionEnabled, autoSave, pomodoroMinutes, autoBackup, backupPath, pomodoroSound, pomodoroAlert, focusGuardEnabled, focusGuardIntervalSec, focusWhitelist, aiKeyDirty, clearKeyRequested])
 
   const saveSettings = async () => {
+    if (!countdownFieldsValid) {
+      showToast('请先修正主目标名称或日期', 'error')
+      return
+    }
     setSaving(true)
     try {
       await Promise.all([
@@ -194,7 +206,9 @@ function Settings() {
         timestamp: new Date().toISOString(),
         data: {
           entries, tags, subjects, 
-          mistakes: mistakes && typeof mistakes === 'object' && 'data' in (mistakes as any) ? (mistakes as any).data : mistakes,
+          mistakes: mistakes && typeof mistakes === 'object' && 'data' in mistakes
+            ? (mistakes as { data: unknown }).data
+            : mistakes,
           pomodoro,
           settings: sanitizeSettingsForExport(allSettings as Record<string, unknown>),
         }
@@ -271,6 +285,18 @@ function Settings() {
 
           const data = backup.data
           let importCount = 0
+          let mistakeImportCount = 0
+          const validatedMistakes: MistakeWritePayload[] = Array.isArray(data.mistakes)
+            ? data.mistakes.map((mistake: unknown, index: number) => {
+                try {
+                  return validateMistakeWritePayload(mistake)
+                } catch (error: unknown) {
+                  throw new Error(
+                    `第 ${index + 1} 道错题导入失败: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }
+              })
+            : []
 
           if (data.entries) {
             for (const entry of data.entries) {
@@ -290,25 +316,51 @@ function Settings() {
             }
           }
 
+          const importedSubjectIds = new Map<number, number>()
           if (data.subjects) {
             const existingSubjects = await diary.subjects.getAll()
             for (const sub of data.subjects) {
               const match = (existingSubjects || []).find((s: { name: string }) => s.name === sub.name)
               if (match) {
                 await diary.subjects.update(match.id, sub).catch(() => { })
+                if (typeof sub.id === 'number' && Number.isInteger(sub.id) && sub.id > 0) {
+                  importedSubjectIds.set(sub.id, match.id)
+                }
               } else {
-                await diary.subjects.create(sub).catch(() => { })
+                const created = await diary.subjects.create(sub).catch(() => null)
+                if (created && typeof sub.id === 'number' && Number.isInteger(sub.id) && sub.id > 0) {
+                  importedSubjectIds.set(sub.id, created.id)
+                }
               }
             }
           }
 
-          if (data.mistakes) {
-            for (const mis of data.mistakes) {
-              await diary.mistakes.create(mis).catch(() => { })
-            }
+          if (validatedMistakes.length > 0) {
+            const destinationSubjectIds = new Set(
+              (await diary.subjects.getAll()).map(subject => subject.id),
+            )
+            const importableMistakes = validatedMistakes.map((mistake: MistakeWritePayload, index: number) => {
+              if (mistake.subject_id === undefined || mistake.subject_id === null) return mistake
+              const mappedSubjectId = importedSubjectIds.get(mistake.subject_id)
+              if (mappedSubjectId !== undefined) {
+                return { ...mistake, subject_id: mappedSubjectId }
+              }
+              if (!destinationSubjectIds.has(mistake.subject_id)) {
+                throw new Error(
+                  `第 ${index + 1} 道错题导入失败: 引用的科目不存在`,
+                )
+              }
+              return mistake
+            })
+            await diary.mistakes.createBatch(importableMistakes)
+            mistakeImportCount = importableMistakes.length
           }
 
-          showToast(`导入完成，处理了 ${importCount} 篇日记。请重启应用以刷新状态。`, 'success', 5000)
+          showToast(
+            `导入完成，处理了 ${importCount} 篇日记、${mistakeImportCount} 道错题。请重启应用以刷新状态。`,
+            'success',
+            5000,
+          )
 
         } catch (error: unknown) {
           logger.error('Import failed:', error)
@@ -383,7 +435,7 @@ function Settings() {
         <SettingsIcon size={22} style={{ color: 'var(--accent)' }} /> 设置
       </h2>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 'var(--space-md)' }}>
         <SettingsAI
             aiEndpoint={aiEndpoint} setAiEndpoint={setAiEndpoint}
             aiApiKeyPresent={aiApiKeyPresent}
@@ -397,6 +449,8 @@ function Settings() {
         <SettingsGeneral 
             examDate={examDate} setExamDate={setExamDate}
             countdownEvents={countdownEvents} setCountdownEvents={setCountdownEvents}
+            onCountdownValidityChange={setCountdownFieldsValid}
+            countdownResetVersion={countdownResetVersion}
             theme={diary.theme} changeTheme={diary.changeTheme}
             pomodoroMinutes={pomodoroMinutes} setPomodoroMinutes={setPomodoroMinutes}
             pomodoroSound={pomodoroSound} setPomodoroSound={setPomodoroSound}
@@ -427,7 +481,7 @@ function Settings() {
         <button className="button button-secondary" onClick={loadSettings}>
           重置
         </button>
-        <button className="button button-primary" onClick={saveSettings} disabled={saving}>
+        <button className="button button-primary" onClick={saveSettings} disabled={saving || !countdownFieldsValid}>
            {saving ? '保存中...' : <><Check size={15} /> 保存设置</>}
         </button>
       </div>

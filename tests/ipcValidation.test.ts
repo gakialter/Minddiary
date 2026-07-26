@@ -10,7 +10,10 @@ import {
   validateEntryUpdatePayload,
   validateBulkSubjectChaptersPayload,
   validateConvertSubjectChaptersPayload,
+  validateMistakeId,
   validateMistakeReviewPayload,
+  validateMistakeWritePayload,
+  validateMistakeWritePayloadBatch,
   validatePomodoroSessionPayload,
   validateSubjectChapterCompletedPayload,
   validateSubjectChapterPatchPayload,
@@ -234,6 +237,72 @@ describe('IPC runtime payload validation', () => {
     }
 
     expect(validateMistakeReviewPayload(1, reviewData)).toEqual({ id: 1, data: reviewData })
+  })
+
+  it('validates and strips mistake create and update payloads', () => {
+    expect(validateMistakeWritePayload({
+      id: 99,
+      subject_id: 2,
+      question: '问题',
+      answer: '答案',
+      notes: '笔记',
+      mastered: false,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+      image_path: null,
+      answer_image_path: 'mistake_images/answer.png',
+      created_at: 'ignored',
+    })).toEqual({
+      subject_id: 2,
+      question: '问题',
+      answer: '答案',
+      notes: '笔记',
+      mastered: false,
+      ease_factor: 1.8,
+      review_interval: 14,
+      next_review_date: '2027-01-15',
+      review_count: 4,
+      image_path: null,
+      answer_image_path: 'mistake_images/answer.png',
+    })
+    expect(validateMistakeId(2)).toBe(2)
+    expect(validateMistakeWritePayload({ subject_id: 0 })).toEqual({ subject_id: null })
+    expect(validateMistakeWritePayload({ mastered: 1 })).toEqual({ mastered: true })
+    expect(validateMistakeWritePayload({ mastered: 0 })).toEqual({ mastered: false })
+  })
+
+  it('rejects invalid mistake ids and field types at the IPC boundary', () => {
+    expect(() => validateMistakeId(0)).toThrow('mistake id must be a positive integer')
+    expect(() => validateMistakeWritePayload(null)).toThrow('mistake payload must be an object')
+    expect(() => validateMistakeWritePayload({ question: 42 })).toThrow('mistake question must be a string')
+    expect(() => validateMistakeWritePayload({ subject_id: -1 })).toThrow('mistake subject_id must be a non-negative integer or null')
+    expect(() => validateMistakeWritePayload({ mastered: 2 })).toThrow('mistake mastered must be a boolean or 0/1')
+    expect(() => validateMistakeWritePayload({ image_path: [] })).toThrow('mistake image_path must be a string or null')
+    expect(() => validateMistakeWritePayload({ ease_factor: 0 })).toThrow('mistake ease_factor must be a positive finite number')
+    expect(() => validateMistakeWritePayload({ review_interval: 1.5 })).toThrow('mistake review_interval must be a non-negative integer')
+    expect(() => validateMistakeWritePayload({ review_count: -1 })).toThrow('mistake review_count must be a non-negative integer')
+    expect(() => validateMistakeWritePayload({ next_review_date: '2027-02-29' })).toThrow(
+      'mistake next_review_date must be a valid calendar date or null',
+    )
+  })
+
+  it('validates an entire mistake batch before repository writes', () => {
+    expect(validateMistakeWritePayloadBatch([
+      { question: '第一题', subject_id: 0 },
+      { question: '第二题', mastered: 1 },
+    ])).toEqual([
+      { question: '第一题', subject_id: null },
+      { question: '第二题', mastered: true },
+    ])
+    expect(() => validateMistakeWritePayloadBatch({ question: '不是数组' })).toThrow(
+      'mistake batch must be an array',
+    )
+    expect(() => validateMistakeWritePayloadBatch([
+      { question: '合法' },
+      { question: '非法', mastered: 2 },
+    ])).toThrow('mistake batch item 2 is invalid: mistake mastered must be a boolean or 0/1')
   })
 
   it('rejects invalid entry create title, content, and date payloads', () => {

@@ -20,6 +20,7 @@ const makeDeps = (chapters: SubjectChapter[]): AIContextBuildDeps => ({
   mistakes: {
     getAll: vi.fn().mockResolvedValue({ data: [], total: 0, masteredTotal: 0 }),
     create: vi.fn(),
+    createBatch: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     toggleMastered: vi.fn(),
@@ -95,5 +96,29 @@ describe('AI context builder subject chapter summary', () => {
     expect(content).toContain('第三章 积分')
     expect(content).toContain('第四章 多元函数')
     expect(content).not.toContain('第五章 常微分方程')
+  })
+})
+
+describe('AI context builder primary countdown', () => {
+  it('uses the custom primary target title instead of assuming an exam', async () => {
+    const deps = makeDeps([])
+    deps.settingsData = {
+      examDate: '2027-01-15',
+      countdownEvents: [
+        {
+          id: 'default-exam',
+          title: '论文提交',
+          date: '2027-01-15',
+          type: 'exam',
+        },
+      ],
+    } as AIContextBuildDeps['settingsData']
+
+    const [section] = await buildAIContextSections(['exam-countdown'], deps)
+
+    expect(section?.label).toBe('主目标倒计时')
+    expect(section?.content).toContain('主目标名称：论文提交')
+    expect(section?.content).toContain('主目标日期：2027-01-15')
+    expect(section?.content).not.toContain('考试日期')
   })
 })

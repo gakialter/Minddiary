@@ -70,6 +70,27 @@ describe('Countdown component', () => {
     expect(screen.getByText('距考研初试 221 天')).toBeInTheDocument()
   })
 
+  it('uses the persisted custom title for the built-in primary target', () => {
+    mockUseDiary.mockReturnValue({
+      settingsData: {
+        examDate: '2026-12-21',
+        countdownEvents: [
+          {
+            id: 'default-exam',
+            title: '公务员考试',
+            date: '2026-12-21',
+            type: 'exam',
+          },
+        ],
+      },
+    })
+
+    render(<Countdown />)
+
+    expect(screen.getByText('距公务员考试 221 天')).toBeInTheDocument()
+    expect(screen.queryByText(/考研初试/)).not.toBeInTheDocument()
+  })
+
   it('shows ended text instead of a negative day badge', () => {
     mockUseDiary.mockReturnValue({
       settingsData: {

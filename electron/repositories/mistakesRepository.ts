@@ -2,6 +2,12 @@ import type Database from 'better-sqlite3';
 import { getLocalDateKey } from '../../src/utils/dateKey';
 import type { Mistake, MistakeFilters } from '../../src/types/index';
 
+type StoredMistake = Omit<Mistake, 'mastered'> & { mastered: boolean | number };
+
+function normalizeStoredMistake(row: StoredMistake): Mistake {
+    return { ...row, mastered: Boolean(row.mastered) };
+}
+
 export function createMistakesRepository(db: Database.Database) {
     function getAllMistakes(filters: MistakeFilters = {}): { data: Mistake[], total: number, masteredTotal: number } {
         const baseQuery = ' FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id';
@@ -43,17 +49,49 @@ export function createMistakesRepository(db: Database.Database) {
             params.push(filters.limit, filters.offset || 0);
         }
 
-        const data = db.prepare(query).all(...params) as Mistake[];
+        const data = (db.prepare(query).all(...params) as StoredMistake[]).map(normalizeStoredMistake);
         return { data, total, masteredTotal };
     }
 
-    function createMistake({ subject_id, question, answer, notes, image_path, answer_image_path }: Partial<Mistake>) {
+    function createMistake({
+        subject_id,
+        question,
+        answer,
+        notes,
+        mastered,
+        ease_factor,
+        review_interval,
+        next_review_date,
+        review_count,
+        image_path,
+        answer_image_path,
+    }: Partial<Mistake>) {
         const stmt = db.prepare(
-            'INSERT INTO mistakes (subject_id, question, answer, notes, image_path, answer_image_path) VALUES (?, ?, ?, ?, ?, ?)'
+            `INSERT INTO mistakes (
+                subject_id, question, answer, notes, mastered,
+                ease_factor, review_interval, next_review_date, review_count,
+                image_path, answer_image_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        const result = stmt.run(subject_id || null, question || '', answer || '', notes || '', image_path || null, answer_image_path || null);
+        const result = stmt.run(
+            subject_id || null,
+            question || '',
+            answer || '',
+            notes || '',
+            mastered ? 1 : 0,
+            ease_factor ?? 2.5,
+            review_interval ?? 1,
+            next_review_date ?? null,
+            review_count ?? 0,
+            image_path || null,
+            answer_image_path || null,
+        );
         return { id: result.lastInsertRowid };
     }
+
+    const createMistakes = db.transaction((mistakes: Partial<Mistake>[]) => (
+        mistakes.map(mistake => createMistake(mistake))
+    ));
 
     function getMistakeImageFields(id: number): { image_path: string | null; answer_image_path: string | null } {
         const row = db.prepare('SELECT image_path, answer_image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null; answer_image_path: string | null } | undefined;
@@ -79,7 +117,19 @@ export function createMistakesRepository(db: Database.Database) {
         `).all() as { id: number; image_path: string | null; answer_image_path: string | null }[];
     }
 
-    function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
+    function updateMistake(id: number, {
+        subject_id,
+        question,
+        answer,
+        notes,
+        mastered,
+        ease_factor,
+        review_interval,
+        next_review_date,
+        review_count,
+        image_path,
+        answer_image_path,
+    }: Partial<Mistake>) {
         const updates = [];
         const params = [];
         if (subject_id !== undefined) { updates.push('subject_id = ?'); params.push(subject_id); }
@@ -87,6 +137,10 @@ export function createMistakesRepository(db: Database.Database) {
         if (answer !== undefined) { updates.push('answer = ?'); params.push(answer); }
         if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
         if (mastered !== undefined) { updates.push('mastered = ?'); params.push(mastered ? 1 : 0); }
+        if (ease_factor !== undefined) { updates.push('ease_factor = ?'); params.push(ease_factor); }
+        if (review_interval !== undefined) { updates.push('review_interval = ?'); params.push(review_interval); }
+        if (next_review_date !== undefined) { updates.push('next_review_date = ?'); params.push(next_review_date); }
+        if (review_count !== undefined) { updates.push('review_count = ?'); params.push(review_count); }
         if (image_path !== undefined) { updates.push('image_path = ?'); params.push(image_path); }
         if (answer_image_path !== undefined) { updates.push('answer_image_path = ?'); params.push(answer_image_path); }
         updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -119,11 +173,11 @@ export function createMistakesRepository(db: Database.Database) {
         SELECT m.*, s.name as subject_name, s.color as subject_color
         FROM mistakes m LEFT JOIN subjects s ON m.subject_id = s.id
         WHERE m.id = ?
-    `).get(id) as Mistake | undefined;
+    `).get(id) as StoredMistake | undefined;
         if (!mistake) {
             throw new Error('Mistake not found');
         }
-        return { success: true, mistake };
+        return { success: true, mistake: normalizeStoredMistake(mistake) };
     }
 
     function getDueForReviewCount(date: string) {
@@ -164,12 +218,14 @@ export function createMistakesRepository(db: Database.Database) {
         }
         query += ' LIMIT 1 OFFSET ?';
         selectParams.push(offset);
-        return db.prepare(query).get(...selectParams) || null;
+        const mistake = db.prepare(query).get(...selectParams) as StoredMistake | undefined;
+        return mistake ? normalizeStoredMistake(mistake) : null;
     }
 
     return {
         getAllMistakes,
         createMistake,
+        createMistakes,
         getMistakeImageFields,
         getOtherMistakeImageFields,
         getAllMistakeImageFields,

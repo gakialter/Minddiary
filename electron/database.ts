@@ -434,8 +434,12 @@ function getAllMistakes(filters: MistakeFilters = {}): { data: Mistake[], total:
     return getRepositories().mistakes.getAllMistakes(filters);
 }
 
-function createMistake({ subject_id, question, answer, notes, image_path, answer_image_path }: Partial<Mistake>) {
-    return getRepositories().mistakes.createMistake({ subject_id, question, answer, notes, image_path, answer_image_path });
+function createMistake(mistake: Partial<Mistake>) {
+    return getRepositories().mistakes.createMistake(mistake);
+}
+
+function createMistakes(mistakes: Partial<Mistake>[]) {
+    return getRepositories().mistakes.createMistakes(mistakes);
 }
 
 type MistakeImageFields = {
@@ -536,7 +540,19 @@ async function discardUnreferencedMistakeImage(ref: string): Promise<{ success: 
     return { success: true };
 }
 
-async function updateMistake(id: number, { subject_id, question, answer, notes, mastered, image_path, answer_image_path }: Partial<Mistake>) {
+async function updateMistake(id: number, {
+    subject_id,
+    question,
+    answer,
+    notes,
+    mastered,
+    ease_factor,
+    review_interval,
+    next_review_date,
+    review_count,
+    image_path,
+    answer_image_path,
+}: Partial<Mistake>) {
     const hasImagePatch = image_path !== undefined || answer_image_path !== undefined;
     const previousImageFields = hasImagePatch
         ? getRepositories().mistakes.getMistakeImageFields(id)
@@ -547,7 +563,19 @@ async function updateMistake(id: number, { subject_id, question, answer, notes, 
             answer_image_path: answer_image_path !== undefined ? answer_image_path ?? null : previousImageFields.answer_image_path,
         }
         : null;
-    const result = getRepositories().mistakes.updateMistake(id, { subject_id, question, answer, notes, mastered, image_path, answer_image_path });
+    const result = getRepositories().mistakes.updateMistake(id, {
+        subject_id,
+        question,
+        answer,
+        notes,
+        mastered,
+        ease_factor,
+        review_interval,
+        next_review_date,
+        review_count,
+        image_path,
+        answer_image_path,
+    });
     if (previousImageFields && nextImageFields) {
         await cleanupRemovedMistakeImages(id, previousImageFields, nextImageFields);
     }
@@ -719,7 +747,7 @@ module.exports = {
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
     getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
-    getAllMistakes, createMistake, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
+    getAllMistakes, createMistake, createMistakes, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
     setCustomDbPath, getDb,

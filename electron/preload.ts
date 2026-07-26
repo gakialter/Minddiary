@@ -174,6 +174,7 @@ contextBridge.exposeInMainWorld('api', {
     mistakes: {
         getAll: (filters: MistakeFilters) => ipcRenderer.invoke('mistakes:getAll', filters),
         create: (mistake: Partial<Mistake>) => ipcRenderer.invoke('mistakes:create', mistake),
+        createBatch: (mistakes: Partial<Mistake>[]) => ipcRenderer.invoke('mistakes:createBatch', mistakes),
         update: (id: number, mistake: Partial<Mistake>) => ipcRenderer.invoke('mistakes:update', id, mistake),
         delete: (id: number) => ipcRenderer.invoke('mistakes:delete', id),
         toggleMastered: (id: number) => ipcRenderer.invoke('mistakes:toggleMastered', id),

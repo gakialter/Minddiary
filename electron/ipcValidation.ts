@@ -20,6 +20,12 @@ import {
     validateAiRequestMessages,
     validateAiSummaryInput,
 } from '../src/utils/aiRequestPolicy';
+import {
+    validateMistakeId as validateSharedMistakeId,
+    validateMistakeWritePayload as validateSharedMistakeWritePayload,
+    validateMistakeWritePayloadBatch as validateSharedMistakeWritePayloadBatch,
+    type MistakeWritePayload,
+} from '../src/utils/mistakePayload';
 
 export const IPC_VALIDATION_LIMITS = {
     aiMessages: AI_REQUEST_LIMITS.maxMessages,
@@ -36,6 +42,18 @@ export const IPC_VALIDATION_LIMITS = {
     chapterBatch: 200,
     dateTime: 64,
 } as const;
+
+export function validateMistakeId(payload: unknown): number {
+    return validateSharedMistakeId(payload);
+}
+
+export function validateMistakeWritePayload(payload: unknown): MistakeWritePayload {
+    return validateSharedMistakeWritePayload(payload);
+}
+
+export function validateMistakeWritePayloadBatch(payload: unknown): MistakeWritePayload[] {
+    return validateSharedMistakeWritePayloadBatch(payload);
+}
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
