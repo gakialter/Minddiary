@@ -3,6 +3,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { hasPackagedUpdaterMetadata } from '../helpers/packagedResources'
 
 const projectRoot = path.resolve(__dirname, '..', '..')
 const profilePrefix = 'minddiary-packaged-e2e-'
@@ -42,13 +43,6 @@ function findPackagedExecutable(): string {
     throw new Error(`Packaged MindDiary executable does not exist for ${process.platform}: ${candidate || '(unsupported)'}`)
   }
   return candidate
-}
-
-function hasPackagedUpdaterMetadata(executablePath: string): boolean {
-  const resourcesDir = process.platform === 'win32'
-    ? path.join(path.dirname(executablePath), 'resources')
-    : path.resolve(path.dirname(executablePath), '..', '..', 'Resources')
-  return existsSync(path.join(resourcesDir, 'app-update.yml'))
 }
 
 function assertDisposableProfile(profilePath: string): void {
@@ -257,7 +251,10 @@ test('runs the unpacked packaged app with hardened runtime and persisted local d
 
     const updaterStatus = await session.page.evaluate(() => window.api.updater.getStatus())
     expect(updaterStatuses.has(updaterStatus.status)).toBe(true)
-    if (hasPackagedUpdaterMetadata(executablePath)) {
+    if (hasPackagedUpdaterMetadata(
+      executablePath,
+      process.platform === 'win32' ? 'win32' : 'darwin',
+    )) {
       expect(updaterStatus.status).not.toBe('auto-update-not-configured')
       if (updaterStatus.status === 'error') {
         expect(updaterStatus.message ?? '').not.toMatch(/asar|integrity|cannot find|module|app-update|enoent/i)

@@ -11,7 +11,7 @@ import {
   verifyReleaseAssetDirectory,
 } from '../scripts/prepare-release-assets.mjs'
 
-const version = '1.17.0'
+const version = '1.17.1'
 const tempRoots: string[] = []
 
 function makeTempRoot(): string {
@@ -29,14 +29,14 @@ describe('release asset allowlist', () => {
 
   it('defines the exact public assets for Windows and macOS', () => {
     expect(getExpectedReleaseAssetNames(version, 'all')).toEqual([
-      'MindDiary-Setup-1.17.0.exe',
-      'MindDiary-Portable-1.17.0.exe',
-      'MindDiary-Setup-1.17.0.exe.blockmap',
+      'MindDiary-Setup-1.17.1.exe',
+      'MindDiary-Portable-1.17.1.exe',
+      'MindDiary-Setup-1.17.1.exe.blockmap',
       'latest.yml',
-      'MindDiary-1.17.0-arm64.dmg',
-      'MindDiary-1.17.0-arm64-mac.zip',
-      'MindDiary-1.17.0-arm64.dmg.blockmap',
-      'MindDiary-1.17.0-arm64-mac.zip.blockmap',
+      'MindDiary-1.17.1-arm64.dmg',
+      'MindDiary-1.17.1-arm64-mac.zip',
+      'MindDiary-1.17.1-arm64.dmg.blockmap',
+      'MindDiary-1.17.1-arm64-mac.zip.blockmap',
       'latest-mac.yml',
     ])
   })
@@ -60,7 +60,7 @@ describe('release asset allowlist', () => {
   it('rejects assets whose version does not match the package version', () => {
     const mismatched = getExpectedReleaseAssetNames('1.16.0', 'win')
     expect(() => validateReleaseAssetManifest(mismatched, version, 'win'))
-      .toThrow(/Missing: MindDiary-Portable-1\.17\.0\.exe/)
+      .toThrow(/Missing: MindDiary-Portable-1\.17\.1\.exe/)
   })
 
   it('stages only allowlisted root assets from a build output with unpacked directories', () => {

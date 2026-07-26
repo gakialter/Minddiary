@@ -109,7 +109,7 @@ Run these during release acceptance after candidate artifacts exist. Record OS v
 
 These are manual release gates, not claims made by CI. Do not publish if an expected artifact is missing, an unexpected internal asset appears, metadata points to an unpacked path, or a basic launch boundary fails without an understood release note.
 
-## v1.17.0 Candidate AI Planning Smoke
+## v1.17.1 Candidate AI Planning Smoke
 
 在 tag 或正式 Release 前，必须使用候选 packaged build、一次性用户数据目录和本地 mock AI endpoint 完成记录。不得使用真实用户 profile、真实 API Key、真实学习数据或真实云端模型。
 
@@ -170,7 +170,7 @@ These are manual release gates, not claims made by CI. Do not publish if an expe
 - 从候选资产下载 Windows Portable 后在干净或一次性 Windows 主机直接启动；
 - macOS ARM64 DMG 挂载、复制并启动；
 - macOS ARM64 ZIP 解压并启动；
-- 设置页显示 `v1.17.0` 和本版本内置更新摘要；
+- 设置页显示 `v1.17.1` 和本版本内置更新摘要；
 - update metadata 与正式资产名符合严格 allowlist。
 
 没有完成的项目必须标记为 blocked，不得描述为 passed。

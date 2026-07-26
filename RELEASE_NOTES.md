@@ -1,6 +1,8 @@
-# MindDiary v1.17.0
+# MindDiary v1.17.1
 
-MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 仍为 **5**，本版本不新增数据库 migration，现有 schema 5 数据继续兼容。
+MindDiary v1.17.1 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 仍为 **5**，本版本不新增数据库 migration，现有 schema 5 数据继续兼容。
+
+v1.17.1 是 v1.17 功能系列首个正式发布版本。此前创建的 v1.17.0 tag 因 macOS 正式发布验证中的测试路径判断错误而停止，未生成 GitHub Release，也未发布任何安装资产。v1.17.1 修复了该发布验证问题，产品功能范围与原 v1.17.0 候选保持一致。
 
 ## 今日计划更容易调整
 
@@ -59,7 +61,7 @@ MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌�
 ## Known limitations
 
 1. Windows 自动更新的完整下载、安装、重启端到端链路尚未完成最终验收。
-2. PR #144（Windows NSIS updater E2E）不包含在 v1.17.0；遇到自动更新问题时，建议从 GitHub Release 手动下载安装包。
+2. PR #144（Windows NSIS updater E2E）不包含在 v1.17.1；遇到自动更新问题时，建议从 GitHub Release 手动下载安装包。
 3. 如果未配置 Windows 代码签名，安装包可能显示 Unknown Publisher，并可能触发 Windows SmartScreen。
 4. macOS 资产仅面向 Apple silicon ARM64，使用 ad-hoc signing，未进行 Apple notarization。
 5. 本版本不支持 Intel macOS；当前 workflow 不生成 x64 或 universal 资产。
@@ -81,7 +83,7 @@ MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌�
 
 ## Verification
 
-- v1.17.0 release-prep 候选必须通过 typecheck、单元测试、Electron E2E、Windows build verification 和 macOS ARM64 build verification。
+- v1.17.1 发布验证必须通过 typecheck、单元测试、Electron E2E、Windows build verification 和 macOS ARM64 build verification。
 - Windows 候选已验证 Setup、Portable、数据保留、packaged security、native dependency 和 ASAR integrity。
 - macOS CI 验证 ARM64 package、native dependency、架构和 ad-hoc code integrity。
 - Tag-triggered Release workflow 在创建 Release 前对正式发布资产执行 manifest 校验。
