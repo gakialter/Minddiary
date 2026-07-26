@@ -1453,6 +1453,28 @@ describe('database repositories', () => {
     })).toThrow(/FOREIGN KEY constraint failed/)
   })
 
+  it('rolls back an entire SQLite mistake batch when a later row fails', () => {
+    expect(() => repositories.mistakes.createMistakes([
+      {
+        question: '本批次第一条合法记录',
+        answer: '答案一',
+        notes: '笔记一',
+      },
+      {
+        subject_id: 999,
+        question: '本批次第二条无效科目记录',
+        answer: '答案二',
+        notes: '笔记二',
+      },
+    ])).toThrow(/FOREIGN KEY constraint failed/)
+
+    expect(repositories.mistakes.getAllMistakes()).toMatchObject({
+      data: [],
+      total: 0,
+      masteredTotal: 0,
+    })
+  })
+
   it('preserves consecutive SQLite mistake ids and neighboring rows during a middle update', () => {
     const first = repositories.mistakes.createMistake({
       question: '第一题',

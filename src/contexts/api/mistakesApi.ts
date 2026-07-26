@@ -4,7 +4,11 @@ import { getLocalDateKey } from '../../utils/dateKey'
 import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData, StudyTask } from '../../types'
 import type { MistakesContextAPI } from '../../types/api'
 import type { MutableRefObject } from 'react'
-import { validateMistakeId, validateMistakeWritePayload } from '../../utils/mistakePayload'
+import {
+    validateMistakeId,
+    validateMistakeWritePayload,
+    validateMistakeWritePayloadBatch,
+} from '../../utils/mistakePayload'
 
 export const createMistakesApi = (
     mistakesRef: MutableRefObject<Mistake[]>,
@@ -86,6 +90,61 @@ export const createMistakesApi = (
         saveToLocal(STORAGE_KEYS.MISTAKES, nextMistakes)
         mistakesRef.current = nextMistakes
         return newMistake
+    },
+    createBatch: async (data: Partial<Mistake>[]) => {
+        const validatedBatch = validateMistakeWritePayloadBatch(data)
+        if (validatedBatch.length === 0) return []
+
+        const createdAt = new Date().toISOString()
+        const materializeMistake = (
+            validated: ReturnType<typeof validateMistakeWritePayload>,
+            id: number,
+        ): Mistake => ({
+            question: '',
+            answer: '',
+            notes: '',
+            subject_id: null,
+            image_path: null,
+            answer_image_path: null,
+            ...validated,
+            mastered: validated.mastered ?? false,
+            ease_factor: validated.ease_factor ?? 2.5,
+            review_interval: validated.review_interval ?? 1,
+            next_review_date: validated.next_review_date ?? null,
+            review_count: validated.review_count ?? 0,
+            id,
+            created_at: createdAt,
+        })
+
+        if (IS_ELECTRON) {
+            const { ids } = await window.api.mistakes.createBatch(validatedBatch)
+            if (ids.length !== validatedBatch.length || ids.some(id => !Number.isInteger(id) || id <= 0)) {
+                throw new Error('Invalid mistake batch result returned by Electron IPC')
+            }
+            return validatedBatch.map((validated, index) => {
+                const id = ids[index]
+                if (id === undefined) throw new Error('Invalid mistake batch result returned by Electron IPC')
+                return materializeMistake(validated, id)
+            })
+        }
+
+        const missingSubject = validatedBatch.find(mistake => (
+            mistake.subject_id !== undefined
+            && mistake.subject_id !== null
+            && !subjectsRef.current.some(subject => subject.id === mistake.subject_id)
+        ))
+        if (missingSubject) {
+            throw new Error('Mistake subject not found')
+        }
+
+        const firstId = Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1
+        const newMistakes = validatedBatch.map((validated, index) => (
+            materializeMistake(validated, firstId + index)
+        ))
+        const nextMistakes = [...mistakesRef.current, ...newMistakes]
+        saveToLocal(STORAGE_KEYS.MISTAKES, nextMistakes)
+        mistakesRef.current = nextMistakes
+        return newMistakes
     },
     update: async (id: number, data: Partial<Mistake>) => {
         const validatedId = validateMistakeId(id)

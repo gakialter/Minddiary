@@ -221,6 +221,7 @@ const mockApi: ElectronAPI = {
     mistakes: {
         getAll: async () => ({ data: [], total: 0, masteredTotal: 0 }),
         create: async () => ({ id: Math.floor(Math.random() * 1000) }),
+        createBatch: async mistakes => ({ ids: mistakes.map((_, index) => index + 1) }),
         update: async () => {},
         delete: async () => {},
         toggleMastered: async () => ({ mastered: 1 }),

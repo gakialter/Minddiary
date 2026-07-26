@@ -13,6 +13,7 @@ import {
   validateMistakeId,
   validateMistakeReviewPayload,
   validateMistakeWritePayload,
+  validateMistakeWritePayloadBatch,
   validatePomodoroSessionPayload,
   validateSubjectChapterCompletedPayload,
   validateSubjectChapterPatchPayload,
@@ -285,6 +286,23 @@ describe('IPC runtime payload validation', () => {
     expect(() => validateMistakeWritePayload({ next_review_date: '2027-02-29' })).toThrow(
       'mistake next_review_date must be a valid calendar date or null',
     )
+  })
+
+  it('validates an entire mistake batch before repository writes', () => {
+    expect(validateMistakeWritePayloadBatch([
+      { question: '第一题', subject_id: 0 },
+      { question: '第二题', mastered: 1 },
+    ])).toEqual([
+      { question: '第一题', subject_id: null },
+      { question: '第二题', mastered: true },
+    ])
+    expect(() => validateMistakeWritePayloadBatch({ question: '不是数组' })).toThrow(
+      'mistake batch must be an array',
+    )
+    expect(() => validateMistakeWritePayloadBatch([
+      { question: '合法' },
+      { question: '非法', mastered: 2 },
+    ])).toThrow('mistake batch item 2 is invalid: mistake mastered must be a boolean or 0/1')
   })
 
   it('rejects invalid entry create title, content, and date payloads', () => {

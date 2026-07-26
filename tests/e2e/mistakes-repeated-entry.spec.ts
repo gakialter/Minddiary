@@ -369,6 +369,74 @@ test.describe('repeated mistake entry and editing', () => {
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
       }
+
+      const invalidSubjectExport = structuredClone(exported)
+      invalidSubjectExport.data.mistakes = [
+        { ...validMistake, question: '科目批次第一条合法记录', subject_id: null },
+        { ...validMistake, question: '科目批次第二条非法记录', subject_id: 999_999 },
+      ]
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        page.once('dialog', dialog => dialog.accept())
+        const invalidSubjectChooserPromise = page.waitForEvent('filechooser')
+        await page.getByRole('button', { name: '从 JSON 导入' }).click()
+        const invalidSubjectChooser = await invalidSubjectChooserPromise
+        await invalidSubjectChooser.setFiles({
+          name: `MindDiary_Backup_invalid_subject_attempt_${attempt}.json`,
+          mimeType: 'application/json',
+          buffer: Buffer.from(JSON.stringify(invalidSubjectExport), 'utf8'),
+        })
+        await expect(page.getByText(/导入失败: 第 2 道错题导入失败: 引用的科目不存在/)).toBeVisible()
+        expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
+          total: 1,
+          data: [expect.objectContaining({ question: '导出再导入题目' })],
+        })
+      }
+
+      const mappedSubjectExport = structuredClone(exported) as typeof exported & {
+        data: {
+          subjects: Array<{
+            id: number
+            name: string
+            total_chapters: number
+            completed_chapters: number
+            color: string
+          }>
+        }
+      }
+      mappedSubjectExport.data.subjects = [{
+        id: 42_424,
+        name: '跨 profile 导入科目',
+        total_chapters: 10,
+        completed_chapters: 3,
+        color: '#0F766E',
+      }]
+      mappedSubjectExport.data.mistakes = [{
+        ...validMistake,
+        question: '旧科目 ID 映射后的错题',
+        subject_id: 42_424,
+      }]
+      page.once('dialog', dialog => dialog.accept())
+      const mappedSubjectChooserPromise = page.waitForEvent('filechooser')
+      await page.getByRole('button', { name: '从 JSON 导入' }).click()
+      const mappedSubjectChooser = await mappedSubjectChooserPromise
+      await mappedSubjectChooser.setFiles({
+        name: 'MindDiary_Backup_subject_mapping.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from(JSON.stringify(mappedSubjectExport), 'utf8'),
+      })
+      await expect(page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
+      const mappedSubjectResult = await page.evaluate(async () => {
+        const [subjects, mistakes] = await Promise.all([
+          window.api.subjects.getAll(),
+          window.api.mistakes.getAll({ limit: 20, offset: 0 }),
+        ])
+        const subject = subjects.find(item => item.name === '跨 profile 导入科目')
+        const mistake = mistakes.data.find(item => item.question === '旧科目 ID 映射后的错题')
+        return { subject, mistake }
+      })
+      expect(mappedSubjectResult.subject?.id).toBeGreaterThan(0)
+      expect(mappedSubjectResult.subject?.id).not.toBe(42_424)
+      expect(mappedSubjectResult.mistake?.subject_id).toBe(mappedSubjectResult.subject?.id)
     } finally {
       await app?.close()
       for (const profilePath of [sourceProfile, targetProfile]) {

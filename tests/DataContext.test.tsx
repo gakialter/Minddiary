@@ -215,6 +215,7 @@ const createWindowApiMock = (): ElectronAPI => ({
   mistakes: {
     getAll: vi.fn().mockResolvedValue({ data: [], total: 0, masteredTotal: 0 }),
     create: vi.fn().mockResolvedValue({ id: 1 }),
+    createBatch: vi.fn().mockResolvedValue({ ids: [] }),
     update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
     toggleMastered: vi.fn().mockResolvedValue({ mastered: 1 }),
@@ -1478,6 +1479,49 @@ describe('DataContext', () => {
     expect(await result.current.mistakes.getAll()).toMatchObject({
       data: [expect.objectContaining({ id: 1, question: '重试问题' })],
       total: 1,
+    })
+  })
+
+  it('persists browser mistake batches atomically and keeps retries duplicate-free', async () => {
+    mocks.isElectron = false
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+
+    await waitFor(() => {
+      expect(result.current.dataReady).toBe(true)
+    })
+
+    await expect(result.current.mistakes.createBatch([
+      { question: '第一条合法记录' },
+      { question: '第二条非法记录', mastered: 2 as unknown as boolean },
+    ])).rejects.toThrow('mistake batch item 2 is invalid')
+    await expect(result.current.mistakes.createBatch([
+      { question: '第一条合法记录' },
+      { question: '第二条无效科目记录', subject_id: 999 },
+    ])).rejects.toThrow('Mistake subject not found')
+    expect(await result.current.mistakes.getAll()).toMatchObject({ data: [], total: 0 })
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('quota exceeded')
+    })
+    const batch = [
+      { question: '批量问题一', answer: '批量答案一', notes: '批量笔记一' },
+      { question: '批量问题二', answer: '批量答案二', notes: '批量笔记二' },
+    ]
+    await expect(result.current.mistakes.createBatch(batch)).rejects.toThrow('quota exceeded')
+    setItem.mockRestore()
+
+    expect(await result.current.mistakes.getAll()).toMatchObject({ data: [], total: 0 })
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MISTAKES) || '[]')).toEqual([])
+
+    const created = await result.current.mistakes.createBatch(batch)
+    expect(created.map(mistake => mistake.id)).toEqual([1, 2])
+    expect(await result.current.mistakes.getAll()).toMatchObject({
+      total: 2,
+      data: expect.arrayContaining([
+        expect.objectContaining({ id: 1, question: '批量问题一' }),
+        expect.objectContaining({ id: 2, question: '批量问题二' }),
+      ]),
     })
   })
 

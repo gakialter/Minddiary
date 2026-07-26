@@ -64,6 +64,7 @@ import {
     validateMistakeReviewPayload,
     validateMistakeId,
     validateMistakeWritePayload,
+    validateMistakeWritePayloadBatch,
     validatePomodoroSessionPayload,
     validatePositiveIdPayload,
     validateSubjectChapterCompletedPayload,
@@ -1075,6 +1076,11 @@ ipcMain.handle('todayDashboard:getData', (_: unknown, date: string) => {
 // ==================== Mistakes ====================
 ipcMain.handle('mistakes:getAll', (_: unknown, filters: MistakeFilters) => db.getAllMistakes(filters));
 ipcMain.handle('mistakes:create', (_: unknown, mistake: unknown) => db.createMistake(validateMistakeWritePayload(mistake)));
+ipcMain.handle('mistakes:createBatch', (_: unknown, mistakes: unknown) => ({
+    ids: db.createMistakes(validateMistakeWritePayloadBatch(mistakes)).map(
+        (result: { id: number | bigint }) => Number(result.id),
+    ),
+}));
 ipcMain.handle('mistakes:update', (_: unknown, id: unknown, mistake: unknown) => (
     db.updateMistake(validateMistakeId(id), validateMistakeWritePayload(mistake))
 ));

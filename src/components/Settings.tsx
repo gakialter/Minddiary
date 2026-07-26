@@ -6,7 +6,10 @@ import { coerceBoolean } from '../utils/helpers'
 import { normalizeCountdownEvents, normalizeCountdownSettings } from '../utils/countdown'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
-import { validateMistakeWritePayload } from '../utils/mistakePayload'
+import {
+  validateMistakeWritePayload,
+  type MistakeWritePayload,
+} from '../utils/mistakePayload'
 import { Settings as SettingsIcon, Check } from 'lucide-react'
 import { SettingsGeneral, SettingsAI, SettingsBackup, SettingsFocus, SettingsAbout } from './SettingsSections'
 import type { CountdownEvent, FocusWhitelistItem } from '../types'
@@ -283,7 +286,7 @@ function Settings() {
           const data = backup.data
           let importCount = 0
           let mistakeImportCount = 0
-          const validatedMistakes = data.mistakes
+          const validatedMistakes: MistakeWritePayload[] = Array.isArray(data.mistakes)
             ? data.mistakes.map((mistake: unknown, index: number) => {
                 try {
                   return validateMistakeWritePayload(mistake)
@@ -313,29 +316,44 @@ function Settings() {
             }
           }
 
+          const importedSubjectIds = new Map<number, number>()
           if (data.subjects) {
             const existingSubjects = await diary.subjects.getAll()
             for (const sub of data.subjects) {
               const match = (existingSubjects || []).find((s: { name: string }) => s.name === sub.name)
               if (match) {
                 await diary.subjects.update(match.id, sub).catch(() => { })
+                if (typeof sub.id === 'number' && Number.isInteger(sub.id) && sub.id > 0) {
+                  importedSubjectIds.set(sub.id, match.id)
+                }
               } else {
-                await diary.subjects.create(sub).catch(() => { })
+                const created = await diary.subjects.create(sub).catch(() => null)
+                if (created && typeof sub.id === 'number' && Number.isInteger(sub.id) && sub.id > 0) {
+                  importedSubjectIds.set(sub.id, created.id)
+                }
               }
             }
           }
 
           if (validatedMistakes.length > 0) {
-            for (const [index, mistake] of validatedMistakes.entries()) {
-              try {
-                await diary.mistakes.create(mistake)
-                mistakeImportCount++
-              } catch (error: unknown) {
+            const destinationSubjectIds = new Set(
+              (await diary.subjects.getAll()).map(subject => subject.id),
+            )
+            const importableMistakes = validatedMistakes.map((mistake: MistakeWritePayload, index: number) => {
+              if (mistake.subject_id === undefined || mistake.subject_id === null) return mistake
+              const mappedSubjectId = importedSubjectIds.get(mistake.subject_id)
+              if (mappedSubjectId !== undefined) {
+                return { ...mistake, subject_id: mappedSubjectId }
+              }
+              if (!destinationSubjectIds.has(mistake.subject_id)) {
                 throw new Error(
-                  `第 ${index + 1} 道错题导入失败: ${error instanceof Error ? error.message : String(error)}`,
+                  `第 ${index + 1} 道错题导入失败: 引用的科目不存在`,
                 )
               }
-            }
+              return mistake
+            })
+            await diary.mistakes.createBatch(importableMistakes)
+            mistakeImportCount = importableMistakes.length
           }
 
           showToast(

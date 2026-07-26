@@ -20,6 +20,7 @@ const makeDeps = (chapters: SubjectChapter[]): AIContextBuildDeps => ({
   mistakes: {
     getAll: vi.fn().mockResolvedValue({ data: [], total: 0, masteredTotal: 0 }),
     create: vi.fn(),
+    createBatch: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     toggleMastered: vi.fn(),

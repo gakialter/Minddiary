@@ -438,6 +438,10 @@ function createMistake(mistake: Partial<Mistake>) {
     return getRepositories().mistakes.createMistake(mistake);
 }
 
+function createMistakes(mistakes: Partial<Mistake>[]) {
+    return getRepositories().mistakes.createMistakes(mistakes);
+}
+
 type MistakeImageFields = {
     image_path: string | null;
     answer_image_path: string | null;
@@ -743,7 +747,7 @@ module.exports = {
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
     getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
-    getAllMistakes, createMistake, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
+    getAllMistakes, createMistake, createMistakes, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,
     getAllTemplates, createTemplate, updateTemplate, deleteTemplate,
     setCustomDbPath, getDb,

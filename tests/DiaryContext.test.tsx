@@ -86,6 +86,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
   mistakes: {
     getAll: vi.fn(),
     create: vi.fn(),
+    createBatch: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     toggleMastered: vi.fn(),

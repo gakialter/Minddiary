@@ -89,6 +89,10 @@ export function createMistakesRepository(db: Database.Database) {
         return { id: result.lastInsertRowid };
     }
 
+    const createMistakes = db.transaction((mistakes: Partial<Mistake>[]) => (
+        mistakes.map(mistake => createMistake(mistake))
+    ));
+
     function getMistakeImageFields(id: number): { image_path: string | null; answer_image_path: string | null } {
         const row = db.prepare('SELECT image_path, answer_image_path FROM mistakes WHERE id = ?').get(id) as { image_path: string | null; answer_image_path: string | null } | undefined;
         return {
@@ -221,6 +225,7 @@ export function createMistakesRepository(db: Database.Database) {
     return {
         getAllMistakes,
         createMistake,
+        createMistakes,
         getMistakeImageFields,
         getOtherMistakeImageFields,
         getAllMistakeImageFields,

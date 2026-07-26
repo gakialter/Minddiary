@@ -23,6 +23,7 @@ import {
 import {
     validateMistakeId as validateSharedMistakeId,
     validateMistakeWritePayload as validateSharedMistakeWritePayload,
+    validateMistakeWritePayloadBatch as validateSharedMistakeWritePayloadBatch,
     type MistakeWritePayload,
 } from '../src/utils/mistakePayload';
 
@@ -48,6 +49,10 @@ export function validateMistakeId(payload: unknown): number {
 
 export function validateMistakeWritePayload(payload: unknown): MistakeWritePayload {
     return validateSharedMistakeWritePayload(payload);
+}
+
+export function validateMistakeWritePayloadBatch(payload: unknown): MistakeWritePayload[] {
+    return validateSharedMistakeWritePayloadBatch(payload);
 }
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

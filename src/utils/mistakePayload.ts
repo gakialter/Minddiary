@@ -148,3 +148,19 @@ export function validateMistakeWritePayload(value: unknown): MistakeWritePayload
 
   return result
 }
+
+export function validateMistakeWritePayloadBatch(value: unknown): MistakeWritePayload[] {
+  if (!Array.isArray(value)) {
+    throw new Error('mistake batch must be an array')
+  }
+
+  return value.map((mistake, index) => {
+    try {
+      return validateMistakeWritePayload(mistake)
+    } catch (error: unknown) {
+      throw new Error(
+        `mistake batch item ${index + 1} is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  })
+}

@@ -74,6 +74,7 @@ type DatabaseModule = {
   getEntryTagsBatch: (entryIds: number[]) => Record<number, Tag[]>
   getAllMistakes: (filters?: { subject_id?: number; mastered?: boolean | number; search?: string; due?: boolean; dueDate?: string; limit?: number; offset?: number }) => { data: Mistake[], total: number, masteredTotal: number }
   createMistake: (mistake: Partial<Mistake>) => { id: unknown }
+  createMistakes: (mistakes: Partial<Mistake>[]) => Array<{ id: unknown }>
   addPomodoroSession: (session: Pick<PomodoroSession, 'subject_id' | 'task_id' | 'duration' | 'date_key' | 'started_at' | 'completed_at'>) => { id: unknown; date_key: string; started_at: string | null; completed_at: string }
   getPomodoroStats: (date: string) => PomodoroStat[]
   getPomodoroStatsRange: (startDate: string, endDate: string) => PomodoroStat[]
@@ -1582,6 +1583,7 @@ describe('database mistake image cleanup', () => {
 
     expect(database.getAllMistakes).toEqual(expect.any(Function))
     expect(database.createMistake).toEqual(expect.any(Function))
+    expect(database.createMistakes).toEqual(expect.any(Function))
     expect(database.updateMistake).toEqual(expect.any(Function))
     expect(database.deleteMistake).toEqual(expect.any(Function))
     expect(database.toggleMistakeMastered).toEqual(expect.any(Function))
