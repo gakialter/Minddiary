@@ -40,6 +40,9 @@ jobs:
       - name: Rebuild native dependency for Electron E2E
         run: npm run rebuild:electron
 
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
       - name: Run source-tree Electron E2E
         run: npm run test:e2e
 
