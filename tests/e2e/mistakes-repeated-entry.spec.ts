@@ -67,6 +67,20 @@ async function createMistake(page: Page, question: string, answer: string, notes
   await submitForm(page)
 }
 
+async function importJsonBackup(page: Page, name: string, content: string): Promise<void> {
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: '从 JSON 导入' }).click()
+  const chooser = await chooserPromise
+  const dialogPromise = page.waitForEvent('dialog')
+  await chooser.setFiles({
+    name,
+    mimeType: 'application/json',
+    buffer: Buffer.from(content, 'utf8'),
+  })
+  const dialog = await dialogPromise
+  await dialog.accept()
+}
+
 async function diagnostics(page: Page, placeholder: string): Promise<FieldDiagnostics> {
   return page.getByPlaceholder(placeholder).evaluate(element => {
     const field = element as HTMLTextAreaElement
@@ -302,16 +316,11 @@ test.describe('repeated mistake entry and editing', () => {
       page = launched.page
       await page.getByRole('button', { name: '设置', exact: true }).click()
       await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
-      page.once('dialog', dialog => dialog.accept())
-      const chooserPromise = page.waitForEvent('filechooser')
-      await page.getByRole('button', { name: '从 JSON 导入' }).click()
-      const chooser = await chooserPromise
-      await chooser.setFiles({
-        name: 'MindDiary_Backup_test.json',
-        mimeType: 'application/json',
-        buffer: Buffer.from(exportedText, 'utf8'),
-      })
-      await expect(page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
+      await importJsonBackup(page, 'MindDiary_Backup_test.json', exportedText)
+      const initialImportToast = page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)
+      await expect(initialImportToast).toBeVisible()
+      await initialImportToast.click()
+      await expect(initialImportToast).toBeHidden()
 
       let restored = await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))
       expect(restored.data).toEqual([
@@ -354,20 +363,21 @@ test.describe('repeated mistake entry and editing', () => {
         { ...validMistake, question: '本批次第二条非法记录', mastered: 2 },
       ]
       for (let attempt = 1; attempt <= 2; attempt++) {
-        page.once('dialog', dialog => dialog.accept())
-        const invalidChooserPromise = page.waitForEvent('filechooser')
-        await page.getByRole('button', { name: '从 JSON 导入' }).click()
-        const invalidChooser = await invalidChooserPromise
-        await invalidChooser.setFiles({
-          name: `MindDiary_Backup_invalid_attempt_${attempt}.json`,
-          mimeType: 'application/json',
-          buffer: Buffer.from(JSON.stringify(invalidExport), 'utf8'),
-        })
-        await expect(page.getByText(/导入失败: 第 2 道错题导入失败: mistake mastered must be a boolean or 0\/1/)).toBeVisible()
+        await importJsonBackup(
+          page,
+          `MindDiary_Backup_invalid_attempt_${attempt}.json`,
+          JSON.stringify(invalidExport),
+        )
+        const invalidPayloadToast = page.getByText(
+          /导入失败: 第 2 道错题导入失败: mistake mastered must be a boolean or 0\/1/,
+        )
+        await expect(invalidPayloadToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
+        await invalidPayloadToast.click()
+        await expect(invalidPayloadToast).toBeHidden()
       }
 
       const invalidSubjectExport = structuredClone(exported)
@@ -376,20 +386,19 @@ test.describe('repeated mistake entry and editing', () => {
         { ...validMistake, question: '科目批次第二条非法记录', subject_id: 999_999 },
       ]
       for (let attempt = 1; attempt <= 2; attempt++) {
-        page.once('dialog', dialog => dialog.accept())
-        const invalidSubjectChooserPromise = page.waitForEvent('filechooser')
-        await page.getByRole('button', { name: '从 JSON 导入' }).click()
-        const invalidSubjectChooser = await invalidSubjectChooserPromise
-        await invalidSubjectChooser.setFiles({
-          name: `MindDiary_Backup_invalid_subject_attempt_${attempt}.json`,
-          mimeType: 'application/json',
-          buffer: Buffer.from(JSON.stringify(invalidSubjectExport), 'utf8'),
-        })
-        await expect(page.getByText(/导入失败: 第 2 道错题导入失败: 引用的科目不存在/)).toBeVisible()
+        await importJsonBackup(
+          page,
+          `MindDiary_Backup_invalid_subject_attempt_${attempt}.json`,
+          JSON.stringify(invalidSubjectExport),
+        )
+        const invalidSubjectToast = page.getByText(/导入失败: 第 2 道错题导入失败: 引用的科目不存在/)
+        await expect(invalidSubjectToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
+        await invalidSubjectToast.click()
+        await expect(invalidSubjectToast).toBeHidden()
       }
 
       const mappedSubjectExport = structuredClone(exported) as typeof exported & {
@@ -415,15 +424,11 @@ test.describe('repeated mistake entry and editing', () => {
         question: '旧科目 ID 映射后的错题',
         subject_id: 42_424,
       }]
-      page.once('dialog', dialog => dialog.accept())
-      const mappedSubjectChooserPromise = page.waitForEvent('filechooser')
-      await page.getByRole('button', { name: '从 JSON 导入' }).click()
-      const mappedSubjectChooser = await mappedSubjectChooserPromise
-      await mappedSubjectChooser.setFiles({
-        name: 'MindDiary_Backup_subject_mapping.json',
-        mimeType: 'application/json',
-        buffer: Buffer.from(JSON.stringify(mappedSubjectExport), 'utf8'),
-      })
+      await importJsonBackup(
+        page,
+        'MindDiary_Backup_subject_mapping.json',
+        JSON.stringify(mappedSubjectExport),
+      )
       await expect(page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
       const mappedSubjectResult = await page.evaluate(async () => {
         const [subjects, mistakes] = await Promise.all([
