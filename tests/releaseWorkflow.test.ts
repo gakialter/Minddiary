@@ -145,7 +145,22 @@ describe('release workflow Windows signing policy', () => {
 
   it('keeps the unsigned Windows installer warning in release notes', () => {
     expect(releaseNotes).toContain('## Windows 安装包说明')
+    expect(releaseNotes).toContain('未配置签名凭据时，workflow 会明确生成 unsigned Windows assets')
     expect(releaseNotes).toContain('Unknown Publisher')
     expect(releaseNotes).toContain('Windows SmartScreen')
+    expect(releaseNotes).toContain('代码签名不等于已经建立 SmartScreen reputation')
+  })
+
+  it('keeps published release notes free of release-prep-only state', () => {
+    expect(releaseNotes).toContain('Tag-triggered Release workflow 生成 ARM64 DMG、ZIP 和 update metadata')
+    expect(releaseNotes).toContain('使用 ad-hoc signing，不是 Developer ID 签名，也未进行 Apple notarization')
+    expect(releaseNotes).not.toContain('PR exact-head CI 门槛将在')
+    expect(releaseNotes).not.toContain('release-prep exact-head CI 将在')
+    expect(releaseNotes).not.toContain('本文件仅记录 release-prep 状态')
+    expect(releaseNotes).not.toContain('后续获授权的 tag-triggered')
+    expect(releaseNotes).not.toContain('本轮 Windows 开发机')
+    expect(releaseNotes).not.toContain('CSC_LINK')
+    expect(releaseNotes).not.toContain('CSC_KEY_PASSWORD')
+    expect(releaseNotes).not.toMatch(/\b[0-9a-f]{40}\b/)
   })
 })

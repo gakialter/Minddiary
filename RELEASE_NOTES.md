@@ -45,7 +45,8 @@ MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌�
 - 增加 Windows Setup 安装、覆盖重装、卸载和应用数据保留 smoke。
 - 增加 Windows Portable wrapper 启动 smoke。
 - 增加 packaged local-date rollover、packaged security 和 ASAR integrity 验证。
-- PR exact-head CI 门槛将在 Apple silicon ARM64 runner 上验证 macOS 打包、native dependency、架构和 ad-hoc code integrity。
+- 发布流水线会在 Windows 和 Apple silicon ARM64 runner 上验证打包结果、native dependency、package security、架构和代码完整性。
+- Windows 候选已覆盖 Setup、Portable、数据保留、packaged security 和 ASAR integrity smoke。
 
 ## Compatibility
 
@@ -66,19 +67,22 @@ MindDiary v1.17.0 是从 v1.16.0 累积而来的用户体验、安全性和桌�
 
 ## Windows 安装包说明
 
-- 当前仓库未配置 `CSC_LINK` 和 `CSC_KEY_PASSWORD` secret 名称，因此后续正式 workflow 若状态不变，将按允许的 unsigned 路径构建。
-- 未签名的 Windows 正式资产可能显示 Unknown Publisher 或触发 Windows SmartScreen。
-- Authenticode 签名即使配置成功，也不代表已经建立 SmartScreen reputation。
+- Release workflow 在配置 Windows signing credentials 时会验证 Authenticode 签名。
+- 未配置签名凭据时，workflow 会明确生成 unsigned Windows assets。
+- Unsigned Windows assets 可能显示 Unknown Publisher 或触发 Windows SmartScreen。
+- 代码签名不等于已经建立 SmartScreen reputation。
 
 ## macOS 安装包说明
 
-- 正式 DMG、ZIP 和 update metadata 只会在后续获授权的 tag-triggered Release workflow 中生成并复核。
-- 本轮 Windows 开发机不提供真实 macOS DMG/ZIP 本地验收或另一台 Mac 的人工 Gatekeeper 证据。
-- 不得把 ad-hoc code integrity 描述为 Developer ID 签名或 Apple notarization。
+- Tag-triggered Release workflow 生成 ARM64 DMG、ZIP 和 update metadata。
+- macOS assets 使用 ad-hoc signing，不是 Developer ID 签名，也未进行 Apple notarization。
+- 当前没有另一台 Mac 的完整人工 Gatekeeper 验收证据。
+- 不提供 Intel 或 universal assets。
 
 ## Verification
 
-- 当前 `main` post-merge CI run **30188538365**（commit `ec230fda1f7fecb8684259a9d62e0190cffe1583`）中，`test`、`build-verification (windows-latest)` 和 `build-verification (macos-14)` 均为 SUCCESS。
-- v1.17.0 release-prep exact-head CI 将在 PR 阶段补充，不在此预写尚未发生的 run ID。
-- 正式 tag workflow、最终 Windows/macOS 资产检查和发布后验证仍属于后续独立发布门槛。
-- 本文件仅记录 release-prep 状态；目标版本的发布、正式资产生成和正式资产验收均属于后续独立门槛。
+- v1.17.0 release-prep 候选必须通过 typecheck、单元测试、Electron E2E、Windows build verification 和 macOS ARM64 build verification。
+- Windows 候选已验证 Setup、Portable、数据保留、packaged security、native dependency 和 ASAR integrity。
+- macOS CI 验证 ARM64 package、native dependency、架构和 ad-hoc code integrity。
+- Tag-triggered Release workflow 在创建 Release 前对正式发布资产执行 manifest 校验。
+- 不声称 Windows 自动更新完整 E2E、Windows 签名、macOS notarization 或完整 Gatekeeper 验收已经完成。
