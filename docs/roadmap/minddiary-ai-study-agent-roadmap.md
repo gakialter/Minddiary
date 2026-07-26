@@ -15,7 +15,7 @@ This is a planning document. It authorizes documentation alignment only. It does
 - PR #130 implemented explainable Today Action planning context.
 - PR #131 implemented stricter Today Action parsing, local validation, editing, stale-context protection, and partial-success retry.
 - PR #132 implemented the schema-free Daily Review Agent and its modal, refresh, and date-rollover reliability fixes.
-- The schema-6 v1.15.x Agent Run and feedback-loop milestones remain unimplemented and are not part of the v1.16.0 candidate.
+- The schema-6 v1.15.x Agent Run and feedback-loop milestones remain unimplemented and are not part of the v1.17.0 candidate.
 
 Schema status for this roadmap update: schema unchanged.
 
@@ -159,7 +159,9 @@ Context Collector
 
 **Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
 
-### v1.17.0 - Mistake Review Agent
+### Unscheduled future milestone - Mistake Review Agent
+
+**Version status:** the former v1.17.0 planning slot is superseded by the actual v1.17.0 release described in the verified baseline. This milestone remains unimplemented and excluded; assigning it a future version requires separate planning and authorization.
 
 **Core problem:** users need a bounded plan for due mistakes that explains selection without changing established review semantics.
 
