@@ -10,7 +10,7 @@ import {
   UPDATER_EVIDENCE_FILES,
   assertNoUpdaterE2eSigningEnvironment,
   clearUpdaterE2eArtifactDirectory,
-  configureDisposableUpdaterPublish,
+  configureDisposableUpdaterBuild,
   createUpdaterE2eChildEnvironment,
   scanUpdaterEvidencePrivacy,
   validateLoopbackProviderUrl,
@@ -39,6 +39,7 @@ function createDisposableBuildPackage(version = versions.baseVersion): string {
   disposableBuildDirectories.push(directory);
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as Record<string, unknown>;
   packageJson.version = version;
+  fs.mkdirSync(path.join(directory, 'build'));
   fs.writeFileSync(path.join(directory, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
   return directory;
 }
@@ -123,7 +124,13 @@ describe('updater E2E evidence', () => {
 
   it('writes a schema-valid generic provider only inside a disposable package', async () => {
     const directory = createDisposableBuildPackage();
-    configureDisposableUpdaterPublish(directory, versions.baseVersion, 'http://127.0.0.1:43123/');
+    const profilePath = path.join(directory, 'auto-restart-profile');
+    configureDisposableUpdaterBuild(
+      directory,
+      versions.baseVersion,
+      'http://127.0.0.1:43123/',
+      profilePath,
+    );
     const packageJson = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8')) as {
       version: string;
       build: Record<string, unknown>;
@@ -134,22 +141,41 @@ describe('updater E2E evidence', () => {
       url: 'http://127.0.0.1:43123/',
       useMultipleRangeRequest: false,
     }]);
+    expect((packageJson.build.nsis as { include?: string }).include)
+      .toBe('build/updater-e2e-installer.nsh');
+    expect(fs.readFileSync(path.join(directory, 'build', 'updater-e2e-installer.nsh'), 'utf8'))
+      .toContain(`--user-data-dir=${profilePath.replace(/\//g, '\\')}`);
     await expect(validateConfiguration(packageJson.build, new DebugLogger(false))).resolves.toBeUndefined();
   });
 
   it('refuses remote providers, unexpected versions, and altered production publishing', () => {
     const remote = createDisposableBuildPackage();
-    expect(() => configureDisposableUpdaterPublish(remote, versions.baseVersion, 'https://github.com/releases/')).toThrow(/loopback/);
+    expect(() => configureDisposableUpdaterBuild(
+      remote,
+      versions.baseVersion,
+      'https://github.com/releases/',
+      path.join(remote, 'auto-restart-profile'),
+    )).toThrow(/loopback/);
 
     const wrongVersion = createDisposableBuildPackage();
-    expect(() => configureDisposableUpdaterPublish(wrongVersion, versions.nextVersion, 'http://127.0.0.1:43123/')).toThrow(/version/);
+    expect(() => configureDisposableUpdaterBuild(
+      wrongVersion,
+      versions.nextVersion,
+      'http://127.0.0.1:43123/',
+      path.join(wrongVersion, 'auto-restart-profile'),
+    )).toThrow(/version/);
 
     const altered = createDisposableBuildPackage();
     const packagePath = path.join(altered, 'package.json');
     const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as { build: { publish: unknown } };
     packageJson.build.publish = [{ provider: 'generic', url: 'http://127.0.0.1:43123/' }];
     fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
-    expect(() => configureDisposableUpdaterPublish(altered, versions.baseVersion, 'http://127.0.0.1:43123/')).toThrow(/production publish/);
+    expect(() => configureDisposableUpdaterBuild(
+      altered,
+      versions.baseVersion,
+      'http://127.0.0.1:43123/',
+      path.join(altered, 'auto-restart-profile'),
+    )).toThrow(/production publish/);
   });
 
   it('rejects path, secret, query, and database-content leakage', () => {

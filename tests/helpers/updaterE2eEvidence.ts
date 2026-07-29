@@ -376,12 +376,18 @@ export function validateLoopbackProviderUrl(value: string): URL {
   return url;
 }
 
-export function configureDisposableUpdaterPublish(
+export function configureDisposableUpdaterBuild(
   worktree: string,
   expectedVersion: string,
   providerUrl: string,
+  autoRestartProfilePath: string,
 ): void {
   validateLoopbackProviderUrl(providerUrl);
+  if (!path.isAbsolute(autoRestartProfilePath)
+    || path.basename(autoRestartProfilePath) !== 'auto-restart-profile'
+    || /[\r\n"$]/.test(autoRestartProfilePath)) {
+    throw new Error('Updater E2E auto-restart profile path is invalid');
+  }
   const worktreeStat = fs.lstatSync(worktree);
   if (!worktreeStat.isDirectory() || worktreeStat.isSymbolicLink()) {
     throw new Error('Updater build worktree must be a physical directory');
@@ -428,12 +434,41 @@ export function configureDisposableUpdaterPublish(
     url: providerUrl,
     useMultipleRangeRequest: false,
   }];
+  if (!build.nsis || typeof build.nsis !== 'object' || Array.isArray(build.nsis)) {
+    throw new Error('Updater build requires the reviewed production NSIS configuration');
+  }
+  const nsis = build.nsis as Record<string, unknown>;
+  if ('include' in nsis
+    || nsis.oneClick !== false
+    || nsis.createStartMenuShortcut !== true
+    || nsis.shortcutName !== 'MindDiary') {
+    throw new Error('Updater build refuses an unexpected production NSIS configuration');
+  }
+  const includeRelativePath = 'build/updater-e2e-installer.nsh';
+  const includePath = path.join(worktree, ...includeRelativePath.split('/'));
+  const includeParent = path.dirname(includePath);
+  const includeParentStat = fs.lstatSync(includeParent);
+  if (!includeParentStat.isDirectory() || includeParentStat.isSymbolicLink()) {
+    throw new Error('Updater E2E NSIS include parent must be a physical directory');
+  }
+  const windowsProfilePath = autoRestartProfilePath.replace(/\//g, '\\');
+  const includeText = [
+    '!macro customInstall',
+    `  CreateShortCut "$newStartMenuLink" "$appExe" "--user-data-dir=${windowsProfilePath}" "$appExe" 0 "" "" "\${APP_DESCRIPTION}"`,
+    '  StrCpy $launchLink "$newStartMenuLink"',
+    '!macroend',
+    '',
+  ].join('\n');
+  fs.writeFileSync(includePath, includeText, { encoding: 'utf8', flag: 'wx' });
+  nsis.include = includeRelativePath;
   fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, { encoding: 'utf8' });
   const configured = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as {
-    build?: { publish?: unknown };
+    build?: { publish?: unknown; nsis?: { include?: unknown } };
   };
-  if (JSON.stringify(configured.build?.publish) !== JSON.stringify(build.publish)) {
-    throw new Error('Updater build publish configuration did not persist exactly');
+  if (JSON.stringify(configured.build?.publish) !== JSON.stringify(build.publish)
+    || configured.build?.nsis?.include !== includeRelativePath
+    || fs.readFileSync(includePath, 'utf8') !== includeText) {
+    throw new Error('Updater disposable build configuration did not persist exactly');
   }
 }
 

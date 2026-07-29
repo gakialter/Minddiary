@@ -9,7 +9,7 @@ import {
   assertNoUpdaterE2eSigningEnvironment,
   assertDisposableUpdaterPath,
   clearUpdaterE2eArtifactDirectory,
-  configureDisposableUpdaterPublish,
+  configureDisposableUpdaterBuild,
   createUpdaterE2eChildEnvironment,
   validateLoopbackProviderUrl,
   writeUpdaterDiagnosticEvidence,
@@ -330,10 +330,11 @@ async function buildCandidate(
   worktree: string,
   version: string,
   providerUrl: string,
+  autoRestartProfilePath: string,
   reportStep: (step: UpdaterDiagnosticStep) => void,
 ): Promise<CandidateFixture> {
   reportStep('npm-ci');
-  configureDisposableUpdaterPublish(worktree, version, providerUrl);
+  configureDisposableUpdaterBuild(worktree, version, providerUrl, autoRestartProfilePath);
   await runNpm(['ci', '--prefer-offline'], worktree, 900_000, 'npm-ci');
   reportStep('build-electron');
   await runNpm(['run', 'build:electron'], worktree, 300_000, 'build-electron');
@@ -592,6 +593,7 @@ async function main(): Promise<void> {
     temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), temporaryPrefix));
     assertTemporaryRoot(temporaryRoot);
     runtimeRoot = createUpdaterRuntimeRoot(projectRoot);
+    const autoRestartProfilePath = path.join(runtimeRoot, 'auto-restart-profile');
     oldWorktree = path.join(temporaryRoot, 'old');
     newWorktree = path.join(temporaryRoot, 'new');
     assertTemporaryBuildPath(oldWorktree, temporaryRoot);
@@ -627,6 +629,7 @@ async function main(): Promise<void> {
       oldWorktree,
       versions.baseVersion,
       providerUrl,
+      autoRestartProfilePath,
       step => { primaryStep = step; },
     );
     phase = 'build-new';
@@ -635,6 +638,7 @@ async function main(): Promise<void> {
       newWorktree,
       versions.nextVersion,
       providerUrl,
+      autoRestartProfilePath,
       step => { primaryStep = step; },
     );
     const stagedOldFixture = stageCandidateFixture(oldFixture, runtimeRoot, 'old', versions);
