@@ -364,6 +364,10 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+}
+
 .sidebar {
   grid-column: 1;
   grid-row: 2;
