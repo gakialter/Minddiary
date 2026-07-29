@@ -39,7 +39,6 @@ function createDisposableBuildPackage(version = versions.baseVersion): string {
   disposableBuildDirectories.push(directory);
   const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as Record<string, unknown>;
   packageJson.version = version;
-  fs.mkdirSync(path.join(directory, 'build'));
   fs.writeFileSync(path.join(directory, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
   return directory;
 }
@@ -125,6 +124,7 @@ describe('updater E2E evidence', () => {
   it('writes a schema-valid generic provider only inside a disposable package', async () => {
     const directory = createDisposableBuildPackage();
     const profilePath = path.join(directory, 'auto-restart-profile');
+    expect(fs.existsSync(path.join(directory, 'build'))).toBe(false);
     configureDisposableUpdaterBuild(
       directory,
       versions.baseVersion,

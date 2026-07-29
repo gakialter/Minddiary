@@ -447,9 +447,17 @@ export function configureDisposableUpdaterBuild(
   const includeRelativePath = 'build/updater-e2e-installer.nsh';
   const includePath = path.join(worktree, ...includeRelativePath.split('/'));
   const includeParent = path.dirname(includePath);
+  try {
+    fs.mkdirSync(includeParent);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
   const includeParentStat = fs.lstatSync(includeParent);
   if (!includeParentStat.isDirectory() || includeParentStat.isSymbolicLink()) {
     throw new Error('Updater E2E NSIS include parent must be a physical directory');
+  }
+  if (normalizeRealPath(fs.realpathSync(includeParent)) !== normalizeRealPath(path.join(worktree, 'build'))) {
+    throw new Error('Updater E2E NSIS include parent escaped its physical worktree');
   }
   const windowsProfilePath = autoRestartProfilePath.replace(/\//g, '\\');
   const includeText = [
