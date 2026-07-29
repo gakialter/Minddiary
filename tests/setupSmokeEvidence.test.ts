@@ -6,6 +6,7 @@ import type { SmokeDiagnosticProcessResult } from './helpers/smokeDiagnosticRunn
 import {
   SETUP_EVIDENCE_FILES,
   collectPhysicalInstallTree,
+  runSetupProcess,
   uninstallCommandTargetsPhysicalFile,
   writeSetupSmokeEvidence,
   type SetupSmokeEvidenceInput,
@@ -20,13 +21,14 @@ function makeRun(phase: 'seeded' | 'reopened'): SmokeDiagnosticProcessResult {
       scenario: 'install-profile',
       applicationVersion: '1.16.0',
       electronVersion: '42.6.1',
+      nodeModuleAbi: '146',
       platform: 'win32',
       arch: 'x64',
       isPackaged: true,
       sandbox: true,
       contextIsolation: true,
       preloadAvailable: true,
-      nativeSqlite: { loaded: true, query: 1, sqliteVersion: '3.53.2' },
+      nativeSqlite: { loaded: true, query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 },
       result: 'passed',
       evidence: [{
         check: phase === 'seeded' ? 'installed-profile-seeded' : 'installed-profile-reopened',
@@ -192,4 +194,19 @@ describe('Windows Setup smoke evidence', () => {
     expect(uninstallCommandTargetsPhysicalFile(installRoot, `"${otherUninstaller}" /currentuser`)).toBe(false);
     expect(uninstallCommandTargetsPhysicalFile(installRoot, `${uninstaller} /currentuser`)).toBe(false);
   });
+
+  it.runIf(process.platform === 'win32')(
+    'reports only bounded process lifecycle state when installer execution times out',
+    async () => {
+      await expect(runSetupProcess(
+        process.execPath,
+        ['-e', 'setTimeout(() => process.exit(0), 1000)'],
+        'bounded-timeout fixture',
+        100,
+      )).rejects.toThrow(
+        'bounded-timeout fixture timed out '
+        + '(exitObserved=false; closeObserved=false; exitCode=null)',
+      );
+    },
+  );
 });

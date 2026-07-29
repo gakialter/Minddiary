@@ -104,6 +104,17 @@ describe('release workflow Windows signing policy', () => {
     expect(workflow).toContain('node-version: 22')
   })
 
+  it('runs installed updater coverage only in CI and always preserves sanitized evidence', () => {
+    expect(ciWorkflow).toContain('run: npm run test:e2e:updater')
+    expect(ciWorkflow).toContain('if: always() && matrix.os == \'windows-latest\' && hashFiles(\'test-results/windows-updater-e2e-evidence/hashes.txt\') != \'\' && hashFiles(\'test-results/windows-updater-e2e-diagnostic/diagnostic.json\') == \'\'')
+    expect(ciWorkflow).toContain('if: always() && matrix.os == \'windows-latest\' && hashFiles(\'test-results/windows-updater-e2e-diagnostic/hashes.txt\') != \'\'')
+    expect(ciWorkflow).toContain(
+      'name: windows-updater-e2e-diagnostic-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
+    )
+    expect(workflow).not.toContain('windows-updater-e2e')
+    expect(workflow).not.toContain('test:e2e:updater')
+  })
+
   it('runs and archives bounded Windows Portable smoke without publishing that evidence', () => {
     expect(workflow).toContain('run: npm run test:e2e:portable-smoke')
     expect(workflow).toContain('name: windows-portable-smoke-evidence')
