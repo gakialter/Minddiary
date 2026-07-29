@@ -33,6 +33,7 @@ export type UpdaterEvidenceRecord = Record<string, unknown> & {
 export type UpdaterEvidenceBundle = Record<UpdaterJsonEvidenceFile, UpdaterEvidenceRecord>;
 
 export const UPDATER_DIAGNOSTIC_FILES = ['diagnostic.json', 'hashes.txt'] as const;
+export type UpdaterArtifactKind = 'evidence' | 'diagnostic';
 
 export type UpdaterDiagnosticStep =
   | 'prepare'
@@ -135,7 +136,7 @@ const REQUIRED_FIELDS: Record<UpdaterJsonEvidenceFile, readonly string[]> = {
   'new-build-manifest.json': ['candidateVersion', 'setupSha256', 'setupSize', 'blockmapSha256', 'latestVersion', 'latestPath', 'latestFiles', 'metadataSha512'],
   'old-version-start.json': ['applicationVersion', 'electronVersion', 'electronAbi', 'sqliteSchemaVersion', 'isPackaged', 'sandbox', 'profileVerified'],
   'updater-event-log.json': ['sequence', 'availableVersion', 'releaseNotesMatched', 'progressBounded'],
-  'update-server-log.json': ['requests', 'installedProvider', 'observedProviderRequestsAllLoopback', 'observedProviderRequestsNoCredentials'],
+  'update-server-log.json': ['requests', 'installedProvider', 'observedProviderRequestsAllLoopback', 'observedProviderRequestsNoCredentials', 'observedOnlyUpdaterCacheBustQueries'],
   'update-downloaded.json': ['version', 'metadataSha512', 'installerSha256', 'checksumVerified', 'blockmapRequested', 'downloadMode'],
   'install-transition.json': ['quitAndInstallAfterDownloaded', 'oldProcessExited', 'installerProcessObserved', 'installerExited', 'silentInstallRequested', 'installedVersion', 'autoRestartObserved'],
   'new-version-start.json': ['applicationVersion', 'electronVersion', 'electronAbi', 'sqliteSchemaVersion', 'isPackaged', 'sandbox'],
@@ -260,6 +261,7 @@ function validateUpdaterEvidenceSemantics(
       const entry = request as Record<string, unknown>;
       const expectedKeys = [
         'authorizationPresent',
+        'cacheBustAccepted',
         'cookiePresent',
         'loopback',
         'method',
@@ -278,16 +280,20 @@ function validateUpdaterEvidenceSemantics(
         || !['no-update', 'invalid-metadata', 'bad-checksum', 'positive'].includes(String(entry.mode))
         || !Number.isInteger(entry.status)
         || typeof entry.rangeRequested !== 'boolean'
+        || typeof entry.cacheBustAccepted !== 'boolean'
         || entry.loopback !== true
         || entry.authorizationPresent !== false
         || entry.cookiePresent !== false
-        || entry.queryPresent !== false;
+        || typeof entry.queryPresent !== 'boolean'
+        || entry.queryPresent !== entry.cacheBustAccepted
+        || (entry.cacheBustAccepted === true && entry.resource !== 'latest.yml');
     })) {
       throw new Error('Updater server request evidence is incomplete or unsafe');
     }
     if (record.installedProvider !== 'generic-loopback') throw new Error('Installed updater provider evidence is invalid');
     requireBoolean(record, 'observedProviderRequestsAllLoopback', true);
     requireBoolean(record, 'observedProviderRequestsNoCredentials', true);
+    requireBoolean(record, 'observedOnlyUpdaterCacheBustQueries', true);
   }
   if (filename === 'update-downloaded.json') {
     if (record.version !== versions.nextVersion) throw new Error('Downloaded updater version is invalid');
@@ -438,6 +444,47 @@ export function assertDisposableUpdaterPath(candidate: string, prefix: string): 
     throw new Error('Updater E2E path is outside the direct disposable temporary boundary');
   }
   return resolved;
+}
+
+export function clearUpdaterE2eArtifactDirectory(
+  projectRoot: string,
+  kind: UpdaterArtifactKind,
+): void {
+  const root = path.resolve(projectRoot);
+  const parent = path.join(root, 'test-results');
+  const name = kind === 'evidence'
+    ? 'windows-updater-e2e-evidence'
+    : 'windows-updater-e2e-diagnostic';
+  const allowlist: readonly string[] = kind === 'evidence'
+    ? UPDATER_EVIDENCE_FILES
+    : UPDATER_DIAGNOSTIC_FILES;
+  const directory = path.join(parent, name);
+  if (!fs.existsSync(directory)) return;
+  for (const [candidate, label] of [
+    [root, 'project root'],
+    [parent, 'test-results root'],
+    [directory, `${kind} directory`],
+  ] as const) {
+    const stat = fs.lstatSync(candidate);
+    if (!stat.isDirectory()
+      || stat.isSymbolicLink()
+      || fs.realpathSync(candidate) !== candidate) {
+      throw new Error(`Updater ${label} must be a physical directory`);
+    }
+  }
+  const names = fs.readdirSync(directory);
+  if (names.some(filename => !allowlist.includes(filename))) {
+    throw new Error(`Updater ${kind} directory contains a non-allowlisted entry`);
+  }
+  for (const filename of names) {
+    const filepath = path.join(directory, filename);
+    const stat = fs.lstatSync(filepath);
+    if (!stat.isFile() || stat.isSymbolicLink() || fs.realpathSync(filepath) !== filepath) {
+      throw new Error(`Updater ${kind} directory contains a non-physical file`);
+    }
+    fs.unlinkSync(filepath);
+  }
+  fs.rmdirSync(directory);
 }
 
 export function validateUpdaterEvidenceRecord(

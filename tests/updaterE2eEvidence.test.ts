@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   UPDATER_EVIDENCE_FILES,
   assertNoUpdaterE2eSigningEnvironment,
+  clearUpdaterE2eArtifactDirectory,
   configureDisposableUpdaterPublish,
   createUpdaterE2eChildEnvironment,
   scanUpdaterEvidencePrivacy,
@@ -53,7 +54,7 @@ function makeRecord(filename: UpdaterJsonEvidenceFile): Record<string, unknown> 
     'new-build-manifest.json': { candidateVersion: versions.nextVersion, setupSha256: 'a'.repeat(64), setupSize: 1, blockmapSha256: 'b'.repeat(64), latestVersion: versions.nextVersion, latestPath: `MindDiary-Setup-${versions.nextVersion}.exe`, latestFiles: [`MindDiary-Setup-${versions.nextVersion}.exe`], metadataSha512: `${'A'.repeat(86)}==` },
     'old-version-start.json': { applicationVersion: versions.baseVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: 5, isPackaged: true, sandbox: true, profileVerified: true },
     'updater-event-log.json': { sequence: ['checking', 'available', 'downloading', 'downloaded'], availableVersion: versions.nextVersion, releaseNotesMatched: true, progressBounded: true },
-    'update-server-log.json': { requests: [{ sequence: 1, mode: 'positive', method: 'GET', resource: 'latest.yml', status: 200, queryPresent: false, rangeRequested: false, authorizationPresent: false, cookiePresent: false, loopback: true }], installedProvider: 'generic-loopback', observedProviderRequestsAllLoopback: true, observedProviderRequestsNoCredentials: true },
+    'update-server-log.json': { requests: [{ sequence: 1, mode: 'positive', method: 'GET', resource: 'latest.yml', status: 200, queryPresent: true, cacheBustAccepted: true, rangeRequested: false, authorizationPresent: false, cookiePresent: false, loopback: true }], installedProvider: 'generic-loopback', observedProviderRequestsAllLoopback: true, observedProviderRequestsNoCredentials: true, observedOnlyUpdaterCacheBustQueries: true },
     'update-downloaded.json': { version: versions.nextVersion, metadataSha512: `${'A'.repeat(86)}==`, installerSha256: 'b'.repeat(64), checksumVerified: true, blockmapRequested: true, downloadMode: 'blockmap-requested' },
     'install-transition.json': { quitAndInstallAfterDownloaded: true, oldProcessExited: true, installerProcessObserved: true, installerExited: true, silentInstallRequested: true, installedVersion: versions.nextVersion, autoRestartObserved: true },
     'new-version-start.json': { applicationVersion: versions.nextVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: 5, isPackaged: true, sandbox: true },
@@ -211,6 +212,35 @@ describe('updater E2E evidence', () => {
     expect(written.files).toEqual(['diagnostic.json', 'hashes.txt']);
     expect(written.digest).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.readdirSync(diagnosticDirectory).sort()).toEqual(['diagnostic.json', 'hashes.txt']);
+  });
+
+  it('clears only fixed allowlisted evidence outputs between runs', () => {
+    writeUpdaterEvidence(evidenceDirectory, makeBundle(), 'a'.repeat(40), 'definitely-not-present');
+    writeUpdaterDiagnosticEvidence(diagnosticDirectory, {
+      schemaVersion: 1,
+      headSha: 'a'.repeat(40),
+      result: 'failed',
+      phase: 'runtime',
+      primaryFailure: 'runtime-failed',
+      primaryStep: 'no-update',
+      cleanupFailures: [],
+      resources: {
+        appStopped: true,
+        installerStopped: true,
+        serverStopped: true,
+        worktreesRemoved: true,
+        installRemoved: true,
+        profileRemoved: true,
+        cacheRemoved: true,
+        runtimeRemoved: true,
+        outputRemoved: true,
+        versionFilesUnchanged: true,
+      },
+    }, 'definitely-not-present');
+    clearUpdaterE2eArtifactDirectory(process.cwd(), 'evidence');
+    clearUpdaterE2eArtifactDirectory(process.cwd(), 'diagnostic');
+    expect(fs.existsSync(evidenceDirectory)).toBe(false);
+    expect(fs.existsSync(diagnosticDirectory)).toBe(false);
   });
 
   it('rejects extra fields, open nested records, and mixed heads', () => {

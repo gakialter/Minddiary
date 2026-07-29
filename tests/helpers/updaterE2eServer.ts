@@ -12,6 +12,7 @@ export type UpdaterServerRequest = {
   resource: string;
   status: number;
   queryPresent: boolean;
+  cacheBustAccepted: boolean;
   rangeRequested: boolean;
   authorizationPresent: boolean;
   cookiePresent: boolean;
@@ -188,6 +189,7 @@ export class LoopbackUpdaterServer {
     resource: string,
     status: number,
     queryPresent: boolean,
+    cacheBustAccepted: boolean,
   ): void {
     this.requestLog.push({
       sequence: ++this.requestSequence,
@@ -196,6 +198,7 @@ export class LoopbackUpdaterServer {
       resource,
       status,
       queryPresent,
+      cacheBustAccepted,
       rangeRequested: typeof request.headers.range === 'string',
       authorizationPresent: request.headers.authorization !== undefined,
       cookiePresent: request.headers.cookie !== undefined,
@@ -210,8 +213,9 @@ export class LoopbackUpdaterServer {
     resource: string,
     status: number,
     queryPresent: boolean,
+    cacheBustAccepted: boolean,
   ): void {
-    this.record(request, method, resource, status, queryPresent);
+    this.record(request, method, resource, status, queryPresent, cacheBustAccepted);
     response.writeHead(status, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     response.end();
   }
@@ -219,19 +223,23 @@ export class LoopbackUpdaterServer {
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {
     const method = request.method;
     if (method !== 'GET' && method !== 'HEAD') {
-      this.record(request, 'OTHER', 'invalid', 405, (request.url ?? '').includes('?'));
+      this.record(request, 'OTHER', 'invalid', 405, (request.url ?? '').includes('?'), false);
       response.writeHead(405, { Allow: 'GET, HEAD' });
       response.end();
       return;
     }
     const rawTarget = request.url ?? '';
-    const queryPresent = rawTarget.includes('?');
-    const rawPath = rawTarget.split('?', 1)[0] ?? '';
+    const queryIndex = rawTarget.indexOf('?');
+    const queryPresent = queryIndex >= 0;
+    const rawPath = queryPresent ? rawTarget.slice(0, queryIndex) : rawTarget;
+    const rawQuery = queryPresent ? rawTarget.slice(queryIndex + 1) : '';
+    const cacheBustAccepted = rawPath === '/latest.yml'
+      && /^noCache=[0-9a-v]{8,16}$/.test(rawQuery);
     let decodedPath = '';
     try {
       decodedPath = decodeURIComponent(rawPath);
     } catch {
-      this.reject(request, response, method, 'invalid', 400, queryPresent);
+      this.reject(request, response, method, 'invalid', 400, queryPresent, false);
       return;
     }
     const resource = decodedPath.startsWith('/') ? decodedPath.slice(1) : decodedPath;
@@ -240,12 +248,12 @@ export class LoopbackUpdaterServer {
       || request.headers.host !== expectedHost
       || request.headers.authorization !== undefined
       || request.headers.cookie !== undefined
-      || queryPresent
+      || (queryPresent && !cacheBustAccepted)
       || !resource
       || resource.includes('/')
       || resource.includes('\\')
       || resource.includes('..')) {
-      this.reject(request, response, method, 'non-allowlisted', 403, queryPresent);
+      this.reject(request, response, method, 'non-allowlisted', 403, queryPresent, cacheBustAccepted);
       return;
     }
 
@@ -257,7 +265,7 @@ export class LoopbackUpdaterServer {
           : this.currentMode === 'bad-checksum'
             ? this.metadata.badChecksumText
             : this.metadata.positiveText;
-      this.record(request, method, resource, 200, queryPresent);
+      this.record(request, method, resource, 200, queryPresent, cacheBustAccepted);
       sendText(response, method, 200, body);
       return;
     }
@@ -270,7 +278,7 @@ export class LoopbackUpdaterServer {
     ]);
     const filepath = fileByName.get(resource);
     if (!filepath) {
-      this.reject(request, response, method, 'non-allowlisted', 404, queryPresent);
+      this.reject(request, response, method, 'non-allowlisted', 404, queryPresent, cacheBustAccepted);
       return;
     }
 
@@ -279,7 +287,7 @@ export class LoopbackUpdaterServer {
     try {
       range = parseSingleRange(typeof request.headers.range === 'string' ? request.headers.range : undefined, size);
     } catch {
-      this.reject(request, response, method, resource, 416, queryPresent);
+      this.reject(request, response, method, resource, 416, queryPresent, cacheBustAccepted);
       return;
     }
     const status = range ? 206 : 200;
@@ -292,7 +300,7 @@ export class LoopbackUpdaterServer {
       'Cache-Control': 'no-store',
     };
     if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
-    this.record(request, method, resource, status, queryPresent);
+    this.record(request, method, resource, status, queryPresent, cacheBustAccepted);
     response.writeHead(status, headers);
     if (method === 'HEAD') {
       response.end();

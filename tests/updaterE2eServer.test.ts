@@ -88,6 +88,7 @@ describe('loopback updater server', () => {
       expect(latest.status).toBe(200);
       expect(await latest.text()).toContain('version: 1.17.1');
       expect(await requestStatus(port, 'HEAD')).toBe(200);
+      expect(await requestStatus(port, 'GET', {}, '/latest.yml?noCache=1jk0abcde')).toBe(200);
 
       server.setMode('positive');
       const range = await fetch(`http://127.0.0.1:${port}/${path.basename(artifacts.newSetupPath)}`, {
@@ -100,6 +101,8 @@ describe('loopback updater server', () => {
       expect(await requestStatus(port, 'GET', {}, '/directory')).toBe(404);
       expect(await requestStatus(port, 'GET', {}, '/')).toBe(403);
       expect(await requestStatus(port, 'GET', {}, '/latest.yml?channel=test')).toBe(403);
+      expect(await requestStatus(port, 'GET', {}, '/latest.yml?noCache=1jk0abcde&extra=value')).toBe(403);
+      expect(await requestStatus(port, 'GET', {}, '/latest.yml?noCache=invalid-z')).toBe(403);
       expect(await requestStatus(port, 'POST')).toBe(405);
       expect(await requestStatus(port, 'PUT')).toBe(405);
       expect(await requestStatus(port, 'GET', { Host: `localhost:${port}` })).toBe(403);
@@ -111,6 +114,8 @@ describe('loopback updater server', () => {
       expect(server.getRequests().some(request => request.authorizationPresent && request.status === 403)).toBe(true);
       expect(server.getRequests().some(request => request.cookiePresent && request.status === 403)).toBe(true);
       expect(server.getRequests().some(request => request.queryPresent && request.status === 403)).toBe(true);
+      expect(server.getRequests().some(request =>
+        request.queryPresent && request.cacheBustAccepted && request.status === 200)).toBe(true);
       expect(server.getRequests().filter(request => request.status === 403 || request.status === 404)
         .every(request => request.resource === 'non-allowlisted')).toBe(true);
     } finally {

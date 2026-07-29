@@ -8,6 +8,7 @@ import { load } from 'js-yaml';
 import {
   assertNoUpdaterE2eSigningEnvironment,
   assertDisposableUpdaterPath,
+  clearUpdaterE2eArtifactDirectory,
   configureDisposableUpdaterPublish,
   createUpdaterE2eChildEnvironment,
   validateLoopbackProviderUrl,
@@ -562,6 +563,8 @@ async function main(): Promise<void> {
   }
   process.chdir(projectRoot);
   fs.mkdirSync(testResultsRoot, { recursive: true });
+  clearUpdaterE2eArtifactDirectory(projectRoot, 'evidence');
+  clearUpdaterE2eArtifactDirectory(projectRoot, 'diagnostic');
   fs.rmSync(stagingBundlePath, { force: true });
   const headSha = captureGitHead();
   const versions = readUpdaterVersionPair(projectRoot);
@@ -835,6 +838,12 @@ async function main(): Promise<void> {
     fs.rmSync(stagingBundlePath, { force: true });
     process.stdout.write(`Updater evidence digest=${written.digest}\n`);
   } catch {
+    const evidenceCleanupFailures: string[] = [];
+    try {
+      clearUpdaterE2eArtifactDirectory(projectRoot, 'evidence');
+    } catch {
+      evidenceCleanupFailures.push('evidence-output');
+    }
     writeUpdaterDiagnosticEvidence(diagnosticDirectory, {
       schemaVersion: 1,
       headSha,
@@ -842,11 +851,11 @@ async function main(): Promise<void> {
       phase: 'evidence',
       primaryFailure: 'evidence-failed',
       primaryStep: 'evidence',
-      cleanupFailures: [],
+      cleanupFailures: evidenceCleanupFailures,
       resources,
     });
     fs.rmSync(stagingBundlePath, { force: true });
-    throw createUpdaterFailure('evidence-failed', 'evidence', []);
+    throw createUpdaterFailure('evidence-failed', 'evidence', evidenceCleanupFailures);
   }
 }
 

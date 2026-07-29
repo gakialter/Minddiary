@@ -651,7 +651,10 @@ async function waitForUpdaterStatus(
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   const status = await page.evaluate(() => window.api.updater.getStatus()) as RendererUpdaterStatus;
-  throw new Error(`Timed out waiting for updater status ${expected}; current=${status.status}`);
+  throw new Error(
+    `Timed out waiting for updater status ${expected}; current=${status.status}; `
+    + `code=${status.errorCode ?? 'none'}; message=${status.message ?? 'none'}`,
+  );
 }
 
 async function openSettingsAndCaptureEvents(page: Page): Promise<void> {
@@ -879,13 +882,13 @@ test('updates a real installed NSIS application through electron-updater and pre
     expect(seededRun.result.electronVersion).toMatch(/^\d+\.\d+\.\d+$/);
     expect(seededRun.result.nodeModuleAbi).toMatch(/^\d+$/);
 
+    writeRuntimeCheckpoint('no-update');
     session = await launchInstalledApp(installedExecutable, seededRun.profilePath, ambientRoot);
     await openSettingsAndCaptureEvents(session.page);
     await waitForUpdaterStatus(session.page, 'not-available', 30_000);
     const seededData = await readSeededDataFingerprint(session.page);
     expect(seededData.present).toBe(true);
 
-    writeRuntimeCheckpoint('no-update');
     let requestMarker = lastRequestSequence(server.getRequests());
     const noUpdateProcessMarker = Date.now();
     watcher.start();
@@ -1064,6 +1067,7 @@ test('updates a real installed NSIS application through electron-updater and pre
     expect(updaterRequests.length).toBeGreaterThan(0);
     expect(updaterRequests.every(request => request.loopback)).toBe(true);
     expect(updaterRequests.every(request => !request.authorizationPresent && !request.cookiePresent)).toBe(true);
+    expect(updaterRequests.every(request => !request.queryPresent || request.cacheBustAccepted)).toBe(true);
     expect(providerNegativeCases).toEqual([
       { case: 'non-allowlisted', status: 404 },
       { case: 'traversal', status: 403 },
@@ -1122,6 +1126,7 @@ test('updates a real installed NSIS application through electron-updater and pre
         installedProvider: 'generic-loopback',
         observedProviderRequestsAllLoopback: true,
         observedProviderRequestsNoCredentials: true,
+        observedOnlyUpdaterCacheBustQueries: true,
       }),
       'update-downloaded.json': evidenceRecord(manifest.headSha, {
         version: downloadedStatus.version,
