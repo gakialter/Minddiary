@@ -1,5 +1,11 @@
 import { chromium, expect, test, type Browser, type Page } from '@playwright/test';
-import { execFile, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+} from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { request as httpRequest } from 'node:http';
@@ -13,7 +19,7 @@ import {
   runSmokeDiagnosticProcess,
   type SmokeDiagnosticProcessResult,
 } from '../helpers/smokeDiagnosticRunner';
-import { snapshotDefaultApplicationData } from '../helpers/portableSmokeEvidence';
+import { snapshotApplicationDataDirectories } from '../helpers/portableSmokeEvidence';
 import {
   runSetupProcess,
   waitForCondition,
@@ -69,6 +75,7 @@ type RendererUpdaterStatus = {
 };
 
 type SeenProcess = { pid: number; name: string; firstSeenAt: number };
+type ObservedInstallerProcess = { pid: number; executablePath: string; observedAt: number };
 type LiveProcess = { pid: number; parentPid: number; name: string; executablePath: string };
 type ProcessOwnership = { roots: string[]; files: string[] };
 type RuntimePhase = 'install-old' | 'runtime' | 'cleanup';
@@ -377,6 +384,107 @@ function createProcessWatcher(names: ReadonlySet<string>): {
   return { seen, sample, start, stop };
 }
 
+async function startInstallerProcessWatcher(installerName: string): Promise<{
+  processes: ObservedInstallerProcess[];
+  stop: () => Promise<void>;
+}> {
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$target = [System.IO.Path]::GetFileNameWithoutExtension($env:MINDDIARY_UPDATER_INSTALLER_NAME)
+$seen = @{}
+$deadline = [DateTime]::UtcNow.AddSeconds(180)
+[Console]::Out.WriteLine('READY')
+do {
+  foreach ($item in [System.Diagnostics.Process]::GetProcessesByName($target)) {
+    try {
+      if ($seen.ContainsKey($item.Id)) { continue }
+      $executablePath = [string]$item.MainModule.FileName
+      if ([string]::IsNullOrWhiteSpace($executablePath)) { continue }
+      $encodedPath = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($executablePath))
+      [Console]::Out.WriteLine(('{0}{2}{1}' -f [int]$item.Id, $encodedPath, [char]9))
+      $seen[$item.Id] = $true
+    }
+    catch {
+    }
+    finally {
+      $item.Dispose()
+    }
+  }
+  Start-Sleep -Milliseconds 10
+} while ([DateTime]::UtcNow -lt $deadline)
+`;
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    env: { ...process.env, MINDDIARY_UPDATER_INSTALLER_NAME: installerName },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const processes: ObservedInstallerProcess[] = [];
+  let stdout = '';
+  let stderr = '';
+  let ready = false;
+  let startFailure: Error | undefined;
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderr = `${stderr}${chunk.toString('utf8')}`.slice(-4_000);
+  });
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdout += chunk.toString('utf8');
+    const lines = stdout.split(/\r?\n/);
+    stdout = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line === 'READY') {
+        ready = true;
+        continue;
+      }
+      const match = /^(\d+)\t([A-Za-z0-9+/]+={0,2})$/.exec(line);
+      if (!match?.[1] || !match[2]) continue;
+      const executablePath = Buffer.from(match[2], 'base64').toString('utf8');
+      if (!path.isAbsolute(executablePath)) continue;
+      processes.push({
+        pid: Number(match[1]),
+        executablePath,
+        observedAt: Date.now(),
+      });
+    }
+  });
+  child.once('error', () => {
+    startFailure = new Error('Windows installer process watcher failed to launch');
+  });
+  child.once('exit', code => {
+    if (!ready) {
+      startFailure = new Error(
+        `Windows installer process watcher exited before ready; code=${String(code)}; `
+        + `stderrPresent=${String(stderr.length > 0)}`,
+      );
+    }
+  });
+  await waitForConditionResult(
+    () => {
+      if (startFailure) throw startFailure;
+      return ready ? true : undefined;
+    },
+    'Windows installer process watcher',
+    30_000,
+  );
+  let stopped = false;
+  return {
+    processes,
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      if (child.exitCode === null && child.pid) {
+        spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 30_000,
+        });
+      }
+      if (!await waitForExit(child, 10_000)) {
+        throw new Error('Windows installer process watcher did not stop');
+      }
+    },
+  };
+}
+
 function execFileText(
   executable: string,
   args: string[],
@@ -461,22 +569,24 @@ async function terminateOwnedProcesses(
 }
 
 async function waitForOwnedInstaller(
-  watcher: ReturnType<typeof createProcessWatcher>,
+  installerWatcher: Awaited<ReturnType<typeof startInstallerProcessWatcher>>,
   ownership: ProcessOwnership,
-  installerName: string,
   startedAt: number,
 ): Promise<number[]> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    await watcher.sample();
-    const candidates = new Set([...watcher.seen.values()]
-      .filter(processInfo => processInfo.firstSeenAt >= startedAt && processInfo.name.toLowerCase() === installerName)
-      .map(processInfo => processInfo.pid));
-    const owned = (await ownedLiveProcesses(ownership)).filter(processInfo => candidates.has(processInfo.pid));
-    if (owned.length > 0) return owned.map(processInfo => processInfo.pid);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const installerPids = installerWatcher.processes
+      .filter(processInfo => processInfo.observedAt >= startedAt
+        && isOwnedProcess({
+          ...processInfo,
+          parentPid: 0,
+          name: path.basename(processInfo.executablePath),
+        }, ownership))
+      .map(processInfo => processInfo.pid);
+    if (installerPids.length > 0) return installerPids;
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw new Error('Owned NSIS updater process was not observed');
+  throw new Error('Owned NSIS updater process was not observed by bounded native polling');
 }
 
 async function waitForOwnedInstallerExit(
@@ -531,7 +641,7 @@ async function settleOwnedRestart(
   throw new Error('Owned updated application restart did not reach a stable exit state');
 }
 
-function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   if (child.exitCode !== null) return Promise.resolve(true);
   return new Promise(resolve => {
     const timer = setTimeout(() => resolve(false), timeoutMs);
@@ -778,6 +888,15 @@ test('updates a real installed NSIS application through electron-updater and pre
   }
   fs.mkdirSync(path.join(ambientRoot, 'roaming'), { recursive: true });
   fs.mkdirSync(path.join(ambientRoot, 'local'), { recursive: true });
+  const originalAppData = process.env.APPDATA;
+  const originalLocalAppData = process.env.LOCALAPPDATA;
+  if (!originalAppData || !originalLocalAppData) {
+    throw new Error('Windows application data roots are unavailable');
+  }
+  const hostApplicationDataLocations = [
+    { label: 'roaming-user-data' as const, root: path.join(originalAppData, 'minddiary') },
+    { label: 'local-user-data' as const, root: path.join(originalLocalAppData, 'minddiary') },
+  ];
   const installedExecutable = path.join(installPath, 'MindDiary.exe');
   const installedUninstaller = path.join(installPath, 'Uninstall MindDiary.exe');
   const ownership: ProcessOwnership = {
@@ -792,7 +911,7 @@ test('updates a real installed NSIS application through electron-updater and pre
   ]);
   expect(listProcesses(trackedNames)).toEqual([]);
   const watcher = createProcessWatcher(trackedNames);
-  const beforeDefaultApplicationData = snapshotDefaultApplicationData();
+  const beforeDefaultApplicationData = snapshotApplicationDataDirectories(hostApplicationDataLocations);
   const server = new LoopbackUpdaterServer({
     oldSetupPath: manifest.old.setupPath,
     oldBlockmapPath: manifest.old.blockmapPath,
@@ -806,6 +925,7 @@ test('updates a real installed NSIS application through electron-updater and pre
   let reopenedRun: SmokeDiagnosticProcessResult | undefined;
   let session: AppSession | undefined;
   let finalSession: AppSession | undefined;
+  let installerProcessWatcher: Awaited<ReturnType<typeof startInstallerProcessWatcher>> | undefined;
   let serverClosed = false;
   let installRemoved = false;
   let profileRemoved = false;
@@ -815,6 +935,8 @@ test('updates a real installed NSIS application through electron-updater and pre
   let appStopped = false;
   let installerStopped = false;
   let defaultAppDataUnchanged = false;
+  let defaultRoamingDataUnchanged = false;
+  let defaultLocalDataUnchanged = false;
   let evidenceBundle: UpdaterEvidenceBundle | undefined;
   let installedVersionAfterUpdate = '';
   let primaryError: unknown;
@@ -822,6 +944,8 @@ test('updates a real installed NSIS application through electron-updater and pre
   let providerNegativeCases: ProviderNegativeCase[] = [];
 
   try {
+    process.env.APPDATA = path.join(ambientRoot, 'roaming');
+    process.env.LOCALAPPDATA = path.join(ambientRoot, 'local');
     expect(await server.start(manifest.port)).toBe(manifest.port);
     writeRuntimePhase('install-old');
     writeRuntimeCheckpoint('provider-negative');
@@ -988,6 +1112,9 @@ test('updates a real installed NSIS application through electron-updater and pre
 
     const installStartedAt = Date.now();
     const oldPid = session.child.pid;
+    if (!oldPid) throw new Error('Installed application PID is unavailable before update');
+    const installerName = path.basename(manifest.next.setupPath).toLowerCase();
+    installerProcessWatcher = await startInstallerProcessWatcher(installerName);
     watcher.start();
     writeRuntimeCheckpoint('quit-install');
     await session.page.getByTestId('update-install-btn').click();
@@ -996,15 +1123,13 @@ test('updates a real installed NSIS application through electron-updater and pre
     session = undefined;
     writeRuntimeCheckpoint('installer-lifecycle');
     const ownedInstallerPids = await waitForOwnedInstaller(
-      watcher,
+      installerProcessWatcher,
       ownership,
-      path.basename(manifest.next.setupPath).toLowerCase(),
       installStartedAt,
     );
     await waitForProductVersion(installedExecutable, manifest.versions.nextVersion, 180_000);
     installedVersionAfterUpdate = readProductVersion(installedExecutable);
     const installerProcessObserved = ownedInstallerPids.length > 0;
-    const installerName = path.basename(manifest.next.setupPath).toLowerCase();
     await waitForOwnedInstallerExit(installerName, ownership);
     const installerExited = !(await ownedLiveProcesses(ownership))
       .some(processInfo => processInfo.name.toLowerCase() === installerName);
@@ -1018,6 +1143,8 @@ test('updates a real installed NSIS application through electron-updater and pre
     );
     expect(autoRestartObserved).toBe(true);
     await watcher.stop();
+    await installerProcessWatcher.stop();
+    installerProcessWatcher = undefined;
 
     writeRuntimeCheckpoint('updated-start');
     reopenedRun = await rerunSmokeDiagnosticProcess({
@@ -1250,6 +1377,13 @@ test('updates a real installed NSIS application through electron-updater and pre
         },
       },
       {
+        label: 'installer-watcher',
+        run: async () => {
+          await installerProcessWatcher?.stop();
+          installerProcessWatcher = undefined;
+        },
+      },
+      {
         label: 'owned-process-final',
         run: async () => {
           await terminateOwnedProcesses(ownership);
@@ -1263,6 +1397,13 @@ test('updates a real installed NSIS application through electron-updater and pre
           installerStopped = !live.some(processInfo => processInfo.name.toLowerCase() !== 'minddiary.exe');
           processesExited = live.length === 0;
           if (!processesExited) throw new Error('Owned updater processes remain after bounded cleanup');
+        },
+      },
+      {
+        label: 'runtime-environment',
+        run: () => {
+          process.env.APPDATA = originalAppData;
+          process.env.LOCALAPPDATA = originalLocalAppData;
         },
       },
       {
@@ -1304,14 +1445,25 @@ test('updates a real installed NSIS application through electron-updater and pre
         },
       },
       {
-        label: 'default-appdata',
+        label: 'default-roaming-data',
         run: () => {
-          defaultAppDataUnchanged = JSON.stringify(snapshotDefaultApplicationData())
-            === JSON.stringify(beforeDefaultApplicationData);
-          if (!defaultAppDataUnchanged) throw new Error('Default application data changed');
+          const after = snapshotApplicationDataDirectories(hostApplicationDataLocations);
+          defaultRoamingDataUnchanged = JSON.stringify(after.find(item => item.label === 'roaming-user-data'))
+            === JSON.stringify(beforeDefaultApplicationData.find(item => item.label === 'roaming-user-data'));
+          if (!defaultRoamingDataUnchanged) throw new Error('Default roaming application data changed');
+        },
+      },
+      {
+        label: 'default-local-data',
+        run: () => {
+          const after = snapshotApplicationDataDirectories(hostApplicationDataLocations);
+          defaultLocalDataUnchanged = JSON.stringify(after.find(item => item.label === 'local-user-data'))
+            === JSON.stringify(beforeDefaultApplicationData.find(item => item.label === 'local-user-data'));
+          if (!defaultLocalDataUnchanged) throw new Error('Default local application data changed');
         },
       },
     ]);
+    defaultAppDataUnchanged = defaultRoamingDataUnchanged && defaultLocalDataUnchanged;
     try {
       writeRuntimeCleanup({
         appStopped,
