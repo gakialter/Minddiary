@@ -320,7 +320,7 @@ function AppContent() {
   }
 
   return (
-    <Layout isSidebarCollapsed={isSidebarCollapsed} selectedDate={selectedDate}>
+    <Layout isSidebarCollapsed={isSidebarCollapsed}>
       <Sidebar
         activeView={activeView}
         onViewChange={navigateToView}

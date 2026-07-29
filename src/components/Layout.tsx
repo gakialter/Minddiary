@@ -4,10 +4,9 @@ import Logo from './Logo'
 interface LayoutProps {
   children: React.ReactNode
   isSidebarCollapsed: boolean
-  selectedDate: string
 }
 
-function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
+function Layout({ children, isSidebarCollapsed }: LayoutProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const hasCustomTitlebar = window.api.window.titlebarMode === 'custom'
 
@@ -59,9 +58,7 @@ function Layout({ children, isSidebarCollapsed, selectedDate }: LayoutProps) {
             </div>
             <span className="text-sm font-semibold text-secondary">MindDiary</span>
           </div>
-          <div className="text-sm text-muted">
-            考研日记 · {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}
-          </div>
+          <div className="titlebar-drag-region flex-1 self-stretch" data-testid="titlebar-drag-region" aria-hidden="true" />
           <div className="flex items-center" style={{ height: '100%' }}>
             <button
               style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}

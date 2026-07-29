@@ -24,6 +24,28 @@ test.afterAll(async () => {
 });
 
 test.describe('Window Controls (IPC boundary)', () => {
+    test('custom titlebar keeps a blank draggable center and no-drag controls', async () => {
+        const mode = await page.evaluate(() => (window as any).api?.window?.titlebarMode);
+        test.skip(mode !== 'custom', 'Native titlebar platforms do not render the custom titlebar');
+
+        const titlebar = page.locator('.titlebar-custom');
+        await expect(titlebar).toBeVisible();
+        await expect(titlebar.getByText('MindDiary', { exact: true })).toHaveCount(1);
+        await expect(titlebar.getByText(/考研日记/)).toHaveCount(0);
+        await expect(titlebar.getByText(/\d{1,2}月\d{1,2}日/)).toHaveCount(0);
+
+        const dragRegion = titlebar.getByTestId('titlebar-drag-region');
+        await expect(dragRegion).toBeVisible();
+        expect(await titlebar.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
+        expect(await dragRegion.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
+
+        for (const accessibleName of ['最小化窗口', '最大化窗口', '关闭窗口']) {
+            const button = titlebar.getByRole('button', { name: accessibleName });
+            await expect(button).toBeVisible();
+            expect(await button.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
+        }
+    });
+
     test('titlebarMode is "custom" on Windows', async () => {
         const mode = await page.evaluate(() => (window as any).api?.window?.titlebarMode);
         expect(['custom', 'native']).toContain(mode);
