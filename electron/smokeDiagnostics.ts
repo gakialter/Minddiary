@@ -45,11 +45,52 @@ export type SmokeEvidence = {
     passed: boolean;
 };
 
+export const INSTALL_PROFILE_BUSINESS_TABLES = [
+    'entries',
+    'tags',
+    'entry_tags',
+    'attachments',
+    'subjects',
+    'subject_chapters',
+    'pomodoro_sessions',
+    'mistakes',
+    'study_tasks',
+    'ai_chats',
+    'diary_templates',
+] as const;
+
+export type InstallProfileBusinessSnapshot = Record<typeof INSTALL_PROFILE_BUSINESS_TABLES[number], number>;
+
+function isInstallProfileBaseline(snapshot: InstallProfileBusinessSnapshot): boolean {
+    return INSTALL_PROFILE_BUSINESS_TABLES.every(table => (
+        snapshot[table] === (table === 'diary_templates' ? 3 : 0)
+    ));
+}
+
+function isInstallProfileSeeded(snapshot: InstallProfileBusinessSnapshot): boolean {
+    return INSTALL_PROFILE_BUSINESS_TABLES.every(table => {
+        if (table === 'entries' || table === 'attachments') return snapshot[table] === 1;
+        if (table === 'diary_templates') return snapshot[table] === 3;
+        return snapshot[table] === 0;
+    });
+}
+
+export function validateInstallProfileBusinessSnapshots(
+    phase: 'seeded' | 'reopened',
+    before: InstallProfileBusinessSnapshot,
+    after: InstallProfileBusinessSnapshot,
+): boolean {
+    return phase === 'seeded'
+        ? isInstallProfileBaseline(before) && isInstallProfileSeeded(after)
+        : isInstallProfileSeeded(before) && isInstallProfileBaseline(after);
+}
+
 export type SmokeDiagnosticResult = {
     schemaVersion: 1;
     scenario: SmokeDiagnosticScenario;
     applicationVersion: string;
     electronVersion: string;
+    nodeModuleAbi: string;
     platform: NodeJS.Platform;
     arch: string;
     isPackaged: boolean;
@@ -60,6 +101,7 @@ export type SmokeDiagnosticResult = {
         loaded: boolean;
         query: number;
         sqliteVersion: string;
+        schemaVersion: number;
     };
     result: 'passed' | 'failed';
     evidence: SmokeEvidence[];
@@ -69,11 +111,12 @@ export type SmokeDiagnosticResult = {
 export type SmokeDiagnosticDependencies = {
     applicationVersion: string;
     electronVersion: string;
+    nodeModuleAbi: string;
     platform: NodeJS.Platform;
     arch: string;
     isPackaged: boolean;
     actualUserDataPath: string;
-    queryNativeSqlite: () => { query: number; sqliteVersion: string };
+    queryNativeSqlite: () => { query: number; sqliteVersion: string; schemaVersion: number };
     getRendererSecurityState: () => Promise<{
         sandbox: boolean;
         contextIsolation: boolean;
@@ -99,6 +142,7 @@ export type SmokeDiagnosticDependencies = {
         readBack: boolean;
         localProtocol: boolean;
         cleaned: boolean;
+        businessDataExact: boolean;
     }>;
     runDateRollover: () => Promise<DateRolloverDiagnosticDetails>;
 };
@@ -360,6 +404,7 @@ export async function runSmokeDiagnostic(
         { check: 'preload-api', passed: renderer.preloadAvailable },
         { check: 'production-renderer-document', passed: renderer.productionDocument },
         { check: 'native-sqlite-query', passed: nativeSqlite.query === 1 },
+        { check: 'sqlite-schema-current', passed: nativeSqlite.schemaVersion === 5 },
     ];
 
     if (request.scenario === 'sqlite-read-write') {
@@ -400,6 +445,7 @@ export async function runSmokeDiagnostic(
                 : [{ check: 'profile-data-retained', passed: profileRoundTrip.retained }]),
             { check: 'profile-data-read-back', passed: profileRoundTrip.readBack },
             { check: 'local-protocol-load', passed: profileRoundTrip.localProtocol },
+            { check: 'install-profile-business-data-exact', passed: profileRoundTrip.businessDataExact },
             ...(profileRoundTrip.phase === 'reopened'
                 ? [{ check: 'profile-data-cleanup', passed: profileRoundTrip.cleaned }]
                 : []),
@@ -426,6 +472,7 @@ export async function runSmokeDiagnostic(
         scenario: request.scenario,
         applicationVersion: dependencies.applicationVersion,
         electronVersion: dependencies.electronVersion,
+        nodeModuleAbi: dependencies.nodeModuleAbi,
         platform: dependencies.platform,
         arch: dependencies.arch,
         isPackaged: dependencies.isPackaged,
@@ -436,6 +483,7 @@ export async function runSmokeDiagnostic(
             loaded: nativeSqlite.query === 1,
             query: nativeSqlite.query,
             sqliteVersion: nativeSqlite.sqliteVersion,
+            schemaVersion: nativeSqlite.schemaVersion,
         },
         result: passed ? 'passed' : 'failed',
         evidence,
@@ -445,20 +493,21 @@ export async function runSmokeDiagnostic(
 
 export function createFailedSmokeDiagnosticResult(
     request: SmokeDiagnosticRequest,
-    dependencies: Pick<SmokeDiagnosticDependencies, 'applicationVersion' | 'electronVersion' | 'platform' | 'arch' | 'isPackaged'>,
+    dependencies: Pick<SmokeDiagnosticDependencies, 'applicationVersion' | 'electronVersion' | 'nodeModuleAbi' | 'platform' | 'arch' | 'isPackaged'>,
 ): SmokeDiagnosticResult {
     return {
         schemaVersion: 1,
         scenario: request.scenario,
         applicationVersion: dependencies.applicationVersion,
         electronVersion: dependencies.electronVersion,
+        nodeModuleAbi: dependencies.nodeModuleAbi,
         platform: dependencies.platform,
         arch: dependencies.arch,
         isPackaged: dependencies.isPackaged,
         sandbox: false,
         contextIsolation: false,
         preloadAvailable: false,
-        nativeSqlite: { loaded: false, query: 0, sqliteVersion: '' },
+        nativeSqlite: { loaded: false, query: 0, sqliteVersion: '', schemaVersion: 0 },
         result: 'failed',
         evidence: [{ check: 'diagnostic-run', passed: false }],
     };

@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -47,6 +49,7 @@ jobs:
         run: npm run test:e2e
 
   build-verification:
+    timeout-minutes: 120
     strategy:
       matrix:
         os: [windows-latest, macos-14]
@@ -56,6 +59,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -140,6 +145,28 @@ jobs:
       - name: Run Windows packaged ASAR integrity negative tests
         if: matrix.os == 'windows-latest'
         run: npm run test:asar-integrity:packaged
+
+      - name: Run Windows NSIS installed updater end-to-end
+        if: matrix.os == 'windows-latest'
+        run: npm run test:e2e:updater
+
+      - name: Upload Windows NSIS updater evidence
+        if: always() && matrix.os == 'windows-latest' && hashFiles('test-results/windows-updater-e2e-evidence/hashes.txt') != '' && hashFiles('test-results/windows-updater-e2e-diagnostic/diagnostic.json') == ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-updater-e2e-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/windows-updater-e2e-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows NSIS updater sanitized diagnostics
+        if: always() && matrix.os == 'windows-latest' && hashFiles('test-results/windows-updater-e2e-diagnostic/hashes.txt') != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-updater-e2e-diagnostic-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/windows-updater-e2e-diagnostic/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Verify macOS ad-hoc code integrity
         if: matrix.os == 'macos-14'

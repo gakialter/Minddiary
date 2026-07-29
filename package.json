@@ -25,6 +25,7 @@
         "test:e2e:packaged-security": "playwright test --config playwright.packaged.config.ts",
         "test:e2e:portable-smoke": "playwright test --config playwright.portable.config.ts",
         "test:e2e:setup-smoke": "playwright test --config playwright.setup.config.ts",
+        "test:e2e:updater": "tsx scripts/run-windows-updater-e2e.ts",
         "test:asar-integrity:packaged": "node scripts/test-packaged-asar-integrity.mjs --release-dir release",
         "build": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
         "build:mac": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --mac && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",

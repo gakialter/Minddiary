@@ -50,11 +50,25 @@ test.describe('Window Controls (IPC boundary)', () => {
         expect(isMinimized).toBe(true);
 
         // Restore for subsequent tests
-        await app.evaluate(({ BrowserWindow }) => {
+        await app.evaluate(async ({ BrowserWindow }) => {
             const win = BrowserWindow.getAllWindows()[0];
-            win?.restore();
+            if (!win) throw new Error('Main window is unavailable');
+            if (!win.isMinimized()) return;
+            await new Promise<void>((resolve, reject) => {
+                const finish = () => {
+                    clearTimeout(timer);
+                    win.removeListener('restore', finish);
+                    resolve();
+                };
+                const timer = setTimeout(() => {
+                    win.removeListener('restore', finish);
+                    reject(new Error('Main window did not restore within 2 seconds'));
+                }, 2_000);
+                win.once('restore', finish);
+                win.restore();
+                if (!win.isMinimized()) finish();
+            });
         });
-        await page.waitForTimeout(300);
     });
 
     test('maximize toggles correctly', async () => {

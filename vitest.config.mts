@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
 
@@ -13,6 +13,13 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     globals: true,
-    exclude: ['tests/e2e/**', 'tests/packaged/**', 'tests/portable/**', 'tests/setup-smoke/**', 'node_modules/**'],
+    exclude: [
+      ...configDefaults.exclude,
+      'tests/e2e/**',
+      'tests/packaged/**',
+      'tests/portable/**',
+      'tests/setup-smoke/**',
+      'tests/updater-e2e/**',
+    ],
   },
 })

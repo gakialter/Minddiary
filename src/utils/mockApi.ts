@@ -25,7 +25,7 @@ const mockApi: ElectronAPI = {
     },
     updater: {
         check: async () => ({ success: false, message: 'Mock environment' }),
-        install: async () => {},
+        install: async () => ({ success: false, message: 'Mock environment' }),
         getStatus: async () => ({ status: 'idle' } as any),
         onStatusChange: () => () => {},
     },

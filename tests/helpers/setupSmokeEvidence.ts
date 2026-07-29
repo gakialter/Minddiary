@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -146,7 +146,7 @@ export function createDisposableInstallPath(): string {
   return installPath;
 }
 
-function killProcessTree(child: ChildProcessWithoutNullStreams): void {
+function killProcessTree(child: ChildProcess): void {
   if (!child.pid || child.exitCode !== null) return;
   spawnSync('taskkill.exe', ['/pid', String(child.pid), '/T', '/F'], {
     stdio: 'ignore',
@@ -158,31 +158,33 @@ export async function runSetupProcess(
   executablePath: string,
   args: string[],
   label: string,
-  timeoutMs = 120_000,
+  timeoutMs = 180_000,
 ): Promise<SetupProcessResult> {
   const child = spawn(executablePath, args, {
     env: { ...process.env },
-    stdio: 'pipe',
+    stdio: 'ignore',
     windowsHide: true,
   });
-  let outputText = '';
-  const capture = (chunk: Buffer) => {
-    outputText = `${outputText}${chunk.toString('utf8')}`.slice(-32_000);
-  };
-  child.stdout.on('data', capture);
-  child.stderr.on('data', capture);
+  let exitObserved = false;
+  let closeObserved = false;
+  child.once('exit', () => { exitObserved = true; });
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      const exitCode = child.exitCode;
       killProcessTree(child);
-      reject(new Error(`${label} timed out`));
+      reject(new Error(
+        `${label} timed out `
+        + `(exitObserved=${exitObserved}; closeObserved=${closeObserved}; exitCode=${exitCode ?? 'null'})`,
+      ));
     }, timeoutMs);
     child.once('error', error => {
       clearTimeout(timer);
       reject(error);
     });
     child.once('close', exitCode => {
+      closeObserved = true;
       clearTimeout(timer);
-      resolve({ exitCode, outputText });
+      resolve({ exitCode, outputText: '' });
     });
   });
 }

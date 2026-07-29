@@ -175,6 +175,14 @@ These are manual release gates, not claims made by CI. Do not publish if an expe
 
 没有完成的项目必须标记为 blocked，不得描述为 passed。
 
+### Windows NSIS updater E2E
+
+The Windows CI updater gate derives the old candidate from the committed package version and the new candidate from its next semantic patch version. Both disposable worktrees use the exact workflow head; only the new worktree changes package metadata. Each worktree also gets an uncommitted test-only NSIS include that redirects the `ExecShellAsUser` auto-restart to a disposable profile; the committed production NSIS configuration remains unchanged. The gate installs the old NSIS candidate to a disposable path, serves generated updater metadata and files from an IPv4-loopback generic provider, and exercises no-update, invalid-metadata, invalid-checksum, and full check/download/`quitAndInstall`/install/updated-launch paths. The provider accepts only the generated `latest.yml?noCache=<base32 timestamp>` query required by `electron-updater`; arbitrary queries, credentials, cookies, unexpected hosts and non-allowlisted paths remain rejected. It must verify the updated version, Electron ABI, SQLite schema, retained fixed fake data and attachment, bounded request/event evidence, and complete process/profile/install/cache/server/worktree cleanup.
+
+Successful evidence is uploaded as `windows-updater-e2e-<HEAD_SHA>`. Failures upload a separate `windows-updater-e2e-diagnostic-<HEAD_SHA>-<RUN_ID>-<RUN_ATTEMPT>` artifact. Both artifacts are fixed-schema, exact-head-bound, hashed, and privacy-scanned; a diagnostic artifact is never merge evidence.
+
+This gate is candidate-only. It must not change the committed package version or lockfile, call or modify the production GitHub Release, disable Windows signature or SHA-512 validation, treat Portable as an updater target, or claim Authenticode, SmartScreen, the published release channel, published-asset updateability, or macOS updater parity.
+
 ## Final Published Release Verification
 
 - Verify the tag and Release target the intended commit.

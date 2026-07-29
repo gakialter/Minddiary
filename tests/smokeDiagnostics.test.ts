@@ -5,12 +5,14 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   IMPLEMENTED_SMOKE_SCENARIOS,
+  INSTALL_PROFILE_BUSINESS_TABLES,
   SMOKE_PROFILE_MARKER,
   SMOKE_PROFILE_PREFIX,
   SMOKE_RESULT_PREFIX,
   parseSmokeDiagnosticRequest,
   prepareSmokeDiagnosticDatabase,
   runSmokeDiagnostic,
+  validateInstallProfileBusinessSnapshots,
   validateSmokeRuntimeProfile,
   writeSmokeDiagnosticResult,
   type SmokeDiagnosticDependencies,
@@ -53,11 +55,12 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
   return {
     applicationVersion: '1.16.0',
     electronVersion: '42.6.1',
+    nodeModuleAbi: '146',
     platform: process.platform,
     arch: process.arch,
     isPackaged: true,
     actualUserDataPath: request.profilePath,
-    queryNativeSqlite: () => ({ query: 1, sqliteVersion: '3.53.2' }),
+    queryNativeSqlite: () => ({ query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 }),
     getRendererSecurityState: async () => ({
       sandbox: true,
       contextIsolation: true,
@@ -79,6 +82,7 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
       readBack: true,
       localProtocol: true,
       cleaned: false,
+      businessDataExact: true,
     }),
     runDateRollover: async () => makeDateRolloverDetails(),
   };
@@ -126,6 +130,19 @@ function makeDateRolloverDetails(): DateRolloverDiagnosticDetails {
 }
 
 describe('packaged smoke diagnostics', () => {
+  it('accepts only the default-template baseline and fixed install probe delta', () => {
+    const baseline = Object.fromEntries(INSTALL_PROFILE_BUSINESS_TABLES.map(table => [
+      table,
+      table === 'diary_templates' ? 3 : 0,
+    ])) as Record<typeof INSTALL_PROFILE_BUSINESS_TABLES[number], number>;
+    const seeded = { ...baseline, entries: 1, attachments: 1 };
+
+    expect(validateInstallProfileBusinessSnapshots('seeded', baseline, seeded)).toBe(true);
+    expect(validateInstallProfileBusinessSnapshots('reopened', seeded, baseline)).toBe(true);
+    expect(validateInstallProfileBusinessSnapshots('seeded', { ...baseline, study_tasks: 1 }, seeded)).toBe(false);
+    expect(validateInstallProfileBusinessSnapshots('reopened', seeded, { ...baseline, entries: 1 })).toBe(false);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -314,7 +331,7 @@ describe('packaged smoke diagnostics', () => {
     writeSmokeDiagnosticResult(request, result);
 
     expect(result.result).toBe('passed');
-    expect(result.nativeSqlite).toEqual({ loaded: true, query: 1, sqliteVersion: '3.53.2' });
+    expect(result.nativeSqlite).toEqual({ loaded: true, query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 });
     const serialized = fs.readFileSync(request.outputPath, 'utf8');
     expect(serialized).not.toContain(request.profilePath);
     expect(serialized).not.toContain(request.outputPath);
@@ -398,6 +415,7 @@ describe('packaged smoke diagnostics', () => {
       { check: 'profile-data-create', passed: true },
       { check: 'profile-data-read-back', passed: true },
       { check: 'local-protocol-load', passed: true },
+      { check: 'install-profile-business-data-exact', passed: true },
       { check: 'install-profile-phase-consistent', passed: true },
     ]));
     expect(seeded.evidence.some(item => item.check === 'profile-data-cleanup')).toBe(false);
@@ -409,6 +427,7 @@ describe('packaged smoke diagnostics', () => {
       readBack: true,
       localProtocol: true,
       cleaned: true,
+      businessDataExact: true,
     });
     const reopened = await runSmokeDiagnostic(request, dependencies);
     expect(reopened.result).toBe('passed');
@@ -416,6 +435,7 @@ describe('packaged smoke diagnostics', () => {
       { check: 'installed-profile-reopened', passed: true },
       { check: 'profile-data-retained', passed: true },
       { check: 'profile-data-cleanup', passed: true },
+      { check: 'install-profile-business-data-exact', passed: true },
       { check: 'install-profile-phase-consistent', passed: true },
     ]));
     expect(reopened.evidence.some(item => item.check === 'profile-data-create')).toBe(false);
