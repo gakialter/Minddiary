@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TodayActionSuggestionDialog from '../src/components/TodayActionSuggestionDialog'
 import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject } from '../src/types'
+import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
 
 const createDeferred = <T,>() => {
   let resolve!: (value: T) => void
@@ -291,15 +292,18 @@ describe('TodayActionSuggestionDialog', () => {
 
   it('clamps available time to the supported daily capacity range', async () => {
     renderDialog()
+    await screen.findByTestId('planning-context-available_minutes')
     const available = screen.getByTestId('ai-plan-available-minutes')
 
     fireEvent.change(available, { target: { value: '0' } })
     expect(available).toHaveValue(5)
     fireEvent.change(available, { target: { value: '1000' } })
     expect(available).toHaveValue(720)
+    expect(await screen.findByTestId('planning-context-available_minutes')).toHaveTextContent('720 分钟')
   })
 
   it('requires a second explicit confirmation when the planning context becomes stale', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     const changedTask = makeTask({
       id: 100,
       title: '新出现的任务',
@@ -322,12 +326,23 @@ describe('TodayActionSuggestionDialog', () => {
 
     expect(await screen.findByTestId('ai-plan-stale-context')).toHaveTextContent('请查看结果后再次确认创建')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(createActionSpy).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(createActionSpy).toHaveBeenCalledTimes(1)
+    const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    expect(snapshot?.generation.operationKind).toBe('today_action')
+    expect(snapshot?.generation.versions.promptVersion).toBe('today-action.prompt.v1')
+    expect(snapshot?.generation.generationContextSignature)
+      .not.toBe(snapshot?.confirmationContextSignature)
+    expect(snapshot?.generation.generationContextSignature).not.toContain('新出现的任务')
+    expect(snapshot?.confirmationContextSignature).toContain('新出现的任务')
+    createActionSpy.mockRestore()
   })
 
   it('preserves partial success, reports it, and retries only failed candidates', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     const createdA = makeTask({ id: 201, title: '任务 A', type: 'focus', subject_id: null, related_mistake_id: null })
     const createdB = makeTask({ id: 202, title: '任务 B', type: 'focus', subject_id: null, related_mistake_id: null })
     let taskRows: StudyTask[] = []
@@ -348,6 +363,11 @@ describe('TodayActionSuggestionDialog', () => {
     expect(await screen.findByTestId('ai-plan-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 1 项')
     expect(screen.getByText('second write failed')).toBeInTheDocument()
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+    expect(createActionSpy).toHaveBeenCalledTimes(2)
+    const firstSnapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    const secondSnapshot = createActionSpy.mock.calls[1]?.[0].confirmationSnapshot
+    expect(firstSnapshot).toBeDefined()
+    expect(secondSnapshot).toBe(firstSnapshot)
 
     taskRows = [createdA]
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
@@ -356,6 +376,9 @@ describe('TodayActionSuggestionDialog', () => {
     const createdTitles = mocks.tasksCreate.mock.calls.map(([input]) => input.title)
     expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
     expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(2)
+    expect(createActionSpy.mock.calls[2]?.[0].confirmationSnapshot.generation)
+      .toBe(firstSnapshot?.generation)
+    createActionSpy.mockRestore()
   })
 
   it('does not apply stale AI responses after the dialog is closed', async () => {
@@ -375,6 +398,7 @@ describe('TodayActionSuggestionDialog', () => {
   })
 
   it('unlocks generation and ignores an old-date AI response after the date changes', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     const oldRequest = createDeferred<AIResponse>()
     const newDateResponse = JSON.stringify({
       suggestions: [
@@ -420,6 +444,15 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.aiChat).toHaveBeenCalledTimes(2)
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
     expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(createActionSpy).toHaveBeenCalledTimes(1))
+    const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    const generatedContext = JSON.parse(snapshot?.generation.generationContextSignature || '{}') as {
+      date?: string
+    }
+    expect(generatedContext.date).toBe('2026-06-13')
+    createActionSpy.mockRestore()
   })
 
   it('stops the remaining confirmed writes when the dialog unmounts during creation', async () => {

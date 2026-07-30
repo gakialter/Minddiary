@@ -19,6 +19,10 @@ import {
   executeConfirmedStudyTaskAction,
   type StudyTaskActionConfirmationSnapshot,
 } from '../utils/agentStudyTaskActions'
+import {
+  createAIStudyTaskGenerationProvenance,
+  type AIStudyTaskGenerationProvenance,
+} from '../utils/aiOperationContracts'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: TodayActionPriority[] = ['high', 'medium', 'low']
@@ -95,7 +99,8 @@ export default function TodayActionSuggestionDialog({
   const [errors, setErrors] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [generatedContextSignature, setGeneratedContextSignature] = useState<string | null>(null)
+  const [generationProvenance, setGenerationProvenance] = useState<AIStudyTaskGenerationProvenance | null>(null)
+  const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const generationRef = useRef(0)
@@ -122,7 +127,8 @@ export default function TodayActionSuggestionDialog({
     setErrors([])
     setGenerating(false)
     setCreating(false)
-    setGeneratedContextSignature(null)
+    setGenerationProvenance(null)
+    setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
   }, [date])
@@ -191,7 +197,8 @@ export default function TodayActionSuggestionDialog({
     setGenerating(true)
     setErrors([])
     setSuggestions([])
-    setGeneratedContextSignature(null)
+    setGenerationProvenance(null)
+    setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
     try {
@@ -210,7 +217,14 @@ export default function TodayActionSuggestionDialog({
       const parsed = parseTodayActionSuggestions(result.content, context)
       setErrors(parsed.errors)
       setSuggestions(parsed.suggestions)
-      setGeneratedContextSignature(buildTodayActionPlanningContextSignature(context))
+      if (parsed.errors.length === 0) {
+        const generationContextSignature = buildTodayActionPlanningContextSignature(context)
+        setGenerationProvenance(createAIStudyTaskGenerationProvenance(
+          'today_action',
+          generationContextSignature,
+        ))
+        setReviewedConfirmationContextSignature(generationContextSignature)
+      }
     } catch (error) {
       if (generationRef.current === generation) {
         setErrors([error instanceof Error ? error.message : String(error)])
@@ -240,13 +254,24 @@ export default function TodayActionSuggestionDialog({
       setPlanningContext(latestContext)
       let currentSuggestions = validateTodayActionDrafts(suggestions, latestContext)
       setSuggestions(currentSuggestions)
-      if (generatedContextSignature === null || generatedContextSignature !== latestSignature) {
-        setGeneratedContextSignature(latestSignature)
+      if (generationProvenance === null) return
+      if (
+        reviewedConfirmationContextSignature === null
+        || reviewedConfirmationContextSignature !== latestSignature
+      ) {
+        setReviewedConfirmationContextSignature(latestSignature)
         setStaleContextNotice('规划依据已更新，候选已按最新本地数据重新校验。请查看结果后再次确认创建。')
         return
       }
 
       setStaleContextNotice(null)
+      const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
+        mode: 'today_action',
+        generation: generationProvenance,
+        confirmationContextSignature: latestSignature,
+        expectedCurrentDate: createDate,
+        plannedDate: createDate,
+      }
       let currentContext = latestContext
       let createdCount = 0
       let failedCount = 0
@@ -264,12 +289,6 @@ export default function TodayActionSuggestionDialog({
         ))
         setSuggestions(currentSuggestions)
         try {
-          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
-            mode: 'today_action',
-            contextFingerprint: buildTodayActionPlanningContextSignature(currentContext),
-            expectedCurrentDate: currentContext.date,
-            plannedDate: currentContext.date,
-          }
           const action = createConfirmedStudyTaskAction({
             actionId: suggestion.clientId,
             confirmationSnapshot,
@@ -321,7 +340,7 @@ export default function TodayActionSuggestionDialog({
       }
       if (!mountedRef.current || currentDateRef.current !== createDate) return
       setPlanningContext(currentContext)
-      setGeneratedContextSignature(buildTodayActionPlanningContextSignature(currentContext))
+      setReviewedConfirmationContextSignature(buildTodayActionPlanningContextSignature(currentContext))
       setSuggestions(currentSuggestions)
       if (createdCount > 0 || failedCount > 0) {
         setCreationSummary({ created: createdCount, failed: failedCount })

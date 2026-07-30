@@ -1,5 +1,10 @@
 import type { NewStudyTask, StudyTask, StudyTaskType } from '../types'
 import type { TasksContextAPI } from '../types/api'
+import {
+  validateAIStudyTaskGenerationProvenance,
+  type AIStudyTaskGenerationProvenance,
+  type AIStudyTaskOperationKind,
+} from './aiOperationContracts'
 import { getLocalDateKey, getNextLocalDateKey, isDateKey } from './dateKey'
 
 const STUDY_TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
@@ -7,12 +12,19 @@ const ACTION_KEYS = [
   'kind',
   'actionId',
   'mode',
-  'contextFingerprint',
+  'generation',
+  'confirmationContextSignature',
   'expectedCurrentDate',
   'plannedDate',
   'draft',
 ] as const
-const SNAPSHOT_KEYS = ['mode', 'contextFingerprint', 'expectedCurrentDate', 'plannedDate'] as const
+const SNAPSHOT_KEYS = [
+  'mode',
+  'generation',
+  'confirmationContextSignature',
+  'expectedCurrentDate',
+  'plannedDate',
+] as const
 const DRAFT_KEYS = [
   'title',
   'description',
@@ -29,7 +41,7 @@ const DESCRIPTION_MAX_LENGTH = 240
 const ESTIMATE_MINUTES_MIN = 5
 const ESTIMATE_MINUTES_MAX = 180
 
-export type StudyTaskActionMode = 'today_action' | 'daily_review'
+export type StudyTaskActionMode = AIStudyTaskOperationKind
 
 export interface ConfirmedStudyTaskDraft {
   title: string
@@ -44,7 +56,8 @@ export interface ConfirmedStudyTaskDraft {
 
 export interface StudyTaskActionConfirmationSnapshot {
   mode: StudyTaskActionMode
-  contextFingerprint: string
+  generation: AIStudyTaskGenerationProvenance
+  confirmationContextSignature: string
   expectedCurrentDate: string
   plannedDate: string
 }
@@ -53,7 +66,8 @@ export interface ConfirmedStudyTaskAction {
   kind: 'create_study_task'
   actionId: string
   mode: StudyTaskActionMode
-  contextFingerprint: string
+  generation: AIStudyTaskGenerationProvenance
+  confirmationContextSignature: string
   expectedCurrentDate: string
   plannedDate: string
   draft: ConfirmedStudyTaskDraft
@@ -84,6 +98,10 @@ function assertOnlyKeys(record: Record<string, unknown>, allowed: readonly strin
   const unsupported = Object.keys(record).filter(key => !allowed.includes(key))
   if (unsupported.length > 0) {
     throw new Error(`${label} contains unsupported fields: ${unsupported.join(', ')}`)
+  }
+  const missing = allowed.filter(key => !Object.prototype.hasOwnProperty.call(record, key))
+  if (missing.length > 0) {
+    throw new Error(`${label} is missing required fields: ${missing.map(key => `${label}.${key}`).join(', ')}`)
   }
 }
 
@@ -133,7 +151,11 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   const snapshot = requireRecord(value, 'confirmation snapshot')
   assertOnlyKeys(snapshot, SNAPSHOT_KEYS, 'confirmation snapshot')
   const mode = requireMode(snapshot.mode)
-  const contextFingerprint = requireNonEmptyString(snapshot.contextFingerprint, 'confirmation contextFingerprint')
+  const generation = validateAIStudyTaskGenerationProvenance(snapshot.generation, mode)
+  const confirmationContextSignature = requireNonEmptyString(
+    snapshot.confirmationContextSignature,
+    'confirmation context signature',
+  )
   const expectedCurrentDate = requireValidLocalDateKey(snapshot.expectedCurrentDate, 'confirmation expectedCurrentDate')
   const plannedDate = requireValidLocalDateKey(snapshot.plannedDate, 'confirmation plannedDate')
   const invariantPlannedDate = mode === 'today_action'
@@ -142,7 +164,13 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   if (plannedDate !== invariantPlannedDate) {
     throw new Error(`${mode} plannedDate does not match its local-date invariant`)
   }
-  return { mode, contextFingerprint, expectedCurrentDate, plannedDate }
+  return {
+    mode,
+    generation,
+    confirmationContextSignature,
+    expectedCurrentDate,
+    plannedDate,
+  }
 }
 
 function validateDraft(value: unknown): ConfirmedStudyTaskDraft {
@@ -185,9 +213,10 @@ export function validateConfirmedStudyTaskAction(
   if (action.kind !== 'create_study_task') throw new Error('confirmed study task action kind is invalid')
   const actionId = requireNonEmptyString(action.actionId, 'confirmed study task action actionId')
   const mode = requireMode(action.mode)
-  const contextFingerprint = requireNonEmptyString(
-    action.contextFingerprint,
-    'confirmed study task action contextFingerprint',
+  const generation = validateAIStudyTaskGenerationProvenance(action.generation, mode)
+  const confirmationContextSignature = requireNonEmptyString(
+    action.confirmationContextSignature,
+    'confirmed study task action confirmation context signature',
   )
   const expectedCurrentDate = requireValidLocalDateKey(
     action.expectedCurrentDate,
@@ -197,8 +226,18 @@ export function validateConfirmedStudyTaskAction(
   const snapshot = validateSnapshot(confirmationSnapshot)
 
   if (mode !== snapshot.mode) throw new Error('confirmed study task action mode does not match confirmation snapshot')
-  if (contextFingerprint !== snapshot.contextFingerprint) {
-    throw new Error('confirmed study task action contextFingerprint does not match confirmation snapshot')
+  if (
+    generation.operationKind !== snapshot.generation.operationKind
+    || generation.generationContextSignature !== snapshot.generation.generationContextSignature
+    || Object.keys(generation.versions).some(key => (
+      generation.versions[key as keyof typeof generation.versions]
+      !== snapshot.generation.versions[key as keyof typeof snapshot.generation.versions]
+    ))
+  ) {
+    throw new Error('confirmed study task action generation provenance does not match confirmation snapshot')
+  }
+  if (confirmationContextSignature !== snapshot.confirmationContextSignature) {
+    throw new Error('confirmed study task action confirmation context signature does not match confirmation snapshot')
   }
   if (expectedCurrentDate !== snapshot.expectedCurrentDate) {
     throw new Error('confirmed study task action expectedCurrentDate does not match confirmation snapshot')
@@ -211,7 +250,8 @@ export function validateConfirmedStudyTaskAction(
     kind: 'create_study_task',
     actionId,
     mode,
-    contextFingerprint,
+    generation,
+    confirmationContextSignature,
     expectedCurrentDate,
     plannedDate,
     draft: validateDraft(action.draft),
@@ -227,15 +267,17 @@ export function createConfirmedStudyTaskAction({
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot
   draft: unknown
 }): ConfirmedStudyTaskAction {
+  const snapshot = validateSnapshot(confirmationSnapshot)
   return validateConfirmedStudyTaskAction({
     kind: 'create_study_task',
     actionId,
-    mode: confirmationSnapshot.mode,
-    contextFingerprint: confirmationSnapshot.contextFingerprint,
-    expectedCurrentDate: confirmationSnapshot.expectedCurrentDate,
-    plannedDate: confirmationSnapshot.plannedDate,
+    mode: snapshot.mode,
+    generation: snapshot.generation,
+    confirmationContextSignature: snapshot.confirmationContextSignature,
+    expectedCurrentDate: snapshot.expectedCurrentDate,
+    plannedDate: snapshot.plannedDate,
     draft,
-  }, confirmationSnapshot)
+  }, snapshot)
 }
 
 export function buildConfirmedStudyTaskPayload(action: ConfirmedStudyTaskAction): NewStudyTask {
