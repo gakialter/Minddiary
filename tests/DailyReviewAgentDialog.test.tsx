@@ -3,6 +3,8 @@ import { StrictMode, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DailyReviewAgentDialog from '../src/components/DailyReviewAgentDialog'
 import type { AIResponse, DiaryEntry, Mistake, PomodoroStat, StudyTask, Subject } from '../src/types'
+import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
+import * as aiOperationContracts from '../src/utils/aiOperationContracts'
 
 const REVIEW_DATE = '2026-06-12'
 const CANDIDATE_DATE = '2026-06-13'
@@ -308,6 +310,7 @@ describe('DailyReviewAgentDialog', () => {
   })
 
   it('requires a second explicit confirmation when the safe context has become stale', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     let taskRows: StudyTask[] = []
     mocks.tasksGetByDate.mockImplementation(async () => taskRows)
     renderDialog()
@@ -318,9 +321,52 @@ describe('DailyReviewAgentDialog', () => {
 
     expect(await screen.findByTestId('daily-review-stale-context')).toHaveTextContent('请查看结果后再次确认创建')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(createActionSpy).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    expect(snapshot?.generation.operationKind).toBe('daily_review')
+    expect(snapshot?.generation.versions.promptVersion).toBe('daily-review.prompt.v1')
+    expect(snapshot?.generation.generationContextSignature)
+      .not.toBe(snapshot?.confirmationContextSignature)
+    expect(snapshot?.generation.generationContextSignature).not.toContain('新出现的次日任务')
+    expect(snapshot?.confirmationContextSignature).toContain('新出现的次日任务')
+    createActionSpy.mockRestore()
+  })
+
+  it('replaces old generation provenance when the user regenerates', async () => {
+    const provenanceSpy = vi.spyOn(aiOperationContracts, 'createAIStudyTaskGenerationProvenance')
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
+    let candidateDateRows: StudyTask[] = []
+    mocks.tasksGetByDate.mockImplementation(async (requestDate: string) => (
+      requestDate === CANDIDATE_DATE ? candidateDateRows : []
+    ))
+    renderDialog()
+    await generateCandidates()
+    expect(provenanceSpy).toHaveBeenCalledTimes(1)
+
+    candidateDateRows = [makeTask({
+      id: 102,
+      title: '重新生成前新增的次日任务',
+      type: 'focus',
+      subject_id: null,
+      related_mistake_id: null,
+      source: 'manual',
+    })]
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await waitFor(() => expect(provenanceSpy).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+    await waitFor(() => expect(createActionSpy).toHaveBeenCalledTimes(1))
+
+    const firstGenerationSignature = provenanceSpy.mock.calls[0]?.[1]
+    const secondGenerationSignature = provenanceSpy.mock.calls[1]?.[1]
+    const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    expect(firstGenerationSignature).not.toContain('重新生成前新增的次日任务')
+    expect(secondGenerationSignature).toContain('重新生成前新增的次日任务')
+    expect(snapshot?.generation.generationContextSignature).toBe(secondGenerationSignature)
+    provenanceSpy.mockRestore()
+    createActionSpy.mockRestore()
   })
 
   it('preserves successful creation state and summary through a parent refresh rerender', async () => {
@@ -397,6 +443,7 @@ describe('DailyReviewAgentDialog', () => {
   })
 
   it('preserves partial creation success and retries only remaining failed candidates', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     const createdA = makeTask({ id: 201, title: '任务 A', type: 'focus', subject_id: null, related_mistake_id: null })
     const createdB = makeTask({ id: 202, title: '任务 B', type: 'focus', subject_id: null, related_mistake_id: null })
     let candidateDateRows: StudyTask[] = []
@@ -435,6 +482,11 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByText('已创建 #201')).toBeInTheDocument()
     expect(screen.getByText('second write failed')).toBeInTheDocument()
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+    expect(createActionSpy).toHaveBeenCalledTimes(2)
+    const firstSnapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
+    const secondSnapshot = createActionSpy.mock.calls[1]?.[0].confirmationSnapshot
+    expect(firstSnapshot).toBeDefined()
+    expect(secondSnapshot).toBe(firstSnapshot)
 
     const retryTitleInput = screen.getAllByLabelText('候选任务标题').find(input => input.getAttribute('value') === '任务 B')
     expect(retryTitleInput).toBeDefined()
@@ -451,6 +503,9 @@ describe('DailyReviewAgentDialog', () => {
     expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
     expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(1)
     expect(createdTitles.filter(title => title === '任务 B 重试')).toHaveLength(1)
+    expect(createActionSpy.mock.calls[2]?.[0].confirmationSnapshot.generation)
+      .toBe(firstSnapshot?.generation)
+    createActionSpy.mockRestore()
   })
 
   it('uses local candidate date, todo status, and ai source rather than model-owned fields', async () => {
@@ -549,6 +604,46 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('unlocks generation and ignores an old-date AI response after the review date changes', async () => {
+    const deferred = createDeferred<AIResponse>()
+    mocks.aiChat.mockReturnValueOnce(deferred.promise)
+    const view = renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(1))
+
+    view.rerender(<DailyReviewAgentDialog {...dialogProps('2026-06-13')} />)
+
+    await waitFor(() => expect(screen.getByLabelText('关闭每日复盘')).not.toBeDisabled())
+    await act(async () => {
+      deferred.resolve({ content: validAiResponse })
+      await deferred.promise
+    })
+
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('daily-review-errors')).not.toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('unlocks an in-flight old-date creation after the review date changes', async () => {
+    const firstWrite = createDeferred<StudyTask>()
+    mocks.tasksCreate.mockReturnValueOnce(firstWrite.promise)
+    const view = renderDialog()
+    await generateCandidates()
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    view.rerender(<DailyReviewAgentDialog {...dialogProps('2026-06-13')} />)
+    await act(async () => {
+      firstWrite.resolve(makeTask())
+      await firstWrite.promise
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('关闭每日复盘')).not.toBeDisabled())
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(mocks.onCreated).not.toHaveBeenCalled()
   })
 
   it('does not create an old-date candidate when the dialog unmounts during the pre-create refresh', async () => {

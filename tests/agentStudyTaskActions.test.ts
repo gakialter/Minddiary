@@ -8,17 +8,23 @@ import {
   type ConfirmedStudyTaskDraft,
   type StudyTaskActionConfirmationSnapshot,
 } from '../src/utils/agentStudyTaskActions'
+import {
+  createAIStudyTaskGenerationProvenance,
+  type AIStudyTaskGenerationProvenance,
+} from '../src/utils/aiOperationContracts'
 
 const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'today_action',
-  contextFingerprint: 'today-context-fixture',
+  generation: createAIStudyTaskGenerationProvenance('today_action', 'today-generation-context-fixture'),
+  confirmationContextSignature: 'today-generation-context-fixture',
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-12',
 }
 
 const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'daily_review',
-  contextFingerprint: 'daily-context-fixture',
+  generation: createAIStudyTaskGenerationProvenance('daily_review', 'daily-generation-context-fixture'),
+  confirmationContextSignature: 'daily-confirmation-context-fixture',
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-13',
 }
@@ -119,6 +125,49 @@ describe('agentStudyTaskActions', () => {
     },
   )
 
+  it('accepts an omitted related_chapter_id and normalizes it to null', () => {
+    expect(createAction(todaySnapshot, {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_entry_id: todayDraft.related_entry_id,
+    }).draft.related_chapter_id).toBeNull()
+  })
+
+  it('ignores a prototype-only related_chapter_id and normalizes it to null', () => {
+    const draft = Object.assign(Object.create({ related_chapter_id: 42 }), {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_entry_id: todayDraft.related_entry_id,
+    })
+
+    expect(createAction(todaySnapshot, draft).draft.related_chapter_id).toBeNull()
+  })
+
+  it('accepts an own undefined related_chapter_id and normalizes it to null', () => {
+    expect(createAction(todaySnapshot, {
+      ...todayDraft,
+      related_chapter_id: undefined,
+    }).draft.related_chapter_id).toBeNull()
+  })
+
+  it.each([0, -1, 1.5, '42', {}])(
+    'rejects invalid own related_chapter_id value %j',
+    relatedChapterId => {
+      expect(() => createAction(todaySnapshot, {
+        ...todayDraft,
+        related_chapter_id: relatedChapterId,
+      })).toThrow('positive integer or null')
+    },
+  )
+
   it.each([
     'id',
     'status',
@@ -127,7 +176,8 @@ describe('agentStudyTaskActions', () => {
     'plannedDate',
     'created_at',
     'expectedCurrentDate',
-    'contextFingerprint',
+    'generation',
+    'confirmationContextSignature',
     'path',
     'sql',
     'tool',
@@ -139,10 +189,47 @@ describe('agentStudyTaskActions', () => {
     },
   )
 
+  it('rejects unsupported non-enumerable and symbol own draft fields', () => {
+    const nonEnumerableDraft = { ...todayDraft }
+    Object.defineProperty(nonEnumerableDraft, 'hidden', { value: true, enumerable: false })
+    expect(() => createAction(todaySnapshot, nonEnumerableDraft)).toThrow('unsupported fields: hidden')
+
+    const symbolDraft = { ...todayDraft, [Symbol('hidden')]: true }
+    expect(() => createAction(todaySnapshot, symbolDraft)).toThrow('unsupported fields: Symbol(hidden)')
+  })
+
   it('rejects unknown and system-owned fields on the action envelope', () => {
     const action = createAction()
     expect(() => validateConfirmedStudyTaskAction({ ...action, status: 'done' }, todaySnapshot))
       .toThrow('unsupported fields')
+    expect(() => createAction({ ...todaySnapshot, status: 'done' } as StudyTaskActionConfirmationSnapshot))
+      .toThrow('unsupported fields')
+  })
+
+  it('does not accept required action fields inherited through the prototype chain', () => {
+    const action = createAction()
+
+    expect(() => validateConfirmedStudyTaskAction(Object.create(action), todaySnapshot))
+      .toThrow('missing required fields')
+    expect(() => createConfirmedStudyTaskAction({
+      actionId: 'suggestion-1',
+      confirmationSnapshot: Object.create(todaySnapshot),
+      draft: todayDraft,
+    })).toThrow('missing required fields')
+    expect(() => createAction(todaySnapshot, Object.create(todayDraft)))
+      .toThrow('missing required fields')
+  })
+
+  it('rejects a missing required related_entry_id', () => {
+    expect(() => createAction(todaySnapshot, {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_chapter_id: todayDraft.related_chapter_id,
+    })).toThrow('study task draft.related_entry_id')
   })
 
   it('enforces Today Action and Daily Review date invariants', () => {
@@ -172,12 +259,51 @@ describe('agentStudyTaskActions', () => {
     })).toThrow('valid local date key')
   })
 
-  it('rejects a context fingerprint that does not match the confirmation snapshot', () => {
+  it('allows generation and confirmation signatures to differ', () => {
+    const action = createAction(dailySnapshot, dailyDraft)
+    expect(action.generation.generationContextSignature).toBe('daily-generation-context-fixture')
+    expect(action.confirmationContextSignature).toBe('daily-confirmation-context-fixture')
+  })
+
+  it('rejects provenance or confirmation context that does not match the confirmation snapshot', () => {
     const action = createAction()
     expect(() => validateConfirmedStudyTaskAction(action, {
       ...todaySnapshot,
-      contextFingerprint: 'newer-context-fixture',
-    })).toThrow('contextFingerprint does not match')
+      generation: createAIStudyTaskGenerationProvenance('today_action', 'other-generation-context-fixture'),
+    })).toThrow('generation provenance does not match')
+    expect(() => validateConfirmedStudyTaskAction(action, {
+      ...todaySnapshot,
+      confirmationContextSignature: 'newer-context-fixture',
+    })).toThrow('confirmation context signature does not match')
+  })
+
+  it('cross-checks operation kind against mode', () => {
+    expect(() => createAction({
+      ...todaySnapshot,
+      generation: createAIStudyTaskGenerationProvenance('daily_review', 'daily-context-fixture'),
+    })).toThrow('operation kind does not match action mode')
+  })
+
+  it.each([
+    'promptVersion',
+    'responseSchemaVersion',
+    'parserVersion',
+    'policyVersion',
+    'contextProjectionVersion',
+    'actionContractVersion',
+  ] as const)('rejects non-canonical %s even when action and snapshot carry the same forged tuple', field => {
+    const forgedGeneration: AIStudyTaskGenerationProvenance = {
+      ...todaySnapshot.generation,
+      versions: {
+        ...todaySnapshot.generation.versions,
+        [field]: `forged-${field}`,
+      },
+    }
+    const forgedSnapshot = { ...todaySnapshot, generation: forgedGeneration }
+    const forgedAction = { ...createAction(), generation: forgedGeneration }
+
+    expect(() => validateConfirmedStudyTaskAction(forgedAction, forgedSnapshot))
+      .toThrow(`${field} is not canonical`)
   })
 
   it('builds a canonical NewStudyTask payload with local-only system fields', () => {
@@ -230,17 +356,17 @@ describe('agentStudyTaskActions', () => {
     expect(createForCurrentDate).toHaveBeenCalledTimes(1)
   })
 
-  it('does zero writes when the confirmation fingerprint is stale', async () => {
+  it('does zero writes when the confirmation context does not match', async () => {
     const createForCurrentDate = vi.fn()
 
     await expect(executeConfirmedStudyTaskAction(
       createAction(),
-      { ...todaySnapshot, contextFingerprint: 'newer-context-fixture' },
+      { ...todaySnapshot, confirmationContextSignature: 'newer-context-fixture' },
       { createForCurrentDate },
     )).resolves.toMatchObject({
       actionId: 'suggestion-1',
       status: 'failed',
-      error: expect.stringContaining('contextFingerprint does not match'),
+      error: expect.stringContaining('confirmation context signature does not match'),
     })
     expect(createForCurrentDate).not.toHaveBeenCalled()
   })

@@ -9,6 +9,7 @@ import {
   executeConfirmedStudyTaskAction,
   type StudyTaskActionConfirmationSnapshot,
 } from '../src/utils/agentStudyTaskActions'
+import { createAIStudyTaskGenerationProvenance } from '../src/utils/aiOperationContracts'
 
 const taskInput: NewStudyTask = {
   title: 'Date-bound candidate',
@@ -86,7 +87,8 @@ describe('date-bound main-process task creation', () => {
     database.exec('CREATE TABLE writes (id INTEGER PRIMARY KEY)')
     const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
       mode: 'today_action',
-      contextFingerprint: 'today-before-midnight',
+      generation: createAIStudyTaskGenerationProvenance('today_action', 'today-before-midnight'),
+      confirmationContextSignature: 'today-before-midnight',
       expectedCurrentDate: '2026-05-31',
       plannedDate: '2026-05-31',
     }

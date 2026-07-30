@@ -33,6 +33,10 @@ import {
   executeConfirmedStudyTaskAction,
   type StudyTaskActionConfirmationSnapshot,
 } from '../utils/agentStudyTaskActions'
+import {
+  createAIStudyTaskGenerationProvenance,
+  type AIStudyTaskGenerationProvenance,
+} from '../utils/aiOperationContracts'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: DailyReviewPriority[] = ['high', 'medium', 'low']
@@ -149,7 +153,8 @@ export default function DailyReviewAgentDialog({
   const [creationError, setCreationError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [generatedContextSignature, setGeneratedContextSignature] = useState<string | null>(null)
+  const [generationProvenance, setGenerationProvenance] = useState<AIStudyTaskGenerationProvenance | null>(null)
+  const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const generationRef = useRef(0)
@@ -195,7 +200,10 @@ export default function DailyReviewAgentDialog({
     setCandidates([])
     setGenerationErrors([])
     setCreationError(null)
-    setGeneratedContextSignature(null)
+    setGenerating(false)
+    setCreating(false)
+    setGenerationProvenance(null)
+    setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
   }, [date])
@@ -250,7 +258,8 @@ export default function DailyReviewAgentDialog({
     setCreationError(null)
     setObservations([])
     setCandidates([])
-    setGeneratedContextSignature(null)
+    setGenerationProvenance(null)
+    setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
     try {
@@ -268,7 +277,14 @@ export default function DailyReviewAgentDialog({
       setGenerationErrors(parsed.errors)
       setObservations(parsed.observations)
       setCandidates(parsed.candidates)
-      setGeneratedContextSignature(buildDailyReviewContextSignature(context))
+      if (parsed.errors.length === 0) {
+        const generationContextSignature = buildDailyReviewContextSignature(context)
+        setGenerationProvenance(createAIStudyTaskGenerationProvenance(
+          'daily_review',
+          generationContextSignature,
+        ))
+        setReviewedConfirmationContextSignature(generationContextSignature)
+      }
     } catch (error) {
       if (generationRef.current === generation) {
         setGenerationErrors([error instanceof Error ? error.message : String(error)])
@@ -300,13 +316,24 @@ export default function DailyReviewAgentDialog({
       let currentCandidates = validateDailyReviewCandidateDrafts(candidates, latestContext)
       setCandidates(currentCandidates)
 
-      if (generatedContextSignature === null || generatedContextSignature !== latestSignature) {
-        setGeneratedContextSignature(latestSignature)
+      if (generationProvenance === null) return
+      if (
+        reviewedConfirmationContextSignature === null
+        || reviewedConfirmationContextSignature !== latestSignature
+      ) {
+        setReviewedConfirmationContextSignature(latestSignature)
         setStaleContextNotice('复盘依据已更新，候选已按最新本地数据重新校验。请查看结果后再次确认创建。')
         return
       }
 
       setStaleContextNotice(null)
+      const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
+        mode: 'daily_review',
+        generation: generationProvenance,
+        confirmationContextSignature: latestSignature,
+        expectedCurrentDate: createDate,
+        plannedDate: latestContext.candidateDate,
+      }
       let currentContext = latestContext
       let createdCount = 0
       let failedCount = 0
@@ -327,12 +354,6 @@ export default function DailyReviewAgentDialog({
         setCandidates(currentCandidates)
 
         try {
-          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
-            mode: 'daily_review',
-            contextFingerprint: buildDailyReviewContextSignature(currentContext),
-            expectedCurrentDate: createDate,
-            plannedDate: currentContext.candidateDate,
-          }
           const action = createConfirmedStudyTaskAction({
             actionId: candidate.clientId,
             confirmationSnapshot,
@@ -386,7 +407,7 @@ export default function DailyReviewAgentDialog({
 
       if (!mountedRef.current || currentDateRef.current !== createDate) return
       setReviewContext(currentContext)
-      setGeneratedContextSignature(buildDailyReviewContextSignature(currentContext))
+      setReviewedConfirmationContextSignature(buildDailyReviewContextSignature(currentContext))
       setCandidates(currentCandidates)
       if (createdCount > 0 || failedCount > 0) setCreationSummary({ created: createdCount, failed: failedCount })
       if (createdCount > 0) {
