@@ -4,6 +4,11 @@ import BetterSqlite3 from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
 import { createStudyTaskForCurrentDate } from '../electron/dateBoundTaskCreation'
 import type { NewStudyTask, StudyTask } from '../src/types'
+import {
+  createConfirmedStudyTaskAction,
+  executeConfirmedStudyTaskAction,
+  type StudyTaskActionConfirmationSnapshot,
+} from '../src/utils/agentStudyTaskActions'
 
 const taskInput: NewStudyTask = {
   title: 'Date-bound candidate',
@@ -71,6 +76,55 @@ describe('date-bound main-process task creation', () => {
 
       const row = database.prepare('SELECT COUNT(*) AS count FROM writes').get() as { count: number }
       expect(row.count).toBe(0)
+    } finally {
+      database.close()
+    }
+  })
+
+  it('keeps SQLite unchanged when a stale Today Action reaches the main date gate', async () => {
+    const database = new BetterSqlite3(':memory:')
+    database.exec('CREATE TABLE writes (id INTEGER PRIMARY KEY)')
+    const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
+      mode: 'today_action',
+      contextFingerprint: 'today-before-midnight',
+      expectedCurrentDate: '2026-05-31',
+      plannedDate: '2026-05-31',
+    }
+    const action = createConfirmedStudyTaskAction({
+      actionId: 'suggestion-1',
+      confirmationSnapshot,
+      draft: {
+        title: 'Old-date Today candidate',
+        description: 'Confirmed after the local date changed.',
+        type: 'focus',
+        estimate_minutes: 25,
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+      },
+    })
+
+    try {
+      const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, {
+        createForCurrentDate: async (payload, expectedCurrentDate) => (
+          createStudyTaskForCurrentDate(payload, expectedCurrentDate, {
+            getCurrentDateKey: () => '2026-06-01',
+            createTask: () => {
+              database.prepare('INSERT INTO writes DEFAULT VALUES').run()
+              return createdTask
+            },
+            runInTransaction: operation => database.transaction(operation)(),
+          })
+        ),
+      })
+
+      expect(result).toMatchObject({
+        actionId: 'suggestion-1',
+        status: 'failed',
+        error: expect.stringContaining('current local date changed'),
+      })
+      expect(database.prepare('SELECT COUNT(*) AS count FROM writes').get()).toEqual({ count: 0 })
     } finally {
       database.close()
     }

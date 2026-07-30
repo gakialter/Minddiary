@@ -471,6 +471,32 @@ describe('DailyReviewAgentDialog', () => {
     })
   })
 
+  it('revalidates and persists the final user-edited candidate fields', async () => {
+    renderDialog()
+    await generateCandidates()
+
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '编辑后的次日复习' } })
+    fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '35' } })
+    fireEvent.change(screen.getByLabelText('候选理由'), { target: { value: '按最终确认内容执行。' } })
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => {
+      expect(mocks.tasksCreate).toHaveBeenCalledWith({
+        title: '编辑后的次日复习',
+        description: '按最终确认内容执行。',
+        type: 'review',
+        subject_id: 1,
+        related_mistake_id: 12,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: CANDIDATE_DATE,
+        estimate_minutes: 35,
+        status: 'todo',
+        source: 'ai',
+      }, REVIEW_DATE)
+    })
+  })
+
   it('rejects model-provided planned_date, status, and source fields', async () => {
     mocks.aiChat.mockResolvedValue({
       content: JSON.stringify({

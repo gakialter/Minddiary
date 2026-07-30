@@ -28,6 +28,11 @@ import {
   type DailyReviewPriority,
   type DailyReviewSafeContext,
 } from '../utils/dailyReviewAgent'
+import {
+  createConfirmedStudyTaskAction,
+  executeConfirmedStudyTaskAction,
+  type StudyTaskActionConfirmationSnapshot,
+} from '../utils/agentStudyTaskActions'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: DailyReviewPriority[] = ['high', 'medium', 'low']
@@ -322,20 +327,39 @@ export default function DailyReviewAgentDialog({
         setCandidates(currentCandidates)
 
         try {
-          const task = await tasksAPI.createForCurrentDate({
-            title: candidate.title,
-            description: candidate.reason,
-            type: candidate.type,
-            subject_id: candidate.subject_id,
-            related_mistake_id: candidate.related_mistake_id,
-            related_entry_id: null,
-            related_chapter_id: null,
-            planned_date: currentContext.candidateDate,
-            estimate_minutes: candidate.estimate_minutes,
-            status: 'todo',
-            source: 'ai',
-          }, createDate)
+          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
+            mode: 'daily_review',
+            contextFingerprint: buildDailyReviewContextSignature(currentContext),
+            expectedCurrentDate: createDate,
+            plannedDate: currentContext.candidateDate,
+          }
+          const action = createConfirmedStudyTaskAction({
+            actionId: candidate.clientId,
+            confirmationSnapshot,
+            draft: {
+              title: candidate.title,
+              description: candidate.reason,
+              type: candidate.type,
+              subject_id: candidate.subject_id,
+              related_mistake_id: candidate.related_mistake_id,
+              related_entry_id: null,
+              related_chapter_id: null,
+              estimate_minutes: candidate.estimate_minutes,
+            },
+          })
+          const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
           if (!mountedRef.current || currentDateRef.current !== createDate) return
+          if (result.status === 'failed') {
+            failedCount += 1
+            currentCandidates = currentCandidates.map(item => (
+              item.clientId === clientId
+                ? { ...item, creationState: 'failed', creationError: result.error }
+                : item
+            ))
+            setCandidates(currentCandidates)
+            continue
+          }
+          const task = result.task
           createdCount += 1
           currentContext = {
             ...currentContext,
