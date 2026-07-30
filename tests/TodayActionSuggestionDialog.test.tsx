@@ -374,6 +374,54 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
+  it('unlocks generation and ignores an old-date AI response after the date changes', async () => {
+    const oldRequest = createDeferred<AIResponse>()
+    const newDateResponse = JSON.stringify({
+      suggestions: [
+        {
+          title: '新日期专注任务',
+          type: 'focus',
+          estimate_minutes: 20,
+          reason: '只属于新日期。',
+          priority: 'medium',
+        },
+      ],
+    })
+    mocks.aiChat
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockResolvedValueOnce({ content: newDateResponse })
+
+    const view = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('生成中...')
+    expect(screen.getByLabelText('关闭 AI 今日行动建议')).toBeDisabled()
+
+    view.rerender(dialogElement('2026-06-13'))
+
+    await waitFor(() => expect(screen.getByLabelText('关闭 AI 今日行动建议')).not.toBeDisabled())
+    expect(screen.getByTestId('ai-plan-generate')).not.toHaveTextContent('生成中...')
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-errors')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-stale-context')).not.toBeInTheDocument()
+
+    await act(async () => {
+      oldRequest.resolve({ content: validAiResponse })
+      await oldRequest.promise
+    })
+
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-errors')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-stale-context')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    expect(await screen.findByDisplayValue('新日期专注任务')).toBeInTheDocument()
+    expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
+  })
+
   it('stops the remaining confirmed writes when the dialog unmounts during creation', async () => {
     const firstWrite = createDeferred<StudyTask>()
     mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })

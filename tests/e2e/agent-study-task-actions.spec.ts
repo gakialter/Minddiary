@@ -8,6 +8,13 @@ const projectRoot = path.resolve(__dirname, '..', '..')
 const profilePrefix = 'minddiary-agent-actions-e2e-'
 const candidateTitle = 'E2E 今日确认任务'
 const candidateReason = '由本地测试服务返回,确认后写入。'
+const profileRemovalMaxAttempts = 4
+const profileRemovalRetryDelayMs = 100
+const transientWindowsRemovalErrors = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
+type AggregateErrorConstructor = new (errors: Iterable<unknown>, message?: string) => Error
+const NativeAggregateError = (
+  globalThis as typeof globalThis & { AggregateError: AggregateErrorConstructor }
+).AggregateError
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear()
@@ -26,17 +33,32 @@ async function listen(server: Server): Promise<string> {
   return `http://127.0.0.1:${address.port}`
 }
 
-async function launch(profilePath: string): Promise<{ app: ElectronApplication; page: Page }> {
-  const app = await electron.launch({
-    args: [projectRoot, `--user-data-dir=${profilePath}`],
-    env: { ...process.env, NODE_ENV: 'production' },
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve())
   })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('load')
-  const startButton = page.getByRole('button', { name: '开始使用' })
-  if (await startButton.isVisible().catch(() => false)) await startButton.click()
-  await expect(page.getByTestId('open-ai-today-action-suggestions')).toBeVisible()
-  return { app, page }
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined
+  const { code } = error as { code?: unknown }
+  return typeof code === 'string' ? code : undefined
+}
+
+async function removeDisposableProfile(profilePath: string): Promise<void> {
+  for (let attempt = 1; attempt <= profileRemovalMaxAttempts; attempt += 1) {
+    try {
+      rmSync(profilePath, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const retryable = process.platform === 'win32'
+        && transientWindowsRemovalErrors.has(getErrorCode(error) || '')
+        && attempt < profileRemovalMaxAttempts
+      if (!retryable) throw error
+      await new Promise(resolve => setTimeout(resolve, profileRemovalRetryDelayMs * attempt))
+    }
+  }
 }
 
 async function configureMockAI(page: Page, endpoint: string): Promise<void> {
@@ -93,13 +115,22 @@ test.describe('confirmed study task actions through Electron', () => {
         }],
       }))
     })
-    const endpoint = await listen(mockServer)
     let app: ElectronApplication | undefined
+    let hasPrimaryFailure = false
+    let primaryFailure: unknown
+    const cleanupFailures: unknown[] = []
 
     try {
-      const launched = await launch(profilePath)
-      app = launched.app
-      const page = launched.page
+      const endpoint = await listen(mockServer)
+      app = await electron.launch({
+        args: [projectRoot, `--user-data-dir=${profilePath}`],
+        env: { ...process.env, NODE_ENV: 'production' },
+      })
+      const page = await app.firstWindow()
+      await page.waitForLoadState('load')
+      const startButton = page.getByRole('button', { name: '开始使用' })
+      if (await startButton.isVisible().catch(() => false)) await startButton.click()
+      await expect(page.getByTestId('open-ai-today-action-suggestions')).toBeVisible()
       await configureMockAI(page, endpoint)
       const today = localDateKey(new Date())
 
@@ -141,12 +172,40 @@ test.describe('confirmed study task actions through Electron', () => {
       await expect(page.getByTestId('ai-plan-creation-summary')).toContainText('本次已创建 0 项，失败 1 项')
       await expect(page.getByText(/current local date changed before task creation/i)).toBeVisible()
       expect(await getTasksForDate(page, yesterday)).toEqual([])
-    } finally {
-      if (app) await app.close()
-      await new Promise<void>((resolve, reject) => {
-        mockServer.close(error => error ? reject(error) : resolve())
-      })
-      rmSync(resolvedProfile, { recursive: true, force: true })
+    } catch (error) {
+      hasPrimaryFailure = true
+      primaryFailure = error
+    }
+
+    if (app) {
+      try {
+        await app.close()
+      } catch (error) {
+        cleanupFailures.push(new NativeAggregateError([error], 'Electron app cleanup failed'))
+      }
+    }
+    try {
+      await closeServer(mockServer)
+    } catch (error) {
+      cleanupFailures.push(new NativeAggregateError([error], 'Mock AI server cleanup failed'))
+    }
+    try {
+      await removeDisposableProfile(resolvedProfile)
+    } catch (error) {
+      cleanupFailures.push(new NativeAggregateError([error], 'Electron profile cleanup failed'))
+    }
+
+    if (hasPrimaryFailure) {
+      if (cleanupFailures.length > 0) {
+        throw new NativeAggregateError(
+          [primaryFailure, ...cleanupFailures],
+          'Agent action E2E failed and cleanup was incomplete',
+        )
+      }
+      throw primaryFailure
+    }
+    if (cleanupFailures.length > 0) {
+      throw new NativeAggregateError(cleanupFailures, 'Agent action E2E cleanup failed')
     }
   })
 })

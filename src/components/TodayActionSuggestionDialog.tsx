@@ -120,6 +120,7 @@ export default function TodayActionSuggestionDialog({
     setPlanningContext(null)
     setSuggestions([])
     setErrors([])
+    setGenerating(false)
     setCreating(false)
     setGeneratedContextSignature(null)
     setStaleContextNotice(null)
