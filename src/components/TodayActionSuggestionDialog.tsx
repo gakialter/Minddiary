@@ -14,6 +14,11 @@ import {
   type TodayActionPriority,
   type TodayActionSuggestionDraft,
 } from '../utils/todayActionSuggestions'
+import {
+  createConfirmedStudyTaskAction,
+  executeConfirmedStudyTaskAction,
+  type StudyTaskActionConfirmationSnapshot,
+} from '../utils/agentStudyTaskActions'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: TodayActionPriority[] = ['high', 'medium', 'low']
@@ -32,7 +37,7 @@ interface CreationSummary {
 interface TodayActionSuggestionDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'create'>
+  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createForCurrentDate'>
   mistakesAPI: Pick<MistakesContextAPI, 'getAll'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
@@ -95,6 +100,8 @@ export default function TodayActionSuggestionDialog({
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
+  const currentDateRef = useRef(date)
+  const mountedRef = useRef(true)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -106,9 +113,27 @@ export default function TodayActionSuggestionDialog({
     }
   }, [creating, generating, onClose])
 
-  useEffect(() => () => {
+  useEffect(() => {
+    currentDateRef.current = date
     generationRef.current += 1
     contextRequestRef.current += 1
+    setPlanningContext(null)
+    setSuggestions([])
+    setErrors([])
+    setGenerating(false)
+    setCreating(false)
+    setGeneratedContextSignature(null)
+    setStaleContextNotice(null)
+    setCreationSummary(null)
+  }, [date])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      generationRef.current += 1
+      contextRequestRef.current += 1
+    }
   }, [])
 
   const refreshPlanningContext = useCallback(async (): Promise<TodayActionPlanningContext | null> => {
@@ -197,18 +222,20 @@ export default function TodayActionSuggestionDialog({
 
   const createSelectedSuggestions = async () => {
     if (creating || !planningContext) return
+    const createDate = date
     setCreating(true)
     setErrors([])
     setCreationSummary(null)
     try {
       const latestContext = await loadPlanningContext({
-        date,
+        date: createDate,
         availableMinutes,
         tasksAPI,
         mistakesAPI,
         subjectsAPI,
         entriesAPI,
       })
+      if (!mountedRef.current || currentDateRef.current !== createDate) return
       const latestSignature = buildTodayActionPlanningContextSignature(latestContext)
       setPlanningContext(latestContext)
       let currentSuggestions = validateTodayActionDrafts(suggestions, latestContext)
@@ -226,6 +253,7 @@ export default function TodayActionSuggestionDialog({
       const candidateIds = currentSuggestions.map(suggestion => suggestion.clientId)
 
       for (const clientId of candidateIds) {
+        if (!mountedRef.current || currentDateRef.current !== createDate) return
         currentSuggestions = validateTodayActionDrafts(currentSuggestions, currentContext)
         setSuggestions(currentSuggestions)
         const suggestion = currentSuggestions.find(item => item.clientId === clientId)
@@ -236,18 +264,39 @@ export default function TodayActionSuggestionDialog({
         ))
         setSuggestions(currentSuggestions)
         try {
-          const task = await tasksAPI.create({
-            title: suggestion.title,
-            description: suggestion.reason,
-            type: suggestion.type,
-            subject_id: suggestion.subject_id,
-            related_mistake_id: suggestion.related_mistake_id,
-            related_entry_id: suggestion.related_entry_id,
-            planned_date: date,
-            estimate_minutes: suggestion.estimate_minutes,
-            status: 'todo',
-            source: 'ai',
+          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
+            mode: 'today_action',
+            contextFingerprint: buildTodayActionPlanningContextSignature(currentContext),
+            expectedCurrentDate: currentContext.date,
+            plannedDate: currentContext.date,
+          }
+          const action = createConfirmedStudyTaskAction({
+            actionId: suggestion.clientId,
+            confirmationSnapshot,
+            draft: {
+              title: suggestion.title,
+              description: suggestion.reason,
+              type: suggestion.type,
+              subject_id: suggestion.subject_id,
+              related_mistake_id: suggestion.related_mistake_id,
+              related_entry_id: suggestion.related_entry_id,
+              related_chapter_id: null,
+              estimate_minutes: suggestion.estimate_minutes,
+            },
           })
+          const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
+          if (result.status === 'failed') {
+            failedCount += 1
+            currentSuggestions = currentSuggestions.map(item => (
+              item.clientId === suggestion.clientId
+                ? { ...item, creationState: 'failed', creationError: result.error }
+                : item
+            ))
+            setSuggestions(currentSuggestions)
+            continue
+          }
+          const task = result.task
           createdCount += 1
           currentContext = {
             ...currentContext,
@@ -270,6 +319,7 @@ export default function TodayActionSuggestionDialog({
           setSuggestions(currentSuggestions)
         }
       }
+      if (!mountedRef.current || currentDateRef.current !== createDate) return
       setPlanningContext(currentContext)
       setGeneratedContextSignature(buildTodayActionPlanningContextSignature(currentContext))
       setSuggestions(currentSuggestions)
@@ -279,7 +329,9 @@ export default function TodayActionSuggestionDialog({
       if (createdCount > 0) {
         try {
           await onCreated()
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
         } catch (error) {
+          if (!mountedRef.current || currentDateRef.current !== createDate) return
           setCreationSummary({
             created: createdCount,
             failed: failedCount,
@@ -288,9 +340,11 @@ export default function TodayActionSuggestionDialog({
         }
       }
     } catch (error) {
-      setErrors([`创建前无法刷新规划依据：${error instanceof Error ? error.message : String(error)}`])
+      if (mountedRef.current && currentDateRef.current === createDate) {
+        setErrors([`创建前无法刷新规划依据：${error instanceof Error ? error.message : String(error)}`])
+      }
     } finally {
-      setCreating(false)
+      if (mountedRef.current && currentDateRef.current === createDate) setCreating(false)
     }
   }
 

@@ -10,9 +10,11 @@ import type {
   StudyTaskType,
   Subject,
 } from '../types'
-import { getLocalDateKey } from './dateKey'
+import { getNextLocalDateKey } from './dateKey'
 import { sanitizeUserInput } from './promptTemplates'
 import { extractSingleJsonObject } from './todayActionSuggestions'
+
+export { getNextLocalDateKey } from './dateKey'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES = ['high', 'medium', 'low'] as const
@@ -239,17 +241,6 @@ function asNullableId(value: unknown): number | null {
 
 function asNonNegativeInteger(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
-}
-
-export function getNextLocalDateKey(reviewDate: string): string {
-  const match = reviewDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) throw new Error('reviewDate must be a YYYY-MM-DD local date key')
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const localDate = new Date(year, month - 1, day + 1)
-  if (Number.isNaN(localDate.getTime())) throw new Error('reviewDate must be a valid local date key')
-  return getLocalDateKey(localDate)
 }
 
 export function clampDailyReviewAvailableMinutes(value: unknown): number {

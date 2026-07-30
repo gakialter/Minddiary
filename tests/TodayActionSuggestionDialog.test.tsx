@@ -82,6 +82,7 @@ describe('TodayActionSuggestionDialog', () => {
     aiChat: vi.fn(),
     tasksGetByDate: vi.fn(),
     tasksCreate: vi.fn(),
+    tasksCreateLegacy: vi.fn(),
     mistakesGetAll: vi.fn(),
     subjectsGetAll: vi.fn(),
     entriesGetByDate: vi.fn(),
@@ -99,18 +100,27 @@ describe('TodayActionSuggestionDialog', () => {
     mocks.entriesGetByDate.mockResolvedValue(entry)
   })
 
-  const renderDialog = () => render(
-    <TodayActionSuggestionDialog
-      date="2026-06-12"
-      aiAPI={{ chat: mocks.aiChat }}
-      tasksAPI={{ getByDate: mocks.tasksGetByDate, create: mocks.tasksCreate }}
-      mistakesAPI={{ getAll: mocks.mistakesGetAll }}
-      subjectsAPI={{ getAll: mocks.subjectsGetAll }}
-      entriesAPI={{ getByDate: mocks.entriesGetByDate }}
-      onClose={mocks.onClose}
-      onCreated={mocks.onCreated}
-    />,
-  )
+  const dialogElement = (date = '2026-06-12') => {
+    const tasksAPI = {
+      getByDate: mocks.tasksGetByDate,
+      create: mocks.tasksCreateLegacy,
+      createForCurrentDate: mocks.tasksCreate,
+    }
+    return (
+      <TodayActionSuggestionDialog
+        date={date}
+        aiAPI={{ chat: mocks.aiChat }}
+        tasksAPI={tasksAPI}
+        mistakesAPI={{ getAll: mocks.mistakesGetAll }}
+        subjectsAPI={{ getAll: mocks.subjectsGetAll }}
+        entriesAPI={{ getByDate: mocks.entriesGetByDate }}
+        onClose={mocks.onClose}
+        onCreated={mocks.onCreated}
+      />
+    )
+  }
+
+  const renderDialog = (date = '2026-06-12') => render(dialogElement(date))
 
   it('generates validated suggestions and creates selected tasks only after user confirmation', async () => {
     renderDialog()
@@ -123,17 +133,21 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
 
     await waitFor(() => {
-      expect(mocks.tasksCreate).toHaveBeenCalledWith(expect.objectContaining({
-        title: '复习函数极限错题',
-        type: 'review',
-        source: 'ai',
-        status: 'todo',
-        planned_date: '2026-06-12',
-        related_mistake_id: 12,
-        subject_id: 1,
-      }))
+      expect(mocks.tasksCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: '复习函数极限错题',
+          type: 'review',
+          source: 'ai',
+          status: 'todo',
+          planned_date: '2026-06-12',
+          related_mistake_id: 12,
+          subject_id: 1,
+        }),
+        '2026-06-12',
+      )
       expect(mocks.onCreated).toHaveBeenCalled()
     })
+    expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
     expect(await screen.findByText('已创建 #99')).toBeInTheDocument()
   })
 
@@ -251,12 +265,28 @@ describe('TodayActionSuggestionDialog', () => {
 
     fireEvent.change(screen.getByLabelText('关联到期错题'), { target: { value: '13' } })
     fireEvent.change(screen.getByLabelText('关联今日日记'), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('建议标题'), { target: { value: '编辑后的函数极限复习' } })
+    fireEvent.change(screen.getByLabelText('预计分钟'), { target: { value: '30' } })
 
     expect(screen.getByLabelText('关联到期错题')).toHaveValue('13')
     expect(screen.getByLabelText('关联今日日记')).toHaveValue('5')
+    expect(screen.getByLabelText('建议标题')).toHaveValue('编辑后的函数极限复习')
+    expect(screen.getByLabelText('预计分钟')).toHaveValue(30)
     expect(screen.getByText('本地依据：到期错题：#13 导数符号错误')).toBeInTheDocument()
     expect(screen.getByText('本地依据：今日日记：Today')).toBeInTheDocument()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '编辑后的函数极限复习',
+        estimate_minutes: 30,
+        related_mistake_id: 13,
+        related_entry_id: 5,
+        planned_date: '2026-06-12',
+      }),
+      '2026-06-12',
+    ))
   })
 
   it('clamps available time to the supported daily capacity range', async () => {
@@ -342,6 +372,115 @@ describe('TodayActionSuggestionDialog', () => {
     })
 
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('unlocks generation and ignores an old-date AI response after the date changes', async () => {
+    const oldRequest = createDeferred<AIResponse>()
+    const newDateResponse = JSON.stringify({
+      suggestions: [
+        {
+          title: '新日期专注任务',
+          type: 'focus',
+          estimate_minutes: 20,
+          reason: '只属于新日期。',
+          priority: 'medium',
+        },
+      ],
+    })
+    mocks.aiChat
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockResolvedValueOnce({ content: newDateResponse })
+
+    const view = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('生成中...')
+    expect(screen.getByLabelText('关闭 AI 今日行动建议')).toBeDisabled()
+
+    view.rerender(dialogElement('2026-06-13'))
+
+    await waitFor(() => expect(screen.getByLabelText('关闭 AI 今日行动建议')).not.toBeDisabled())
+    expect(screen.getByTestId('ai-plan-generate')).not.toHaveTextContent('生成中...')
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-errors')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-stale-context')).not.toBeInTheDocument()
+
+    await act(async () => {
+      oldRequest.resolve({ content: validAiResponse })
+      await oldRequest.promise
+    })
+
+    expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-errors')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-plan-stale-context')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    expect(await screen.findByDisplayValue('新日期专注任务')).toBeInTheDocument()
+    expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
+  })
+
+  it('stops the remaining confirmed writes when the dialog unmounts during creation', async () => {
+    const firstWrite = createDeferred<StudyTask>()
+    mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })
+    mocks.tasksCreate.mockReset()
+    mocks.tasksCreate
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockResolvedValueOnce(makeTask({ id: 202, title: '任务 B', type: 'focus' }))
+
+    const view = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 A')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    view.unmount()
+    await act(async () => {
+      firstWrite.resolve(makeTask({ id: 201, title: '任务 A', type: 'focus' }))
+      await firstWrite.promise
+    })
+
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.onCreated).not.toHaveBeenCalled()
+  })
+
+  it('resets an in-flight old-date creation when the dialog date changes without unmounting', async () => {
+    const firstWrite = createDeferred<StudyTask>()
+    mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })
+    mocks.tasksCreate.mockReset()
+    mocks.tasksCreate
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockResolvedValueOnce(makeTask({ id: 202, title: '任务 B', type: 'focus' }))
+
+    const view = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 A')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    view.rerender(dialogElement('2026-06-13'))
+    await act(async () => {
+      firstWrite.resolve(makeTask({ id: 201, title: '任务 A', type: 'focus' }))
+      await firstWrite.promise
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('关闭 AI 今日行动建议')).not.toBeDisabled())
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.onCreated).not.toHaveBeenCalled()
+    expect(screen.queryByDisplayValue('任务 A')).not.toBeInTheDocument()
+  })
+
+  it('closes without creating any task when the user has not confirmed', async () => {
+    renderDialog()
+    await screen.findByTestId('planning-context-preview')
+
+    fireEvent.click(screen.getByLabelText('关闭 AI 今日行动建议'))
+
+    expect(mocks.onClose).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
   })
 
   it('ignores an older planning-context response after available time changes', async () => {
