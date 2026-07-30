@@ -125,6 +125,49 @@ describe('agentStudyTaskActions', () => {
     },
   )
 
+  it('accepts an omitted related_chapter_id and normalizes it to null', () => {
+    expect(createAction(todaySnapshot, {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_entry_id: todayDraft.related_entry_id,
+    }).draft.related_chapter_id).toBeNull()
+  })
+
+  it('ignores a prototype-only related_chapter_id and normalizes it to null', () => {
+    const draft = Object.assign(Object.create({ related_chapter_id: 42 }), {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_entry_id: todayDraft.related_entry_id,
+    })
+
+    expect(createAction(todaySnapshot, draft).draft.related_chapter_id).toBeNull()
+  })
+
+  it('accepts an own undefined related_chapter_id and normalizes it to null', () => {
+    expect(createAction(todaySnapshot, {
+      ...todayDraft,
+      related_chapter_id: undefined,
+    }).draft.related_chapter_id).toBeNull()
+  })
+
+  it.each([0, -1, 1.5, '42', {}])(
+    'rejects invalid own related_chapter_id value %j',
+    relatedChapterId => {
+      expect(() => createAction(todaySnapshot, {
+        ...todayDraft,
+        related_chapter_id: relatedChapterId,
+      })).toThrow('positive integer or null')
+    },
+  )
+
   it.each([
     'id',
     'status',
@@ -146,6 +189,15 @@ describe('agentStudyTaskActions', () => {
     },
   )
 
+  it('rejects unsupported non-enumerable and symbol own draft fields', () => {
+    const nonEnumerableDraft = { ...todayDraft }
+    Object.defineProperty(nonEnumerableDraft, 'hidden', { value: true, enumerable: false })
+    expect(() => createAction(todaySnapshot, nonEnumerableDraft)).toThrow('unsupported fields: hidden')
+
+    const symbolDraft = { ...todayDraft, [Symbol('hidden')]: true }
+    expect(() => createAction(todaySnapshot, symbolDraft)).toThrow('unsupported fields: Symbol(hidden)')
+  })
+
   it('rejects unknown and system-owned fields on the action envelope', () => {
     const action = createAction()
     expect(() => validateConfirmedStudyTaskAction({ ...action, status: 'done' }, todaySnapshot))
@@ -166,6 +218,18 @@ describe('agentStudyTaskActions', () => {
     })).toThrow('missing required fields')
     expect(() => createAction(todaySnapshot, Object.create(todayDraft)))
       .toThrow('missing required fields')
+  })
+
+  it('rejects a missing required related_entry_id', () => {
+    expect(() => createAction(todaySnapshot, {
+      title: todayDraft.title,
+      description: todayDraft.description,
+      type: todayDraft.type,
+      estimate_minutes: todayDraft.estimate_minutes,
+      subject_id: todayDraft.subject_id,
+      related_mistake_id: todayDraft.related_mistake_id,
+      related_chapter_id: todayDraft.related_chapter_id,
+    })).toThrow('study task draft.related_entry_id')
   })
 
   it('enforces Today Action and Daily Review date invariants', () => {

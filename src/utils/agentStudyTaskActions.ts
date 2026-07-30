@@ -35,6 +35,15 @@ const DRAFT_KEYS = [
   'related_entry_id',
   'related_chapter_id',
 ] as const
+const DRAFT_REQUIRED_KEYS = [
+  'title',
+  'description',
+  'type',
+  'estimate_minutes',
+  'subject_id',
+  'related_mistake_id',
+  'related_entry_id',
+] as const
 
 const TITLE_MAX_LENGTH = 80
 const DESCRIPTION_MAX_LENGTH = 240
@@ -94,12 +103,24 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value
 }
 
-function assertOnlyKeys(record: Record<string, unknown>, allowed: readonly string[], label: string): void {
-  const unsupported = Object.keys(record).filter(key => !allowed.includes(key))
+function assertExactKeys({
+  record,
+  allowed,
+  required = allowed,
+  label,
+}: {
+  record: Record<string, unknown>
+  allowed: readonly string[]
+  required?: readonly string[]
+  label: string
+}): void {
+  const unsupported = Reflect.ownKeys(record).filter(key => (
+    typeof key !== 'string' || !allowed.includes(key)
+  ))
   if (unsupported.length > 0) {
-    throw new Error(`${label} contains unsupported fields: ${unsupported.join(', ')}`)
+    throw new Error(`${label} contains unsupported fields: ${unsupported.map(String).join(', ')}`)
   }
-  const missing = allowed.filter(key => !Object.prototype.hasOwnProperty.call(record, key))
+  const missing = required.filter(key => !Object.prototype.hasOwnProperty.call(record, key))
   if (missing.length > 0) {
     throw new Error(`${label} is missing required fields: ${missing.map(key => `${label}.${key}`).join(', ')}`)
   }
@@ -149,7 +170,7 @@ function requireNullableId(value: unknown, label: string): number | null {
 
 function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   const snapshot = requireRecord(value, 'confirmation snapshot')
-  assertOnlyKeys(snapshot, SNAPSHOT_KEYS, 'confirmation snapshot')
+  assertExactKeys({ record: snapshot, allowed: SNAPSHOT_KEYS, label: 'confirmation snapshot' })
   const mode = requireMode(snapshot.mode)
   const generation = validateAIStudyTaskGenerationProvenance(snapshot.generation, mode)
   const confirmationContextSignature = requireNonEmptyString(
@@ -175,7 +196,12 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
 
 function validateDraft(value: unknown): ConfirmedStudyTaskDraft {
   const draft = requireRecord(value, 'study task draft')
-  assertOnlyKeys(draft, DRAFT_KEYS, 'study task draft')
+  assertExactKeys({
+    record: draft,
+    allowed: DRAFT_KEYS,
+    required: DRAFT_REQUIRED_KEYS,
+    label: 'study task draft',
+  })
   const type = draft.type
   if (typeof type !== 'string' || !STUDY_TASK_TYPES.includes(type as StudyTaskType)) {
     throw new Error('study task draft type is invalid')
@@ -198,7 +224,8 @@ function validateDraft(value: unknown): ConfirmedStudyTaskDraft {
     subject_id: requireNullableId(draft.subject_id, 'study task draft subject_id'),
     related_mistake_id: requireNullableId(draft.related_mistake_id, 'study task draft related_mistake_id'),
     related_entry_id: requireNullableId(draft.related_entry_id, 'study task draft related_entry_id'),
-    related_chapter_id: draft.related_chapter_id === undefined
+    related_chapter_id: !Object.prototype.hasOwnProperty.call(draft, 'related_chapter_id')
+      || draft.related_chapter_id === undefined
       ? null
       : requireNullableId(draft.related_chapter_id, 'study task draft related_chapter_id'),
   }
@@ -209,7 +236,7 @@ export function validateConfirmedStudyTaskAction(
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot,
 ): ConfirmedStudyTaskAction {
   const action = requireRecord(value, 'confirmed study task action')
-  assertOnlyKeys(action, ACTION_KEYS, 'confirmed study task action')
+  assertExactKeys({ record: action, allowed: ACTION_KEYS, label: 'confirmed study task action' })
   if (action.kind !== 'create_study_task') throw new Error('confirmed study task action kind is invalid')
   const actionId = requireNonEmptyString(action.actionId, 'confirmed study task action actionId')
   const mode = requireMode(action.mode)
