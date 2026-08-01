@@ -183,6 +183,17 @@ export const createTasksApi = (
             throw error
         }
     },
+    createIdempotentAIStudyTaskForCurrentDate: async request => {
+        if (IS_ELECTRON) {
+            return window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
+        }
+        return {
+            ok: false,
+            operationId: request.operationId,
+            code: 'INVALID_REQUEST',
+            message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
+        }
+    },
     update: async (id: number, patch: Partial<StudyTask>) => {
         if (IS_ELECTRON) return window.api.tasks.update(id, patch)
 

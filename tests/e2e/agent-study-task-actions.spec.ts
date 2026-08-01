@@ -170,7 +170,7 @@ test.describe('confirmed study task actions through Electron', () => {
       await page.getByTestId('ai-plan-create-selected').click()
 
       await expect(page.getByTestId('ai-plan-creation-summary')).toContainText('本次已创建 0 项，失败 1 项')
-      await expect(page.getByText(/current local date changed before task creation/i)).toBeVisible()
+      await expect(page.getByText(/confirmed date no longer matches the current local date/i)).toBeVisible()
       expect(await getTasksForDate(page, yesterday)).toEqual([])
     } catch (error) {
       hasPrimaryFailure = true

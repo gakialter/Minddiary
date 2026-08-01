@@ -1,5 +1,10 @@
 import type { NewStudyTask, StudyTask, StudyTaskType } from '../types'
-import type { TasksContextAPI } from '../types/api'
+import type {
+  IdempotentAIStudyTaskCreateErrorCode,
+  IdempotentAIStudyTaskCreateRequest,
+  IdempotentAIStudyTaskCreateResponse,
+  TasksContextAPI,
+} from '../types/api'
 import {
   validateAIStudyTaskGenerationProvenance,
   type AIStudyTaskGenerationProvenance,
@@ -10,7 +15,7 @@ import { getLocalDateKey, getNextLocalDateKey, isDateKey } from './dateKey'
 const STUDY_TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const ACTION_KEYS = [
   'kind',
-  'actionId',
+  'operationId',
   'mode',
   'generation',
   'confirmationContextSignature',
@@ -44,11 +49,38 @@ const DRAFT_REQUIRED_KEYS = [
   'related_mistake_id',
   'related_entry_id',
 ] as const
+const STUDY_TASK_RESPONSE_KEYS = [
+  'id',
+  'title',
+  'description',
+  'type',
+  'subject_id',
+  'related_mistake_id',
+  'related_entry_id',
+  'related_chapter_id',
+  'planned_date',
+  'estimate_minutes',
+  'status',
+  'source',
+  'created_at',
+  'updated_at',
+] as const
+const STUDY_TASK_STATUSES = ['todo', 'doing', 'done', 'skipped'] as const
+const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro'] as const
 
 const TITLE_MAX_LENGTH = 80
 const DESCRIPTION_MAX_LENGTH = 240
 const ESTIMATE_MINUTES_MIN = 5
 const ESTIMATE_MINUTES_MAX = 180
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const UNCERTAIN_RESULT_MESSAGE = '任务创建结果不确定。请使用相同操作 ID 检查并恢复。'
+const IDEMPOTENT_ERROR_CODES: readonly IdempotentAIStudyTaskCreateErrorCode[] = [
+  'INVALID_REQUEST',
+  'DATE_MISMATCH',
+  'IDEMPOTENCY_CONFLICT',
+  'RESULT_DELETED',
+  'INTEGRITY_ERROR',
+]
 
 export type StudyTaskActionMode = AIStudyTaskOperationKind
 
@@ -73,7 +105,7 @@ export interface StudyTaskActionConfirmationSnapshot {
 
 export interface ConfirmedStudyTaskAction {
   kind: 'create_study_task'
-  actionId: string
+  operationId: string
   mode: StudyTaskActionMode
   generation: AIStudyTaskGenerationProvenance
   confirmationContextSignature: string
@@ -84,13 +116,20 @@ export interface ConfirmedStudyTaskAction {
 
 export type StudyTaskActionExecutionResult =
   | {
-      actionId: string
+      operationId: string
       status: 'succeeded'
       task: StudyTask
+      replayed: boolean
     }
   | {
-      actionId: string
+      operationId: string
       status: 'failed'
+      code: IdempotentAIStudyTaskCreateErrorCode
+      error: string
+    }
+  | {
+      operationId: string
+      status: 'uncertain'
       error: string
     }
 
@@ -141,6 +180,23 @@ function normalizeText(value: unknown, label: string, maxLength: number): string
 function requireNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be a non-empty string`)
   return value
+}
+
+export function validateConfirmedStudyTaskOperationId(value: unknown): string {
+  if (typeof value !== 'string' || !UUID_V4_PATTERN.test(value)) {
+    throw new Error('confirmed study task operationId must be a lowercase UUID v4')
+  }
+  return value
+}
+
+export function createConfirmedStudyTaskOperationId(randomUUID?: () => string): string {
+  const generator = randomUUID ?? (() => {
+    if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function') {
+      throw new Error('Secure operation ID generation is unavailable')
+    }
+    return globalThis.crypto.randomUUID()
+  })
+  return validateConfirmedStudyTaskOperationId(generator())
 }
 
 function requireMode(value: unknown): StudyTaskActionMode {
@@ -238,7 +294,7 @@ export function validateConfirmedStudyTaskAction(
   const action = requireRecord(value, 'confirmed study task action')
   assertExactKeys({ record: action, allowed: ACTION_KEYS, label: 'confirmed study task action' })
   if (action.kind !== 'create_study_task') throw new Error('confirmed study task action kind is invalid')
-  const actionId = requireNonEmptyString(action.actionId, 'confirmed study task action actionId')
+  const operationId = validateConfirmedStudyTaskOperationId(action.operationId)
   const mode = requireMode(action.mode)
   const generation = validateAIStudyTaskGenerationProvenance(action.generation, mode)
   const confirmationContextSignature = requireNonEmptyString(
@@ -275,7 +331,7 @@ export function validateConfirmedStudyTaskAction(
 
   return {
     kind: 'create_study_task',
-    actionId,
+    operationId,
     mode,
     generation,
     confirmationContextSignature,
@@ -286,18 +342,18 @@ export function validateConfirmedStudyTaskAction(
 }
 
 export function createConfirmedStudyTaskAction({
-  actionId,
+  operationId,
   confirmationSnapshot,
   draft,
 }: {
-  actionId: string
+  operationId: string
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot
   draft: unknown
 }): ConfirmedStudyTaskAction {
   const snapshot = validateSnapshot(confirmationSnapshot)
   return validateConfirmedStudyTaskAction({
     kind: 'create_study_task',
-    actionId,
+    operationId,
     mode: snapshot.mode,
     generation: snapshot.generation,
     confirmationContextSignature: snapshot.confirmationContextSignature,
@@ -323,23 +379,144 @@ export function buildConfirmedStudyTaskPayload(action: ConfirmedStudyTaskAction)
   }
 }
 
+export function buildIdempotentAIStudyTaskCreateRequest(
+  action: ConfirmedStudyTaskAction,
+): IdempotentAIStudyTaskCreateRequest {
+  return {
+    operationId: action.operationId,
+    operationKind: action.mode,
+    actionContractVersion: action.generation.versions.actionContractVersion,
+    expectedCurrentDate: action.expectedCurrentDate,
+    payload: buildConfirmedStudyTaskPayload(action),
+  }
+}
+
+function getResultOperationId(value: unknown): string {
+  if (!isRecord(value) || typeof value.operationId !== 'string') return ''
+  return value.operationId
+}
+
+function isExactResponseShape(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  const ownKeys = Reflect.ownKeys(record)
+  return ownKeys.length === keys.length
+    && ownKeys.every(key => typeof key === 'string' && keys.includes(key))
+    && keys.every(key => Object.prototype.hasOwnProperty.call(record, key))
+}
+
+function isNullablePositiveSafeInteger(value: unknown): value is number | null {
+  return value === null
+    || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
+}
+
+function isValidStudyTaskResponse(value: unknown): value is StudyTask {
+  if (!isRecord(value) || !isExactResponseShape(value, STUDY_TASK_RESPONSE_KEYS)) return false
+  let plannedDateIsValid = false
+  try {
+    plannedDateIsValid = requireValidLocalDateKey(value.planned_date, 'response task planned_date')
+      === value.planned_date
+  } catch {
+    return false
+  }
+  return typeof value.id === 'number'
+    && Number.isSafeInteger(value.id)
+    && value.id > 0
+    && typeof value.title === 'string'
+    && value.title.length > 0
+    && typeof value.description === 'string'
+    && typeof value.type === 'string'
+    && STUDY_TASK_TYPES.includes(value.type as StudyTaskType)
+    && isNullablePositiveSafeInteger(value.subject_id)
+    && isNullablePositiveSafeInteger(value.related_mistake_id)
+    && isNullablePositiveSafeInteger(value.related_entry_id)
+    && isNullablePositiveSafeInteger(value.related_chapter_id)
+    && plannedDateIsValid
+    && typeof value.estimate_minutes === 'number'
+    && Number.isSafeInteger(value.estimate_minutes)
+    && value.estimate_minutes > 0
+    && typeof value.status === 'string'
+    && STUDY_TASK_STATUSES.includes(value.status as typeof STUDY_TASK_STATUSES[number])
+    && typeof value.source === 'string'
+    && STUDY_TASK_SOURCES.includes(value.source as typeof STUDY_TASK_SOURCES[number])
+    && typeof value.created_at === 'string'
+    && value.created_at.length > 0
+    && typeof value.updated_at === 'string'
+    && value.updated_at.length > 0
+}
+
+function isValidIdempotentResponse(
+  value: unknown,
+  expectedOperationId: string,
+): value is IdempotentAIStudyTaskCreateResponse {
+  if (!isRecord(value) || value.operationId !== expectedOperationId) return false
+  if (value.ok === true) {
+    return isExactResponseShape(value, ['ok', 'operationId', 'task', 'replayed'])
+      && value.replayed !== undefined
+      && typeof value.replayed === 'boolean'
+      && isValidStudyTaskResponse(value.task)
+  }
+  return value.ok === false
+    && isExactResponseShape(value, ['ok', 'operationId', 'code', 'message'])
+    && typeof value.code === 'string'
+    && IDEMPOTENT_ERROR_CODES.includes(value.code as IdempotentAIStudyTaskCreateErrorCode)
+    && typeof value.message === 'string'
+    && value.message.length > 0
+    && value.message.length <= 500
+}
+
+export async function executeIdempotentAIStudyTaskCreateRequest(
+  request: IdempotentAIStudyTaskCreateRequest,
+  tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>,
+): Promise<StudyTaskActionExecutionResult> {
+  try {
+    const response = await tasksAPI.createIdempotentAIStudyTaskForCurrentDate(request)
+    if (!isValidIdempotentResponse(response, request.operationId)) {
+      return {
+        operationId: request.operationId,
+        status: 'uncertain',
+        error: UNCERTAIN_RESULT_MESSAGE,
+      }
+    }
+    if (response.ok) {
+      return {
+        operationId: response.operationId,
+        status: 'succeeded',
+        task: response.task,
+        replayed: response.replayed,
+      }
+    }
+    return {
+      operationId: response.operationId,
+      status: 'failed',
+      code: response.code,
+      error: response.message,
+    }
+  } catch {
+    return {
+      operationId: request.operationId,
+      status: 'uncertain',
+      error: UNCERTAIN_RESULT_MESSAGE,
+    }
+  }
+}
+
 export async function executeConfirmedStudyTaskAction(
   action: ConfirmedStudyTaskAction,
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot,
-  tasksAPI: Pick<TasksContextAPI, 'createForCurrentDate'>,
+  tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>,
 ): Promise<StudyTaskActionExecutionResult> {
+  let validatedAction: ConfirmedStudyTaskAction
   try {
-    const validatedAction = validateConfirmedStudyTaskAction(action, confirmationSnapshot)
-    const task = await tasksAPI.createForCurrentDate(
-      buildConfirmedStudyTaskPayload(validatedAction),
-      validatedAction.expectedCurrentDate,
-    )
-    return { actionId: validatedAction.actionId, status: 'succeeded', task }
+    validatedAction = validateConfirmedStudyTaskAction(action, confirmationSnapshot)
   } catch (error) {
     return {
-      actionId: action.actionId,
+      operationId: getResultOperationId(action),
       status: 'failed',
+      code: 'INVALID_REQUEST',
       error: error instanceof Error ? error.message : String(error),
     }
   }
+  return executeIdempotentAIStudyTaskCreateRequest(
+    buildIdempotentAIStudyTaskCreateRequest(validatedAction),
+    tasksAPI,
+  )
 }

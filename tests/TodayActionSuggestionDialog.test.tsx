@@ -2,7 +2,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TodayActionSuggestionDialog from '../src/components/TodayActionSuggestionDialog'
 import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject } from '../src/types'
+import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
 import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
+import {
+  PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY,
+  savePendingStudyTaskOperation,
+} from '../src/utils/pendingStudyTaskOperations'
 
 const createDeferred = <T,>() => {
   let resolve!: (value: T) => void
@@ -93,6 +98,8 @@ describe('TodayActionSuggestionDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    mocks.tasksCreate.mockReset()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
     mocks.tasksCreate.mockResolvedValue(makeTask())
@@ -105,7 +112,15 @@ describe('TodayActionSuggestionDialog', () => {
     const tasksAPI = {
       getByDate: mocks.tasksGetByDate,
       create: mocks.tasksCreateLegacy,
-      createForCurrentDate: mocks.tasksCreate,
+      createIdempotentAIStudyTaskForCurrentDate: async (
+        request: IdempotentAIStudyTaskCreateRequest,
+      ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+        const result = await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
+        if (result && typeof result === 'object' && 'ok' in result) {
+          return { ...result, operationId: request.operationId } as IdempotentAIStudyTaskCreateResponse
+        }
+        return { ok: true, operationId: request.operationId, task: result, replayed: false }
+      },
     }
     return (
       <TodayActionSuggestionDialog
@@ -145,6 +160,7 @@ describe('TodayActionSuggestionDialog', () => {
           subject_id: 1,
         }),
         '2026-06-12',
+        expect.objectContaining({ operationKind: 'today_action' }),
       )
       expect(mocks.onCreated).toHaveBeenCalled()
     })
@@ -287,6 +303,7 @@ describe('TodayActionSuggestionDialog', () => {
         planned_date: '2026-06-12',
       }),
       '2026-06-12',
+      expect.objectContaining({ operationKind: 'today_action' }),
     ))
   })
 
@@ -351,7 +368,11 @@ describe('TodayActionSuggestionDialog', () => {
     mocks.tasksCreate.mockReset()
     mocks.tasksCreate
       .mockResolvedValueOnce(createdA)
-      .mockRejectedValueOnce(new Error('second write failed'))
+      .mockResolvedValueOnce({
+        ok: false,
+        code: 'INTEGRITY_ERROR',
+        message: 'second write failed',
+      })
       .mockResolvedValueOnce(createdB)
 
     renderDialog()
@@ -533,5 +554,170 @@ describe('TodayActionSuggestionDialog', () => {
     await waitFor(() => {
       expect(screen.getByTestId('planning-context-today_tasks')).toHaveTextContent('今日活跃任务（0）')
     })
+  })
+
+  it('persists the exact pending operation before invoking the desktop route', async () => {
+    mocks.tasksCreate.mockImplementationOnce(async (payload, expectedDate, request) => {
+      const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+      expect(serialized).not.toBeNull()
+      const envelope = JSON.parse(serialized!) as { operations: IdempotentAIStudyTaskCreateRequest[] }
+      expect(envelope.operations).toHaveLength(1)
+      expect(envelope.operations[0]).toMatchObject({
+        operationId: request.operationId,
+        operationKind: 'today_action',
+        expectedCurrentDate: expectedDate,
+        payload,
+      })
+      return makeTask({
+        title: payload.title,
+        description: payload.description,
+        planned_date: payload.planned_date,
+      })
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+  })
+
+  it('retains an uncertain operation across restart and recovers with the same ID and payload only on click', async () => {
+    mocks.tasksCreate
+      .mockRejectedValueOnce(new Error('reply lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        task: makeTask({ id: 303 }),
+        replayed: true,
+      })
+
+    const firstView = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    const titleInput = await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByText(/任务创建结果不确定/)).toBeInTheDocument()
+    expect(titleInput).toBeDisabled()
+    expect(mocks.onCreated).not.toHaveBeenCalled()
+    const stored = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
+    }
+    const pending = stored.operations[0]!
+    const firstRequest = mocks.tasksCreate.mock.calls[0]?.[2] as IdempotentAIStudyTaskCreateRequest
+    expect(pending.operationId).toBe(firstRequest.operationId)
+    expect(pending.payload).toEqual(firstRequest.payload)
+
+    firstView.unmount()
+    mocks.onCreated.mockClear()
+    renderDialog()
+    expect(await screen.findByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operationId}`))
+    expect(await screen.findByText('已重放原操作，并恢复此前创建的同一任务。')).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+    const retryRequest = mocks.tasksCreate.mock.calls[1]?.[2] as IdempotentAIStudyTaskCreateRequest
+    expect(retryRequest.operationId).toBe(firstRequest.operationId)
+    expect(retryRequest.payload).toEqual(firstRequest.payload)
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    expect(mocks.onCreated).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains and locks an idempotency conflict for explicit inspection', async () => {
+    mocks.tasksCreate.mockResolvedValueOnce({
+      ok: false,
+      code: 'IDEMPOTENCY_CONFLICT',
+      message: 'operation ID already belongs to different content',
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    const titleInput = await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByText('operation ID already belongs to different content')).toBeInTheDocument()
+    expect(titleInput).toBeDisabled()
+    expect(screen.getByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).not.toBeNull()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an uncertain operation unchanged when the dialog date changes', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+    const view = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    expect(await screen.findByText(/任务创建结果不确定/)).toBeInTheDocument()
+
+    const before = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+    const pending = JSON.parse(before!) as { operations: Array<{ operationId: string }> }
+    view.rerender(dialogElement('2026-06-13'))
+
+    expect(await screen.findByTestId(`pending-study-task-operation-${pending.operations[0]!.operationId}`))
+      .toBeInTheDocument()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBe(before)
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBe(before)
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not invoke task creation when the pending record cannot be saved', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('quota exceeded')
+    })
+    try {
+      renderDialog()
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await screen.findByDisplayValue('复习函数极限错题')
+      fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+      expect(await screen.findByText(/无法先保存本地恢复记录/)).toBeInTheDocument()
+      expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    } finally {
+      setItem.mockRestore()
+    }
+  })
+
+  it.each([
+    ['DATE_MISMATCH', 'confirmed date is stale'],
+    ['RESULT_DELETED', 'the original task was deleted'],
+  ] as const)('clears a definite %s recovery result without automatic or replacement writes', async (code, message) => {
+    const operationId = '11111111-1111-4111-8111-111111111111'
+    savePendingStudyTaskOperation({
+      operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v1',
+      expectedCurrentDate: '2026-06-11',
+      payload: {
+        title: '旧日期待恢复任务',
+        description: '只允许检查原操作。',
+        type: 'focus',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: '2026-06-11',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'ai',
+      },
+    })
+    mocks.tasksCreate.mockResolvedValueOnce({ ok: false, code, message })
+
+    renderDialog('2026-06-12')
+    expect(await screen.findByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+    expect(await screen.findByText(`任务未创建，恢复记录已结束：${message}`)).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    expect(mocks.onCreated).not.toHaveBeenCalled()
   })
 })

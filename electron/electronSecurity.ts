@@ -30,26 +30,26 @@ type WindowOpenDetails = {
   readonly url: string
 }
 
-type ClipboardFrame = {
+export type MainWindowIpcFrame = {
   readonly url: string
 }
 
-type ClipboardWebContents = {
-  readonly mainFrame: ClipboardFrame
+export type MainWindowIpcWebContents = {
+  readonly mainFrame: MainWindowIpcFrame
 }
 
-type ClipboardMainWindow = {
-  readonly webContents: ClipboardWebContents
+export type MainWindowIpcWindow = {
+  readonly webContents: MainWindowIpcWebContents
   readonly isDestroyed: () => boolean
 }
 
-type ClipboardWriteEvent = {
-  readonly sender: ClipboardWebContents
-  readonly senderFrame: ClipboardFrame
+export type MainWindowIpcEvent = {
+  readonly sender: MainWindowIpcWebContents
+  readonly senderFrame: MainWindowIpcFrame
 }
 
 type ClipboardWriteHandlerOptions = {
-  readonly getMainWindow: () => ClipboardMainWindow | null
+  readonly getMainWindow: () => MainWindowIpcWindow | null
   readonly getNavigationPolicy: () => NavigationPolicy
   readonly writeText: (text: string) => void
 }
@@ -146,17 +146,23 @@ export function denyPermissionCheck(_webContents: unknown, _permission: string):
   return false
 }
 
+export function isTrustedMainWindowIpcSender(
+  event: MainWindowIpcEvent,
+  options: Pick<ClipboardWriteHandlerOptions, 'getMainWindow' | 'getNavigationPolicy'>,
+): boolean {
+  const mainWindow = options.getMainWindow()
+  return Boolean(
+    mainWindow !== null
+    && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents
+    && event.senderFrame === mainWindow.webContents.mainFrame
+    && classifyNavigation(event.senderFrame.url, options.getNavigationPolicy()).kind === 'allow',
+  )
+}
+
 export function createClipboardWriteHandler(options: ClipboardWriteHandlerOptions) {
-  return (event: ClipboardWriteEvent, payload: unknown): void => {
-    const mainWindow = options.getMainWindow()
-    const isTrustedSender = (
-      mainWindow !== null &&
-      !mainWindow.isDestroyed() &&
-      event.sender === mainWindow.webContents &&
-      event.senderFrame === mainWindow.webContents.mainFrame &&
-      classifyNavigation(event.senderFrame.url, options.getNavigationPolicy()).kind === 'allow'
-    )
-    if (!isTrustedSender || typeof payload !== 'string') {
+  return (event: MainWindowIpcEvent, payload: unknown): void => {
+    if (!isTrustedMainWindowIpcSender(event, options) || typeof payload !== 'string') {
       throw new ClipboardWriteRejectedError()
     }
     options.writeText(payload)

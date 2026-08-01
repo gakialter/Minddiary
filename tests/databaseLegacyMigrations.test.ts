@@ -152,6 +152,7 @@ const CURRENT_TABLES = [
   'pomodoro_sessions',
   'mistakes',
   'study_tasks',
+  'study_task_action_receipts',
   'ai_chats',
   'settings',
   'diary_templates',
@@ -172,6 +173,7 @@ const CURRENT_INDEXES = [
   'idx_study_tasks_status',
   'idx_study_tasks_subject_id',
   'idx_study_tasks_related_chapter_id',
+  'idx_study_task_action_receipts_task_id',
 ] as const
 
 const tempRoots: string[] = []
@@ -255,7 +257,7 @@ function expectFixtureProvenance(): void {
 }
 
 function expectCurrentSchema(database: Database.Database): void {
-  expect(getUserVersion(database)).toBe(5)
+  expect(getUserVersion(database)).toBe(6)
   expect(getIntegrityCheck(database)).toBe('ok')
   expect(getForeignKeyViolations(database)).toEqual([])
 
@@ -299,11 +301,23 @@ function expectCurrentSchema(database: Database.Database): void {
     'status',
     'source',
   ]))
+  expect(getColumnNames(database, 'study_task_action_receipts')).toEqual([
+    'operation_id',
+    'operation_kind',
+    'action_contract_version',
+    'request_digest',
+    'expected_current_date',
+    'planned_date',
+    'task_id',
+    'created_at',
+  ])
+  expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
 
   expect(getPrimaryKeyColumns(database, 'entries')).toEqual(['id'])
   expect(getPrimaryKeyColumns(database, 'tags')).toEqual(['id'])
   expect(getPrimaryKeyColumns(database, 'entry_tags')).toEqual(['entry_id', 'tag_id'])
   expect(getPrimaryKeyColumns(database, 'study_tasks')).toEqual(['id'])
+  expect(getPrimaryKeyColumns(database, 'study_task_action_receipts')).toEqual(['operation_id'])
 }
 
 function expectLegacyDataPreserved(database: Database.Database, expected: ExpectedLegacyData): void {
@@ -536,7 +550,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const { database, expected } = prepareFixtureDatabase(fixture)
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(5)
+    expect(runDatabaseMigrations(database)).toBe(6)
 
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
@@ -581,16 +595,16 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const fixture = legacyDatabaseFixtures[0]
     expect(fixture).toBeDefined()
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture!)
-    seedDatabase.pragma('user_version = 6')
+    seedDatabase.pragma('user_version = 7')
     closeTrackedDatabase(seedDatabase)
 
     const databaseModule = await loadRealDatabaseModule(root)
     databaseModule.setCustomDbPath(filepath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 6.*supported version 5/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 7.*supported version 6/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = trackDatabase(new BetterSqlite3(filepath))
-    expect(getUserVersion(reopened)).toBe(6)
+    expect(getUserVersion(reopened)).toBe(7)
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
@@ -613,7 +627,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
   })
 
   it('keeps schema and backup format constants aligned with the current schema', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(5)
+    expect(CURRENT_SCHEMA_VERSION).toBe(6)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
   })
 })

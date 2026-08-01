@@ -121,6 +121,37 @@ describe('study task SQLite/browser fallback parity', () => {
     expect(fallback.tasksRef.current).toHaveLength(1)
   })
 
+  it('keeps browser fallback idempotent AI creation explicitly unsupported and zero-write', async () => {
+    const fallback = createFallbackFixture()
+    const result = await fallback.tasks.createIdempotentAIStudyTaskForCurrentDate({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v1',
+      expectedCurrentDate: '2026-06-12',
+      payload: {
+        title: 'Browser candidate',
+        description: 'Must remain unsupported',
+        type: 'focus',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: '2026-06-12',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'ai',
+      },
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      operationId: '11111111-1111-4111-8111-111111111111',
+      code: 'INVALID_REQUEST',
+      message: expect.stringContaining('桌面版'),
+    })
+    expect(fallback.tasksRef.current).toEqual([])
+  })
+
   it('rolls back browser fallback creation when the date changes inside the call', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 31, 23, 59, 59))

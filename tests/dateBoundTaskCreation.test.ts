@@ -93,7 +93,7 @@ describe('date-bound main-process task creation', () => {
       plannedDate: '2026-05-31',
     }
     const action = createConfirmedStudyTaskAction({
-      actionId: 'suggestion-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
       confirmationSnapshot,
       draft: {
         title: 'Old-date Today candidate',
@@ -109,20 +109,30 @@ describe('date-bound main-process task creation', () => {
 
     try {
       const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, {
-        createForCurrentDate: async (payload, expectedCurrentDate) => (
-          createStudyTaskForCurrentDate(payload, expectedCurrentDate, {
-            getCurrentDateKey: () => '2026-06-01',
-            createTask: () => {
-              database.prepare('INSERT INTO writes DEFAULT VALUES').run()
-              return createdTask
-            },
-            runInTransaction: operation => database.transaction(operation)(),
-          })
-        ),
+        createIdempotentAIStudyTaskForCurrentDate: async request => {
+          try {
+            const task = createStudyTaskForCurrentDate(request.payload, request.expectedCurrentDate, {
+              getCurrentDateKey: () => '2026-06-01',
+              createTask: () => {
+                database.prepare('INSERT INTO writes DEFAULT VALUES').run()
+                return createdTask
+              },
+              runInTransaction: operation => database.transaction(operation)(),
+            })
+            return { ok: true, operationId: request.operationId, task, replayed: false }
+          } catch (error) {
+            return {
+              ok: false,
+              operationId: request.operationId,
+              code: 'DATE_MISMATCH' as const,
+              message: error instanceof Error ? error.message : String(error),
+            }
+          }
+        },
       })
 
       expect(result).toMatchObject({
-        actionId: 'suggestion-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
         status: 'failed',
         error: expect.stringContaining('current local date changed'),
       })

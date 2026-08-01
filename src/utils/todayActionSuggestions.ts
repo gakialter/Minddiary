@@ -25,7 +25,7 @@ export const TODAY_ACTION_ESTIMATE_MINUTES_MIN = 5
 export const TODAY_ACTION_ESTIMATE_MINUTES_MAX = 180
 
 export type TodayActionPriority = typeof PRIORITIES[number]
-export type TodayActionCreationState = 'draft' | 'creating' | 'created' | 'failed'
+export type TodayActionCreationState = 'draft' | 'creating' | 'created' | 'failed' | 'uncertain'
 
 const INVALID_TASK_TYPE = '__invalid__' as StudyTaskType
 const INVALID_PRIORITY = '__invalid__' as TodayActionPriority
@@ -71,7 +71,9 @@ export interface TodayActionSuggestionDraft {
   selected: boolean
   validationErrors: string[]
   creationState: TodayActionCreationState
+  operationId?: string
   createdTaskId?: number
+  replayed?: boolean
   creationError?: string
 }
 
@@ -445,10 +447,16 @@ export function validateTodayActionDrafts(
       .filter((id): id is number => typeof id === 'number'),
   )
   const errorsByIndex = normalizedDrafts.map(draft => (
-    draft.creationState === 'created' ? [] : getDraftValidationErrors(draft, context)
+    draft.creationState === 'created' || draft.creationState === 'uncertain'
+      ? []
+      : getDraftValidationErrors(draft, context)
   ))
   const validSelectedIndexes = normalizedDrafts.flatMap((draft, index) => (
-    draft.creationState !== 'created' && draft.selected && errorsByIndex[index]!.length === 0 ? [index] : []
+    (draft.creationState === 'draft' || (draft.creationState === 'failed' && !draft.operationId))
+    && draft.selected
+    && errorsByIndex[index]!.length === 0
+      ? [index]
+      : []
   ))
   const titleCounts = new Map<string, number>()
   const mistakeCounts = new Map<number, number>()
@@ -493,7 +501,12 @@ export function validateTodayActionDrafts(
 
   return normalizedDrafts.map((draft, index) => ({
     ...draft,
-    selected: draft.creationState === 'created' ? false : draft.selected,
+    selected: draft.creationState === 'created'
+      || draft.creationState === 'creating'
+      || draft.creationState === 'uncertain'
+      || Boolean(draft.operationId)
+      ? false
+      : draft.selected,
     validationErrors: [...new Set(errorsByIndex[index]!)],
   }))
 }

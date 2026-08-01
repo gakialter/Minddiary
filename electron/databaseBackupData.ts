@@ -15,6 +15,7 @@ export interface NormalizedBackupDatabaseData {
     pomodoro_sessions: DatabaseBackupRow[];
     mistakes: DatabaseBackupRow[];
     study_tasks: DatabaseBackupRow[];
+    study_task_action_receipts: DatabaseBackupRow[];
     ai_chats: DatabaseBackupRow[];
     diary_templates: DatabaseBackupRow[];
 }
@@ -93,6 +94,20 @@ export const DATABASE_BACKUP_TABLES = [
             'source',
             'created_at',
             'updated_at',
+        ],
+    },
+    {
+        key: 'study_task_action_receipts',
+        table: 'study_task_action_receipts',
+        columns: [
+            'operation_id',
+            'operation_kind',
+            'action_contract_version',
+            'request_digest',
+            'expected_current_date',
+            'planned_date',
+            'task_id',
+            'created_at',
         ],
     },
     {
@@ -245,6 +260,10 @@ export function normalizeBackupDatabaseData(raw: Record<string, unknown>): Norma
         pomodoro_sessions: normalizePomodoroSessions(raw),
         mistakes: normalizeMistakes(raw.mistakes),
         study_tasks: normalizeTableRows(raw.study_tasks, 'study_tasks'),
+        study_task_action_receipts: normalizeTableRows(
+            raw.study_task_action_receipts,
+            'study_task_action_receipts',
+        ),
         ai_chats: normalizeTableRows(raw.ai_chats, 'ai_chats'),
         diary_templates: normalizeTableRows(raw.diary_templates, 'diary_templates'),
     };

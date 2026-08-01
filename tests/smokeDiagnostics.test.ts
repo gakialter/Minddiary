@@ -19,6 +19,7 @@ import {
   type SmokeDiagnosticRequest,
 } from '../electron/smokeDiagnostics';
 import type { DateRolloverDiagnosticDetails } from '../electron/dateRolloverDiagnostic';
+import { CURRENT_SCHEMA_VERSION } from '../electron/databaseMigrations';
 
 const token = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
 const tempRoots: string[] = [];
@@ -60,7 +61,11 @@ function makeDependencies(request: SmokeDiagnosticRequest): SmokeDiagnosticDepen
     arch: process.arch,
     isPackaged: true,
     actualUserDataPath: request.profilePath,
-    queryNativeSqlite: () => ({ query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 }),
+    queryNativeSqlite: () => ({
+      query: 1,
+      sqliteVersion: '3.53.2',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    }),
     getRendererSecurityState: async () => ({
       sandbox: true,
       contextIsolation: true,
@@ -331,7 +336,12 @@ describe('packaged smoke diagnostics', () => {
     writeSmokeDiagnosticResult(request, result);
 
     expect(result.result).toBe('passed');
-    expect(result.nativeSqlite).toEqual({ loaded: true, query: 1, sqliteVersion: '3.53.2', schemaVersion: 5 });
+    expect(result.nativeSqlite).toEqual({
+      loaded: true,
+      query: 1,
+      sqliteVersion: '3.53.2',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    });
     const serialized = fs.readFileSync(request.outputPath, 'utf8');
     expect(serialized).not.toContain(request.profilePath);
     expect(serialized).not.toContain(request.outputPath);

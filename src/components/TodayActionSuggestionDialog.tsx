@@ -15,6 +15,8 @@ import {
   type TodayActionSuggestionDraft,
 } from '../utils/todayActionSuggestions'
 import {
+  buildIdempotentAIStudyTaskCreateRequest,
+  createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
   type StudyTaskActionConfirmationSnapshot,
@@ -23,6 +25,11 @@ import {
   createAIStudyTaskGenerationProvenance,
   type AIStudyTaskGenerationProvenance,
 } from '../utils/aiOperationContracts'
+import {
+  removePendingStudyTaskOperation,
+  savePendingStudyTaskOperation,
+} from '../utils/pendingStudyTaskOperations'
+import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: TodayActionPriority[] = ['high', 'medium', 'low']
@@ -35,13 +42,15 @@ const PRIORITY_LABELS: Record<TodayActionPriority, string> = {
 interface CreationSummary {
   created: number
   failed: number
+  uncertain: number
   refreshError?: string
+  recoveryWarning?: string
 }
 
 interface TodayActionSuggestionDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createForCurrentDate'>
+  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createIdempotentAIStudyTaskForCurrentDate'>
   mistakesAPI: Pick<MistakesContextAPI, 'getAll'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
@@ -103,6 +112,7 @@ export default function TodayActionSuggestionDialog({
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
+  const [recoveryRevision, setRecoveryRevision] = useState(0)
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
@@ -275,6 +285,8 @@ export default function TodayActionSuggestionDialog({
       let currentContext = latestContext
       let createdCount = 0
       let failedCount = 0
+      let uncertainCount = 0
+      let recoveryWarning: string | undefined
       const candidateIds = currentSuggestions.map(suggestion => suggestion.clientId)
 
       for (const clientId of candidateIds) {
@@ -283,14 +295,18 @@ export default function TodayActionSuggestionDialog({
         setSuggestions(currentSuggestions)
         const suggestion = currentSuggestions.find(item => item.clientId === clientId)
         if (!suggestion) continue
-        if (!suggestion.selected || suggestion.creationState === 'created' || suggestion.validationErrors.length > 0) continue
-        currentSuggestions = currentSuggestions.map(item => (
-          item.clientId === suggestion.clientId ? { ...item, creationState: 'creating', creationError: undefined } : item
-        ))
-        setSuggestions(currentSuggestions)
+        if (
+          !suggestion.selected
+          || suggestion.creationState === 'created'
+          || suggestion.creationState === 'creating'
+          || suggestion.creationState === 'uncertain'
+          || suggestion.operationId
+          || suggestion.validationErrors.length > 0
+        ) continue
         try {
+          const operationId = createConfirmedStudyTaskOperationId()
           const action = createConfirmedStudyTaskAction({
-            actionId: suggestion.clientId,
+            operationId,
             confirmationSnapshot,
             draft: {
               title: suggestion.title,
@@ -303,19 +319,80 @@ export default function TodayActionSuggestionDialog({
               estimate_minutes: suggestion.estimate_minutes,
             },
           })
+          const request = buildIdempotentAIStudyTaskCreateRequest(action)
+          try {
+            savePendingStudyTaskOperation(request)
+            setRecoveryRevision(current => current + 1)
+          } catch {
+            failedCount += 1
+            currentSuggestions = currentSuggestions.map(item => (
+              item.clientId === suggestion.clientId
+                ? {
+                    ...item,
+                    creationState: 'failed',
+                    creationError: '无法先保存本地恢复记录，因此没有创建任务。请检查本地存储后重试。',
+                  }
+                : item
+            ))
+            setSuggestions(currentSuggestions)
+            continue
+          }
+          currentSuggestions = currentSuggestions.map(item => (
+            item.clientId === suggestion.clientId
+              ? { ...item, operationId, creationState: 'creating', creationError: undefined }
+              : item
+          ))
+          setSuggestions(currentSuggestions)
           const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
           if (!mountedRef.current || currentDateRef.current !== createDate) return
           if (result.status === 'failed') {
             failedCount += 1
+            const retainForConflict = result.code === 'IDEMPOTENCY_CONFLICT'
+            if (!retainForConflict) {
+              try {
+                removePendingStudyTaskOperation(operationId)
+                setRecoveryRevision(current => current + 1)
+              } catch {
+                recoveryWarning = '部分已确定结果的恢复记录暂时无法清除。'
+              }
+            }
             currentSuggestions = currentSuggestions.map(item => (
               item.clientId === suggestion.clientId
-                ? { ...item, creationState: 'failed', creationError: result.error }
+                ? {
+                    ...item,
+                    operationId: retainForConflict ? operationId : undefined,
+                    creationState: 'failed',
+                    creationError: result.error,
+                    selected: retainForConflict ? false : item.selected,
+                  }
+                : item
+            ))
+            setSuggestions(currentSuggestions)
+            continue
+          }
+          if (result.status === 'uncertain') {
+            uncertainCount += 1
+            currentSuggestions = currentSuggestions.map(item => (
+              item.clientId === suggestion.clientId
+                ? {
+                    ...item,
+                    operationId,
+                    creationState: 'uncertain',
+                    creationError: result.error,
+                    selected: false,
+                  }
                 : item
             ))
             setSuggestions(currentSuggestions)
             continue
           }
           const task = result.task
+          try {
+            removePendingStudyTaskOperation(operationId)
+            setRecoveryRevision(current => current + 1)
+          } catch {
+            recoveryWarning = '任务已创建，但本地恢复记录暂时无法清除；可稍后检查并恢复。'
+          }
           createdCount += 1
           currentContext = {
             ...currentContext,
@@ -323,7 +400,14 @@ export default function TodayActionSuggestionDialog({
           }
           currentSuggestions = currentSuggestions.map(item => (
             item.clientId === suggestion.clientId
-              ? { ...item, creationState: 'created', createdTaskId: task.id, selected: false }
+              ? {
+                  ...item,
+                  operationId,
+                  replayed: result.replayed,
+                  creationState: 'created',
+                  createdTaskId: task.id,
+                  selected: false,
+                }
               : item
           ))
           setSuggestions(currentSuggestions)
@@ -342,8 +426,8 @@ export default function TodayActionSuggestionDialog({
       setPlanningContext(currentContext)
       setReviewedConfirmationContextSignature(buildTodayActionPlanningContextSignature(currentContext))
       setSuggestions(currentSuggestions)
-      if (createdCount > 0 || failedCount > 0) {
-        setCreationSummary({ created: createdCount, failed: failedCount })
+      if (createdCount > 0 || failedCount > 0 || uncertainCount > 0) {
+        setCreationSummary({ created: createdCount, failed: failedCount, uncertain: uncertainCount, recoveryWarning })
       }
       if (createdCount > 0) {
         try {
@@ -354,6 +438,8 @@ export default function TodayActionSuggestionDialog({
           setCreationSummary({
             created: createdCount,
             failed: failedCount,
+            uncertain: uncertainCount,
+            recoveryWarning,
             refreshError: error instanceof Error ? error.message : String(error),
           })
         }
@@ -379,7 +465,7 @@ export default function TodayActionSuggestionDialog({
     && !visiblePlanningContext.todayEntry
   const selectedValidCount = suggestions.filter(suggestion => (
     suggestion.selected &&
-    suggestion.creationState !== 'created' &&
+    (suggestion.creationState === 'draft' || (suggestion.creationState === 'failed' && !suggestion.operationId)) &&
     suggestion.validationErrors.length === 0
   )).length
   const hasFatalParseErrors = errors.length > 0
@@ -534,10 +620,37 @@ export default function TodayActionSuggestionDialog({
             </p>
           )}
 
+          <PendingStudyTaskRecoveryPanel
+            operationKind="today_action"
+            tasksAPI={tasksAPI}
+            revision={recoveryRevision}
+            onRecovered={async result => {
+              setSuggestions(current => current.map(suggestion => (
+                suggestion.operationId === result.operationId
+                  ? {
+                      ...suggestion,
+                      creationState: 'created',
+                      createdTaskId: result.task.id,
+                      replayed: result.replayed,
+                      creationError: undefined,
+                      selected: false,
+                    }
+                  : suggestion
+              )))
+              setPlanningContext(current => {
+                if (!current || current.todayTasks.some(task => task.id === result.task.id)) return current
+                return { ...current, todayTasks: [...current.todayTasks, result.task] }
+              })
+              await onCreated()
+            }}
+          />
+
           {creationSummary && (
-            <p className="mt-3 text-sm" role="status" data-testid="ai-plan-creation-summary" style={{ color: creationSummary.failed > 0 ? 'var(--warning, var(--text-secondary))' : 'var(--success)' }}>
-              本次已创建 {creationSummary.created} 项，失败 {creationSummary.failed} 项。
+            <p className="mt-3 text-sm" role="status" data-testid="ai-plan-creation-summary" style={{ color: creationSummary.failed > 0 || creationSummary.uncertain > 0 ? 'var(--warning, var(--text-secondary))' : 'var(--success)' }}>
+              本次已创建 {creationSummary.created} 项，失败 {creationSummary.failed} 项，结果待检查 {creationSummary.uncertain} 项。
               {creationSummary.failed > 0 ? ' 已保留成功任务；可修改失败候选后重试。' : ''}
+              {creationSummary.uncertain > 0 ? ' 结果不确定的候选已锁定，请使用恢复区检查。' : ''}
+              {creationSummary.recoveryWarning ? ` ${creationSummary.recoveryWarning}` : ''}
               {creationSummary.refreshError ? ` 刷新今日任务失败：${creationSummary.refreshError}` : ''}
             </p>
           )}
@@ -552,6 +665,11 @@ export default function TodayActionSuggestionDialog({
             <div className="mt-4 flex flex-col gap-sm">
               {suggestions.map(suggestion => {
                 const isCreated = suggestion.creationState === 'created'
+                const isLocked = creating
+                  || isCreated
+                  || suggestion.creationState === 'creating'
+                  || suggestion.creationState === 'uncertain'
+                  || Boolean(suggestion.operationId)
                 const isKnownSubject = suggestion.subject_id === null || Boolean(
                   planningContext?.subjects.some(subject => subject.id === suggestion.subject_id),
                 )
@@ -580,14 +698,14 @@ export default function TodayActionSuggestionDialog({
                         type="checkbox"
                         aria-label={`选择 ${suggestion.title || suggestion.clientId}`}
                         checked={suggestion.selected}
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { selected: event.target.checked })}
                       />
                       <input
                         className="input"
                         aria-label="建议标题"
                         value={suggestion.title}
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { title: event.target.value })}
                         style={{ flex: '1 1 220px', minHeight: 36 }}
                       />
@@ -595,7 +713,7 @@ export default function TodayActionSuggestionDialog({
                         className="input"
                         aria-label="建议类型"
                         value={suggestion.type}
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType })}
                         style={{ width: 112, minHeight: 36 }}
                       >
@@ -609,7 +727,7 @@ export default function TodayActionSuggestionDialog({
                         min={5}
                         max={180}
                         value={suggestion.estimate_minutes}
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { estimate_minutes: Math.round(Number(event.target.value) || 0) })}
                         style={{ width: 86, minHeight: 36 }}
                       />
@@ -617,7 +735,7 @@ export default function TodayActionSuggestionDialog({
                         className="input"
                         aria-label="建议科目"
                         value={suggestion.subject_id ?? ''}
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null })}
                         style={{ width: 120, minHeight: 36 }}
                       >
@@ -631,7 +749,7 @@ export default function TodayActionSuggestionDialog({
                         type="button"
                         aria-label="删除建议"
                         className="button button-secondary"
-                        disabled={creating || isCreated}
+                        disabled={isLocked}
                         onClick={() => removeSuggestion(suggestion.clientId)}
                         style={{ padding: 8 }}
                       >
@@ -645,7 +763,7 @@ export default function TodayActionSuggestionDialog({
                           className="input"
                           aria-label="关联到期错题"
                           value={suggestion.related_mistake_id ?? ''}
-                          disabled={creating || isCreated}
+                          disabled={isLocked}
                           onChange={event => {
                             const relatedMistakeId = event.target.value ? Number(event.target.value) : null
                             const selectedMistake = planningContext?.dueMistakes.find(mistake => mistake.id === relatedMistakeId)
@@ -674,7 +792,7 @@ export default function TodayActionSuggestionDialog({
                           className="input"
                           aria-label="关联今日日记"
                           value={suggestion.related_entry_id ?? ''}
-                          disabled={creating || isCreated}
+                          disabled={isLocked}
                           onChange={event => updateSuggestion(suggestion.clientId, {
                             related_entry_id: event.target.value ? Number(event.target.value) : null,
                           })}
@@ -693,7 +811,7 @@ export default function TodayActionSuggestionDialog({
                           className="input"
                           aria-label="建议优先级"
                           value={suggestion.priority}
-                          disabled={creating || isCreated}
+                          disabled={isLocked}
                           onChange={event => updateSuggestion(suggestion.clientId, { priority: event.target.value as TodayActionPriority })}
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
@@ -706,14 +824,15 @@ export default function TodayActionSuggestionDialog({
                       className="input"
                       aria-label="建议理由"
                       value={suggestion.reason}
-                      disabled={creating || isCreated}
+                      disabled={isLocked}
                       onChange={event => updateSuggestion(suggestion.clientId, { reason: event.target.value })}
                       style={{ width: '100%', minHeight: 58, marginTop: 8 }}
                     />
                     <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
                       {evidence.map(item => <span key={item}>本地依据：{item}</span>)}
-                      {suggestion.creationState === 'created' && <span style={{ color: 'var(--success)' }}>已创建 #{suggestion.createdTaskId}</span>}
+                      {suggestion.creationState === 'created' && <span style={{ color: 'var(--success)' }}>{suggestion.replayed ? '已重放并恢复' : '已创建'} #{suggestion.createdTaskId}</span>}
                       {suggestion.creationState === 'failed' && <span style={{ color: 'var(--danger)' }}>{suggestion.creationError}</span>}
+                      {suggestion.creationState === 'uncertain' && <span style={{ color: 'var(--warning)' }}>{suggestion.creationError}</span>}
                     </div>
                     {suggestion.validationErrors.length > 0 && (
                       <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>

@@ -27,6 +27,8 @@ import {
     createWindowOpenHandler,
     denyPermissionCheck,
     denyPermissionRequest,
+    isTrustedMainWindowIpcSender,
+    type MainWindowIpcEvent,
 } from './electronSecurity';
 import { buildSafeSettingsPayload } from './settingsSecurity';
 import { getAutoUpdateNotConfiguredStatus, isAutoUpdateConfigured } from './updaterConfig';
@@ -40,6 +42,7 @@ import {
 } from './updaterState';
 import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
+import { createIdempotentAIStudyTaskForCurrentDate } from './idempotentStudyTaskCreation';
 import { getLocalDateKey } from '../src/utils/dateKey';
 import {
     DEFAULT_EXAM_EVENT_ID,
@@ -93,6 +96,7 @@ import type {
 } from '../src/types/index';
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
+let mainWindowNavigationPolicy: NavigationPolicy | null = null;
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
 let smokeDiagnosticConfigurationFailed = false;
@@ -117,6 +121,10 @@ function getMainNavigationPolicy(runtimeMode: RendererRuntimeMode): NavigationPo
     return runtimeMode === 'development'
         ? { kind: 'development' }
         : { kind: 'production', appDocumentUrl: pathToFileURL(getAppDocumentPath()).href };
+}
+
+function getActiveMainNavigationPolicy(): NavigationPolicy {
+    return mainWindowNavigationPolicy ?? getMainNavigationPolicy(getRendererRuntimeMode());
 }
 
 function configureWindowsAppUserModelId() {
@@ -160,6 +168,7 @@ function createWindow(runtimeMode: RendererRuntimeMode, options: { show?: boolea
     // Dev or production (E2E tests set NODE_ENV=production)
     const isDev = runtimeMode === 'development';
     const navigationPolicy = getMainNavigationPolicy(runtimeMode);
+    mainWindowNavigationPolicy = navigationPolicy;
     const openExternal = (url: string) => shell.openExternal(url);
     const navigationHandler = createNavigationHandler({ policy: navigationPolicy, openExternal, logger });
     mainWindow.webContents.setWindowOpenHandler(createWindowOpenHandler({ openExternal, logger }));
@@ -648,7 +657,7 @@ app.on('activate', () => {
 // ==================== Window Controls ====================
 ipcMain.handle('clipboard:writeText', createClipboardWriteHandler({
     getMainWindow: () => mainWindow,
-    getNavigationPolicy: () => getMainNavigationPolicy(getRendererRuntimeMode()),
+    getNavigationPolicy: getActiveMainNavigationPolicy,
     writeText: (text: string) => clipboard.writeText(text),
 }));
 
@@ -1095,6 +1104,19 @@ ipcMain.handle('tasks:createForCurrentDate', (_: unknown, task: unknown, expecte
         runInTransaction: operation => db.getDb().transaction(operation)(),
     })
 ));
+ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (event: MainWindowIpcEvent, request: unknown) => {
+    if (!isTrustedMainWindowIpcSender(event, {
+        getMainWindow: () => mainWindow,
+        getNavigationPolicy: getActiveMainNavigationPolicy,
+    })) {
+        throw new Error('Idempotent AI study task request rejected');
+    }
+    return createIdempotentAIStudyTaskForCurrentDate(request, {
+        database: db.getDb(),
+        getCurrentDateKey: getCurrentTaskCreationDateKey,
+        createTask: db.createStudyTask,
+    });
+});
 ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
     return db.updateStudyTask(
         validatePositiveIdPayload(id, 'task id'),

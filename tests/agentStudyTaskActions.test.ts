@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { StudyTask } from '../src/types'
 import {
   buildConfirmedStudyTaskPayload,
+  createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
+  validateConfirmedStudyTaskOperationId,
   validateConfirmedStudyTaskAction,
   type ConfirmedStudyTaskDraft,
   type StudyTaskActionConfirmationSnapshot,
@@ -20,6 +22,9 @@ const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-12',
 }
+
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111'
+const DAILY_OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 
 const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'daily_review',
@@ -72,22 +77,32 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
 function createAction(
   snapshot = todaySnapshot,
   draft: unknown = todayDraft,
-  actionId = 'suggestion-1',
+  operationId = OPERATION_ID,
 ) {
-  return createConfirmedStudyTaskAction({ actionId, confirmationSnapshot: snapshot, draft })
+  return createConfirmedStudyTaskAction({ operationId, confirmationSnapshot: snapshot, draft })
 }
 
 describe('agentStudyTaskActions', () => {
+  it('generates and validates a lowercase UUID v4 operation ID', () => {
+    expect(createConfirmedStudyTaskOperationId(() => OPERATION_ID)).toBe(OPERATION_ID)
+    expect(validateConfirmedStudyTaskOperationId(OPERATION_ID)).toBe(OPERATION_ID)
+    expect(() => validateConfirmedStudyTaskOperationId('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'.toUpperCase()))
+      .toThrow('lowercase UUID v4')
+    expect(() => validateConfirmedStudyTaskOperationId('11111111-1111-5111-8111-111111111111'))
+      .toThrow('lowercase UUID v4')
+    expect(() => createConfirmedStudyTaskOperationId(() => 'not-secure')).toThrow('lowercase UUID v4')
+  })
+
   it('accepts canonical Today Action and Daily Review fixtures', () => {
     expect(createAction()).toMatchObject({
       kind: 'create_study_task',
-      actionId: 'suggestion-1',
+      operationId: OPERATION_ID,
       mode: 'today_action',
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-12',
       draft: todayDraft,
     })
-    expect(createAction(dailySnapshot, dailyDraft, 'daily-review-candidate-1')).toMatchObject({
+    expect(createAction(dailySnapshot, dailyDraft, DAILY_OPERATION_ID)).toMatchObject({
       mode: 'daily_review',
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-13',
@@ -212,7 +227,7 @@ describe('agentStudyTaskActions', () => {
     expect(() => validateConfirmedStudyTaskAction(Object.create(action), todaySnapshot))
       .toThrow('missing required fields')
     expect(() => createConfirmedStudyTaskAction({
-      actionId: 'suggestion-1',
+      operationId: OPERATION_ID,
       confirmationSnapshot: Object.create(todaySnapshot),
       draft: todayDraft,
     })).toThrow('missing required fields')
@@ -322,58 +337,138 @@ describe('agentStudyTaskActions', () => {
     })
   })
 
-  it('executes once through createForCurrentDate and returns the shared succeeded result', async () => {
+  it('executes once through the idempotent route and returns the shared succeeded result', async () => {
     const task = makeTask()
-    const createForCurrentDate = vi.fn().mockResolvedValue(task)
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn().mockResolvedValue({
+      ok: true,
+      operationId: OPERATION_ID,
+      task,
+      replayed: false,
+    })
 
     await expect(executeConfirmedStudyTaskAction(
       createAction(),
       todaySnapshot,
-      { createForCurrentDate },
+      { createIdempotentAIStudyTaskForCurrentDate },
     )).resolves.toEqual({
-      actionId: 'suggestion-1',
+      operationId: OPERATION_ID,
       status: 'succeeded',
       task,
+      replayed: false,
     })
-    expect(createForCurrentDate).toHaveBeenCalledWith(
-      expect.objectContaining({ planned_date: '2026-06-12', status: 'todo', source: 'ai' }),
-      '2026-06-12',
-    )
+    expect(createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: OPERATION_ID,
+      operationKind: 'today_action',
+      expectedCurrentDate: '2026-06-12',
+      payload: expect.objectContaining({ planned_date: '2026-06-12', status: 'todo', source: 'ai' }),
+    }))
   })
 
-  it('returns the shared failed result without retrying', async () => {
-    const createForCurrentDate = vi.fn().mockRejectedValue(new Error('date gate rejected'))
+  it('accepts a replayed task whose estimate was legitimately edited after creation', async () => {
+    const task = makeTask({ estimate_minutes: 240 })
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn().mockResolvedValue({
+      ok: true,
+      operationId: OPERATION_ID,
+      task,
+      replayed: true,
+    })
 
     await expect(executeConfirmedStudyTaskAction(
       createAction(),
       todaySnapshot,
-      { createForCurrentDate },
+      { createIdempotentAIStudyTaskForCurrentDate },
     )).resolves.toEqual({
-      actionId: 'suggestion-1',
+      operationId: OPERATION_ID,
+      status: 'succeeded',
+      task,
+      replayed: true,
+    })
+  })
+
+  it('classifies a rejected bridge result as uncertain without retrying', async () => {
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn().mockRejectedValue(new Error('transport lost'))
+
+    await expect(executeConfirmedStudyTaskAction(
+      createAction(),
+      todaySnapshot,
+      { createIdempotentAIStudyTaskForCurrentDate },
+    )).resolves.toEqual({
+      operationId: OPERATION_ID,
+      status: 'uncertain',
+      error: expect.stringContaining('结果不确定'),
+    })
+    expect(createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a structured domain rejection definite', async () => {
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn().mockResolvedValue({
+      ok: false,
+      operationId: OPERATION_ID,
+      code: 'DATE_MISMATCH',
+      message: 'date gate rejected',
+    })
+
+    await expect(executeConfirmedStudyTaskAction(
+      createAction(),
+      todaySnapshot,
+      { createIdempotentAIStudyTaskForCurrentDate },
+    )).resolves.toEqual({
+      operationId: OPERATION_ID,
       status: 'failed',
+      code: 'DATE_MISMATCH',
       error: 'date gate rejected',
     })
-    expect(createForCurrentDate).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    null,
+    { ok: true, operationId: OPERATION_ID, task: { id: 0 }, replayed: false },
+    { ok: true, operationId: OPERATION_ID, task: { id: 1 }, replayed: false },
+    { ok: true, operationId: OPERATION_ID, task: { ...makeTask(), extra: true }, replayed: false },
+    {
+      ok: true,
+      operationId: OPERATION_ID,
+      task: makeTask({ planned_date: '2026-02-30' }),
+      replayed: false,
+    },
+    { ok: true, operationId: OPERATION_ID, task: makeTask({ estimate_minutes: 0 }), replayed: false },
+    { ok: true, operationId: OPERATION_ID, task: makeTask({ estimate_minutes: 10.5 }), replayed: false },
+    { ok: true, operationId: DAILY_OPERATION_ID, task: makeTask(), replayed: false },
+    { ok: false, operationId: OPERATION_ID, code: 'UNKNOWN', message: 'unknown' },
+    { ok: false, operationId: OPERATION_ID, code: 'DATE_MISMATCH', message: 'stale', extra: true },
+  ])('keeps malformed or mismatched bridge response %j uncertain', async response => {
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn().mockResolvedValue(response)
+
+    await expect(executeConfirmedStudyTaskAction(
+      createAction(),
+      todaySnapshot,
+      { createIdempotentAIStudyTaskForCurrentDate },
+    )).resolves.toEqual({
+      operationId: OPERATION_ID,
+      status: 'uncertain',
+      error: expect.stringContaining('结果不确定'),
+    })
   })
 
   it('does zero writes when the confirmation context does not match', async () => {
-    const createForCurrentDate = vi.fn()
+    const createIdempotentAIStudyTaskForCurrentDate = vi.fn()
 
     await expect(executeConfirmedStudyTaskAction(
       createAction(),
       { ...todaySnapshot, confirmationContextSignature: 'newer-context-fixture' },
-      { createForCurrentDate },
+      { createIdempotentAIStudyTaskForCurrentDate },
     )).resolves.toMatchObject({
-      actionId: 'suggestion-1',
+      operationId: OPERATION_ID,
       status: 'failed',
       error: expect.stringContaining('confirmation context signature does not match'),
     })
-    expect(createForCurrentDate).not.toHaveBeenCalled()
+    expect(createIdempotentAIStudyTaskForCurrentDate).not.toHaveBeenCalled()
   })
 
-  it('uses only the local action ID and never reads one from the draft', () => {
-    expect(() => createAction(todaySnapshot, { ...todayDraft, actionId: 'model-action-id' }))
+  it('uses only the local operation ID and never reads one from the draft', () => {
+    expect(() => createAction(todaySnapshot, { ...todayDraft, operationId: OPERATION_ID }))
       .toThrow('unsupported fields')
-    expect(createAction(todaySnapshot, todayDraft, 'local-client-id').actionId).toBe('local-client-id')
+    expect(createAction(todaySnapshot, todayDraft, DAILY_OPERATION_ID).operationId).toBe(DAILY_OPERATION_ID)
+    expect(() => createAction(todaySnapshot, todayDraft, 'local-client-id')).toThrow('lowercase UUID v4')
   })
 })

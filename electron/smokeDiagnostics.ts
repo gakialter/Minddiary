@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './databaseMigrations';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import type { DateRolloverDiagnosticDetails } from './dateRolloverDiagnostic';
@@ -404,7 +405,7 @@ export async function runSmokeDiagnostic(
         { check: 'preload-api', passed: renderer.preloadAvailable },
         { check: 'production-renderer-document', passed: renderer.productionDocument },
         { check: 'native-sqlite-query', passed: nativeSqlite.query === 1 },
-        { check: 'sqlite-schema-current', passed: nativeSqlite.schemaVersion === 5 },
+        { check: 'sqlite-schema-current', passed: nativeSqlite.schemaVersion === CURRENT_SCHEMA_VERSION },
     ];
 
     if (request.scenario === 'sqlite-read-write') {
