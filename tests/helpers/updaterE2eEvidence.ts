@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from '../../electron/databaseMigrations';
 import { assertUpdaterVersionPair, type UpdaterVersionPair } from './updaterVersion';
 
 export const UPDATER_EVIDENCE_FILES = [
@@ -225,7 +226,7 @@ function validateUpdaterEvidenceSemantics(
       || record.electronVersion.length === 0
       || typeof record.electronAbi !== 'string'
       || !/^\d+$/.test(record.electronAbi)
-      || record.sqliteSchemaVersion !== 5) {
+      || record.sqliteSchemaVersion !== CURRENT_SCHEMA_VERSION) {
       throw new Error(`${filename} has a runtime version mismatch`);
     }
     requireBoolean(record, 'isPackaged', true);

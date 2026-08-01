@@ -6,6 +6,7 @@ import path from 'node:path';
 import { validateConfiguration } from 'app-builder-lib/out/util/config/config';
 import { DebugLogger } from 'builder-util/out/DebugLogger';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CURRENT_SCHEMA_VERSION } from '../electron/databaseMigrations';
 import {
   UPDATER_EVIDENCE_FILES,
   assertNoUpdaterE2eSigningEnvironment,
@@ -52,12 +53,12 @@ function makeRecord(filename: UpdaterJsonEvidenceFile): Record<string, unknown> 
   const fields: Record<UpdaterJsonEvidenceFile, Record<string, unknown>> = {
     'old-build-manifest.json': { candidateVersion: versions.baseVersion, setupSha256: 'a'.repeat(64), setupSize: 1, blockmapSha256: 'b'.repeat(64), provider: { kind: 'generic', host: 'ipv4-loopback', credentials: false } },
     'new-build-manifest.json': { candidateVersion: versions.nextVersion, setupSha256: 'a'.repeat(64), setupSize: 1, blockmapSha256: 'b'.repeat(64), latestVersion: versions.nextVersion, latestPath: `MindDiary-Setup-${versions.nextVersion}.exe`, latestFiles: [`MindDiary-Setup-${versions.nextVersion}.exe`], metadataSha512: `${'A'.repeat(86)}==` },
-    'old-version-start.json': { applicationVersion: versions.baseVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: 5, isPackaged: true, sandbox: true, profileVerified: true },
+    'old-version-start.json': { applicationVersion: versions.baseVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: CURRENT_SCHEMA_VERSION, isPackaged: true, sandbox: true, profileVerified: true },
     'updater-event-log.json': { sequence: ['checking', 'available', 'downloading', 'downloaded'], availableVersion: versions.nextVersion, releaseNotesMatched: true, progressBounded: true },
     'update-server-log.json': { requests: [{ sequence: 1, mode: 'positive', method: 'GET', resource: 'latest.yml', status: 200, queryPresent: true, cacheBustAccepted: true, rangeRequested: false, authorizationPresent: false, cookiePresent: false, loopback: true }], installedProvider: 'generic-loopback', observedProviderRequestsAllLoopback: true, observedProviderRequestsNoCredentials: true, observedOnlyUpdaterCacheBustQueries: true },
     'update-downloaded.json': { version: versions.nextVersion, metadataSha512: `${'A'.repeat(86)}==`, installerSha256: 'b'.repeat(64), checksumVerified: true, blockmapRequested: true, downloadMode: 'blockmap-requested' },
     'install-transition.json': { quitAndInstallAfterDownloaded: true, oldProcessExited: true, installerProcessObserved: true, installerExited: true, silentInstallRequested: true, installedVersion: versions.nextVersion, autoRestartObserved: true },
-    'new-version-start.json': { applicationVersion: versions.nextVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: 5, isPackaged: true, sandbox: true },
+    'new-version-start.json': { applicationVersion: versions.nextVersion, electronVersion: '42.6.1', electronAbi: '146', sqliteSchemaVersion: CURRENT_SCHEMA_VERSION, isPackaged: true, sandbox: true },
     'data-retention.json': { profileReused: true, entryRetained: true, attachmentRetained: true, localProtocolRead: true, markerCleaned: true, businessDataExact: true, dataDigest: 'c'.repeat(64) },
     'negative-no-update.json': { eventObserved: true, downloadAttempted: false, installAttempted: false, dataUnchanged: true },
     'negative-metadata.json': { safeErrorCode: 'invalid-metadata', downloadAttempted: false, installAttempted: false, oldVersionPreserved: true, dataUnchanged: true },
@@ -203,6 +204,13 @@ describe('updater E2E evidence', () => {
     const written = writeUpdaterEvidence(evidenceDirectory, bundle, 'a'.repeat(40), 'definitely-not-present');
     expect(written.files).toEqual([...UPDATER_EVIDENCE_FILES].sort());
     expect(written.digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('binds runtime evidence to the current database schema', () => {
+    const staleRuntime = makeRecord('old-version-start.json');
+    staleRuntime.sqliteSchemaVersion = CURRENT_SCHEMA_VERSION - 1;
+    expect(() => validateUpdaterEvidenceRecord('old-version-start.json', staleRuntime, versions))
+      .toThrow(/runtime version mismatch/);
   });
 
   it('rejects an incomplete bundle before writing files', () => {
