@@ -13,6 +13,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { load } from 'js-yaml';
+import { CURRENT_SCHEMA_VERSION } from '../../electron/databaseMigrations';
 import {
   cleanupSmokeDiagnosticProcess,
   rerunSmokeDiagnosticProcess,
@@ -1000,7 +1001,7 @@ test('updates a real installed NSIS application through electron-updater and pre
       sandbox: true,
       contextIsolation: true,
       preloadAvailable: true,
-      nativeSqlite: { loaded: true, query: 1, schemaVersion: 5 },
+      nativeSqlite: { loaded: true, query: 1, schemaVersion: CURRENT_SCHEMA_VERSION },
       result: 'passed',
     });
     expect(seededRun.result.electronVersion).toMatch(/^\d+\.\d+\.\d+$/);
@@ -1162,7 +1163,7 @@ test('updates a real installed NSIS application through electron-updater and pre
       sandbox: true,
       contextIsolation: true,
       preloadAvailable: true,
-      nativeSqlite: { loaded: true, query: 1, schemaVersion: 5 },
+      nativeSqlite: { loaded: true, query: 1, schemaVersion: CURRENT_SCHEMA_VERSION },
       result: 'passed',
     });
     expect(reopenedRun.result.evidence).toEqual(expect.arrayContaining([
