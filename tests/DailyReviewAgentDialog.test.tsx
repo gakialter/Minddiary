@@ -3,8 +3,10 @@ import { StrictMode, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DailyReviewAgentDialog from '../src/components/DailyReviewAgentDialog'
 import type { AIResponse, DiaryEntry, Mistake, PomodoroStat, StudyTask, Subject } from '../src/types'
+import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
 import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
 import * as aiOperationContracts from '../src/utils/aiOperationContracts'
+import { PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY } from '../src/utils/pendingStudyTaskOperations'
 
 const REVIEW_DATE = '2026-06-12'
 const CANDIDATE_DATE = '2026-06-13'
@@ -121,6 +123,8 @@ describe('DailyReviewAgentDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    mocks.tasksCreate.mockReset()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
     mocks.tasksCreate.mockResolvedValue(makeTask())
@@ -135,7 +139,18 @@ describe('DailyReviewAgentDialog', () => {
   const dialogProps = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => ({
     date,
     aiAPI: { chat: mocks.aiChat },
-    tasksAPI: { getByDate: mocks.tasksGetByDate, createForCurrentDate: mocks.tasksCreate },
+    tasksAPI: {
+      getByDate: mocks.tasksGetByDate,
+      createIdempotentAIStudyTaskForCurrentDate: async (
+        request: IdempotentAIStudyTaskCreateRequest,
+      ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+        const result = await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
+        if (result && typeof result === 'object' && 'ok' in result) {
+          return { ...result, operationId: request.operationId } as IdempotentAIStudyTaskCreateResponse
+        }
+        return { ok: true, operationId: request.operationId, task: result, replayed: false }
+      },
+    },
     mistakesAPI: { getAll: mocks.mistakesGetAll, getDueCount: mocks.mistakesGetDueCount },
     subjectsAPI: { getAll: mocks.subjectsGetAll },
     entriesAPI: { getByDate: mocks.entriesGetByDate },
@@ -452,7 +467,11 @@ describe('DailyReviewAgentDialog', () => {
     mocks.tasksCreate.mockImplementationOnce(async () => {
       candidateDateRows = [createdA]
       return createdA
-    }).mockRejectedValueOnce(new Error('second write failed')).mockImplementationOnce(async () => {
+    }).mockResolvedValueOnce({
+      ok: false,
+      code: 'INTEGRITY_ERROR',
+      message: 'second write failed',
+    }).mockImplementationOnce(async () => {
       candidateDateRows = [createdA, createdB]
       return createdB
     })
@@ -521,7 +540,7 @@ describe('DailyReviewAgentDialog', () => {
         source: 'ai',
         related_entry_id: null,
         related_chapter_id: null,
-      }), REVIEW_DATE)
+      }), REVIEW_DATE, expect.objectContaining({ operationKind: 'daily_review' }))
       expect(mocks.onCreated).toHaveBeenCalledTimes(1)
     })
   })
@@ -548,7 +567,7 @@ describe('DailyReviewAgentDialog', () => {
         estimate_minutes: 35,
         status: 'todo',
         source: 'ai',
-      }, REVIEW_DATE)
+      }, REVIEW_DATE, expect.objectContaining({ operationKind: 'daily_review' }))
     })
   })
 
@@ -676,6 +695,69 @@ describe('DailyReviewAgentDialog', () => {
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledWith(
       expect.objectContaining({ planned_date: CANDIDATE_DATE, source: 'ai' }),
       REVIEW_DATE,
+      expect.objectContaining({ operationKind: 'daily_review' }),
     ))
+  })
+
+  it('persists a Daily Review pending operation before invoking the desktop route', async () => {
+    mocks.tasksCreate.mockImplementationOnce(async (payload, expectedDate, request) => {
+      const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+      expect(serialized).not.toBeNull()
+      const envelope = JSON.parse(serialized!) as { operations: IdempotentAIStudyTaskCreateRequest[] }
+      expect(envelope.operations[0]).toMatchObject({
+        operationId: request.operationId,
+        operationKind: 'daily_review',
+        expectedCurrentDate: expectedDate,
+        payload,
+      })
+      return makeTask({
+        title: payload.title,
+        description: payload.description,
+        planned_date: payload.planned_date,
+      })
+    })
+
+    renderDialog()
+    await generateCandidates()
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+  })
+
+  it('restores an uncertain Daily Review operation without automatic writes and reuses its exact request', async () => {
+    mocks.tasksCreate
+      .mockRejectedValueOnce(new Error('reply lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        task: makeTask({ id: 404 }),
+        replayed: true,
+      })
+
+    const firstView = renderDialog()
+    await generateCandidates()
+    const titleInput = screen.getByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    expect(await screen.findByText(/任务创建结果不确定/)).toBeInTheDocument()
+    expect(titleInput).toBeDisabled()
+    const stored = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
+    }
+    const pending = stored.operations[0]!
+    const firstRequest = mocks.tasksCreate.mock.calls[0]?.[2] as IdempotentAIStudyTaskCreateRequest
+
+    firstView.unmount()
+    mocks.onCreated.mockClear()
+    renderDialog()
+    expect(await screen.findByTestId('pending-study-task-recovery-daily_review')).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operationId}`))
+    expect(await screen.findByText('已重放原操作，并恢复此前创建的同一任务。')).toBeInTheDocument()
+    const retryRequest = mocks.tasksCreate.mock.calls[1]?.[2] as IdempotentAIStudyTaskCreateRequest
+    expect(retryRequest).toEqual(firstRequest)
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    expect(mocks.onCreated).toHaveBeenCalledTimes(1)
   })
 })

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockEntries, mockMistakes, mockSubjectChapters, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
 import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake, StudyTask, SubjectChapter } from '../src/types'
-import type { ElectronAPI } from '../src/types/api'
+import type { ElectronAPI, IdempotentAIStudyTaskCreateRequest } from '../src/types/api'
 
 const mocks = vi.hoisted(() => ({
   isElectron: true,
@@ -163,6 +163,7 @@ const createWindowApiMock = (): ElectronAPI => ({
       created_at: '2026-05-31T00:00:00.000Z',
       updated_at: '2026-05-31T00:00:00.000Z',
     }),
+    createIdempotentAIStudyTaskForCurrentDate: vi.fn(),
     update: vi.fn().mockResolvedValue({
       id: 1,
       title: 'task',
@@ -378,6 +379,25 @@ describe('DataContext', () => {
       { role: 'user', content: 'hello' },
     ]
     const attachmentData = { name: 'a.png', data: 'base64', mimetype: 'image/png' }
+    const idempotentRequest: IdempotentAIStudyTaskCreateRequest = {
+      operationId: '11111111-1111-4111-8111-111111111111',
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v1',
+      expectedCurrentDate: '2026-05-05',
+      payload: {
+        title: 'idempotent task',
+        description: 'confirmed locally',
+        type: 'focus',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: '2026-05-05',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'ai',
+      },
+    }
     let chatResult: Awaited<ReturnType<typeof result.current.ai.chat>> | undefined
     let savedAttachment: Attachment | undefined
 
@@ -417,6 +437,7 @@ describe('DataContext', () => {
         { title: 'date-bound task', planned_date: '2026-05-06' },
         '2026-05-05',
       )
+      await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(idempotentRequest)
       await result.current.tasks.update(1, { status: 'doing' })
       await result.current.tasks.startFocus(1, '2026-05-05')
       await result.current.tasks.complete(1)
@@ -468,6 +489,7 @@ describe('DataContext', () => {
       { title: 'date-bound task', planned_date: '2026-05-06' },
       '2026-05-05',
     )
+    expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(idempotentRequest)
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
     expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
     expect(window.api.tasks.complete).toHaveBeenCalledWith(1)

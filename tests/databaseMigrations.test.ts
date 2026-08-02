@@ -173,24 +173,24 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 5 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(5)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5])
+  it('defines schema version 6 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(6)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 5', () => {
+  it('migrates a new database from user_version 0 to schema version 6', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(5)
+    expect(runDatabaseMigrations(database)).toBe(6)
 
-    expect(getUserVersion(database)).toBe(5)
-    expect(getDatabaseSchemaVersion(database)).toBe(5)
-    for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'diary_templates']) {
+    expect(getUserVersion(database)).toBe(6)
+    expect(getDatabaseSchemaVersion(database)).toBe(6)
+    for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'study_task_action_receipts', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
     for (const indexName of [
@@ -202,6 +202,7 @@ describe('SQLite schema migrations', () => {
       'idx_mistakes_next_review',
       'idx_study_tasks_planned_date',
       'idx_study_tasks_related_chapter_id',
+      'idx_study_task_action_receipts_task_id',
     ]) {
       expect(indexExists(database, indexName)).toBe(true)
     }
@@ -209,6 +210,19 @@ describe('SQLite schema migrations', () => {
     expect(getColumnNames(database, 'mistakes')).toEqual(expect.arrayContaining(['image_path', 'answer_image_path']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['task_id']))
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
+    expect(getColumnNames(database, 'study_task_action_receipts')).toEqual([
+      'operation_id',
+      'operation_kind',
+      'action_contract_version',
+      'request_digest',
+      'expected_current_date',
+      'planned_date',
+      'task_id',
+      'created_at',
+    ])
+    expect(database.prepare('PRAGMA foreign_key_list(study_task_action_receipts)').all()).toEqual([
+      expect.objectContaining({ table: 'study_tasks', from: 'task_id', to: 'id', on_delete: 'SET NULL' }),
+    ])
     expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: 'subject_chapters', from: 'related_chapter_id', to: 'id', on_delete: 'SET NULL' }),
     ]))
@@ -246,7 +260,7 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(5)
+    expect(getUserVersion(database)).toBe(6)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
@@ -264,6 +278,7 @@ describe('SQLite schema migrations', () => {
       answer_image_path: null,
     })
     expect(tableExists(database, 'study_tasks')).toBe(true)
+    expect(tableExists(database, 'study_task_action_receipts')).toBe(true)
     expect(indexExists(database, 'idx_mistakes_next_review')).toBe(true)
     expect(indexExists(database, 'idx_study_tasks_subject_id')).toBe(true)
     expect(database.prepare('SELECT color FROM tags WHERE id = 1').get()).toEqual({ color: '#475569' })
@@ -308,9 +323,10 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(5)
+    expect(getUserVersion(database)).toBe(6)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getTableCount(database, 'subject_chapters')).toBe(0)
+    expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
   })
 
   it('migrates schema version 2 databases to task-attributed pomodoro sessions', () => {
@@ -328,10 +344,10 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(2)
     expect(getColumnNames(database, 'pomodoro_sessions')).not.toContain('task_id')
 
-    expect(runDatabaseMigrations(database)).toBe(5)
-    expect(runDatabaseMigrations(database)).toBe(5)
+    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(6)
 
-    expect(getUserVersion(database)).toBe(5)
+    expect(getUserVersion(database)).toBe(6)
     expect(indexExists(database, 'idx_pomodoro_task_id')).toBe(true)
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
@@ -356,10 +372,10 @@ describe('SQLite schema migrations', () => {
     `).get(taskId) as { title: string; planned_date: string; status: string }
 
     expect(getColumnNames(database, 'study_tasks')).not.toContain('related_chapter_id')
-    expect(runDatabaseMigrations(database)).toBe(5)
-    expect(runDatabaseMigrations(database)).toBe(5)
+    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(6)
 
-    expect(getUserVersion(database)).toBe(5)
+    expect(getUserVersion(database)).toBe(6)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(indexExists(database, 'idx_study_tasks_related_chapter_id')).toBe(true)
     expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(
@@ -383,13 +399,53 @@ describe('SQLite schema migrations', () => {
     expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   })
 
-  it('rejects databases from newer schema versions without mutation', () => {
+  it('migrates schema version 5 databases to independent action receipts without touching tasks', () => {
     const database = createDatabase()
-    database.pragma('user_version = 6')
+    runDatabaseMigrations(database, { targetVersion: 5 })
+    const taskId = Number(database.prepare(`
+      INSERT INTO study_tasks (title, planned_date, status, source)
+      VALUES ('Preserved task', '2026-07-30', 'todo', 'ai')
+    `).run().lastInsertRowid)
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 6.*supported version 5/i)
+    expect(getUserVersion(database)).toBe(5)
+    expect(tableExists(database, 'study_task_action_receipts')).toBe(false)
+
+    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(6)
 
     expect(getUserVersion(database)).toBe(6)
+    expect(database.prepare('SELECT id, title FROM study_tasks WHERE id = ?').get(taskId)).toEqual({
+      id: taskId,
+      title: 'Preserved task',
+    })
+    expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
+    expect(indexExists(database, 'idx_study_task_action_receipts_task_id')).toBe(true)
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+  })
+
+  it('rolls back schema 5 to 6 when an invalid same-name receipt table already exists', () => {
+    const database = createDatabase()
+    runDatabaseMigrations(database, { targetVersion: 5 })
+    database.exec('CREATE TABLE study_task_action_receipts (operation_id TEXT PRIMARY KEY)')
+    database.prepare("INSERT INTO study_task_action_receipts (operation_id) VALUES ('preserved')").run()
+
+    expect(() => runDatabaseMigrations(database)).toThrow(/already exists/i)
+
+    expect(getUserVersion(database)).toBe(5)
+    expect(getColumnNames(database, 'study_task_action_receipts')).toEqual(['operation_id'])
+    expect(database.prepare('SELECT operation_id FROM study_task_action_receipts').all()).toEqual([
+      { operation_id: 'preserved' },
+    ])
+    expect(indexExists(database, 'idx_study_task_action_receipts_task_id')).toBe(false)
+  })
+
+  it('rejects databases from newer schema versions without mutation', () => {
+    const database = createDatabase()
+    database.pragma('user_version = 7')
+
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 7.*supported version 6/i)
+
+    expect(getUserVersion(database)).toBe(7)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -424,7 +480,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 5', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 6', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -434,12 +490,13 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(5)
-    expect(getUserVersion(database)).toBe(5)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(6)
+    expect(getUserVersion(database)).toBe(6)
     expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
     expect(getColumnNames(database, 'pomodoro_sessions')).toContain('task_id')
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
+    expect(tableExists(database, 'study_task_action_receipts')).toBe(true)
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
@@ -448,17 +505,17 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 6')
+    seed.pragma('user_version = 7')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 6.*supported version 5/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 7.*supported version 6/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(6)
+    expect(getUserVersion(reopened)).toBe(7)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
@@ -478,9 +535,9 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(5)
+    expect(CURRENT_SCHEMA_VERSION).toBe(6)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 5')
+    expect(zipText).toContain('"schemaVersion": 6')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
 
@@ -535,6 +592,16 @@ describe('backup schema version consistency', () => {
         status: 'todo',
         source: 'manual',
       }],
+      study_task_action_receipts: [{
+        operation_id: '123e4567-e89b-42d3-a456-426614174000',
+        operation_kind: 'today_action',
+        action_contract_version: 'confirmed-study-task-action.v1',
+        request_digest: 'a'.repeat(64),
+        expected_current_date: '2026-06-12',
+        planned_date: '2026-06-12',
+        task_id: 7,
+        created_at: '2026-06-12 08:45:00',
+      }],
       pomodoro_sessions: [
         {
           id: 11,
@@ -574,6 +641,14 @@ describe('backup schema version consistency', () => {
       { id: 8, related_chapter_id: null },
     ])
     expect(database.prepare(`
+      SELECT operation_id, operation_kind, task_id
+      FROM study_task_action_receipts
+    `).all()).toEqual([{
+      operation_id: '123e4567-e89b-42d3-a456-426614174000',
+      operation_kind: 'today_action',
+      task_id: 7,
+    }])
+    expect(database.prepare(`
       SELECT id, subject_id, title, notes, completed, sort_order
       FROM subject_chapters
     `).all()).toEqual([
@@ -597,5 +672,144 @@ describe('backup schema version consistency', () => {
       expect.objectContaining({ id: 7, related_chapter_id: 21 }),
       expect.objectContaining({ id: 8, related_chapter_id: null }),
     ]))
+    expect(databaseModule.exportBackupData().study_task_action_receipts).toEqual([
+      expect.objectContaining({
+        operation_id: '123e4567-e89b-42d3-a456-426614174000',
+        request_digest: 'a'.repeat(64),
+        task_id: 7,
+      }),
+    ])
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
+
+  it('accepts old backups without action receipts and restores them as an empty receipt set', async () => {
+    const root = makeTempRoot()
+    const dbPath = path.join(root, 'minddiary.db')
+    const databaseModule = await loadRealDatabaseModule()
+
+    databaseModule.setCustomDbPath(dbPath)
+    databaseModule.initialize()
+    const database = databaseModule.getDb()
+    databases.push(database)
+    database.prepare(`
+      INSERT INTO study_tasks (id, title, planned_date, status, source)
+      VALUES (1, 'Old local task', '2026-06-12', 'todo', 'ai')
+    `).run()
+    database.prepare(`
+      INSERT INTO study_task_action_receipts (
+        operation_id,
+        operation_kind,
+        action_contract_version,
+        request_digest,
+        expected_current_date,
+        planned_date,
+        task_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      '123e4567-e89b-42d3-a456-426614174000',
+      'today_action',
+      'confirmed-study-task-action.v1',
+      'a'.repeat(64),
+      '2026-06-12',
+      '2026-06-12',
+      1,
+    )
+
+    databaseModule.restoreBackupData({
+      study_tasks: [{
+        id: 2,
+        title: 'Restored legacy task',
+        description: '',
+        type: 'custom',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        planned_date: '2026-06-13',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'manual',
+      }],
+    })
+
+    expect(database.prepare('SELECT id, title FROM study_tasks').all()).toEqual([
+      { id: 2, title: 'Restored legacy task' },
+    ])
+    expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
+
+  it('rolls back the entire restore when an action receipt references a missing task', async () => {
+    const root = makeTempRoot()
+    const dbPath = path.join(root, 'minddiary.db')
+    const databaseModule = await loadRealDatabaseModule()
+
+    databaseModule.setCustomDbPath(dbPath)
+    databaseModule.initialize()
+    const database = databaseModule.getDb()
+    databases.push(database)
+    database.prepare(`
+      INSERT INTO study_tasks (id, title, planned_date, status, source)
+      VALUES (1, 'Preserved local task', '2026-06-12', 'todo', 'ai')
+    `).run()
+    database.prepare(`
+      INSERT INTO study_task_action_receipts (
+        operation_id,
+        operation_kind,
+        action_contract_version,
+        request_digest,
+        expected_current_date,
+        planned_date,
+        task_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      '123e4567-e89b-42d3-a456-426614174000',
+      'today_action',
+      'confirmed-study-task-action.v1',
+      'a'.repeat(64),
+      '2026-06-12',
+      '2026-06-12',
+      1,
+    )
+    const tasksBefore = database.prepare('SELECT id, title FROM study_tasks ORDER BY id').all()
+    const receiptsBefore = database.prepare(`
+      SELECT operation_id, task_id
+      FROM study_task_action_receipts
+      ORDER BY operation_id
+    `).all()
+
+    expect(() => databaseModule.restoreBackupData({
+      study_tasks: [{
+        id: 2,
+        title: 'Candidate restored task',
+        description: '',
+        type: 'custom',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: '2026-06-13',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'manual',
+      }],
+      study_task_action_receipts: [{
+        operation_id: '223e4567-e89b-42d3-a456-426614174000',
+        operation_kind: 'today_action',
+        action_contract_version: 'confirmed-study-task-action.v1',
+        request_digest: 'b'.repeat(64),
+        expected_current_date: '2026-06-13',
+        planned_date: '2026-06-13',
+        task_id: 999,
+      }],
+    })).toThrow(/foreign key/i)
+
+    expect(database.prepare('SELECT id, title FROM study_tasks ORDER BY id').all()).toEqual(tasksBefore)
+    expect(database.prepare(`
+      SELECT operation_id, task_id
+      FROM study_task_action_receipts
+      ORDER BY operation_id
+    `).all()).toEqual(receiptsBefore)
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })

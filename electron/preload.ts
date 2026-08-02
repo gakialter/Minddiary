@@ -6,6 +6,7 @@ import type {
     PomodoroSession, StudyTask, StudyTaskQuery, NewStudyTask, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
+import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api';
 
 if (process.env.MINDDIARY_E2E_SANDBOX_PROBE === '1') {
     contextBridge.exposeInMainWorld('__minddiarySandboxProbe', Object.freeze({
@@ -151,6 +152,9 @@ contextBridge.exposeInMainWorld('api', {
         create: (task: NewStudyTask) => ipcRenderer.invoke('tasks:create', task),
         createForCurrentDate: (task: NewStudyTask, expectedCurrentDate: string) => (
             ipcRenderer.invoke('tasks:createForCurrentDate', task, expectedCurrentDate)
+        ),
+        createIdempotentAIStudyTaskForCurrentDate: (request: IdempotentAIStudyTaskCreateRequest) => (
+            ipcRenderer.invoke('tasks:createIdempotentAIStudyTaskForCurrentDate', request)
         ),
         update: (id: number, patch: Partial<StudyTask>) => ipcRenderer.invoke('tasks:update', id, patch),
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),

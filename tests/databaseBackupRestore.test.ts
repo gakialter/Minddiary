@@ -75,6 +75,47 @@ describe('database backup data normalization', () => {
     expect(taskTable?.columns).toContain('related_chapter_id')
   })
 
+  it('normalizes action receipts immediately after study tasks for FK-safe restore', () => {
+    const receipt = {
+      operation_id: '123e4567-e89b-42d3-a456-426614174000',
+      operation_kind: 'today_action',
+      action_contract_version: 'confirmed-study-task-action.v1',
+      request_digest: 'a'.repeat(64),
+      expected_current_date: '2026-07-30',
+      planned_date: '2026-07-30',
+      task_id: 3,
+      created_at: '2026-07-30 08:00:00',
+    }
+    const taskIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'study_tasks')
+    const receiptIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'study_task_action_receipts')
+    const pomodoroIndex = DATABASE_BACKUP_TABLES.findIndex(item => item.table === 'pomodoro_sessions')
+    const receiptTable = DATABASE_BACKUP_TABLES[receiptIndex]
+
+    expect(receiptIndex).toBe(taskIndex + 1)
+    expect(pomodoroIndex).toBeGreaterThan(receiptIndex)
+    expect(receiptTable?.columns).toEqual([
+      'operation_id',
+      'operation_kind',
+      'action_contract_version',
+      'request_digest',
+      'expected_current_date',
+      'planned_date',
+      'task_id',
+      'created_at',
+    ])
+    expect(normalizeBackupDatabaseData({
+      study_task_action_receipts: [receipt],
+    }).study_task_action_receipts).toEqual([receipt])
+  })
+
+  it('treats old backups that omit action receipts as an empty receipt set', () => {
+    const normalized = normalizeBackupDatabaseData({
+      study_tasks: [],
+    })
+
+    expect(normalized.study_task_action_receipts).toEqual([])
+  })
+
   it('normalizes subject chapters and restores them immediately after subjects', () => {
     const chapter = {
       id: 2,

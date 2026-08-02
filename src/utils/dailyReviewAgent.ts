@@ -44,7 +44,7 @@ export const DAILY_REVIEW_MAX_OBSERVATIONS = 5
 export const DAILY_REVIEW_MAX_CANDIDATES = 6
 
 export type DailyReviewPriority = typeof PRIORITIES[number]
-export type DailyReviewCreationState = 'draft' | 'creating' | 'created' | 'failed'
+export type DailyReviewCreationState = 'draft' | 'creating' | 'created' | 'failed' | 'uncertain'
 export type DailyReviewSourceRef =
   | 'today_tasks'
   | 'candidate_date_tasks'
@@ -181,7 +181,9 @@ export interface DailyReviewCandidateDraft {
   baseValidationErrors: string[]
   validationErrors: string[]
   creationState: DailyReviewCreationState
+  operationId?: string
   createdTaskId?: number
+  replayed?: boolean
   creationError?: string
 }
 
@@ -644,10 +646,16 @@ export function validateDailyReviewCandidateDrafts(
     activeTasks.filter(task => task.type === 'review').map(task => task.related_mistake_id).filter((id): id is number => id !== null),
   )
   const errorsByIndex = normalized.map(candidate => (
-    candidate.creationState === 'created' ? [] : [...candidate.baseValidationErrors, ...getCandidateValidationErrors(candidate, context)]
+    candidate.creationState === 'created' || candidate.creationState === 'uncertain'
+      ? []
+      : [...candidate.baseValidationErrors, ...getCandidateValidationErrors(candidate, context)]
   ))
   const validSelectedIndexes = normalized.flatMap((candidate, index) => (
-    candidate.creationState !== 'created' && candidate.selected && errorsByIndex[index]!.length === 0 ? [index] : []
+    (candidate.creationState === 'draft' || (candidate.creationState === 'failed' && !candidate.operationId))
+    && candidate.selected
+    && errorsByIndex[index]!.length === 0
+      ? [index]
+      : []
   ))
   const titleCounts = new Map<string, number>()
   const mistakeCounts = new Map<number, number>()
@@ -678,7 +686,12 @@ export function validateDailyReviewCandidateDrafts(
   }
   return normalized.map((candidate, index) => ({
     ...candidate,
-    selected: candidate.creationState === 'created' ? false : candidate.selected,
+    selected: candidate.creationState === 'created'
+      || candidate.creationState === 'creating'
+      || candidate.creationState === 'uncertain'
+      || Boolean(candidate.operationId)
+      ? false
+      : candidate.selected,
     validationErrors: [...new Set(errorsByIndex[index]!)],
   }))
 }

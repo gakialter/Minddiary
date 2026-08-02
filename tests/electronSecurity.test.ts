@@ -6,6 +6,7 @@ import {
   createWindowOpenHandler,
   denyPermissionCheck,
   denyPermissionRequest,
+  isTrustedMainWindowIpcSender,
 } from '../electron/electronSecurity'
 
 const flushPromiseRejection = async () => {
@@ -176,6 +177,60 @@ describe('permission default-deny', () => {
       expect(denyPermissionCheck(null, permission)).toBe(false)
     },
   )
+})
+
+describe('trusted main-window IPC sender helper', () => {
+  const createFixture = () => {
+    const mainFrame = { url: 'http://localhost:5173/' }
+    const webContents = { mainFrame }
+    const mainWindow = { isDestroyed: vi.fn(() => false), webContents }
+    const getMainWindow = vi.fn<() => typeof mainWindow | null>(() => mainWindow)
+    const options = {
+      getMainWindow,
+      getNavigationPolicy: () => ({ kind: 'development' as const }),
+    }
+    return { getMainWindow, mainFrame, mainWindow, options, webContents }
+  }
+
+  it('accepts only the live trusted main-window main frame', () => {
+    const { mainFrame, options, webContents } = createFixture()
+
+    expect(isTrustedMainWindowIpcSender({
+      sender: webContents,
+      senderFrame: mainFrame,
+    }, options)).toBe(true)
+  })
+
+  it('rejects missing or destroyed windows, other webContents, subframes, and untrusted URLs', () => {
+    const { getMainWindow, mainFrame, mainWindow, options, webContents } = createFixture()
+
+    expect(isTrustedMainWindowIpcSender({
+      sender: { mainFrame },
+      senderFrame: mainFrame,
+    }, options)).toBe(false)
+    expect(isTrustedMainWindowIpcSender({
+      sender: webContents,
+      senderFrame: { url: mainFrame.url },
+    }, options)).toBe(false)
+
+    mainWindow.isDestroyed.mockReturnValueOnce(true)
+    expect(isTrustedMainWindowIpcSender({
+      sender: webContents,
+      senderFrame: mainFrame,
+    }, options)).toBe(false)
+
+    getMainWindow.mockReturnValueOnce(null)
+    expect(isTrustedMainWindowIpcSender({
+      sender: webContents,
+      senderFrame: mainFrame,
+    }, options)).toBe(false)
+
+    mainFrame.url = 'https://untrusted.example/private'
+    expect(isTrustedMainWindowIpcSender({
+      sender: webContents,
+      senderFrame: mainFrame,
+    }, options)).toBe(false)
+  })
 })
 
 describe('clipboard write handler', () => {

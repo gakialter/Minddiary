@@ -152,6 +152,12 @@ const mockApi: ElectronAPI = {
             assertTaskCreationDateIsCurrent(expectedCurrentDate, getLocalDateKey())
             return createdTask
         },
+        createIdempotentAIStudyTaskForCurrentDate: async request => ({
+            ok: false,
+            operationId: request.operationId,
+            code: 'INVALID_REQUEST',
+            message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
+        }),
         update: async (id, patch) => ({
             id,
             title: patch.title || '',

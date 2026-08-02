@@ -29,6 +29,8 @@ import {
   type DailyReviewSafeContext,
 } from '../utils/dailyReviewAgent'
 import {
+  buildIdempotentAIStudyTaskCreateRequest,
+  createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
   type StudyTaskActionConfirmationSnapshot,
@@ -37,6 +39,11 @@ import {
   createAIStudyTaskGenerationProvenance,
   type AIStudyTaskGenerationProvenance,
 } from '../utils/aiOperationContracts'
+import {
+  removePendingStudyTaskOperation,
+  savePendingStudyTaskOperation,
+} from '../utils/pendingStudyTaskOperations'
+import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: DailyReviewPriority[] = ['high', 'medium', 'low']
@@ -49,13 +56,15 @@ const PRIORITY_LABELS: Record<DailyReviewPriority, string> = {
 interface CreationSummary {
   created: number
   failed: number
+  uncertain: number
   refreshError?: string
+  recoveryWarning?: string
 }
 
 interface DailyReviewAgentDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createForCurrentDate'>
+  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createIdempotentAIStudyTaskForCurrentDate'>
   mistakesAPI: Pick<MistakesContextAPI, 'getAll' | 'getDueCount'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
@@ -157,6 +166,7 @@ export default function DailyReviewAgentDialog({
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
+  const [recoveryRevision, setRecoveryRevision] = useState(0)
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
@@ -337,6 +347,8 @@ export default function DailyReviewAgentDialog({
       let currentContext = latestContext
       let createdCount = 0
       let failedCount = 0
+      let uncertainCount = 0
+      let recoveryWarning: string | undefined
       const candidateIds = currentCandidates.map(candidate => candidate.clientId)
 
       for (const clientId of candidateIds) {
@@ -344,18 +356,20 @@ export default function DailyReviewAgentDialog({
         currentCandidates = validateDailyReviewCandidateDrafts(currentCandidates, currentContext)
         setCandidates(currentCandidates)
         const candidate = currentCandidates.find(item => item.clientId === clientId)
-        if (!candidate || !candidate.selected || candidate.creationState === 'created' || candidate.validationErrors.length > 0) continue
-
-        currentCandidates = currentCandidates.map(item => (
-          item.clientId === clientId
-            ? { ...item, creationState: 'creating', creationError: undefined }
-            : item
-        ))
-        setCandidates(currentCandidates)
+        if (
+          !candidate
+          || !candidate.selected
+          || candidate.creationState === 'created'
+          || candidate.creationState === 'creating'
+          || candidate.creationState === 'uncertain'
+          || candidate.operationId
+          || candidate.validationErrors.length > 0
+        ) continue
 
         try {
+          const operationId = createConfirmedStudyTaskOperationId()
           const action = createConfirmedStudyTaskAction({
-            actionId: candidate.clientId,
+            operationId,
             confirmationSnapshot,
             draft: {
               title: candidate.title,
@@ -368,19 +382,80 @@ export default function DailyReviewAgentDialog({
               estimate_minutes: candidate.estimate_minutes,
             },
           })
+          const request = buildIdempotentAIStudyTaskCreateRequest(action)
+          try {
+            savePendingStudyTaskOperation(request)
+            setRecoveryRevision(current => current + 1)
+          } catch {
+            failedCount += 1
+            currentCandidates = currentCandidates.map(item => (
+              item.clientId === clientId
+                ? {
+                    ...item,
+                    creationState: 'failed',
+                    creationError: '无法先保存本地恢复记录，因此没有创建任务。请检查本地存储后重试。',
+                  }
+                : item
+            ))
+            setCandidates(currentCandidates)
+            continue
+          }
+          currentCandidates = currentCandidates.map(item => (
+            item.clientId === clientId
+              ? { ...item, operationId, creationState: 'creating', creationError: undefined }
+              : item
+          ))
+          setCandidates(currentCandidates)
           const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
           if (!mountedRef.current || currentDateRef.current !== createDate) return
           if (result.status === 'failed') {
             failedCount += 1
+            const retainForConflict = result.code === 'IDEMPOTENCY_CONFLICT'
+            if (!retainForConflict) {
+              try {
+                removePendingStudyTaskOperation(operationId)
+                setRecoveryRevision(current => current + 1)
+              } catch {
+                recoveryWarning = '部分已确定结果的恢复记录暂时无法清除。'
+              }
+            }
             currentCandidates = currentCandidates.map(item => (
               item.clientId === clientId
-                ? { ...item, creationState: 'failed', creationError: result.error }
+                ? {
+                    ...item,
+                    operationId: retainForConflict ? operationId : undefined,
+                    creationState: 'failed',
+                    creationError: result.error,
+                    selected: retainForConflict ? false : item.selected,
+                  }
+                : item
+            ))
+            setCandidates(currentCandidates)
+            continue
+          }
+          if (result.status === 'uncertain') {
+            uncertainCount += 1
+            currentCandidates = currentCandidates.map(item => (
+              item.clientId === clientId
+                ? {
+                    ...item,
+                    operationId,
+                    creationState: 'uncertain',
+                    creationError: result.error,
+                    selected: false,
+                  }
                 : item
             ))
             setCandidates(currentCandidates)
             continue
           }
           const task = result.task
+          try {
+            removePendingStudyTaskOperation(operationId)
+            setRecoveryRevision(current => current + 1)
+          } catch {
+            recoveryWarning = '任务已创建，但本地恢复记录暂时无法清除；可稍后检查并恢复。'
+          }
           createdCount += 1
           currentContext = {
             ...currentContext,
@@ -388,7 +463,14 @@ export default function DailyReviewAgentDialog({
           }
           currentCandidates = currentCandidates.map(item => (
             item.clientId === clientId
-              ? { ...item, creationState: 'created', createdTaskId: task.id, selected: false }
+              ? {
+                  ...item,
+                  operationId,
+                  replayed: result.replayed,
+                  creationState: 'created',
+                  createdTaskId: task.id,
+                  selected: false,
+                }
               : item
           ))
           setCandidates(currentCandidates)
@@ -409,7 +491,9 @@ export default function DailyReviewAgentDialog({
       setReviewContext(currentContext)
       setReviewedConfirmationContextSignature(buildDailyReviewContextSignature(currentContext))
       setCandidates(currentCandidates)
-      if (createdCount > 0 || failedCount > 0) setCreationSummary({ created: createdCount, failed: failedCount })
+      if (createdCount > 0 || failedCount > 0 || uncertainCount > 0) {
+        setCreationSummary({ created: createdCount, failed: failedCount, uncertain: uncertainCount, recoveryWarning })
+      }
       if (createdCount > 0) {
         try {
           await onCreated()
@@ -419,6 +503,8 @@ export default function DailyReviewAgentDialog({
           setCreationSummary({
             created: createdCount,
             failed: failedCount,
+            uncertain: uncertainCount,
+            recoveryWarning,
             refreshError: error instanceof Error ? error.message : String(error),
           })
         }
@@ -439,7 +525,7 @@ export default function DailyReviewAgentDialog({
   const deterministicSummary = useMemo(() => visibleContext ? buildDailyReviewDeterministicSummary(visibleContext) : [], [visibleContext])
   const selectedValidCount = candidates.filter(candidate => (
     candidate.selected &&
-    candidate.creationState !== 'created' &&
+    (candidate.creationState === 'draft' || (candidate.creationState === 'failed' && !candidate.operationId)) &&
     candidate.validationErrors.length === 0
   )).length
   const isEmptyDay = visibleContext
@@ -585,10 +671,39 @@ export default function DailyReviewAgentDialog({
           )}
           {creationError && <p className="mt-4 text-sm" role="alert" data-testid="daily-review-creation-error" style={{ color: 'var(--danger)' }}>{creationError}</p>}
           {staleContextNotice && <p className="mt-4 text-sm" role="status" data-testid="daily-review-stale-context" style={{ color: 'var(--warning, #b45309)' }}>{staleContextNotice}</p>}
+          <PendingStudyTaskRecoveryPanel
+            operationKind="daily_review"
+            tasksAPI={tasksAPI}
+            revision={recoveryRevision}
+            onRecovered={async result => {
+              setCandidates(current => current.map(candidate => (
+                candidate.operationId === result.operationId
+                  ? {
+                      ...candidate,
+                      creationState: 'created',
+                      createdTaskId: result.task.id,
+                      replayed: result.replayed,
+                      creationError: undefined,
+                      selected: false,
+                    }
+                  : candidate
+              )))
+              setReviewContext(current => {
+                if (!current || current.candidateDateTasks.some(task => task.id === result.task.id)) return current
+                return {
+                  ...current,
+                  candidateDateTasks: [...current.candidateDateTasks, toDailyReviewSafeTask(result.task)],
+                }
+              })
+              await onCreated()
+            }}
+          />
           {creationSummary && (
             <div className="mt-4 text-sm" data-testid="daily-review-creation-summary" style={{ color: 'var(--text-secondary)' }}>
-              本次已创建 {creationSummary.created} 项，失败 {creationSummary.failed} 项
+              本次已创建 {creationSummary.created} 项，失败 {creationSummary.failed} 项，结果待检查 {creationSummary.uncertain} 项
               {creationSummary.failed > 0 && <p style={{ margin: '4px 0 0' }}>已保留成功任务；可修改失败候选后重试。</p>}
+              {creationSummary.uncertain > 0 && <p style={{ margin: '4px 0 0' }}>结果不确定的候选已锁定，请使用恢复区检查。</p>}
+              {creationSummary.recoveryWarning && <p role="alert" style={{ margin: '4px 0 0', color: 'var(--warning)' }}>{creationSummary.recoveryWarning}</p>}
               {creationSummary.refreshError && <p role="alert" style={{ margin: '4px 0 0', color: 'var(--danger)' }}>列表刷新失败：{creationSummary.refreshError}</p>}
             </div>
           )}
@@ -623,6 +738,12 @@ export default function DailyReviewAgentDialog({
               <div className="mt-3 grid gap-3">
                 {candidates.map((candidate, index) => {
                   const isCreated = candidate.creationState === 'created'
+                  const isLocked = generating
+                    || creating
+                    || isCreated
+                    || candidate.creationState === 'creating'
+                    || candidate.creationState === 'uncertain'
+                    || Boolean(candidate.operationId)
                   const isKnownSubject = candidate.subject_id === null || visibleContext?.subjects.some(subject => subject.id === candidate.subject_id)
                   const isKnownMistake = candidate.related_mistake_id === null || visibleContext?.dueMistakes.some(mistake => mistake.id === candidate.related_mistake_id)
                   return (
@@ -633,7 +754,7 @@ export default function DailyReviewAgentDialog({
                             type="checkbox"
                             aria-label={`选择候选任务：${candidate.title || index + 1}`}
                             checked={candidate.selected}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { selected: event.target.checked })}
                           />
                           创建此候选
@@ -642,7 +763,7 @@ export default function DailyReviewAgentDialog({
                           type="button"
                           className="button button-secondary"
                           aria-label={`删除候选任务：${candidate.title || index + 1}`}
-                          disabled={generating || creating || isCreated}
+                          disabled={isLocked}
                           onClick={() => removeCandidate(candidate.clientId)}
                           style={{ padding: 6 }}
                         >
@@ -656,7 +777,7 @@ export default function DailyReviewAgentDialog({
                             className="input"
                             aria-label="候选任务标题"
                             value={candidate.title}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { title: event.target.value })}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
@@ -667,7 +788,7 @@ export default function DailyReviewAgentDialog({
                             className="input"
                             aria-label="候选任务类型"
                             value={candidate.type}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { type: event.target.value as StudyTaskType })}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
@@ -683,7 +804,7 @@ export default function DailyReviewAgentDialog({
                             max={180}
                             aria-label="候选预计分钟数"
                             value={candidate.estimate_minutes}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { estimate_minutes: Number(event.target.value) })}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
@@ -694,7 +815,7 @@ export default function DailyReviewAgentDialog({
                             className="input"
                             aria-label="候选关联科目"
                             value={candidate.subject_id ?? ''}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { subject_id: event.target.value ? Number(event.target.value) : null })}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
@@ -710,7 +831,7 @@ export default function DailyReviewAgentDialog({
                               className="input"
                               aria-label="关联截至次日到期错题"
                               value={candidate.related_mistake_id ?? ''}
-                              disabled={generating || creating || isCreated}
+                              disabled={isLocked}
                               onChange={event => {
                                 const relatedMistakeId = event.target.value ? Number(event.target.value) : null
                                 const selectedMistake = visibleContext?.dueMistakes.find(mistake => mistake.id === relatedMistakeId)
@@ -733,7 +854,7 @@ export default function DailyReviewAgentDialog({
                             className="input"
                             aria-label="候选建议优先级"
                             value={candidate.priority}
-                            disabled={generating || creating || isCreated}
+                            disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { priority: event.target.value as DailyReviewPriority })}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
@@ -747,14 +868,15 @@ export default function DailyReviewAgentDialog({
                           className="input"
                           aria-label="候选理由"
                           value={candidate.reason}
-                          disabled={generating || creating || isCreated}
+                          disabled={isLocked}
                           onChange={event => updateCandidate(candidate.clientId, { reason: event.target.value })}
                           style={{ width: '100%', minHeight: 58, marginTop: 4 }}
                         />
                       </label>
                       <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {candidate.creationState === 'created' && <span style={{ color: 'var(--success)' }}>已创建 #{candidate.createdTaskId}</span>}
+                        {candidate.creationState === 'created' && <span style={{ color: 'var(--success)' }}>{candidate.replayed ? '已重放并恢复' : '已创建'} #{candidate.createdTaskId}</span>}
                         {candidate.creationState === 'failed' && <span style={{ color: 'var(--danger)' }}>{candidate.creationError}</span>}
+                        {candidate.creationState === 'uncertain' && <span style={{ color: 'var(--warning)' }}>{candidate.creationError}</span>}
                       </div>
                       {candidate.validationErrors.length > 0 && (
                         <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>

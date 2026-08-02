@@ -142,11 +142,45 @@ export interface ElectronPomodoroAPI {
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
 }
 
+export type IdempotentAIStudyTaskOperationKind = 'today_action' | 'daily_review'
+
+export interface IdempotentAIStudyTaskCreateRequest {
+  operationId: string
+  operationKind: IdempotentAIStudyTaskOperationKind
+  actionContractVersion: string
+  expectedCurrentDate: string
+  payload: NewStudyTask
+}
+
+export type IdempotentAIStudyTaskCreateErrorCode =
+  | 'INVALID_REQUEST'
+  | 'DATE_MISMATCH'
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'RESULT_DELETED'
+  | 'INTEGRITY_ERROR'
+
+export type IdempotentAIStudyTaskCreateResponse =
+  | {
+      ok: true
+      operationId: string
+      task: StudyTask
+      replayed: boolean
+    }
+  | {
+      ok: false
+      operationId: string
+      code: IdempotentAIStudyTaskCreateErrorCode
+      message: string
+    }
+
 export interface ElectronTasksAPI {
   getByDate: (date: string) => Promise<StudyTask[]>
   find: (query: StudyTaskQuery) => Promise<StudyTask[]>
   create: (data: NewStudyTask) => Promise<StudyTask>
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
+  createIdempotentAIStudyTaskForCurrentDate: (
+    request: IdempotentAIStudyTaskCreateRequest,
+  ) => Promise<IdempotentAIStudyTaskCreateResponse>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
   complete: (id: number) => Promise<StudyTask>
@@ -336,6 +370,9 @@ export interface TasksContextAPI {
   find: (query: StudyTaskQuery) => Promise<StudyTask[]>
   create: (data: NewStudyTask) => Promise<StudyTask>
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
+  createIdempotentAIStudyTaskForCurrentDate: (
+    request: IdempotentAIStudyTaskCreateRequest,
+  ) => Promise<IdempotentAIStudyTaskCreateResponse>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
   complete: (id: number) => Promise<StudyTask>
