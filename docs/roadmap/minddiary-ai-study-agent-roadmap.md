@@ -1,224 +1,324 @@
 # MindDiary AI Study Planning Agent Roadmap
 
-Status: current product-direction roadmap as of 2026-07-15.
+Status: Phase C0 roadmap rebaseline captured on 2026-08-02.
 
-This is a planning document. It authorizes documentation alignment only. It does not start a product version or authorize runtime changes, schema changes, migrations, a PR, merge, tag, release, or publication.
+This is a planning document. It authorizes documentation alignment only. It does not authorize runtime changes, prompt changes, schema changes, migrations, implementation, a PR, merge, tag, release, or publication. Every later implementation must revalidate `main` and receive its own scope and authorization.
 
-## Verified Baseline
+## Verified Release And Main Baselines
 
-- Current release-prep application version: `v1.17.1`. Latest published GitHub Release: `v1.16.0`.
-- SQLite schema: `CURRENT_SCHEMA_VERSION = 5`.
-- SQLite remains the local source of truth.
-- MindDiary already provides diary, Pomodoro, mistake review, study tasks, Dashboard, AI assistance, backup/restore, and local SQLite persistence.
-- The existing AI Today Action flow generates candidates, parses and validates them locally, and creates selected tasks only after the user confirms.
-- PR #128 aligned the Agent product direction and roadmap.
-- PR #130 implemented explainable Today Action planning context.
-- PR #131 implemented stricter Today Action parsing, local validation, editing, stale-context protection, and partial-success retry.
-- PR #132 implemented the schema-free Daily Review Agent and its modal, refresh, and date-rollover reliability fixes.
-- The schema-6 v1.15.x Agent Run and feedback-loop milestones remain unimplemented and are not part of the v1.17.1 candidate.
+The published Release and the current development branch are separate facts. A later `main` commit does not retroactively change a published tag, Release, or its artifacts.
 
-Schema status for this roadmap update: schema unchanged.
+### Latest published Release
+
+- Latest published GitHub Release: `v1.17.1`.
+- Published at: `2026-07-26T09:39:17Z`.
+- Release state: not a draft and not a prerelease.
+- Release target commitish: `main`; the immutable `v1.17.1` tag resolves to commit `c4c8d94b2da606e98bc3b0b2119e6961e2f53ed7`.
+- Tag package version: `1.17.1`.
+- Tag SQLite baseline: `CURRENT_SCHEMA_VERSION = 5`.
+
+These values describe the published historical baseline. Development after the tag does not alter them.
+
+### Phase C rebaseline of `main`
+
+- Capture commit: `a8d7bf10f28e52f275b2371f8bff3f2fe2d9168d`.
+- Commit title: `feat(ai): make confirmed study task creation idempotent (#154)`.
+- Package version at the capture commit: `1.17.1`.
+- SQLite baseline at the capture commit: `CURRENT_SCHEMA_VERSION = 6`.
+- Schema 6 migration: `add-study-task-action-receipts`.
+- Schema 6 table: `study_task_action_receipts`.
+
+This SHA is the Phase C capture baseline after PR #154 merged, not a permanent claim about the latest `main`. Every later implementation must fetch and revalidate `main`, package metadata, schema, migrations, and relevant release facts before work starts.
+
+SQLite remains MindDiary's local authoritative source of truth. Model output remains untrusted candidate input.
+
+## Completed Agent Foundations
+
+### PR #152 — Unified confirmed study-task actions
+
+- Unified the confirmed study-task action boundary used by Today Action and Daily Review.
+- Both entry points continue to require explicit user confirmation.
+- AI does not write directly to SQLite.
+
+### PR #153 — Versioned confirmed operation contracts
+
+- Introduced versioned operation contracts.
+- Added session-local generation provenance.
+- Kept confirmation-context refresh separate from generation context.
+- Did not persist a Planning Run.
+
+### PR #154 — Idempotent confirmed task creation
+
+- Used schema 6 for `study_task_action_receipts`.
+- Added operation IDs and canonical request digests for idempotent confirmed commands.
+- Defined replay, conflict, deleted-result, integrity, date-mismatch, and transport-uncertain behavior.
+- Commits a task and its receipt atomically.
+- Keeps a bounded local pending-operation queue.
+- Allows restart recovery only after an explicit user click; there is no background retry.
+- Did not implement a generic Agent Run or feedback loop.
 
 ## Product Positioning
 
-MindDiary is a local-first AI Study Planning Agent for long-cycle exam preparation, not a generic autonomous agent platform. It starts from AI Today Action and progressively brings diary entries, Pomodoro sessions, mistake reviews, subjects, chapters, and today's tasks into a user-confirmed learning loop.
+MindDiary is a local-first AI Study Planning Agent for long-cycle learning, not a generic autonomous agent platform. It starts from Today Action and Daily Review and may progressively use bounded diary, Pomodoro, mistake, subject, chapter, and task context in user-triggered planning loops.
 
-This sentence defines the product direction, not a claim that every listed input already participates in AI planning. Today, AI Today Action uses a bounded subset of local context; later inputs enter the loop only after their version gates are separately authorized and implemented.
+This direction is not a claim that every source already participates in every plan. Each source must pass a separately versioned privacy, validation, and product gate before it can be included.
 
-"Agent" describes a bounded planning loop around the user's local study record. It does not mean that AI owns application state, runs unsupervised, or can mutate study data on its own.
+"Agent" means a bounded planning loop around the user's local learning record. It does not mean that AI owns application state, runs unsupervised, or can mutate study data by itself.
 
 ## Agent Loop
 
 ```text
-Context Collector
+Bounded Context
   -> Study Planner
-  -> Candidate Actions
-  -> User Confirmation
-  -> Execution Tracker
-  -> Feedback
-  -> next Context Collector cycle
+  -> Validated Candidate Actions
+  -> User Review And Confirmation
+  -> Idempotent Action Execution
+  -> Deterministic Local Outcomes
+  -> Optional Feedback For A Later User-Triggered Run
 ```
 
-1. **Context Collector** reads an explicitly bounded view of relevant local study data.
-2. **Study Planner** asks the configured AI provider for explainable planning suggestions.
-3. **Candidate Actions** are parsed, allowlisted, and validated by local application code.
-4. **User Confirmation** lets the user edit, select, reject, or defer candidates before any task is created.
-5. **Execution Tracker** is the deterministic local task, Pomodoro, diary, and review flow. It is not an AI process.
-6. **Feedback** is derived from user-created tasks and recorded execution results, then becomes optional context for a later user-triggered planning cycle.
+1. **Bounded Context** reads an explicitly limited projection of relevant local data.
+2. **Study Planner** calls the configured Provider only after a user action.
+3. **Validated Candidate Actions** are parsed, allowlisted, and checked by local code.
+4. **User Review And Confirmation** allows editing, removal, rejection, deferral, or confirmation before a task write.
+5. **Idempotent Action Execution** uses the normal trusted Electron/SQLite boundary and action receipts.
+6. **Deterministic Local Outcomes** come from ordinary task, Pomodoro, diary, and mistake-review flows, not from an AI process.
+7. **Optional Feedback** can affect only a later user-triggered candidate-generation cycle and must remain visible and controllable.
 
-## Safety Boundary
+## Receipt And Planning Boundaries
 
-- AI suggestions must be explainable, locally validated, and user-confirmed.
-- AI must not write directly to SQLite or bypass existing application APIs and validation.
-- AI must not create, complete, skip, or delete tasks without an explicit user action.
-- AI must not delete or rewrite diary, mistake, focus, subject, chapter, backup, or restore data.
-- No Agent loop runs autonomously in the background.
-- SQLite remains authoritative; model output is untrusted candidate input, not persisted truth.
-- Network access remains limited to user-configured or user-triggered AI requests and existing update behavior.
-- Every version keeps one core problem and requires separate implementation, schema, PR, merge, tag, and release authorization.
+### Action Receipt
 
-## Version Sequence
+`study_task_action_receipts` has one narrow responsibility: make a confirmed study-task command idempotent and recoverable.
 
-### v1.13.4 - Agent positioning docs and roadmap sync
+It may record only what that responsibility requires:
 
-**Core problem:** establish one current, accurate product direction without changing application behavior.
+- operation ID;
+- action kind and action-contract version;
+- canonical request digest;
+- replay or conflict identity;
+- current task-result relation;
+- information required to resolve an uncertain transport result.
 
-**Allowed scope:** roadmap documentation, concise README positioning, historical-roadmap pointers, and documentation validation.
+An Action Receipt must not become a planning-history or general event store. It must not store:
 
-**Forbidden scope:** product code, Electron code, AI runtime behavior, package versions, schema, migrations, backup/restore behavior, release preparation, tags, and publication.
+- a complete Prompt;
+- a raw Provider request or response;
+- planning context;
+- original candidates;
+- user edit history;
+- rejected candidates;
+- execution feedback.
 
-**Schema policy:** schema unchanged; remain on schema 5.
+Receipt retention and semantics must remain independently governed by idempotent command recovery. A future planning-history retention policy must not silently delete or redefine receipts.
 
-**Validation gates:** `git diff --check`; documentation link review; negative-language review for direct AI writes, autonomous task state changes, and background execution; `npm.cmd run typecheck` when dependencies are available; verify package metadata and `CURRENT_SCHEMA_VERSION` remain unchanged.
+### Planning Run
 
-**Rollback notes:** revert the documentation-only diff. No data or runtime rollback is required.
+A Planning Run is a future capability for one user-triggered planning lifecycle. Its potential responsibilities are limited to:
 
-**Release/tag authorized:** no. A tag or release requires separate explicit authorization after review.
+- a bounded lifecycle for one Today Action, Daily Review, or later approved planning entry point;
+- versioned planning contracts;
+- a user-explainable, bounded context summary;
+- validated candidates and bounded user decisions;
+- auditable links to action attempts, receipts, and resulting tasks.
 
-### v1.14.0 - Agent Context visibility and explainable planning basis
+Planning Run persistence is not implemented at this baseline. A run must not claim that the Provider used specific context merely because local code prepared it, and it must not store Provider reasoning or become a generic workflow engine.
 
-**Core problem:** users cannot yet see a coherent, reviewable summary of the local context used to produce a plan.
+Planning contracts and confirmed-action contracts evolve independently. Updating a Planning Run contract must not invalidate existing action-receipt replay behavior.
 
-**Allowed scope:** a user-visible planning-context preview; source labels and inclusion/exclusion reasons; bounded local context collection from existing diary, task, Pomodoro, subject, chapter, and mistake APIs; focused UI and behavior tests.
+## Schema Policy After PR #154
 
-**Forbidden scope:** autonomous planning, direct model access to SQLite, hidden background collection, new task state transitions, database writes during context preview, broad Dashboard redesign, and unrelated AI assistant changes.
+Schema 6 is already used by `study_task_action_receipts`. It is not available or reserved for Planning Run persistence.
 
-**Schema policy:** schema unchanged; use existing read APIs and in-memory planning context.
+A durable Planning Run may require schema 7 only if the product first confirms a need for cross-restart history, backup/restore, or long-term audit. Schema 7 requires separate explicit authorization and a dedicated review of:
 
-**Validation gates:** unit tests for bounded context and source labeling; UI tests for loading, empty, error, and stale-response states; prove that viewing or generating context performs no task mutation; typecheck and focused manual confirmation-flow smoke test.
+- ordered migration and fresh-database creation;
+- schema 6 upgrade behavior and future-schema rejection;
+- transaction and failure boundaries;
+- backup/restore compatibility and old-backup handling;
+- retention and user deletion policy;
+- browser-fallback behavior;
+- feature disablement and rollback limits.
 
-**Rollback notes:** remove the context preview and fall back to the current user-triggered AI Today Action flow. Existing local data remains untouched.
+Phase C0 does not authorize schema 7 and does not freeze its data model. Table names, table count, fields, SQL, indexes, foreign keys, retention duration, record count, and JSON size limits remain undecided proposals until a later schema review.
 
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
+A shipped SQLite migration cannot be undone by reverting application code. Any future schema proposal must distinguish feature disablement, forward-readable data, restoration of a pre-migration backup, and unsupported database downgrade.
 
-### v1.14.1 - Suggestion quality and local validation enhancement
+## Phase C Capability Sequence
 
-**Core problem:** candidate actions need stronger quality controls while preserving the current confirmation boundary.
+Future stages are capability gates. They are not assigned to release versions until separately planned and authorized.
 
-**Allowed scope:** improve prompts, parsing, allowlists, duplicate detection, budget checks, explanation quality, candidate editing, and focused regression tests for the existing Today Action suggestion flow.
+### Phase C0 — Roadmap rebaseline
 
-**Forbidden scope:** direct AI writes, auto-creation, auto-completion, auto-skip, auto-delete, background retries, opaque ranking that removes user choice, schema work, and unrelated provider changes.
+**Status:** target of this documentation change; docs-only, schema unchanged, runtime unchanged.
 
-**Schema policy:** schema unchanged; validation remains local and candidates remain transient until confirmation.
+**Core problem:** correct the Phase C factual baseline, separate Action Receipt from Planning Run, and define the order and gates for later work.
 
-**Validation gates:** malformed and adversarial output tests; allowlist, duplicate, duration, stale-context, and partial-failure tests; UI proof that no task is created before confirmation; regression tests that confirmed tasks still use normal local task APIs.
+**Allowed scope:** this roadmap and documentation-only validation.
 
-**Rollback notes:** restore the previous prompt and validator while retaining the existing confirmation workflow and stored tasks.
+**Excluded scope:** runtime, Prompt, schema, migration, package metadata, tag, Release, and publication changes.
 
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
+**Rollback:** revert the documentation-only change. No data rollback is involved.
 
-### v1.15.0 - Agent Run audit trail
+### Phase C1 — Session-local planning explainability
 
-**Core problem:** a confirmed planning run cannot yet be reviewed as a durable record of context, candidates, user decisions, and resulting task references.
+**Core problem:** during the current Today Action or Daily Review session, users should understand:
 
-**Allowed scope:** only after explicit schema 6 authorization, define a minimal local Agent Run record, provenance fields, retention behavior, repository/API boundaries, audit UI, migration, and compatibility tests.
+- which context categories were used or excluded;
+- which candidates were generated;
+- which candidates they modified, removed, did not select, or confirmed;
+- whether each confirmed action was created, replayed, uncertain, conflicting, or associated with a later-deleted task.
 
-**Forbidden scope:** storing secrets or raw provider credentials; treating model output as trusted; replaying runs automatically; autonomous execution; unrelated event-sourcing or database redesign; any schema work before a dedicated schema authorization.
+**Policy:**
 
-**Schema policy:** blocked unless schema 6 is explicitly authorized. Authorization must separately cover migration order, old-database upgrade, new-database creation, backup/restore, JSON import/export, deployment order, and rollback risk.
+- schema unchanged;
+- session-local lifecycle only;
+- no new long-lived localStorage Planning Run ledger;
+- no complete Prompt or raw Provider-response persistence;
+- no background execution or recovery;
+- no automatic task write.
 
-**Validation gates:** schema and migration review; old schema 5 upgrade and fresh schema 6 tests; migration idempotency where applicable; backup/export/restore compatibility; retention and deletion tests; audit provenance tests; confirmation-boundary regression; full typecheck and relevant test/build gates.
+The user-facing semantics of this stage must be validated before durable Planning Run design is approved.
 
-**Rollback notes:** a shipped SQLite migration is not undone by reverting code. The rollback plan must preserve readable schema 6 data, disable the feature safely, and define controlled backup restoration before implementation is approved.
+### Phase C2 — Minimal persistent Planning Run
 
-**Release/tag authorized:** no. Schema, implementation, merge, tag, and release each require separate explicit authorization.
+**Core problem:** after C1 semantics pass user validation, provide the smallest privacy-minimized Planning Run needed for cross-restart and backup-compatible audit.
 
-### v1.15.1 - Agent feedback loop
+**Policy:**
 
-**Core problem:** later plans do not yet use the outcomes of user-created tasks and recorded execution to improve the next suggestion cycle.
+- schema 7 requires separate authorization;
+- all stored data is bounded and locally validated;
+- the Action Receipt remains the source of truth for confirmed-action execution;
+- the Planning Run remains an audit relation, not a command receipt or general event store;
+- complete feedback history is excluded from the first persistent version;
+- the schema 7 data model remains open until its dedicated review.
 
-**Allowed scope:** user-triggered feedback summaries derived from confirmed Agent-created tasks, task status, attributed focus sessions, and explicit user feedback; explain how each outcome influenced new candidates.
+### Phase C3 — Deterministic execution attribution
 
-**Forbidden scope:** background learning, silent profile building, automatic task mutation, reward optimization without user visibility, cross-user data, provider-side memory assumptions, and unrelated analytics expansion.
+**Core problem:** show only outcomes that local data can prove, including current task status, receipt relation, and explicitly task-linked Pomodoro sessions.
 
-**Schema policy:** no schema beyond an explicitly authorized v1.15.0 schema 6 baseline. If additional persistence is required, stop and re-plan under a separate schema gate.
+**Policy:**
 
-**Validation gates:** deterministic attribution tests; missing/deleted relation handling; no-feedback and partial-execution cases; explanation tests; privacy and context-boundary review; proof that feedback changes candidates only and never mutates task state.
+- correlation is not presented as causation;
+- an unfinished task is not automatically classified as a poor suggestion;
+- task deletion and missing relations are shown explicitly;
+- no AI process completes, skips, deletes, or otherwise updates a task;
+- preserving outcome snapshots after source deletion requires its own data and privacy decision.
 
-**Rollback notes:** stop including feedback in planning context and retain the deterministic local execution history as ordinary application data.
+### Phase C4 — User-triggered feedback summary
 
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
+**Core problem:** before a later user-triggered generation, show a bounded explanation of which prior outcomes may influence new candidates and let the user decide whether to use them.
 
-### v1.16.0 - Daily Review Agent
+**Policy:**
 
-**Implementation status:** merged into `main` through PR #132 and included in the published v1.16.0 release.
+- user-triggered and user-visible;
+- candidate-level influence only;
+- users can disable, clear, or override the feedback summary;
+- no background learning or invisible user profile;
+- no opaque reward optimization;
+- no automatic task, diary, or mistake mutation;
+- no assumption of reliable Provider-side memory.
 
-**Publication status:** published as v1.16.0 on 2026-07-12. Later post-release maintenance and packaged-smoke evidence do not mutate or retroactively revalidate that immutable tag, Release, or its assets.
+### Phase C5 — Mistake Review Agent
 
-**Core problem:** users lack one bounded, explainable daily review that connects today's plan, execution, and next-day candidates.
+**Core problem:** generate bounded, explainable, user-confirmed review candidates for due mistakes.
 
-**Allowed scope:** a user-triggered daily review assembled from existing local day data; explainable observations; editable candidate actions for the next planning cycle; explicit confirmation before task creation.
+**Policy:**
 
-**Forbidden scope:** scheduled background runs, automatic end-of-day completion, automatic diary writing, automatic next-day task creation, direct database writes by AI, and broad calendar or notification redesign.
+- do not automatically change SM-2 behavior;
+- do not mark a mistake reviewed or mastered automatically;
+- do not create a task without explicit confirmation;
+- schema unchanged by default;
+- deleted mistakes, subjects, and stale context remain zero-write cases.
 
-**Schema policy:** schema unchanged by default. Any new persisted review record requires a separate schema proposal and authorization.
+### Phase C6 — Planning modes and strategy presets
 
-**Validation gates:** day-boundary and timezone tests; empty and partial-day states; explanation/source tests; confirmation-flow tests; proof that opening or generating a review does not mutate local data.
+**Core problem:** offer a small set of explicit, user-selected planning strategies with visible differences.
 
-**Rollback notes:** remove the Daily Review entry point and continue using existing Dashboard, diary, task, and Pomodoro records unchanged.
+**Policy:**
 
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
+- no automatic mode switching;
+- every mode uses the same local parser, allowlists, and confirmation boundary;
+- no hidden personalization;
+- no generic tool registry, downloadable executable plugin, or arbitrary tool execution;
+- schema unchanged by default.
 
-### Unscheduled future milestone - Mistake Review Agent
+## Privacy Boundary
 
-**Version status:** the former v1.17.0 planning slot is superseded by the v1.17.1 release-recovery scope after the v1.17.0 tag did not produce a GitHub Release. This milestone remains unimplemented and excluded; assigning it a future version requires separate planning and authorization.
+Future audit work must default to data minimization.
 
-**Core problem:** users need a bounded plan for due mistakes that explains selection without changing established review semantics.
+The following must not be persisted by default:
 
-**Allowed scope:** user-triggered candidate review plans using due-mistake allowlists, existing subject context, and recorded review outcomes; explanations and editable candidate tasks; focused integration with the existing mistake review flow.
+```text
+API Key
+Provider credentials
+Authorization header
+complete Prompt
+complete raw Provider response
+complete diary body
+complete mistake answer
+image or attachment contents
+Provider internal reasoning
+hidden chain of thought
+local absolute paths
+unbounded errors or network logs
+```
 
-**Forbidden scope:** changing SM-2 behavior without separate scope, marking mistakes reviewed or mastered automatically, creating review tasks without confirmation, exposing answer images beyond existing user flows, and schema changes by default.
+A later schema proposal may consider only bounded, purpose-specific data such as:
 
-**Schema policy:** schema unchanged by default. Any persistence change requires separate schema review and authorization.
+- a planning version tuple;
+- context categories and bounded counts;
+- fixed inclusion or exclusion reasons;
+- a cryptographic digest of a canonical bounded projection;
+- bounded candidate decisions;
+- confirmed-action outcome categories;
+- nullable task and receipt relations.
 
-**Validation gates:** due-date and allowlist tests; duplicate active-review prevention; deleted subject/mistake handling; confirmation-boundary tests; regression tests for existing SM-2 scoring and image access behavior.
+These items are proposals, not current functionality or an approved schema 7 contract. A digest alone is not a user explanation; any audit UI must pair it with a bounded, understandable summary without copying full private study records.
 
-**Rollback notes:** remove the planning entry point and preserve the existing deterministic mistake review and scheduling flows.
+## Long-Term Safety Boundary
 
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
+- SQLite remains the local authoritative source.
+- Model output remains untrusted candidate data.
+- AI never directly accesses or writes SQLite.
+- Every task creation requires explicit user confirmation.
+- No Agent runs autonomously in the background.
+- No background retry performs a write operation.
+- AI does not automatically create, complete, skip, delete, or modify tasks.
+- AI does not rewrite diary entries.
+- AI does not modify mistake-review state.
+- Provider-side persistent memory is not assumed.
+- No arbitrary tool execution or generic Agent Runtime is introduced.
+- No vector database, embedding infrastructure, cloud telemetry, account system, or cross-device synchronization is implied by this roadmap.
+- Prompt, schema, implementation, commit, push, PR, merge, version bump, tag, and Release remain separate authorization gates.
 
-### v1.18.0 - Agent planning modes and strategy presets
+## Historical Milestones
 
-**Core problem:** one planning strategy cannot represent different exam phases, available time, and user preferences transparently.
+Historical schema numbers remain valid when they describe an immutable tag, Release, completed migration boundary, or contemporaneous milestone. They must not be presented as the current `main` schema.
 
-**Allowed scope:** a small set of explicit, user-selected planning modes; visible strategy rules; bounded prompt/context differences; local validation that applies identically to every mode.
+- PR #128 aligned the Agent product direction and roadmap.
+- PR #130 implemented explainable Today Action planning context.
+- PR #131 implemented stricter Today Action parsing, local validation, editing, stale-context protection, and partial-success retry.
+- PR #132 implemented the schema-free Daily Review Agent and its modal, refresh, and date-rollover reliability fixes.
+- Daily Review Agent was included in the published v1.16.0 Release.
+- The v1.17.0 tag did not produce a GitHub Release. The published v1.17.1 recovery Release preserved that product scope and remained on schema 5.
+- Schema 5 remains the correct historical baseline for the v1.17.1 tag and the source side of the later schema 5 to schema 6 migration.
 
-**Forbidden scope:** open-ended plugin execution, downloadable code, mode-specific safety bypasses, autonomous mode switching, hidden personalization, direct database writes, and broad settings redesign.
+These records are historical facts. They do not reserve schema numbers or release versions for future Phase C capabilities.
 
-**Schema policy:** schema unchanged by default. Prefer existing settings boundaries; any new persistence requirement must be separately reviewed and authorized.
+## Gate Checklist For Every Phase
 
-**Validation gates:** per-mode contract tests; mode-switching and default/fallback tests; identical safety-validator tests across modes; accessibility and manual usability checks; confirmation-boundary regression.
+Before later work starts, record:
 
-**Rollback notes:** fall back to one default planning strategy without changing existing tasks or study history.
-
-**Release/tag authorized:** no. Implementation, merge, tag, and release are separate gates.
-
-### v2.0 - Unified Agent architecture and release-candidate stabilization
-
-**Core problem:** converge the proven planning loops behind one maintainable local Agent contract and stabilize it for a major-version release candidate.
-
-**Allowed scope:** architecture RFCs; shared contracts for bounded context, candidates, confirmation, execution tracking, feedback, and audit provenance; compatibility cleanup required by those contracts; complete regression and release-candidate validation.
-
-**Forbidden scope:** a generic autonomous-agent platform, arbitrary tool execution, background agents, direct AI database access, unrelated feature accumulation, unreviewed migration, and release publication before all gates pass.
-
-**Schema policy:** freeze the schema before release-candidate validation. Any schema change must be designed and authorized before the RC, with complete migration, backup/restore, import/export, deployment, and rollback evidence.
-
-**Validation gates:** approved architecture and data RFCs; contract tests across every Agent loop; full typecheck, tests, Electron build, and renderer build; schema and backup/restore gates when applicable; accessibility, performance, failure-recovery, offline, and manual end-to-end acceptance; explicit negative tests for autonomous execution and direct AI writes.
-
-**Rollback notes:** retain the last supported v1.x local data path and define forward-compatible downgrade limits before the RC. Do not claim downgrade safety without migration evidence.
-
-**Release/tag authorized:** no. RC creation, tag, GitHub Release, assets, and publication require separate explicit authorization and audit.
-
-## Gate Checklist For Every Version
-
-Before work starts, record:
-
-- the exact version and its one core problem;
+- the exact fetched `main` SHA and relevant release facts;
+- one core problem;
 - exact files and behavior in scope;
 - explicit exclusions;
-- schema, migration, backup/restore, and import/export policy;
+- Prompt and context-projection policy;
+- schema, migration, backup/restore, import/export, browser, and retention policy;
+- privacy and deletion behavior;
 - automatic and manual validation gates;
-- rollback constraints;
-- separate authorization state for implementation, PR, merge, tag, and release.
+- rollback and downgrade constraints;
+- separate authorization state for implementation, commit, push, PR, merge, version bump, tag, and Release.
 
-If evidence requires a second core problem, a new schema boundary, or a broader runtime capability, stop and re-plan instead of expanding the version.
+If evidence introduces a second core problem, new persistence, broader AI data transmission, or an autonomous capability, stop and re-plan instead of expanding the phase.
