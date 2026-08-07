@@ -352,7 +352,13 @@ const OPEN_NEW_DIALOG_AND_CREATE = `(async () => {
         return button && !button.disabled ? button : null;
     }, 'new-date create button');
     create.click();
-    await waitFor(() => document.querySelector('[data-testid="daily-review-creation-summary"]')?.textContent?.includes('本次已创建 1 项'), 'confirmed task creation');
+    await waitFor(() => {
+        const text = document.querySelector('[data-testid="daily-review-creation-summary"]')?.textContent;
+        return text?.includes('本次新创建 1 项')
+            && text?.includes('重放确认 0 项')
+            && text?.includes('未新建 0 项')
+            && text?.includes('结果待检查 0 项');
+    }, 'confirmed task creation');
     probe.events.push('new-candidate-confirmed');
     return { events: [...probe.events], newDialogOpened: true, newCandidateGenerated: true, confirmedCreate: true };
 })()`;
