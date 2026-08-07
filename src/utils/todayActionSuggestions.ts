@@ -1,4 +1,10 @@
 import type { AIMessage, DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
+import type {
+  ContextPreparationState,
+  ContextReasonCode,
+  ContextRequestDisposition,
+  PlanningContextDecision,
+} from './planningSessionExplainability'
 import { sanitizeUserInput } from './promptTemplates'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
@@ -17,6 +23,8 @@ const ALLOWED_SUGGESTION_KEYS = [
 const ACTIVE_STATUSES = ['todo', 'doing'] as const
 const INVALID_REFERENCE_ID = -1
 const MAX_EVIDENCE_LABEL_CHARS = 80
+const TODAY_ACTION_TASK_REQUEST_LIMIT = 20
+const TODAY_ACTION_DUE_MISTAKE_REQUEST_LIMIT = 12
 
 export const TODAY_ACTION_RESPONSE_MAX_CHARS = 12_000
 export const TODAY_ACTION_AVAILABLE_MINUTES_MIN = 5
@@ -82,6 +90,14 @@ export interface TodayActionSuggestionParseResult {
   errors: string[]
 }
 
+interface TodayActionCollectionDecisionInput {
+  category: PlanningContextSource
+  label: string
+  preparedCount: number
+  includedCount: number
+  limit?: number
+}
+
 interface RawSuggestion {
   title?: unknown
   type?: unknown
@@ -96,6 +112,37 @@ interface RawSuggestion {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function buildTodayActionCollectionDecision({
+  category,
+  label,
+  preparedCount,
+  includedCount,
+  limit,
+}: TodayActionCollectionDecisionInput): PlanningContextDecision {
+  const preparation: ContextPreparationState = preparedCount > 0 ? 'prepared' : 'prepared_empty'
+  const disposition: ContextRequestDisposition = preparedCount === 0
+    ? 'included_empty'
+    : includedCount < preparedCount
+      ? 'partially_included'
+      : 'included'
+  const reasonCode: ContextReasonCode = preparedCount === 0
+    ? 'no_record'
+    : includedCount < preparedCount
+      ? 'limit_applied'
+      : 'included_available'
+
+  return {
+    category,
+    label,
+    preparation,
+    disposition,
+    reasonCode,
+    preparedCount,
+    includedCount,
+    ...(limit === undefined ? {} : { limit }),
+  }
 }
 
 function normalizeCandidateText(value: unknown): string {
@@ -549,10 +596,13 @@ export function parseTodayActionSuggestions(
   }
 }
 
-export function buildTodayActionSuggestionMessages(context: TodayActionPlanningContext): AIMessage[] {
+export function buildTodayActionSuggestionRequest(
+  context: TodayActionPlanningContext,
+): { messages: AIMessage[]; contextDecisions: PlanningContextDecision[] } {
   const availableMinutes = clampTodayActionAvailableMinutes(context.availableMinutes)
-  const activeTasks = getActiveTodayTasks(context)
-    .slice(0, 20)
+  const preparedActiveTasks = getActiveTodayTasks(context)
+  const activeTasks = preparedActiveTasks
+    .slice(0, TODAY_ACTION_TASK_REQUEST_LIMIT)
     .map(task => ({
       title: sanitizeUserInput(task.title),
       type: task.type,
@@ -562,14 +612,14 @@ export function buildTodayActionSuggestionMessages(context: TodayActionPlanningC
   const activeTaskMinutes = getActiveTaskMinutes(context)
   const remainingMinutes = Math.max(0, availableMinutes - activeTaskMinutes)
   const subjects = context.subjects.map(subject => ({ ref: `subject:${subject.id}`, name: sanitizeUserInput(subject.name) }))
-  const dueMistakes = context.dueMistakes.slice(0, 12).map(mistake => ({
+  const dueMistakes = context.dueMistakes.slice(0, TODAY_ACTION_DUE_MISTAKE_REQUEST_LIMIT).map(mistake => ({
     ref: `mistake:${mistake.id}`,
     subject_ref: mistake.subject_id ? `subject:${mistake.subject_id}` : null,
     question: sanitizeUserInput(mistake.question).slice(0, 180),
   }))
   const entries = context.todayEntry ? [{ ref: `entry:${context.todayEntry.id}`, date: context.todayEntry.date }] : []
 
-  return [
+  const messages: AIMessage[] = [
     {
       role: 'system',
       content: [
@@ -598,4 +648,67 @@ export function buildTodayActionSuggestionMessages(context: TodayActionPlanningC
       ].join('\n'),
     },
   ]
+
+  const preparedDueMistakeCount = Math.max(context.dueMistakeTotal || 0, context.dueMistakes.length)
+  const contextDecisions: PlanningContextDecision[] = [
+    {
+      category: 'available_minutes',
+      label: '今日可用时间',
+      preparation: 'prepared',
+      disposition: 'included',
+      reasonCode: 'included_required',
+      preparedCount: 1,
+      includedCount: 1,
+    },
+    buildTodayActionCollectionDecision({
+      category: 'today_tasks',
+      label: '今日活跃任务',
+      preparedCount: preparedActiveTasks.length,
+      includedCount: activeTasks.length,
+      limit: TODAY_ACTION_TASK_REQUEST_LIMIT,
+    }),
+    buildTodayActionCollectionDecision({
+      category: 'due_mistakes',
+      label: '今日到期错题',
+      preparedCount: preparedDueMistakeCount,
+      includedCount: dueMistakes.length,
+      limit: TODAY_ACTION_DUE_MISTAKE_REQUEST_LIMIT,
+    }),
+    buildTodayActionCollectionDecision({
+      category: 'subjects',
+      label: '科目',
+      preparedCount: context.subjects.length,
+      includedCount: subjects.length,
+    }),
+    buildTodayActionCollectionDecision({
+      category: 'today_entry',
+      label: '今日日记',
+      preparedCount: context.todayEntry ? 1 : 0,
+      includedCount: entries.length,
+    }),
+    {
+      category: 'chapters',
+      label: '章节进度',
+      preparation: 'not_integrated',
+      disposition: 'excluded',
+      reasonCode: 'not_integrated',
+      preparedCount: 0,
+      includedCount: 0,
+    },
+    {
+      category: 'focus_history',
+      label: '专注历史',
+      preparation: 'not_integrated',
+      disposition: 'excluded',
+      reasonCode: 'not_integrated',
+      preparedCount: 0,
+      includedCount: 0,
+    },
+  ]
+
+  return { messages, contextDecisions }
+}
+
+export function buildTodayActionSuggestionMessages(context: TodayActionPlanningContext): AIMessage[] {
+  return buildTodayActionSuggestionRequest(context).messages
 }

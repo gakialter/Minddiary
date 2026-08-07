@@ -141,7 +141,9 @@ test.describe('confirmed study task actions through Electron', () => {
 
       await openAndGenerateCandidate(page)
       await page.getByTestId('ai-plan-create-selected').click()
-      await expect(page.getByTestId('ai-plan-creation-summary')).toContainText('本次已创建 1 项，失败 0 项')
+      await expect(page.getByTestId('ai-plan-creation-summary')).toHaveText(
+        '本次新创建 1 项，重放确认 0 项，未新建 0 项，结果待检查 0 项。',
+      )
 
       expect(await getTasksForDate(page, today)).toEqual([
         expect.objectContaining({
@@ -169,8 +171,12 @@ test.describe('confirmed study task actions through Electron', () => {
       await openAndGenerateCandidate(page)
       await page.getByTestId('ai-plan-create-selected').click()
 
-      await expect(page.getByTestId('ai-plan-creation-summary')).toContainText('本次已创建 0 项，失败 1 项')
-      await expect(page.getByText(/confirmed date no longer matches the current local date/i)).toBeVisible()
+      await expect(page.getByTestId('ai-plan-creation-summary')).toContainText(
+        '本次新创建 0 项，重放确认 0 项，未新建 1 项，结果待检查 0 项。',
+      )
+      const outcome = page.getByTestId('today-action-confirmed-outcome-suggestion-1')
+      await expect(outcome).toBeVisible()
+      await expect(outcome).toContainText('确认日期已失效，本次未创建任务')
       expect(await getTasksForDate(page, yesterday)).toEqual([])
     } catch (error) {
       hasPrimaryFailure = true
