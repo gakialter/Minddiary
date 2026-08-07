@@ -76,6 +76,69 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
   ...overrides,
 })
 
+type IdempotentCreateRoute = (
+  request: IdempotentAIStudyTaskCreateRequest,
+) => Promise<IdempotentAIStudyTaskCreateResponse>
+
+const createValidationThenMalformedSuccess = (operationId: string) => {
+  const validTask = makeTask()
+  const malformedTask = {
+    ...validTask,
+    id: 'RAW_SECRET_TASK_ID',
+  } as unknown as StudyTask
+  const target = {
+    ok: true as const,
+    operationId,
+    task: validTask,
+    replayed: false,
+  }
+  const malformedTaskDescriptors = Object.getOwnPropertyDescriptors(malformedTask)
+  const targetDescriptors = Object.getOwnPropertyDescriptors(target)
+  const validTaskDescriptors = Object.getOwnPropertyDescriptors(validTask)
+  let taskReads = 0
+  const response = new Proxy(target, {
+    get(current, property, receiver) {
+      if (property === 'task') {
+        taskReads += 1
+        return taskReads === 1 ? validTask : malformedTask
+      }
+      return Reflect.get(current, property, receiver)
+    },
+  }) as IdempotentAIStudyTaskCreateResponse
+
+  return {
+    expectUnchanged() {
+      expect(Object.getOwnPropertyDescriptors(malformedTask)).toEqual(malformedTaskDescriptors)
+      expect(Object.getOwnPropertyDescriptors(target)).toEqual(targetDescriptors)
+      expect(Object.getOwnPropertyDescriptors(validTask)).toEqual(validTaskDescriptors)
+    },
+    malformedTask,
+    response,
+    target,
+    taskReads: () => taskReads,
+    validTask,
+  }
+}
+
+const captureConsole = () => {
+  const spies = [
+    vi.spyOn(console, 'debug').mockImplementation(() => undefined),
+    vi.spyOn(console, 'error').mockImplementation(() => undefined),
+    vi.spyOn(console, 'info').mockImplementation(() => undefined),
+    vi.spyOn(console, 'log').mockImplementation(() => undefined),
+    vi.spyOn(console, 'trace').mockImplementation(() => undefined),
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+  ]
+  return {
+    expectNoCalls() {
+      spies.forEach(spy => expect(spy).not.toHaveBeenCalled())
+    },
+    restore() {
+      spies.forEach(spy => spy.mockRestore())
+    },
+  }
+}
+
 const validAiResponse = JSON.stringify({
   observations: [
     {
@@ -136,20 +199,24 @@ describe('DailyReviewAgentDialog', () => {
     mocks.pomodoroGetDailyTotal.mockResolvedValue(25)
   })
 
-  const dialogProps = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => ({
+  const dialogProps = (
+    date = REVIEW_DATE,
+    onCreated: () => void | Promise<void> = mocks.onCreated,
+    routeOverride?: IdempotentCreateRoute,
+  ) => ({
     date,
     aiAPI: { chat: mocks.aiChat },
     tasksAPI: {
       getByDate: mocks.tasksGetByDate,
-      createIdempotentAIStudyTaskForCurrentDate: async (
-        request: IdempotentAIStudyTaskCreateRequest,
-      ): Promise<IdempotentAIStudyTaskCreateResponse> => {
-        const result = await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
-        if (result && typeof result === 'object' && 'ok' in result) {
-          return { ...result, operationId: request.operationId } as IdempotentAIStudyTaskCreateResponse
-        }
-        return { ok: true, operationId: request.operationId, task: result, replayed: false }
-      },
+      createIdempotentAIStudyTaskForCurrentDate: routeOverride ?? (async (
+          request: IdempotentAIStudyTaskCreateRequest,
+        ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+          const result = await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
+          if (result && typeof result === 'object' && 'ok' in result) {
+            return { ...result, operationId: request.operationId } as IdempotentAIStudyTaskCreateResponse
+          }
+          return { ok: true, operationId: request.operationId, task: result, replayed: false }
+        }),
     },
     mistakesAPI: { getAll: mocks.mistakesGetAll, getDueCount: mocks.mistakesGetDueCount },
     subjectsAPI: { getAll: mocks.subjectsGetAll },
@@ -159,8 +226,12 @@ describe('DailyReviewAgentDialog', () => {
     onCreated,
   })
 
-  const renderDialog = (date = REVIEW_DATE, onCreated: () => void | Promise<void> = mocks.onCreated) => render(
-    <DailyReviewAgentDialog {...dialogProps(date, onCreated)} />,
+  const renderDialog = (
+    date = REVIEW_DATE,
+    onCreated: () => void | Promise<void> = mocks.onCreated,
+    routeOverride?: IdempotentCreateRoute,
+  ) => render(
+    <DailyReviewAgentDialog {...dialogProps(date, onCreated, routeOverride)} />,
   )
 
   const waitForInitialContext = async () => {
@@ -242,10 +313,59 @@ describe('DailyReviewAgentDialog', () => {
   it('requests AI only after the user clicks generate and keeps generated candidates memory-only', async () => {
     renderDialog()
 
+    expect(screen.getByTestId('daily-review-generation-request-snapshot')).toHaveTextContent('尚未生成请求')
     await generateCandidates()
 
     expect(mocks.aiChat).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('daily-review-observations')).toHaveTextContent('AI 复盘建议')
+    expect(await screen.findByTestId('daily-review-generation-request-context-subjects')).toHaveTextContent('请求处置：已加入本次请求')
+    expect(screen.getByTestId('daily-review-provider-usage-disclaimer')).toHaveTextContent('无法证明模型内部是否实际使用了某项内容')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 1 项')
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('AI 已使用')
+    expect(localStorage.length).toBe(0)
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('shows the Pomodoro unavailable marker as included without claiming source records were sent', async () => {
+    mocks.pomodoroGetStats.mockRejectedValue(new Error('stats unavailable'))
+    mocks.pomodoroGetDailyTotal.mockRejectedValue(new Error('total unavailable'))
+    renderDialog()
+    await waitForInitialContext()
+
+    const currentDecision = await screen.findByTestId('daily-review-current-request-context-pomodoro')
+    expect(currentDecision).toHaveTextContent('已加入本次请求：来源不可用标记')
+    expect(currentDecision).toHaveTextContent('未发送专注记录或专注汇总')
+    expect(currentDecision).toHaveTextContent('本地准备 0 项，请求加入 0 项')
+    expect(currentDecision).not.toHaveTextContent('未加入本次请求')
+
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+
+    const generationDecision = screen.getByTestId('daily-review-generation-request-context-pomodoro')
+    expect(generationDecision).toHaveTextContent('已加入本次请求：来源不可用标记')
+    expect(generationDecision).toHaveTextContent('未发送专注记录或专注汇总')
+    expect(generationDecision).not.toHaveTextContent('已发送 Pomodoro 数据')
+    expect(generationDecision).not.toHaveTextContent('模型使用了专注记录')
+
+    const sentMessages = mocks.aiChat.mock.calls[0]?.[0] as Array<{ role: string; content: string }>
+    expect(sentMessages.map(message => message.role)).toEqual(['system', 'user'])
+    expect(sentMessages[1]?.content).toContain('"pomodoro":{"unavailable":true}')
+  })
+
+  it('keeps the generation request snapshot fixed while a local refresh updates only the current preview', async () => {
+    renderDialog()
+    expect(await screen.findByTestId('daily-review-current-request-context-subjects')).toHaveTextContent('本地准备 1 项')
+    await generateCandidates()
+
+    const generationSnapshot = screen.getByTestId('daily-review-generation-request-context-subjects')
+    expect(generationSnapshot).toHaveTextContent('本地准备 1 项')
+
+    mocks.subjectsGetAll.mockResolvedValue([subject, secondSubject])
+    fireEvent.click(screen.getByTestId('daily-review-refresh-context'))
+
+    await waitFor(() => expect(screen.getByTestId('daily-review-current-request-context-subjects')).toHaveTextContent('本地准备 2 项'))
+    expect(generationSnapshot).toHaveTextContent('本地准备 1 项')
+    expect(mocks.aiChat).toHaveBeenCalledTimes(1)
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -270,6 +390,9 @@ describe('DailyReviewAgentDialog', () => {
     renderDialog()
     await generateCandidates()
 
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 1 项')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('当前已选择 1 项')
+
     fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '编辑后的任务' } })
     fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '30' } })
     fireEvent.change(screen.getByLabelText('候选关联科目'), { target: { value: '2' } })
@@ -277,11 +400,33 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByLabelText('候选预计分钟数')).toHaveValue(30)
     expect(screen.getByLabelText('候选关联科目')).toHaveValue('2')
 
-    fireEvent.click(screen.getByLabelText('选择候选任务：编辑后的任务'))
+    await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已编辑 1 项'))
+    expect(screen.getByTestId('daily-review-candidate-changes-daily-review-candidate-1')).toHaveTextContent('标题：复习函数极限错题 → 编辑后的任务')
+    expect(screen.getByTestId('daily-review-candidate-changes-daily-review-candidate-1')).toHaveTextContent('预计分钟：10 → 30')
+
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '复习函数极限错题' } })
+    fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText('候选关联科目'), { target: { value: '1' } })
+
+    await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已编辑 0 项'))
+    expect(screen.queryByTestId('daily-review-candidate-changes-daily-review-candidate-1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('选择候选任务：复习函数极限错题'))
+    await waitFor(() => {
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('保留但未选择 1 项')
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('当前已选择 0 项')
+    })
     expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
 
-    fireEvent.click(screen.getByLabelText('删除候选任务：编辑后的任务'))
+    fireEvent.click(screen.getByLabelText('选择候选任务：复习函数极限错题'))
+    await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('当前已选择 1 项'))
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '编辑后移除的任务' } })
+    fireEvent.click(screen.getByLabelText('删除候选任务：编辑后移除的任务'))
+
     expect(screen.queryByDisplayValue('编辑后的任务')).not.toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已移除 1 项')
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('编辑后移除的任务')
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('已移除')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -308,19 +453,302 @@ describe('DailyReviewAgentDialog', () => {
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
-  it('does not permit an invalid candidate to be created', async () => {
+  it('admits an invalid provider candidate only at its first repaired valid snapshot', async () => {
     mocks.aiChat.mockResolvedValue({
       content: JSON.stringify({
         observations: [],
-        candidates: [{ title: '太短', type: 'focus', estimate_minutes: 3, reason: '预计时长不合法。', priority: 'low', subject_ref: null, related_mistake_ref: null, related_entry_ref: null }],
+        candidates: [{ title: '待修复任务', type: 'provider_raw_invalid_type', estimate_minutes: 10, reason: '类型需要用户修复。', priority: 'low', subject_ref: null, related_mistake_ref: null, related_entry_ref: null }],
       }),
     })
     renderDialog()
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    expect(await screen.findByText('estimate_minutes must be between 5 and 180')).toBeInTheDocument()
+    expect(await screen.findByText('type is invalid')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(document.body.innerHTML).not.toContain('provider_raw_invalid_type')
     expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('候选任务类型'), { target: { value: 'focus' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已编辑 0 项')
+      expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+    })
+    const repairedDecision = screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(repairedDecision).not.toHaveTextContent('provider_raw_invalid_type')
+
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '用户后续编辑' } })
+    await waitFor(() => expect(repairedDecision).toHaveTextContent('标题：待修复任务 → 用户后续编辑'))
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '待修复任务' } })
+    await waitFor(() => expect(repairedDecision).not.toHaveTextContent('标题：'))
+
+    const selection = screen.getByLabelText('选择候选任务：待修复任务')
+    fireEvent.click(selection)
+    fireEvent.click(selection)
+    await waitFor(() => expect(repairedDecision).toHaveTextContent('保留但未选择'))
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+
+    fireEvent.click(screen.getByLabelText('删除候选任务：待修复任务'))
+    expect(repairedDecision).toHaveTextContent('已移除')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await screen.findByDisplayValue('待修复任务')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('候选任务类型'), { target: { value: 'focus' } })
+    await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项'))
+    fireEvent.click(screen.getByLabelText('选择候选任务：待修复任务'))
+    await waitFor(() => expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')).toHaveAttribute('data-outcome-kind', 'created')
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent(
+      '模型候选：用户修复后通过本地验证',
+    )
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('已确认')
+  })
+
+  it('admits only the edited member of a duplicate-title cohort and never admits from peer removal or selection', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          { title: '聚合重复标题', type: 'focus', estimate_minutes: 10, reason: '第一个候选。', priority: 'high', subject_ref: null, related_mistake_ref: null, related_entry_ref: null },
+          { title: '聚合重复标题', type: 'focus', estimate_minutes: 10, reason: '第二个候选。', priority: 'medium', subject_ref: null, related_mistake_ref: null, related_entry_ref: null },
+        ],
+      }),
+    })
+    render(
+      <StrictMode>
+        <DailyReviewAgentDialog {...dialogProps()} />
+      </StrictMode>,
+    )
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.change(screen.getAllByLabelText('候选建议优先级')[0]!, { target: { value: 'high' } })
+    fireEvent.change(screen.getAllByLabelText('候选理由')[0]!, { target: { value: '只修改不相关理由，不能解除标题冲突。' } })
+    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.change(screen.getAllByLabelText('候选任务标题')[0]!, { target: { value: '用户修复后的唯一标题' } })
+    await waitFor(() => {
+      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    })
+    expect(screen.getAllByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveLength(1)
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-2')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    fireEvent.click(screen.getAllByLabelText('删除候选任务：聚合重复标题')[1]!)
+    await waitFor(() => expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument())
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
+
+    const remainingSelection = screen.getByLabelText('选择候选任务：聚合重复标题')
+    fireEvent.click(remainingSelection)
+    await waitFor(() => expect(remainingSelection).toBeChecked())
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('admits only the edited member when a duplicate-mistake cohort becomes valid', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          { title: '错题聚合候选 A', type: 'review', estimate_minutes: 10, reason: '先复习 A。', priority: 'high', subject_ref: 'subject:1', related_mistake_ref: 'mistake:12', related_entry_ref: null },
+          { title: '错题聚合候选 B', type: 'review', estimate_minutes: 10, reason: '再复习 B。', priority: 'medium', subject_ref: 'subject:1', related_mistake_ref: 'mistake:12', related_entry_ref: null },
+        ],
+      }),
+    })
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected candidates')).toHaveLength(2))
+    fireEvent.change(screen.getAllByLabelText('候选任务类型')[0]!, { target: { value: 'focus' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Duplicate related mistake in selected candidates')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    })
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-2')).not.toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('retains combined-budget evidence through invalid edits and admits only the first valid repair', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          { title: '预算聚合候选 A', type: 'focus', estimate_minutes: 60, reason: '预算 A。', priority: 'high', subject_ref: null, related_mistake_ref: null, related_entry_ref: null },
+          { title: '预算聚合候选 B', type: 'focus', estimate_minutes: 60, reason: '预算 B。', priority: 'medium', subject_ref: null, related_mistake_ref: null, related_entry_ref: null },
+        ],
+      }),
+    })
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '50' } })
+    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '30' } })
+    await waitFor(() => {
+      expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    })
+    fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '30' } })
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-2')).not.toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not admit from context refresh or selection and admits only the edited conflict transition', async () => {
+    mocks.tasksGetByDate.mockImplementation(async date => date === CANDIDATE_DATE
+      ? [makeTask({
+          id: 202,
+          title: '次日已存在的冲突任务',
+          type: 'focus',
+          subject_id: null,
+          related_mistake_id: null,
+          source: 'manual',
+        })]
+      : [])
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [{
+          title: '次日已存在的冲突任务',
+          type: 'focus',
+          estimate_minutes: 10,
+          reason: '需要用户明确修复标题冲突。',
+          priority: 'medium',
+          subject_ref: null,
+          related_mistake_ref: null,
+          related_entry_ref: null,
+        }],
+      }),
+    })
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    expect(await screen.findByText('An active task with this title already exists on the candidate date')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.click(screen.getByTestId('daily-review-refresh-context'))
+    await waitFor(() => expect(screen.queryByText('An active task with this title already exists on the candidate date')).not.toBeInTheDocument())
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('选择候选任务：次日已存在的冲突任务'))
+    expect(await screen.findByText('An active task with this title already exists on the candidate date')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '用户明确修复后的次日任务' } })
+    await waitFor(() => {
+      expect(screen.queryByText('An active task with this title already exists on the candidate date')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+      expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
+    })
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent(
+      '模型候选：用户修复后通过本地验证',
+    )
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not admit when available minutes alone clear an error and requires a later invalid-to-valid edit', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [{
+          title: '次日预算候选',
+          type: 'focus',
+          estimate_minutes: 100,
+          reason: '验证预算变化不会伪造用户修复。',
+          priority: 'low',
+          subject_ref: null,
+          related_mistake_ref: null,
+          related_entry_ref: null,
+        }],
+      }),
+    })
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    expect(await screen.findByText('Selected candidates exceed remaining available minutes')).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('daily-review-available-minutes'), { target: { value: '120' } })
+    await waitFor(() => expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument())
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.click(screen.getByLabelText('选择候选任务：次日预算候选'))
+    await waitFor(() => expect(screen.getByLabelText('选择候选任务：次日预算候选')).toBeChecked())
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+    expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '130' } })
+    expect(await screen.findByText('Selected candidates exceed remaining available minutes')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '100' } })
+    await waitFor(() => {
+      expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+      expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
+    })
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('admits a repaired candidate once under StrictMode effect replay', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [{
+          title: 'StrictMode 次日待修复候选',
+          type: 'RAW_INVALID_SECRET_TYPE',
+          estimate_minutes: 10,
+          reason: '修复后只能纳入一次。',
+          priority: 'low',
+          subject_ref: null,
+          related_mistake_ref: null,
+          related_entry_ref: null,
+        }],
+      }),
+    })
+    render(
+      <StrictMode>
+        <DailyReviewAgentDialog {...dialogProps()} />
+      </StrictMode>,
+    )
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    expect(await screen.findByText('type is invalid')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('候选任务类型'), { target: { value: 'focus' } })
+    await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项'))
+    expect(screen.getAllByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveLength(1)
+    expect(document.body.innerHTML).not.toContain('RAW_INVALID_SECRET_TYPE')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -337,6 +765,7 @@ describe('DailyReviewAgentDialog', () => {
     expect(await screen.findByTestId('daily-review-stale-context')).toHaveTextContent('请查看结果后再次确认创建')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
     expect(createActionSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId('daily-review-confirmation-outcomes')).toHaveTextContent('尚无已确认候选')
 
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
@@ -360,6 +789,9 @@ describe('DailyReviewAgentDialog', () => {
     renderDialog()
     await generateCandidates()
     expect(provenanceSpy).toHaveBeenCalledTimes(1)
+    const firstGenerationSnapshot = screen.getByTestId('daily-review-generation-request-snapshot').textContent
+    fireEvent.click(screen.getByLabelText('删除候选任务：复习函数极限错题'))
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已移除 1 项')
 
     candidateDateRows = [makeTask({
       id: 102,
@@ -371,6 +803,9 @@ describe('DailyReviewAgentDialog', () => {
     })]
     fireEvent.click(screen.getByTestId('daily-review-generate'))
     await waitFor(() => expect(provenanceSpy).toHaveBeenCalledTimes(2))
+    expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-generation-request-snapshot').textContent).not.toBe(firstGenerationSnapshot)
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已移除 0 项')
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
     await waitFor(() => expect(createActionSpy).toHaveBeenCalledTimes(1))
 
@@ -423,7 +858,7 @@ describe('DailyReviewAgentDialog', () => {
 
     expect(screen.getByDisplayValue('复习函数极限错题')).toBeInTheDocument()
     expect(screen.getByText('已创建 #301')).toBeInTheDocument()
-    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 0 项')
+    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次新创建 1 项，重放确认 0 项，未新建 0 项')
     const createdSelection = screen.getByLabelText('选择候选任务：复习函数极限错题')
     expect(createdSelection).not.toBeChecked()
     expect(createdSelection).toBeDisabled()
@@ -439,7 +874,7 @@ describe('DailyReviewAgentDialog', () => {
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
 
     expect(await screen.findByText('已创建 #99')).toBeInTheDocument()
-    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 0 项')
+    expect(screen.getByTestId('daily-review-creation-summary')).toHaveTextContent('本次新创建 1 项，重放确认 0 项，未新建 0 项')
     expect(await screen.findByText('列表刷新失败：dashboard refresh failed')).toBeInTheDocument()
     expect(screen.getByDisplayValue('复习函数极限错题')).toBeInTheDocument()
     expect(screen.getByLabelText('选择候选任务：复习函数极限错题')).toBeDisabled()
@@ -496,10 +931,13 @@ describe('DailyReviewAgentDialog', () => {
     await screen.findByDisplayValue('任务 A')
 
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
-    expect(await screen.findByTestId('daily-review-creation-summary')).toHaveTextContent('本次已创建 1 项，失败 1 项')
+    expect(await screen.findByTestId('daily-review-creation-summary')).toHaveTextContent('本次新创建 1 项，重放确认 0 项，未新建 1 项')
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')).toHaveAttribute('data-outcome-kind', 'created')
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-2')).toHaveAttribute('data-outcome-kind', 'integrity_error')
     await waitFor(() => expect(screen.getByTestId('daily-review-parent-refresh-version')).toHaveTextContent('1'))
     expect(screen.getByText('已创建 #201')).toBeInTheDocument()
-    expect(screen.getByText('second write failed')).toBeInTheDocument()
+    expect(screen.getByText('完整性检查未通过，本次操作已安全终止')).toBeInTheDocument()
+    expect(document.body.innerHTML).not.toContain('second write failed')
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
     expect(createActionSpy).toHaveBeenCalledTimes(2)
     const firstSnapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
@@ -517,6 +955,8 @@ describe('DailyReviewAgentDialog', () => {
       expect(mocks.tasksCreate).toHaveBeenCalledTimes(3)
       expect(screen.getByTestId('daily-review-parent-refresh-version')).toHaveTextContent('2')
     })
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-2')).toHaveAttribute('data-outcome-kind', 'created')
+    expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-2')).toHaveTextContent('任务 B 重试')
 
     const createdTitles = mocks.tasksCreate.mock.calls.map(([input]) => input.title)
     expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
@@ -543,6 +983,11 @@ describe('DailyReviewAgentDialog', () => {
       }), REVIEW_DATE, expect.objectContaining({ operationKind: 'daily_review' }))
       expect(mocks.onCreated).toHaveBeenCalledTimes(1)
     })
+    const outcome = screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+    expect(outcome).toHaveAttribute('data-outcome-kind', 'created')
+    expect(outcome).toHaveTextContent('已创建任务')
+    expect(outcome).toHaveTextContent('任务 ID：99')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已确认 1 项')
   })
 
   it('revalidates and persists the final user-edited candidate fields', async () => {
@@ -604,6 +1049,8 @@ describe('DailyReviewAgentDialog', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(mocks.onClose).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.getByTestId('daily-review-generation-request-snapshot')).toHaveTextContent('尚未生成请求'))
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
   })
 
   it('does not apply a stale generation result after unmount and does not leak candidates across a new dialog', async () => {
@@ -643,6 +1090,8 @@ describe('DailyReviewAgentDialog', () => {
 
     expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
     expect(screen.queryByTestId('daily-review-errors')).not.toBeInTheDocument()
+    expect(screen.getByTestId('daily-review-generation-request-snapshot')).toHaveTextContent('尚未生成请求')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 
@@ -699,6 +1148,172 @@ describe('DailyReviewAgentDialog', () => {
     ))
   })
 
+  it('separates a replayed success from a newly created task in the batch and candidate outcomes', async () => {
+    mocks.tasksCreate.mockResolvedValueOnce({
+      ok: true,
+      task: makeTask({ id: 405 }),
+      replayed: true,
+    })
+    renderDialog()
+    await generateCandidates()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    expect(await screen.findByTestId('daily-review-creation-summary')).toHaveTextContent('本次新创建 0 项，重放确认 1 项，未新建 0 项')
+    const outcome = screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+    expect(outcome).toHaveAttribute('data-outcome-kind', 'replayed')
+    expect(outcome).toHaveTextContent('原操作此前已完成，本次未重复创建')
+    expect(outcome).toHaveTextContent('任务 ID：405')
+  })
+
+  it.each([
+    ['IDEMPOTENCY_CONFLICT', 'conflict', '该操作 ID 已对应另一份确认内容，本次未新建任务'],
+    ['RESULT_DELETED', 'deleted', '原操作曾成功关联任务，但该任务后来已删除；本次检查没有新建任务。'],
+    ['INTEGRITY_ERROR', 'integrity_error', '完整性检查未通过，本次操作已安全终止'],
+    ['DATE_MISMATCH', 'date_mismatch', '确认日期已失效，本次未创建任务'],
+    ['INVALID_REQUEST', 'validation_error', '确认内容未通过校验，本次未创建任务'],
+  ] as const)('shows the fixed %s confirmation outcome without treating it as a created task', async (code, outcomeKind, fixedMessage) => {
+    mocks.tasksCreate.mockResolvedValueOnce({
+      ok: false,
+      code,
+      message: `untrusted backend detail for ${code}`,
+    })
+    renderDialog()
+    await generateCandidates()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    const outcome = await screen.findByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+    expect(outcome).toHaveAttribute('data-outcome-kind', outcomeKind)
+    expect(outcome).toHaveTextContent(fixedMessage)
+    expect(outcome).toHaveTextContent('操作 ID：')
+    expect(outcome).not.toHaveTextContent('untrusted backend detail')
+    expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已确认 1 项')
+    expect(mocks.onCreated).not.toHaveBeenCalled()
+  })
+
+  it('treats a validation-then-malformed live success as uncertain without leaking or clearing recovery state', async () => {
+    let fixture: ReturnType<typeof createValidationThenMalformedSuccess> | undefined
+    const route = vi.fn(async (request: IdempotentAIStudyTaskCreateRequest) => {
+      fixture = createValidationThenMalformedSuccess(request.operationId)
+      return fixture.response
+    })
+    const consoleCapture = captureConsole()
+    try {
+      renderDialog(REVIEW_DATE, mocks.onCreated, route)
+      await generateCandidates()
+      fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+      const outcome = await screen.findByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+      expect(outcome).toHaveAttribute('data-outcome-kind', 'uncertain')
+      expect(outcome).toHaveTextContent('结果尚无法确认，需要用户手动检查')
+      expect(screen.getByDisplayValue('复习函数极限错题')).toBeDisabled()
+      expect(route).toHaveBeenCalledTimes(1)
+      expect(mocks.onCreated).not.toHaveBeenCalled()
+
+      const pending = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+      expect(pending).not.toBeNull()
+      expect(pending).not.toContain('RAW_SECRET_')
+      expect(document.body.innerHTML).not.toContain('RAW_SECRET_')
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(route).toHaveBeenCalledTimes(1)
+      expect(fixture?.taskReads()).toBeGreaterThanOrEqual(2)
+      fixture?.expectUnchanged()
+      consoleCapture.expectNoCalls()
+    } finally {
+      consoleCapture.restore()
+    }
+  })
+
+  it('keeps the exact pending receipt when recovery returns a validation-then-malformed success', async () => {
+    let fixture: ReturnType<typeof createValidationThenMalformedSuccess> | undefined
+    let routeCalls = 0
+    const route = vi.fn(async (request: IdempotentAIStudyTaskCreateRequest) => {
+      routeCalls += 1
+      if (routeCalls === 1) throw new Error('RAW_SECRET_TRANSPORT_DETAIL')
+      fixture = createValidationThenMalformedSuccess(request.operationId)
+      return fixture.response
+    })
+    const consoleCapture = captureConsole()
+    try {
+      renderDialog(REVIEW_DATE, mocks.onCreated, route)
+      await generateCandidates()
+      fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+      const uncertainOutcome = await screen.findByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+      expect(uncertainOutcome).toHaveAttribute('data-outcome-kind', 'uncertain')
+      const pendingBefore = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+      expect(pendingBefore).not.toBeNull()
+      const stored = JSON.parse(pendingBefore!) as {
+        operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
+      }
+      const pending = stored.operations[0]!
+      expect(route).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(await screen.findByTestId(`recover-pending-study-task-${pending.operationId}`))
+      await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+      await waitFor(() => {
+        expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')).toHaveAttribute('data-outcome-kind', 'uncertain')
+        expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')).toHaveTextContent('结果尚无法确认，需要用户手动检查')
+      })
+
+      expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBe(pendingBefore)
+      expect(screen.getByTestId(`pending-study-task-operation-${pending.operationId}`)).toBeInTheDocument()
+      expect(screen.getByDisplayValue('复习函数极限错题')).toBeDisabled()
+      expect(mocks.onCreated).not.toHaveBeenCalled()
+      expect(document.body.innerHTML).not.toContain('RAW_SECRET_')
+      expect(pendingBefore).not.toContain('RAW_SECRET_')
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(route).toHaveBeenCalledTimes(2)
+      expect(fixture?.taskReads()).toBeGreaterThanOrEqual(2)
+      fixture?.expectUnchanged()
+      consoleCapture.expectNoCalls()
+    } finally {
+      consoleCapture.restore()
+    }
+  })
+
+  it('updates the live uncertain outcome only after an explicit recovery click and maps replayed success', async () => {
+    mocks.tasksCreate
+      .mockRejectedValueOnce(new Error('reply lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        task: makeTask({ id: 404 }),
+        replayed: true,
+      })
+    renderDialog()
+    await generateCandidates()
+
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    const uncertainOutcome = await screen.findByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+    expect(uncertainOutcome).toHaveAttribute('data-outcome-kind', 'uncertain')
+    expect(uncertainOutcome).toHaveTextContent('结果尚无法确认，需要用户手动检查')
+    const stored = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
+    }
+    const pending = stored.operations[0]!
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(await screen.findByTestId(`recover-pending-study-task-${pending.operationId}`)).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operationId}`))
+
+    await waitFor(() => expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')).toHaveAttribute('data-outcome-kind', 'replayed'))
+    const replayedOutcome = screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-1')
+    expect(replayedOutcome).toHaveTextContent('原操作此前已完成，本次未重复创建')
+    expect(replayedOutcome).toHaveTextContent('任务 ID：404')
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.onCreated).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+  })
+
   it('persists a Daily Review pending operation before invoking the desktop route', async () => {
     mocks.tasksCreate.mockImplementationOnce(async (payload, expectedDate, request) => {
       const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
@@ -739,7 +1354,7 @@ describe('DailyReviewAgentDialog', () => {
     const titleInput = screen.getByDisplayValue('复习函数极限错题')
     fireEvent.click(screen.getByTestId('daily-review-create-selected'))
 
-    expect(await screen.findByText(/任务创建结果不确定/)).toBeInTheDocument()
+    expect(await screen.findByText('结果尚无法确认，需要用户手动检查')).toBeInTheDocument()
     expect(titleInput).toBeDisabled()
     const stored = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
       operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
@@ -754,7 +1369,7 @@ describe('DailyReviewAgentDialog', () => {
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operationId}`))
-    expect(await screen.findByText('已重放原操作，并恢复此前创建的同一任务。')).toBeInTheDocument()
+    expect(await screen.findByText('原操作此前已完成，本次未重复创建')).toBeInTheDocument()
     const retryRequest = mocks.tasksCreate.mock.calls[1]?.[2] as IdempotentAIStudyTaskCreateRequest
     expect(retryRequest).toEqual(firstRequest)
     expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()

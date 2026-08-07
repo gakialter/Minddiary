@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { StudyTask } from '../types'
 import type { IdempotentAIStudyTaskOperationKind, TasksContextAPI } from '../types/api'
-import { executeIdempotentAIStudyTaskCreateRequest } from '../utils/agentStudyTaskActions'
+import {
+  executeIdempotentAIStudyTaskCreateRequest,
+} from '../utils/agentStudyTaskActions'
+import {
+  observeStudyTaskActionExecutionResult,
+  type PlanningStudyTaskActionExecutionObservation,
+} from '../utils/planningSessionExplainability'
 import {
   getPendingStudyTaskCreateRequest,
   loadPendingStudyTaskOperations,
@@ -13,18 +18,14 @@ interface PendingStudyTaskRecoveryPanelProps {
   operationKind: IdempotentAIStudyTaskOperationKind
   tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>
   revision: number
-  onRecovered: (result: {
-    operationId: string
-    task: StudyTask
-    replayed: boolean
-  }) => void | Promise<void>
+  onOutcome: (observation: PlanningStudyTaskActionExecutionObservation) => void | Promise<void>
 }
 
 export default function PendingStudyTaskRecoveryPanel({
   operationKind,
   tasksAPI,
   revision,
-  onRecovered,
+  onOutcome,
 }: PendingStudyTaskRecoveryPanelProps) {
   const [operations, setOperations] = useState<PendingStudyTaskOperation[]>([])
   const [recoveringOperationId, setRecoveringOperationId] = useState<string | null>(null)
@@ -72,36 +73,33 @@ export default function PendingStudyTaskRecoveryPanel({
       tasksAPI,
     )
     if (!mountedRef.current) return
+    const observation = observeStudyTaskActionExecutionResult(result, operation.operationId)
 
-    if (result.status === 'succeeded') {
+    if (observation.status === 'succeeded') {
       const cleared = clearOperation(operation.operationId)
       if (cleared) {
         setOperations(current => current.filter(item => item.operationId !== operation.operationId))
       }
-      setOutcome(result.replayed
-        ? '已重放原操作，并恢复此前创建的同一任务。'
-        : '原操作已安全完成，任务已恢复。')
-      try {
-        await onRecovered({
-          operationId: result.operationId,
-          task: result.task,
-          replayed: result.replayed,
-        })
-      } catch {
-        if (mountedRef.current) setWarning('任务已恢复，但界面刷新失败；重新打开页面即可查看。')
-      }
-    } else if (result.status === 'uncertain') {
-      setOutcome(result.error)
-    } else if (result.code === 'IDEMPOTENCY_CONFLICT') {
-      setOutcome(`操作 ID 冲突，已保留恢复记录且未创建新任务：${result.error}`)
+      setOutcome(observation.outcome.message)
+    } else if (observation.status === 'uncertain') {
+      setOutcome(observation.outcome.message)
+    } else if (observation.code === 'IDEMPOTENCY_CONFLICT') {
+      setOutcome(observation.outcome.message)
     } else {
       const cleared = clearOperation(operation.operationId)
       if (cleared) {
         setOperations(current => current.filter(item => item.operationId !== operation.operationId))
       }
+      const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
       setOutcome(cleared
-        ? `任务未创建，恢复记录已结束：${result.error}`
-        : `任务未创建，结果已确定，但恢复记录尚未清除：${result.error}`)
+        ? `${terminalMessage}；恢复记录已结束。`
+        : `${terminalMessage}；恢复记录尚未清除。`)
+    }
+
+    try {
+      await onOutcome(observation)
+    } catch {
+      if (mountedRef.current) setWarning('检查结果已返回，但界面更新失败；重新打开页面即可查看。')
     }
 
     if (mountedRef.current) setRecoveringOperationId(null)

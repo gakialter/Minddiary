@@ -11,6 +11,12 @@ import type {
   Subject,
 } from '../types'
 import { getNextLocalDateKey } from './dateKey'
+import type {
+  ContextPreparationState,
+  ContextReasonCode,
+  ContextRequestDisposition,
+  PlanningContextDecision,
+} from './planningSessionExplainability'
 import { sanitizeUserInput } from './promptTemplates'
 import { extractSingleJsonObject } from './todayActionSuggestions'
 
@@ -22,6 +28,8 @@ const ACTIVE_STATUSES: StudyTaskStatus[] = ['todo', 'doing']
 const MAX_QUESTION_SNIPPET_CHARS = 180
 const MAX_SAFE_LABEL_CHARS = 120
 const INVALID_REFERENCE_ID = -1
+const DAILY_REVIEW_TASK_REQUEST_LIMIT = 20
+const DAILY_REVIEW_DUE_MISTAKE_REQUEST_LIMIT = 12
 
 const ALLOWED_TOP_LEVEL_KEYS = ['observations', 'candidates'] as const
 const ALLOWED_OBSERVATION_KEYS = ['summary', 'reason', 'source_refs'] as const
@@ -193,6 +201,14 @@ export interface DailyReviewParseResult {
   errors: string[]
 }
 
+interface DailyReviewCollectionDecisionInput {
+  category: DailyReviewSourceRef
+  label: string
+  preparedCount: number
+  includedCount: number
+  limit?: number
+}
+
 interface RawObservation {
   summary?: unknown
   reason?: unknown
@@ -214,6 +230,37 @@ interface RawCandidate {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function buildDailyReviewCollectionDecision({
+  category,
+  label,
+  preparedCount,
+  includedCount,
+  limit,
+}: DailyReviewCollectionDecisionInput): PlanningContextDecision {
+  const preparation: ContextPreparationState = preparedCount > 0 ? 'prepared' : 'prepared_empty'
+  const disposition: ContextRequestDisposition = preparedCount === 0
+    ? 'included_empty'
+    : includedCount < preparedCount
+      ? 'partially_included'
+      : 'included'
+  const reasonCode: ContextReasonCode = preparedCount === 0
+    ? 'no_record'
+    : includedCount < preparedCount
+      ? 'limit_applied'
+      : 'included_available'
+
+  return {
+    category,
+    label,
+    preparation,
+    disposition,
+    reasonCode,
+    preparedCount,
+    includedCount,
+    ...(limit === undefined ? {} : { limit }),
+  }
 }
 
 export function normalizeDailyReviewText(value: unknown): string {
@@ -452,8 +499,11 @@ export function buildDailyReviewContextSignature(context: DailyReviewSafeContext
   })
 }
 
-export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMessage[] {
-  const activeTasks = getActiveCandidateDateTasks(context).slice(0, 20).map(task => ({
+export function buildDailyReviewRequest(
+  context: DailyReviewSafeContext,
+): { messages: AIMessage[]; contextDecisions: PlanningContextDecision[] } {
+  const preparedActiveTasks = getActiveCandidateDateTasks(context)
+  const activeTasks = preparedActiveTasks.slice(0, DAILY_REVIEW_TASK_REQUEST_LIMIT).map(task => ({
     id: task.id,
     title: promptText(task.title, MAX_SAFE_LABEL_CHARS),
     type: task.type,
@@ -462,7 +512,7 @@ export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMes
     subject_id: task.subject_id,
     related_mistake_id: task.related_mistake_id,
   }))
-  const todayTasks = context.todayTasks.slice(0, 20).map(task => ({
+  const todayTasks = context.todayTasks.slice(0, DAILY_REVIEW_TASK_REQUEST_LIMIT).map(task => ({
     id: task.id,
     title: promptText(task.title, MAX_SAFE_LABEL_CHARS),
     type: task.type,
@@ -477,7 +527,7 @@ export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMes
     total_chapters: subject.total_chapters,
     completed_chapters: subject.completed_chapters,
   }))
-  const dueMistakes = context.dueMistakes.slice(0, 12).map(mistake => ({
+  const dueMistakes = context.dueMistakes.slice(0, DAILY_REVIEW_DUE_MISTAKE_REQUEST_LIMIT).map(mistake => ({
     ref: `mistake:${mistake.id}`,
     subject_ref: mistake.subject_id ? `subject:${mistake.subject_id}` : null,
     review_count: mistake.review_count,
@@ -485,7 +535,7 @@ export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMes
     question_snippet: promptText(mistake.question_snippet, MAX_QUESTION_SNIPPET_CHARS),
   }))
 
-  return [
+  const messages: AIMessage[] = [
     {
       role: 'system',
       content: [
@@ -532,6 +582,74 @@ export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMes
       ].join('\n'),
     },
   ]
+
+  const preparedDueMistakeCount = Math.max(context.dueMistakeTotal, context.dueMistakes.length)
+  const contextDecisions: PlanningContextDecision[] = [
+    buildDailyReviewCollectionDecision({
+      category: 'today_tasks',
+      label: '今日任务',
+      preparedCount: context.todayTasks.length,
+      includedCount: todayTasks.length,
+      limit: DAILY_REVIEW_TASK_REQUEST_LIMIT,
+    }),
+    buildDailyReviewCollectionDecision({
+      category: 'candidate_date_tasks',
+      label: '次日活跃任务',
+      preparedCount: preparedActiveTasks.length,
+      includedCount: activeTasks.length,
+      limit: DAILY_REVIEW_TASK_REQUEST_LIMIT,
+    }),
+    context.pomodoro.available
+      ? buildDailyReviewCollectionDecision({
+          category: 'pomodoro',
+          label: '今日专注',
+          preparedCount: context.pomodoro.session_count,
+          includedCount: context.pomodoro.session_count,
+        })
+      : {
+          category: 'pomodoro',
+          label: '今日专注',
+          preparation: 'source_unavailable',
+          disposition: 'included',
+          reasonCode: 'source_unavailable',
+          preparedCount: 0,
+          includedCount: 0,
+        },
+    buildDailyReviewCollectionDecision({
+      category: 'subjects',
+      label: '科目进度',
+      preparedCount: context.subjects.length,
+      includedCount: subjects.length,
+    }),
+    buildDailyReviewCollectionDecision({
+      category: 'today_entry',
+      label: '今日日记',
+      preparedCount: context.todayEntry ? 1 : 0,
+      includedCount: context.todayEntry ? 1 : 0,
+    }),
+    buildDailyReviewCollectionDecision({
+      category: 'due_mistakes',
+      label: '截至次日到期的错题',
+      preparedCount: preparedDueMistakeCount,
+      includedCount: dueMistakes.length,
+      limit: DAILY_REVIEW_DUE_MISTAKE_REQUEST_LIMIT,
+    }),
+    {
+      category: 'available_minutes',
+      label: '次日可用时间',
+      preparation: 'prepared',
+      disposition: 'included',
+      reasonCode: 'included_required',
+      preparedCount: 1,
+      includedCount: 1,
+    },
+  ]
+
+  return { messages, contextDecisions }
+}
+
+export function buildDailyReviewMessages(context: DailyReviewSafeContext): AIMessage[] {
+  return buildDailyReviewRequest(context).messages
 }
 
 function resolveRefId(ref: unknown, prefix: string): number | null {

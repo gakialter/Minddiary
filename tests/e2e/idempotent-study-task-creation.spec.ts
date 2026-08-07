@@ -237,7 +237,9 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
         .not.toBeNull()
 
       await page.getByTestId(`recover-pending-study-task-${recoveryOperationId}`).click()
-      await expect(page.getByTestId('pending-study-task-outcome')).toContainText('已重放原操作')
+      await expect(page.getByTestId('pending-study-task-outcome')).toHaveText(
+        '原操作此前已完成，本次未重复创建',
+      )
       expect(await page.evaluate(key => localStorage.getItem(key), PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY))
         .toBeNull()
       const tasksAfterRecovery = await getTasksForDate(page, today)
