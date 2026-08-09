@@ -293,6 +293,135 @@ describe('imageWorkerPool', () => {
     expect(recoveredWorker.postMessage).toHaveBeenCalledTimes(1)
   })
 
+  it('replenishes a missing worker slot on a later submit after partial replacement failure', async () => {
+    const pool = await loadPool()
+    pool.initialize(2)
+
+    const timedOutOutcome = pool.submit('validateImage', {
+      bufferB64: 'd29ya2VyLTA=',
+    }).then(
+      value => ({ status: 'resolved' as const, value }),
+      error => ({ status: 'rejected' as const, error }),
+    )
+    await vi.advanceTimersByTimeAsync(1_000)
+    const survivingTask = pool.submit('validateImage', {
+      bufferB64: 'd29ya2VyLTE=',
+    })
+    const retiredWorker = mockWorkers.instances[0]!
+    const survivingWorker = mockWorkers.instances[1]!
+    mockWorkers.Worker
+      .mockImplementationOnce(function () { throw new Error('replacement construction failed') })
+      .mockImplementationOnce(function () { throw new Error('replacement construction failed again') })
+
+    await vi.advanceTimersByTimeAsync(29_000)
+
+    await expect(timedOutOutcome).resolves.toMatchObject({
+      status: 'rejected',
+      error: { code: 'WORKER_TERMINATED' },
+    })
+    expect(retiredWorker.terminate).toHaveBeenCalledTimes(1)
+    expect(survivingWorker.terminate).not.toHaveBeenCalled()
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(4)
+    expect(mockWorkers.instances).toHaveLength(2)
+
+    const recoveredTask = pool.submit('validateImage', {
+      bufferB64: 'cmVjb3ZlcmVk',
+    })
+
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(5)
+    expect(mockWorkers.instances).toHaveLength(3)
+    expect(retiredWorker.postMessage).toHaveBeenCalledTimes(1)
+    expect(survivingWorker.postMessage).toHaveBeenCalledTimes(1)
+    const recoveredWorker = mockWorkers.instances[2]!
+    expect(recoveredWorker.postMessage).toHaveBeenCalledWith({
+      id: 2,
+      type: 'validateImage',
+      payload: { bufferB64: 'cmVjb3ZlcmVk' },
+    })
+
+    recoveredWorker.emit('message', { id: 2, success: true, data: { format: 'png' } })
+    survivingWorker.emit('message', { id: 1, success: true, data: { format: 'jpeg' } })
+    await expect(recoveredTask).resolves.toEqual({ format: 'png' })
+    await expect(survivingTask).resolves.toEqual({ format: 'jpeg' })
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(5)
+    expect(mockWorkers.instances).toHaveLength(3)
+  })
+
+  it('offers a new bounded replenishment opportunity after partial recovery keeps failing', async () => {
+    const pool = await loadPool()
+    pool.initialize(2)
+
+    const timedOutOutcome = pool.submit('validateImage', {
+      bufferB64: 'd29ya2VyLTA=',
+    }).then(
+      value => ({ status: 'resolved' as const, value }),
+      error => ({ status: 'rejected' as const, error }),
+    )
+    await vi.advanceTimersByTimeAsync(1_000)
+    const survivingTask = pool.submit('validateImage', {
+      bufferB64: 'd29ya2VyLTE=',
+    })
+    const retiredWorker = mockWorkers.instances[0]!
+    const survivingWorker = mockWorkers.instances[1]!
+    mockWorkers.Worker
+      .mockImplementationOnce(function () { throw new Error('initial replacement failed') })
+      .mockImplementationOnce(function () { throw new Error('initial replacement failed again') })
+
+    await vi.advanceTimersByTimeAsync(29_000)
+    await expect(timedOutOutcome).resolves.toMatchObject({
+      status: 'rejected',
+      error: { code: 'WORKER_TERMINATED' },
+    })
+    expect(retiredWorker.terminate).toHaveBeenCalledTimes(1)
+    expect(survivingWorker.terminate).not.toHaveBeenCalled()
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(4)
+
+    mockWorkers.Worker
+      .mockImplementationOnce(function () { throw new Error('replenishment failed') })
+      .mockImplementationOnce(function () { throw new Error('replenishment failed again') })
+    const queuedTask = pool.submit('validateImage', {
+      bufferB64: 'cXVldWVk',
+    })
+
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(6)
+    expect(mockWorkers.instances).toHaveLength(2)
+    expect(survivingWorker.postMessage).toHaveBeenCalledTimes(1)
+
+    survivingWorker.emit('message', { id: 1, success: true, data: { format: 'jpeg' } })
+    await expect(survivingTask).resolves.toEqual({ format: 'jpeg' })
+    expect(survivingWorker.postMessage).toHaveBeenLastCalledWith({
+      id: 2,
+      type: 'validateImage',
+      payload: { bufferB64: 'cXVldWVk' },
+    })
+
+    const recoveredTask = pool.submit('validateImage', {
+      bufferB64: 'cmVjb3ZlcmVk',
+    })
+
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(7)
+    expect(mockWorkers.instances).toHaveLength(3)
+    const recoveredWorker = mockWorkers.instances[2]!
+    expect(recoveredWorker.postMessage).toHaveBeenCalledWith({
+      id: 3,
+      type: 'validateImage',
+      payload: { bufferB64: 'cmVjb3ZlcmVk' },
+    })
+
+    survivingWorker.emit('message', { id: 2, success: true, data: { format: 'png' } })
+    recoveredWorker.emit('message', { id: 3, success: true, data: { format: 'webp' } })
+    await expect(queuedTask).resolves.toEqual({ format: 'png' })
+    await expect(recoveredTask).resolves.toEqual({ format: 'webp' })
+
+    const capacityCheck = pool.submit('validateImage', {
+      bufferB64: 'Y2FwYWNpdHk=',
+    })
+    expect(mockWorkers.Worker).toHaveBeenCalledTimes(7)
+    expect(mockWorkers.instances).toHaveLength(3)
+    survivingWorker.emit('message', { id: 4, success: true, data: { format: 'gif' } })
+    await expect(capacityCheck).resolves.toEqual({ format: 'gif' })
+  })
+
   it('fails a later submit immediately when bounded zero-worker recovery fails', async () => {
     const pool = await loadPool()
     pool.initialize(1)

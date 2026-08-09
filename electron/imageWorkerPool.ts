@@ -193,6 +193,18 @@ function replaceWorker(id: number): void {
     }
 }
 
+function replenishOneMissingWorker(): void {
+    if (!initialized || workers.length >= poolSize) return;
+
+    const activeIds = new Set(workers.map(worker => worker.id));
+    for (let id = 0; id < poolSize; id += 1) {
+        if (!activeIds.has(id)) {
+            replaceWorker(id);
+            return;
+        }
+    }
+}
+
 function failUndispatchedTasks(message: string): void {
     const queued = pending.filter(task => !task.dispatched);
     pending = pending.filter(task => task.dispatched);
@@ -248,9 +260,7 @@ function submit(type: string, payload: TaskPayload): Promise<WorkerResult['data'
         const task: PendingTask = { id, type, payload, resolve, reject, timer, dispatched: false };
         pending.push(task);
 
-        if (initialized && workers.length === 0) {
-            replaceWorker(0);
-        }
+        replenishOneMissingWorker();
 
         const free = findFreeWorker();
         if (free) {
