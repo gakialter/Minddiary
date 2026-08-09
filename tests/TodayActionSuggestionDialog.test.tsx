@@ -332,6 +332,124 @@ describe('TodayActionSuggestionDialog', () => {
     expect(screen.getByTestId('today-action-candidate-decision-suggestion-1')).toHaveTextContent('已确认')
   })
 
+  it('repairs an unselected candidate without admitting another invalid unselected candidate', async () => {
+    mocks.tasksGetByDate.mockResolvedValue([makeTask({ title: '已存在的其他复习任务' })])
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        suggestions: [
+          {
+            title: '共享候选标题',
+            type: 'review',
+            estimate_minutes: 10,
+            reason: 'A 与已有 review mistake 冲突。',
+            priority: 'high',
+            subject_ref: 'subject:1',
+            related_mistake_ref: 'mistake:12',
+          },
+          {
+            title: '共享候选标题',
+            type: 'RAW_INVALID_TYPE_B',
+            estimate_minutes: 10,
+            reason: '只修复并创建 B。',
+            priority: 'medium',
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByText('An active review task for this mistake already exists today')).toBeInTheDocument()
+    expect(screen.getByText('type is invalid')).toBeInTheDocument()
+    const selections = screen.getAllByRole('checkbox', { name: '选择 共享候选标题' })
+    expect(selections[0]).not.toBeChecked()
+    expect(selections[1]).not.toBeChecked()
+
+    fireEvent.change(screen.getAllByLabelText('建议类型')[1]!, { target: { value: 'focus' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
+      expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
+    })
+    const repairedDecision = screen.getByTestId('today-action-candidate-decision-suggestion-2')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(screen.queryByTestId('today-action-candidate-decision-suggestion-1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('checkbox', { name: '选择 共享候选标题' })[1]!)
+    await waitFor(() => expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-2')).toHaveTextContent('已创建任务')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(repairedDecision).toHaveTextContent('已确认')
+  })
+
+  it('does not pollute a selected candidate with a repaired peer hypothetical admission error', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        suggestions: [
+          {
+            title: '保持有效的已选任务',
+            type: 'focus',
+            estimate_minutes: 10,
+            reason: 'A 当前有效且已选择。',
+            priority: 'high',
+          },
+          {
+            title: '',
+            type: 'focus',
+            estimate_minutes: 10,
+            reason: 'B 需要用户修复。',
+            priority: 'medium',
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    const selectedA = await screen.findByRole('checkbox', { name: '选择 保持有效的已选任务' })
+    const unselectedB = screen.getByRole('checkbox', { name: '选择 suggestion-2' })
+    expect(selectedA).toBeChecked()
+    expect(unselectedB).not.toBeChecked()
+    expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled()
+
+    fireEvent.change(screen.getAllByLabelText('建议标题')[1]!, {
+      target: { value: '保持有效的已选任务' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(1)
+      expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled()
+    })
+    expect(selectedA).toBeChecked()
+    expect(screen.getAllByRole('checkbox', { name: '选择 保持有效的已选任务' })[1]).not.toBeChecked()
+    expect(screen.queryByTestId('today-action-candidate-decision-suggestion-2')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getAllByLabelText('建议标题')[1]!, {
+      target: { value: '修复后的唯一任务' },
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
+    })
+    const repairedDecision = screen.getByTestId('today-action-candidate-decision-suggestion-2')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(selectedA).toBeChecked()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 修复后的唯一任务' }))
+    await waitFor(() => expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-2')).toHaveTextContent('已创建任务')
+  })
+
   it('does not admit from context refresh or selection and admits only the edited conflict transition', async () => {
     mocks.tasksGetByDate.mockResolvedValue([makeTask({
       id: 201,
@@ -436,6 +554,11 @@ describe('TodayActionSuggestionDialog', () => {
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('初始通过验证 0')
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
 
+    fireEvent.click(screen.getAllByRole('checkbox', { name: '选择 重复标题' })[0]!)
+    await waitFor(() => expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument())
+    fireEvent.click(screen.getAllByRole('checkbox', { name: '选择 重复标题' })[1]!)
+    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(2))
+
     fireEvent.change(screen.getAllByLabelText('建议理由')[0]!, { target: { value: '仍然冲突的无关字段编辑。' } })
     await waitFor(() => {
       expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(2)
@@ -492,6 +615,10 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
     expect(await screen.findAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 错题复习 A' }))
+    await waitFor(() => expect(screen.queryByText('Duplicate related mistake in selected suggestions')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 错题复习 B' }))
+    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('建议理由')[0]!, { target: { value: '仍然重复错题。' } })
     await waitFor(() => {
       expect(screen.getAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2)
@@ -524,6 +651,10 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
     expect(await screen.findAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 预算任务 A' }))
+    await waitFor(() => expect(screen.queryByText('Selected suggestions exceed remaining available minutes')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 预算任务 B' }))
+    await waitFor(() => expect(screen.getAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('预计分钟')[0]!, { target: { value: '50' } })
     await waitFor(() => {
       expect(screen.getAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2)

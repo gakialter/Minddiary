@@ -1,6 +1,6 @@
 # MindDiary v1.17.1
 
-MindDiary v1.17.1 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 仍为 **5**，本版本不新增数据库 migration，现有 schema 5 数据继续兼容。
+MindDiary v1.17.1 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 为 **6**；Schema 6 新增 `study_task_action_receipts`，用于保存 confirmed AI study task 的 idempotency receipts。受支持的旧数据库会通过现有有序 migration 路径升级。
 
 v1.17.1 是 v1.17 功能系列首个正式发布版本。此前创建的 v1.17.0 tag 因 macOS 正式发布验证中的测试路径判断错误而停止，未生成 GitHub Release，也未发布任何安装资产。v1.17.1 修复了该发布验证问题，产品功能范围与原 v1.17.0 候选保持一致。
 
@@ -52,8 +52,8 @@ v1.17.1 是 v1.17 功能系列首个正式发布版本。此前创建的 v1.17.0
 
 ## Compatibility
 
-- SQLite schema 仍为 **5**；`CURRENT_SCHEMA_VERSION` 未变化。
-- `electron/databaseMigrations.ts` 未变化，不新增 migration、数据库表或字段迁移。
+- SQLite schema 为 **6**；`CURRENT_SCHEMA_VERSION` 为 `6`。
+- Schema 6 migration 新增 `study_task_action_receipts`，用于 confirmed AI study task idempotency receipts。
 - 现有用户数据目录继续使用；Windows Setup 覆盖安装预期保留应用数据。
 - 旧 `examDate`、普通关键日期、错题和手动备份数据继续使用现有兼容路径。
 - macOS target 仍为 Apple silicon ARM64，最低系统版本为 macOS 12.0。

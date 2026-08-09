@@ -18,6 +18,6 @@ export const CURRENT_RELEASE_NOTES: LocalReleaseNotes = {
     'Electron 已升级到 42.6.1，better-sqlite3 已升级到 12.11.1。',
     'renderer sandbox、导航与权限边界、ASAR integrity 和 Electron fuses 得到加强。',
     '修复 macOS 发布包验证的 Resources 路径判断，产品 updater 行为保持不变。',
-    'SQLite schema 5 保持不变，不新增 migration；Windows 自动更新完整 E2E 仍待后续验收。',
+    'SQLite schema 6 新增 study_task_action_receipts，用于 confirmed AI study task idempotency receipts；Windows 自动更新完整 E2E 仍待后续验收。',
   ],
 }

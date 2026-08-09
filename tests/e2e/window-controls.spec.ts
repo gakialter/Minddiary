@@ -1,26 +1,60 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import * as path from 'node:path';
+import {
+    createDisposableElectronProfile,
+    removeDisposableElectronProfile,
+} from './disposableElectronProfile';
 
 let app: ElectronApplication;
 let page: Page;
+let profilePath: string;
 
 const projectRoot = path.join(__dirname, '..', '..');
+const profilePrefix = 'minddiary-window-controls-e2e-';
 
 test.beforeAll(async () => {
     // Launch Electron from project root (uses package.json "main" field)
     // This loads dist/index.html in production mode
+    profilePath = createDisposableElectronProfile(profilePrefix);
     app = await electron.launch({
-        args: [projectRoot],
+        args: [projectRoot, `--user-data-dir=${profilePath}`],
         env: { ...process.env, NODE_ENV: 'production' },
     });
     page = await app.firstWindow();
+    const actualUserData = await app.evaluate(({ app }) => app.getPath('userData'));
+    expect(path.relative(profilePath, actualUserData)).toBe('');
     // Wait for the app to load (production loads dist/index.html)
     await page.waitForLoadState('load');
-    await page.waitForTimeout(2000);
+    await expect.poll(() => page.evaluate(() => {
+        const windowApi = (window as any).api?.window;
+        return ['custom', 'native'].includes(windowApi?.titlebarMode)
+            && typeof windowApi?.minimize === 'function'
+            && typeof windowApi?.maximize === 'function'
+            && typeof windowApi?.isMaximized === 'function';
+    })).toBe(true);
 });
 
 test.afterAll(async () => {
-    await app.close();
+    const cleanupErrors: unknown[] = [];
+    if (app) {
+        try {
+            await app.close();
+        } catch (error) {
+            cleanupErrors.push(error);
+        }
+    }
+    if (profilePath) {
+        try {
+            await removeDisposableElectronProfile(profilePath, profilePrefix);
+        } catch (error) {
+            cleanupErrors.push(error);
+        }
+    }
+    if (cleanupErrors.length > 0) {
+        throw new Error(`Window controls E2E cleanup failed:\n${cleanupErrors.map(error => (
+            error instanceof Error ? error.stack || error.message : String(error)
+        )).join('\n')}`);
+    }
 });
 
 test.describe('Window Controls (IPC boundary)', () => {
@@ -73,7 +107,10 @@ test.describe('Window Controls (IPC boundary)', () => {
 
     test('minimize triggers IPC and restores', async () => {
         await page.evaluate(() => (window as any).api.window.minimize());
-        await page.waitForTimeout(500);
+        await expect.poll(() => app.evaluate(({ BrowserWindow }) => {
+            const win = BrowserWindow.getAllWindows()[0];
+            return win?.isMinimized() ?? false;
+        })).toBe(true);
 
         const isMinimized = await app.evaluate(({ BrowserWindow }) => {
             const win = BrowserWindow.getAllWindows()[0];
@@ -111,6 +148,8 @@ test.describe('Window Controls (IPC boundary)', () => {
 
         // Toggle back
         await page.evaluate(() => (window as any).api.window.maximize());
-        await page.waitForTimeout(200);
+        await expect.poll(() => page.evaluate(() => (
+            (window as any).api.window.isMaximized()
+        ))).toBe(wasBefore);
     });
 });

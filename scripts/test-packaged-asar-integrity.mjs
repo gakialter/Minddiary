@@ -10,6 +10,9 @@ import { verifyReleaseDirectory } from './verify-electron-package-security.mjs'
 const profilePrefix = 'minddiary-asar-integrity-'
 const usage = 'Usage: node scripts/test-packaged-asar-integrity.mjs --release-dir <path>'
 const asarHeaderOffset = 16
+const cleanupMaxAttempts = 4
+const cleanupRetryDelayMs = 100
+const transientWindowsCleanupErrors = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
 
 function parseArgs(args) {
   if (args.length === 1 && args[0] === '--help') return { help: true }
@@ -61,9 +64,62 @@ function assertDisposablePath(target) {
   }
 }
 
-function removeDisposablePath(target) {
+function getErrorCode(error) {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined
+  return typeof error.code === 'string' ? error.code : undefined
+}
+
+export async function retryTransientWindowsCleanup(
+  operation,
+  {
+    platform = process.platform,
+    wait = delayMs => new Promise(resolve => setTimeout(resolve, delayMs)),
+  } = {},
+) {
+  for (let attempt = 1; attempt <= cleanupMaxAttempts; attempt += 1) {
+    try {
+      await operation()
+      return
+    } catch (error) {
+      const retryable = platform === 'win32'
+        && transientWindowsCleanupErrors.has(getErrorCode(error) || '')
+        && attempt < cleanupMaxAttempts
+      if (!retryable) throw error
+      await wait(cleanupRetryDelayMs * attempt)
+    }
+  }
+}
+
+async function removeDisposablePath(target) {
   assertDisposablePath(target)
-  fs.rmSync(target, { recursive: true, force: true })
+  await retryTransientWindowsCleanup(() => {
+    assertDisposablePath(target)
+    fs.rmSync(target, { recursive: true, force: true })
+  })
+}
+
+export async function removeIntegrityControlExecutable(target, executablePath, created) {
+  if (!created) return
+  const expected = path.join(
+    path.dirname(path.resolve(executablePath)),
+    `MindDiary.integrity-control-${process.pid}.exe`,
+  )
+  if (path.resolve(target) !== expected) {
+    throw new Error(`Refusing to remove unexpected integrity-control executable: ${target}`)
+  }
+  await retryTransientWindowsCleanup(() => {
+    if (path.resolve(target) !== expected) {
+      throw new Error(`Refusing to remove unexpected integrity-control executable: ${target}`)
+    }
+    fs.rmSync(target, { force: true })
+  })
+}
+
+export function createIntegrityControlExecutable(executablePath, controlExecutablePath) {
+  if (fs.existsSync(controlExecutablePath)) {
+    throw new Error(`Refusing to overwrite existing integrity-control executable: ${controlExecutablePath}`)
+  }
+  fs.copyFileSync(executablePath, controlExecutablePath, fs.constants.COPYFILE_EXCL)
 }
 
 function isRunning(child) {
@@ -210,13 +266,12 @@ async function testMutatedAsarRejected(executablePath, appAsar, tempRoot, origin
   let launched
   let controlLaunched
   let mutated = false
+  let controlExecutableCreated = false
   let stopError
 
   try {
-    if (fs.existsSync(controlExecutablePath)) {
-      throw new Error(`Refusing to overwrite existing integrity-control executable: ${controlExecutablePath}`)
-    }
-    fs.copyFileSync(executablePath, controlExecutablePath, fs.constants.COPYFILE_EXCL)
+    createIntegrityControlExecutable(executablePath, controlExecutablePath)
+    controlExecutableCreated = true
     await flipFuses(controlExecutablePath, {
       version: FuseVersion.V1,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
@@ -280,10 +335,12 @@ async function testMutatedAsarRejected(executablePath, appAsar, tempRoot, origin
         }
       }
     }
-    try {
-      fs.rmSync(controlExecutablePath, { force: true })
-    } catch (error) {
-      stopError ??= error
+    if (controlExecutableCreated) {
+      try {
+        await removeIntegrityControlExecutable(controlExecutablePath, executablePath, true)
+      } catch (error) {
+        stopError ??= error
+      }
     }
   }
 
@@ -329,7 +386,12 @@ async function testFallbackRejected(executablePath, resourcesDir, appAsar, tempR
       if (path.resolve(fallbackDir) !== expectedFallback) {
         throw new Error(`Refusing to remove unexpected fallback path: ${fallbackDir}`)
       }
-      fs.rmSync(fallbackDir, { recursive: true, force: true })
+      await retryTransientWindowsCleanup(() => {
+        if (path.resolve(fallbackDir) !== expectedFallback) {
+          throw new Error(`Refusing to remove unexpected fallback path: ${fallbackDir}`)
+        }
+        fs.rmSync(fallbackDir, { recursive: true, force: true })
+      })
     } catch (error) {
       cleanupError ??= error
     }
@@ -384,7 +446,7 @@ export async function runPackagedAsarIntegrityTests(releaseDir) {
       ],
     }
   } finally {
-    removeDisposablePath(tempRoot)
+    await removeDisposablePath(tempRoot)
   }
 }
 

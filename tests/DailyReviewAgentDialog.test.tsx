@@ -518,6 +518,146 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('已确认')
   })
 
+  it('repairs an unselected candidate without admitting another invalid unselected candidate', async () => {
+    mocks.tasksGetByDate.mockImplementation(async date => date === CANDIDATE_DATE
+      ? [makeTask({ title: '已存在的其他次日复习任务' })]
+      : [])
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          {
+            title: '共享次日候选标题',
+            type: 'review',
+            estimate_minutes: 10,
+            reason: 'A 与已有 review mistake 冲突。',
+            priority: 'high',
+            subject_ref: 'subject:1',
+            related_mistake_ref: 'mistake:12',
+            related_entry_ref: null,
+          },
+          {
+            title: '共享次日候选标题',
+            type: 'RAW_INVALID_TYPE_B',
+            estimate_minutes: 10,
+            reason: '只修复并创建 B。',
+            priority: 'medium',
+            subject_ref: null,
+            related_mistake_ref: null,
+            related_entry_ref: null,
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    expect(await screen.findByText('An active review task for this mistake already exists on the candidate date')).toBeInTheDocument()
+    expect(screen.getByText('type is invalid')).toBeInTheDocument()
+    const selections = screen.getAllByLabelText('选择候选任务：共享次日候选标题')
+    expect(selections[0]).not.toBeChecked()
+    expect(selections[1]).not.toBeChecked()
+
+    fireEvent.change(screen.getAllByLabelText('候选任务类型')[1]!, { target: { value: 'focus' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
+      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    })
+    const repairedDecision = screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-2')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByLabelText('选择候选任务：共享次日候选标题')[1]!)
+    await waitFor(() => expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-2')).toHaveAttribute(
+      'data-outcome-kind',
+      'created',
+    )
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(repairedDecision).toHaveTextContent('已确认')
+  })
+
+  it('does not pollute a selected candidate with a repaired peer hypothetical admission error', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          {
+            title: '保持有效的次日已选任务',
+            type: 'focus',
+            estimate_minutes: 10,
+            reason: 'A 当前有效且已选择。',
+            priority: 'high',
+            subject_ref: null,
+            related_mistake_ref: null,
+            related_entry_ref: null,
+          },
+          {
+            title: '',
+            type: 'focus',
+            estimate_minutes: 10,
+            reason: 'B 需要用户修复。',
+            priority: 'medium',
+            subject_ref: null,
+            related_mistake_ref: null,
+            related_entry_ref: null,
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    const selectedA = await screen.findByLabelText('选择候选任务：保持有效的次日已选任务')
+    const unselectedB = screen.getByLabelText('选择候选任务：2')
+    expect(selectedA).toBeChecked()
+    expect(unselectedB).not.toBeChecked()
+    expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
+
+    fireEvent.change(screen.getAllByLabelText('候选任务标题')[1]!, {
+      target: { value: '保持有效的次日已选任务' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(1)
+      expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
+    })
+    expect(selectedA).toBeChecked()
+    expect(screen.getAllByLabelText('选择候选任务：保持有效的次日已选任务')[1]).not.toBeChecked()
+    expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-2')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getAllByLabelText('候选任务标题')[1]!, {
+      target: { value: '修复后的唯一次日任务' },
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
+    })
+    const repairedDecision = screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-2')
+    expect(repairedDecision).toHaveTextContent('模型候选：用户修复后通过本地验证')
+    expect(selectedA).toBeChecked()
+
+    fireEvent.click(screen.getByLabelText('选择候选任务：修复后的唯一次日任务'))
+    await waitFor(() => expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('daily-review-confirmation-outcome-daily-review-candidate-2')).toHaveAttribute(
+      'data-outcome-kind',
+      'created',
+    )
+  })
+
   it('admits only the edited member of a duplicate-title cohort and never admits from peer removal or selection', async () => {
     mocks.aiChat.mockResolvedValue({
       content: JSON.stringify({
@@ -538,6 +678,11 @@ describe('DailyReviewAgentDialog', () => {
 
     await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
+
+    fireEvent.click(screen.getAllByLabelText('选择候选任务：聚合重复标题')[0]!)
+    await waitFor(() => expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument())
+    fireEvent.click(screen.getAllByLabelText('选择候选任务：聚合重复标题')[1]!)
+    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
 
     fireEvent.change(screen.getAllByLabelText('候选建议优先级')[0]!, { target: { value: 'high' } })
     fireEvent.change(screen.getAllByLabelText('候选理由')[0]!, { target: { value: '只修改不相关理由，不能解除标题冲突。' } })
@@ -581,6 +726,10 @@ describe('DailyReviewAgentDialog', () => {
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
     await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected candidates')).toHaveLength(2))
+    fireEvent.click(screen.getByLabelText('选择候选任务：错题聚合候选 A'))
+    await waitFor(() => expect(screen.queryByText('Duplicate related mistake in selected candidates')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('选择候选任务：错题聚合候选 B'))
+    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected candidates')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('候选任务类型')[0]!, { target: { value: 'focus' } })
 
     await waitFor(() => {
@@ -606,6 +755,10 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
+    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    fireEvent.click(screen.getByLabelText('选择候选任务：预算聚合候选 A'))
+    await waitFor(() => expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('选择候选任务：预算聚合候选 B'))
     await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '50' } })
     await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
