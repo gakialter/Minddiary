@@ -1,23 +1,56 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import * as path from 'node:path';
+import {
+    createDisposableElectronProfile,
+    removeDisposableElectronProfile,
+} from './disposableElectronProfile';
 
 let app: ElectronApplication;
 let page: Page;
+let profilePath: string;
 
 const projectRoot = path.join(__dirname, '..', '..');
+const profilePrefix = 'minddiary-templates-crud-e2e-';
 
 test.beforeAll(async () => {
+    profilePath = createDisposableElectronProfile(profilePrefix);
     app = await electron.launch({
-        args: [projectRoot],
+        args: [projectRoot, `--user-data-dir=${profilePath}`],
         env: { ...process.env, NODE_ENV: 'production' },
     });
     page = await app.firstWindow();
+    const actualUserData = await app.evaluate(({ app }) => app.getPath('userData'));
+    expect(path.relative(profilePath, actualUserData)).toBe('');
     await page.waitForLoadState('load');
-    await page.waitForTimeout(2000);
+    await expect.poll(() => page.evaluate(async () => {
+        const templates = (window as any).api?.templates;
+        if (typeof templates?.getAll !== 'function') return false;
+        const values = await templates.getAll();
+        return Array.isArray(values) && values.length >= 3;
+    })).toBe(true);
 });
 
 test.afterAll(async () => {
-    await app.close();
+    const cleanupErrors: unknown[] = [];
+    if (app) {
+        try {
+            await app.close();
+        } catch (error) {
+            cleanupErrors.push(error);
+        }
+    }
+    if (profilePath) {
+        try {
+            await removeDisposableElectronProfile(profilePath, profilePrefix);
+        } catch (error) {
+            cleanupErrors.push(error);
+        }
+    }
+    if (cleanupErrors.length > 0) {
+        throw new Error(`Template CRUD E2E cleanup failed:\n${cleanupErrors.map(error => (
+            error instanceof Error ? error.stack || error.message : String(error)
+        )).join('\n')}`);
+    }
 });
 
 test.describe('Template CRUD (IPC round-trip)', () => {

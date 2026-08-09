@@ -93,7 +93,6 @@ function getTodayActionAdmissionSelectedIds(
   return new Set(suggestions.flatMap(suggestion => (
     suggestion.clientId === clientId
     || suggestion.selected
-    || suggestion.validationErrors.length > 0
       ? [suggestion.clientId]
       : []
   )))
@@ -363,12 +362,9 @@ export default function TodayActionSuggestionDialog({
     const afterErrors = afterAdmissionView.find(suggestion => (
       suggestion.clientId === clientId
     ))?.validationErrors ?? null
-    const admissionErrors = new Map(afterAdmissionView.map(suggestion => (
-      [suggestion.clientId, suggestion.validationErrors] as const
-    )))
     setSuggestions(nextSuggestions.map(suggestion => (
-      admissionSelectedIds.has(suggestion.clientId)
-        ? { ...suggestion, validationErrors: admissionErrors.get(suggestion.clientId) ?? suggestion.validationErrors }
+      suggestion.clientId === clientId
+        ? { ...suggestion, validationErrors: afterErrors ?? suggestion.validationErrors }
         : suggestion
     )))
     if (

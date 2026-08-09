@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ALLOWED_UNPACKED_FILES,
   EXPECTED_FUSES,
@@ -12,8 +12,11 @@ import {
   verifyUnpackedLayout,
 } from '../scripts/verify-electron-package-security.mjs'
 import {
+  createIntegrityControlExecutable,
   expectRejectedStartup,
   findParseableAsarHeaderMutation,
+  removeIntegrityControlExecutable,
+  retryTransientWindowsCleanup,
 } from '../scripts/test-packaged-asar-integrity.mjs'
 import {
   findPackagedArchives,
@@ -218,6 +221,95 @@ describe('packaged Electron security verifier', () => {
       archive.subarray(16, 16 + header.length).toString('utf8'),
     )).not.toThrow()
     expect(archive.subarray(16, 16 + header.length).toString('utf8')).toContain('dependency.nap')
+  })
+
+  it.each(['EBUSY', 'EPERM', 'ENOTEMPTY'])('retries bounded Windows cleanup failure %s', async code => {
+    const transientError = Object.assign(new Error('transient cleanup failure'), { code })
+    const wait = vi.fn(async () => undefined)
+    const operation = vi.fn()
+      .mockRejectedValueOnce(transientError)
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(undefined)
+
+    await expect(retryTransientWindowsCleanup(operation, { platform: 'win32', wait })).resolves.toBeUndefined()
+    expect(operation).toHaveBeenCalledTimes(3)
+    expect(wait.mock.calls).toEqual([[100], [200]])
+  })
+
+  it('preserves a pre-existing integrity control executable it does not own', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-control-ownership-'))
+    tempRoots.push(root)
+    const executablePath = path.join(root, 'MindDiary.exe')
+    const controlExecutablePath = path.join(root, `MindDiary.integrity-control-${process.pid}.exe`)
+    fs.writeFileSync(executablePath, 'packaged executable')
+    fs.writeFileSync(controlExecutablePath, 'pre-existing control')
+
+    let created = false
+    try {
+      expect(() => createIntegrityControlExecutable(executablePath, controlExecutablePath))
+        .toThrow(/Refusing to overwrite existing integrity-control executable/)
+    } finally {
+      await removeIntegrityControlExecutable(controlExecutablePath, executablePath, created)
+    }
+    expect(fs.readFileSync(controlExecutablePath, 'utf8')).toBe('pre-existing control')
+  })
+
+  it('removes only an owned exact-name integrity control executable', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-control-cleanup-'))
+    tempRoots.push(root)
+    const executablePath = path.join(root, 'MindDiary.exe')
+    const controlExecutablePath = path.join(root, `MindDiary.integrity-control-${process.pid}.exe`)
+    const unexpectedPath = path.join(root, 'MindDiary.integrity-control-unexpected.exe')
+    fs.writeFileSync(executablePath, 'packaged executable')
+    fs.writeFileSync(unexpectedPath, 'unowned executable')
+
+    createIntegrityControlExecutable(executablePath, controlExecutablePath)
+    await expect(removeIntegrityControlExecutable(
+      controlExecutablePath,
+      executablePath,
+      true,
+    )).resolves.toBeUndefined()
+    expect(fs.existsSync(controlExecutablePath)).toBe(false)
+    await expect(removeIntegrityControlExecutable(
+      unexpectedPath,
+      executablePath,
+      true,
+    )).rejects.toThrow(/unexpected integrity-control executable/)
+    expect(fs.existsSync(unexpectedPath)).toBe(true)
+  })
+
+  it('throws non-transient cleanup failures immediately and exhausts transient retries', async () => {
+    const nonTransientError = Object.assign(new Error('access denied'), { code: 'EACCES' })
+    const nonTransientOperation = vi.fn().mockRejectedValue(nonTransientError)
+    const nonTransientWait = vi.fn(async () => undefined)
+
+    await expect(retryTransientWindowsCleanup(nonTransientOperation, {
+      platform: 'win32',
+      wait: nonTransientWait,
+    })).rejects.toBe(nonTransientError)
+    expect(nonTransientOperation).toHaveBeenCalledTimes(1)
+    expect(nonTransientWait).not.toHaveBeenCalled()
+
+    const transientError = Object.assign(new Error('directory not empty'), { code: 'ENOTEMPTY' })
+    const transientOperation = vi.fn().mockRejectedValue(transientError)
+    const transientWait = vi.fn(async () => undefined)
+
+    await expect(retryTransientWindowsCleanup(transientOperation, {
+      platform: 'win32',
+      wait: transientWait,
+    })).rejects.toBe(transientError)
+    expect(transientOperation).toHaveBeenCalledTimes(4)
+    expect(transientWait.mock.calls).toEqual([[100], [200], [300]])
+  })
+
+  it('does not retry transient cleanup codes outside Windows', async () => {
+    const error = Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    const operation = vi.fn().mockRejectedValue(error)
+    const wait = vi.fn(async () => undefined)
+
+    await expect(retryTransientWindowsCleanup(operation, { platform: 'linux', wait })).rejects.toBe(error)
+    expect(operation).toHaveBeenCalledTimes(1)
+    expect(wait).not.toHaveBeenCalled()
   })
 
   it('requires exact updater metadata for distributable packages', () => {

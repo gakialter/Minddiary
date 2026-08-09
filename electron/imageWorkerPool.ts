@@ -18,6 +18,7 @@ const { logger } = require('./logger');
 
 const DEFAULT_POOL_SIZE = 2;
 const TASK_TIMEOUT_MS = 30_000;
+const MAX_REPLACEMENT_ATTEMPTS = 2;
 
 // ── Worker task payload/result shapes ───────────────────────────────────────
 interface WriteBufferPayload {
@@ -49,6 +50,7 @@ interface WorkerError {
 interface PoolWorker {
     worker: NodeWorker;
     busy: boolean;
+    retired: boolean;
     id: number;
     currentTaskId?: number;
 }
@@ -85,16 +87,17 @@ function initialize(size?: number): void {
 
 function spawnWorker(id: number): void {
     const worker = new NodeWorkerCtor(getWorkerScript());
-    const poolWorker: PoolWorker = { worker, busy: false, id };
+    const poolWorker: PoolWorker = { worker, busy: false, retired: false, id };
 
     worker.on('message', (result: WorkerResult) => {
-        poolWorker.busy = false;
-        poolWorker.currentTaskId = undefined;
+        if (poolWorker.retired || poolWorker.currentTaskId !== result.id) return;
         // Find the pending task that matches this result
         const idx = pending.findIndex(t => t.id === result.id);
         if (idx === -1) return;
         const task = pending.splice(idx, 1)[0]!;
         clearTimeout(task.timer);
+        poolWorker.busy = false;
+        poolWorker.currentTaskId = undefined;
 
         if (result.success) {
             task.resolve(result.data);
@@ -108,27 +111,95 @@ function spawnWorker(id: number): void {
     });
 
     worker.on('error', (err: Error) => {
+        if (poolWorker.retired) return;
         logger.error(`[imageWorkerPool] Worker ${id} error:`, err.message);
-        if (poolWorker.currentTaskId !== undefined) {
-            const taskIndex = pending.findIndex(t => t.id === poolWorker.currentTaskId);
-            if (taskIndex !== -1) {
-                const task = pending.splice(taskIndex, 1)[0]!;
-                clearTimeout(task.timer);
-                task.reject({ code: 'WORKER_TERMINATED', message: err.message });
-            }
-            poolWorker.currentTaskId = undefined;
+        rejectCurrentTask(poolWorker, err.message);
+        if (retireWorker(poolWorker, true)) {
+            replaceWorker(id);
+            flushPending();
         }
-        // Replace crashed worker
-        poolWorker.busy = false;
-        const idx = workers.indexOf(poolWorker);
-        if (idx !== -1) {
-            workers.splice(idx, 1);
-            spawnWorker(id);
+    });
+
+    worker.on('exit', (code: number) => {
+        if (poolWorker.retired) return;
+        const message = `Worker exited with code ${code}`;
+        logger.error(`[imageWorkerPool] Worker ${id} exited:`, message);
+        rejectCurrentTask(poolWorker, message);
+        if (retireWorker(poolWorker, false)) {
+            replaceWorker(id);
+            flushPending();
         }
-        flushPending();
     });
 
     workers.push(poolWorker);
+}
+
+function rejectCurrentTask(poolWorker: PoolWorker, message: string): void {
+    if (poolWorker.currentTaskId === undefined) return;
+    const taskIndex = pending.findIndex(t => t.id === poolWorker.currentTaskId);
+    if (taskIndex === -1) return;
+    const task = pending.splice(taskIndex, 1)[0]!;
+    clearTimeout(task.timer);
+    task.reject({ code: 'WORKER_TERMINATED', message });
+}
+
+function terminateWorker(poolWorker: PoolWorker): void {
+    try {
+        void poolWorker.worker.terminate().catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error(`[imageWorkerPool] Worker ${poolWorker.id} termination failed:`, message);
+        });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(`[imageWorkerPool] Worker ${poolWorker.id} termination failed:`, message);
+    }
+}
+
+function retireWorker(poolWorker: PoolWorker, shouldTerminate: boolean): boolean {
+    if (poolWorker.retired) return false;
+    const idx = workers.indexOf(poolWorker);
+    if (idx === -1) return false;
+
+    poolWorker.retired = true;
+    poolWorker.busy = true;
+    poolWorker.currentTaskId = undefined;
+    workers.splice(idx, 1);
+
+    if (shouldTerminate) terminateWorker(poolWorker);
+    return true;
+}
+
+function replaceWorker(id: number): void {
+    if (!initialized) return;
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_REPLACEMENT_ATTEMPTS; attempt += 1) {
+        try {
+            spawnWorker(id);
+            return;
+        } catch (err) {
+            lastError = err;
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error(
+                `[imageWorkerPool] Worker ${id} replacement attempt ${attempt}/${MAX_REPLACEMENT_ATTEMPTS} failed:`,
+                message,
+            );
+        }
+    }
+
+    if (workers.length === 0) {
+        const message = lastError instanceof Error ? lastError.message : String(lastError);
+        failUndispatchedTasks(`Worker pool replacement failed: ${message}`);
+    }
+}
+
+function failUndispatchedTasks(message: string): void {
+    const queued = pending.filter(task => !task.dispatched);
+    pending = pending.filter(task => task.dispatched);
+    for (const task of queued) {
+        clearTimeout(task.timer);
+        task.reject({ code: 'WORKER_TERMINATED', message });
+    }
 }
 
 function findFreeWorker(): PoolWorker | null {
@@ -160,20 +231,26 @@ function submit(type: string, payload: TaskPayload): Promise<WorkerResult['data'
             const idx = pending.findIndex(t => t.id === id);
             if (idx !== -1) {
                 const task = pending.splice(idx, 1)[0]!;
+                clearTimeout(task.timer);
+                let retiredWorkerId: number | undefined;
                 if (task.dispatched) {
                     const worker = workers.find(w => w.currentTaskId === id);
-                    if (worker) {
-                        worker.busy = false;
-                        worker.currentTaskId = undefined;
+                    if (worker && retireWorker(worker, true)) {
+                        retiredWorkerId = worker.id;
                     }
                 }
-                reject({ code: 'WORKER_TERMINATED', message: `Task ${type} timed out after ${TASK_TIMEOUT_MS}ms` });
+                task.reject({ code: 'WORKER_TERMINATED', message: `Task ${type} timed out after ${TASK_TIMEOUT_MS}ms` });
+                if (retiredWorkerId !== undefined) replaceWorker(retiredWorkerId);
                 flushPending();
             }
         }, TASK_TIMEOUT_MS);
 
         const task: PendingTask = { id, type, payload, resolve, reject, timer, dispatched: false };
         pending.push(task);
+
+        if (initialized && workers.length === 0) {
+            replaceWorker(0);
+        }
 
         const free = findFreeWorker();
         if (free) {
@@ -186,12 +263,11 @@ function shutdown(): void {
     for (const task of pending) {
         clearTimeout(task.timer);
     }
-    for (const pw of workers) {
-        try { pw.worker.terminate(); } catch { /* ignore */ }
-    }
-    workers = [];
     pending = [];
     initialized = false;
+    for (const pw of [...workers]) {
+        retireWorker(pw, true);
+    }
 }
 
 module.exports = { initialize, submit, shutdown };

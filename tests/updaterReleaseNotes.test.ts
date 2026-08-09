@@ -10,7 +10,10 @@ describe('release notes', () => {
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('今日任务')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Windows 自动更新完整 E2E 仍待后续验收')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 5')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 6')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('study_task_action_receipts')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('idempotency receipts')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).not.toContain('schema 5')
   })
 
   it('normalizes a remote string release note', () => {

@@ -117,7 +117,6 @@ function getDailyReviewAdmissionSelectedIds(
   return new Set(candidates.flatMap(candidate => (
     candidate.clientId === clientId
     || candidate.selected
-    || candidate.validationErrors.length > 0
       ? [candidate.clientId]
       : []
   )))
@@ -469,12 +468,9 @@ export default function DailyReviewAgentDialog({
     const afterErrors = afterAdmissionView.find(candidate => (
       candidate.clientId === clientId
     ))?.validationErrors ?? null
-    const admissionErrors = new Map(afterAdmissionView.map(candidate => (
-      [candidate.clientId, candidate.validationErrors] as const
-    )))
     setCandidates(nextCandidates.map(candidate => (
-      admissionSelectedIds.has(candidate.clientId)
-        ? { ...candidate, validationErrors: admissionErrors.get(candidate.clientId) ?? candidate.validationErrors }
+      candidate.clientId === clientId
+        ? { ...candidate, validationErrors: afterErrors ?? candidate.validationErrors }
         : candidate
     )))
     if (
