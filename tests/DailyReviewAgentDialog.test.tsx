@@ -448,7 +448,7 @@ describe('DailyReviewAgentDialog', () => {
     expect(subjectControl).toHaveValue(String(subject.id))
 
     fireEvent.change(subjectControl, { target: { value: String(secondSubject.id) } })
-    expect(await screen.findByText('review candidate subject must match the related mistake subject')).toBeInTheDocument()
+    expect(await screen.findByText('复习建议的科目与所选错题不一致，请重新选择。')).toBeInTheDocument()
     expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
@@ -464,7 +464,7 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    expect(await screen.findByText('type is invalid')).toBeInTheDocument()
+    expect(await screen.findByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
     expect(document.body.innerHTML).not.toContain('provider_raw_invalid_type')
@@ -474,7 +474,7 @@ describe('DailyReviewAgentDialog', () => {
     fireEvent.change(screen.getByLabelText('候选任务类型'), { target: { value: 'focus' } })
 
     await waitFor(() => {
-      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
+      expect(screen.queryByText('这个建议的任务类型无法识别，请调整后再试。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 0 项')
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('已编辑 0 项')
@@ -518,6 +518,47 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('已确认')
   })
 
+  it('shows bounded Chinese guidance for observed candidate validation failures', async () => {
+    mocks.aiChat.mockResolvedValue({
+      content: JSON.stringify({
+        observations: [],
+        candidates: [
+          {
+            title: '类型待修复任务',
+            type: 'provider_raw_invalid_type',
+            estimate_minutes: 10,
+            reason: '需要用户选择可识别类型。',
+            priority: 'low',
+            subject_ref: null,
+            related_mistake_ref: null,
+            related_entry_ref: null,
+          },
+          {
+            title: '缺少错题关联的复习任务',
+            type: 'review',
+            estimate_minutes: 10,
+            reason: '需要关联当前可复习错题。',
+            priority: 'medium',
+            subject_ref: null,
+            related_mistake_ref: null,
+            related_entry_ref: null,
+          },
+        ],
+      }),
+    })
+
+    renderDialog()
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+    expect(await screen.findByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
+    expect(screen.getByText('这个复习建议没有关联到当前可复习的错题，请修改任务类型或重新生成。')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('type is invalid')
+    expect(document.body).not.toHaveTextContent('review candidates must reference a due mistake')
+    expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
   it('repairs an unselected candidate without admitting another invalid unselected candidate', async () => {
     mocks.tasksGetByDate.mockImplementation(async date => date === CANDIDATE_DATE
       ? [makeTask({ title: '已存在的其他次日复习任务' })]
@@ -554,8 +595,8 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    expect(await screen.findByText('An active review task for this mistake already exists on the candidate date')).toBeInTheDocument()
-    expect(screen.getByText('type is invalid')).toBeInTheDocument()
+    expect(await screen.findByText('这道错题在计划日期已有复习任务，请取消关联或不选择此建议。')).toBeInTheDocument()
+    expect(screen.getByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
     const selections = screen.getAllByLabelText('选择候选任务：共享次日候选标题')
     expect(selections[0]).not.toBeChecked()
     expect(selections[1]).not.toBeChecked()
@@ -563,8 +604,8 @@ describe('DailyReviewAgentDialog', () => {
     fireEvent.change(screen.getAllByLabelText('候选任务类型')[1]!, { target: { value: 'focus' } })
 
     await waitFor(() => {
-      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
-      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.queryByText('这个建议的任务类型无法识别，请调整后再试。')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
     })
     const repairedDecision = screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-2')
@@ -628,7 +669,7 @@ describe('DailyReviewAgentDialog', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(1)
+      expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(1)
       expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
     })
     expect(selectedA).toBeChecked()
@@ -640,7 +681,7 @@ describe('DailyReviewAgentDialog', () => {
     })
 
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
     })
     const repairedDecision = screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-2')
@@ -676,31 +717,31 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2))
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.click(screen.getAllByLabelText('选择候选任务：聚合重复标题')[0]!)
-    await waitFor(() => expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument())
     fireEvent.click(screen.getAllByLabelText('选择候选任务：聚合重复标题')[1]!)
-    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2))
 
     fireEvent.change(screen.getAllByLabelText('候选建议优先级')[0]!, { target: { value: 'high' } })
     fireEvent.change(screen.getAllByLabelText('候选理由')[0]!, { target: { value: '只修改不相关理由，不能解除标题冲突。' } })
-    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2))
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.change(screen.getAllByLabelText('候选任务标题')[0]!, { target: { value: '用户修复后的唯一标题' } })
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
     })
     expect(screen.getAllByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveLength(1)
     expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-2')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('daily-review-generate'))
-    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2))
     fireEvent.click(screen.getAllByLabelText('删除候选任务：聚合重复标题')[1]!)
-    await waitFor(() => expect(screen.queryByText('Duplicate title in selected candidates')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument())
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
     expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
 
@@ -725,15 +766,15 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('多个选中建议关联了同一道错题，请只保留一个。')).toHaveLength(2))
     fireEvent.click(screen.getByLabelText('选择候选任务：错题聚合候选 A'))
-    await waitFor(() => expect(screen.queryByText('Duplicate related mistake in selected candidates')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('多个选中建议关联了同一道错题，请只保留一个。')).not.toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('选择候选任务：错题聚合候选 B'))
-    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected candidates')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('多个选中建议关联了同一道错题，请只保留一个。')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('候选任务类型')[0]!, { target: { value: 'focus' } })
 
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate related mistake in selected candidates')).not.toBeInTheDocument()
+      expect(screen.queryByText('多个选中建议关联了同一道错题，请只保留一个。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
     })
     expect(screen.getByTestId('daily-review-candidate-decision-daily-review-candidate-1')).toHaveTextContent('模型候选：用户修复后通过本地验证')
@@ -755,18 +796,18 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2))
     fireEvent.click(screen.getByLabelText('选择候选任务：预算聚合候选 A'))
-    await waitFor(() => expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('选择候选任务：预算聚合候选 B'))
-    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '50' } })
-    await waitFor(() => expect(screen.getAllByText('Selected candidates exceed remaining available minutes')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2))
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '30' } })
     await waitFor(() => {
-      expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
     })
     fireEvent.change(screen.getAllByLabelText('候选预计分钟数')[0]!, { target: { value: '30' } })
@@ -805,22 +846,22 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    expect(await screen.findByText('An active task with this title already exists on the candidate date')).toBeInTheDocument()
+    expect(await screen.findByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).toBeInTheDocument()
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.click(screen.getByTestId('daily-review-refresh-context'))
-    await waitFor(() => expect(screen.queryByText('An active task with this title already exists on the candidate date')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).not.toBeInTheDocument())
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
     expect(screen.queryByTestId('daily-review-candidate-decision-daily-review-candidate-1')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('选择候选任务：次日已存在的冲突任务'))
-    expect(await screen.findByText('An active task with this title already exists on the candidate date')).toBeInTheDocument()
+    expect(await screen.findByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).toBeInTheDocument()
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
     expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('候选任务标题'), { target: { value: '用户明确修复后的次日任务' } })
     await waitFor(() => {
-      expect(screen.queryByText('An active task with this title already exists on the candidate date')).not.toBeInTheDocument()
+      expect(screen.queryByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
       expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
     })
@@ -850,9 +891,9 @@ describe('DailyReviewAgentDialog', () => {
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
 
-    expect(await screen.findByText('Selected candidates exceed remaining available minutes')).toBeInTheDocument()
+    expect(await screen.findByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toBeInTheDocument()
     fireEvent.change(screen.getByTestId('daily-review-available-minutes'), { target: { value: '120' } })
-    await waitFor(() => expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument())
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.click(screen.getByLabelText('选择候选任务：次日预算候选'))
@@ -861,12 +902,12 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByTestId('daily-review-create-selected')).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '130' } })
-    expect(await screen.findByText('Selected candidates exceed remaining available minutes')).toBeInTheDocument()
+    expect(await screen.findByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toBeInTheDocument()
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 0 项')
 
     fireEvent.change(screen.getByLabelText('候选预计分钟数'), { target: { value: '100' } })
     await waitFor(() => {
-      expect(screen.queryByText('Selected candidates exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项')
       expect(screen.getByTestId('daily-review-create-selected')).not.toBeDisabled()
     })
@@ -896,7 +937,7 @@ describe('DailyReviewAgentDialog', () => {
     )
     await waitForInitialContext()
     fireEvent.click(screen.getByTestId('daily-review-generate'))
-    expect(await screen.findByText('type is invalid')).toBeInTheDocument()
+    expect(await screen.findByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('候选任务类型'), { target: { value: 'focus' } })
     await waitFor(() => expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('用户修复后纳入 1 项'))
