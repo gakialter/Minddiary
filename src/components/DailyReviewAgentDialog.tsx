@@ -65,6 +65,7 @@ import {
   type PlanningSessionExplainability,
   type PlanningStudyTaskActionExecutionObservation,
 } from '../utils/planningSessionExplainability'
+import { formatCandidateValidationMessage } from '../utils/candidateValidationMessages'
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
@@ -1281,7 +1282,9 @@ export default function DailyReviewAgentDialog({
                       </div>
                       {candidate.validationErrors.length > 0 && (
                         <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>
-                          {candidate.validationErrors.map(error => <li key={error}>{error}</li>)}
+                          {candidate.validationErrors.map(error => (
+                            <li key={error}>{formatCandidateValidationMessage(error)}</li>
+                          ))}
                         </ul>
                       )}
                     </div>

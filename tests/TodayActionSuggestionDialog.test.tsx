@@ -209,6 +209,115 @@ describe('TodayActionSuggestionDialog', () => {
     render(dialogElement(date, routeOverride))
   )
 
+  it('portals its viewport-fixed overlay out of a transformed scroller and owns modal scrolling', async () => {
+    const transformedScroller = document.createElement('div')
+    const renderHost = document.createElement('div')
+    const opener = document.createElement('button')
+    transformedScroller.style.transform = 'translateZ(0)'
+    transformedScroller.style.overflow = 'auto'
+    transformedScroller.append(renderHost)
+    document.body.append(transformedScroller, opener)
+    opener.focus()
+
+    const originalScrollY = Object.getOwnPropertyDescriptor(window, 'scrollY')
+    const previousBodyOverflow = document.body.style.overflow
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 480 })
+    document.body.style.overflow = 'auto'
+    let unmount: (() => void) | undefined
+
+    try {
+      const view = render(dialogElement(), { container: renderHost })
+      unmount = view.unmount
+      await screen.findByTestId('planning-context-preview')
+
+      const dialog = screen.getByRole('dialog', { name: 'AI 规划今日行动' })
+      expect(window.scrollY).toBe(480)
+      expect(dialog.parentElement).toBe(document.body)
+      expect(transformedScroller.contains(dialog)).toBe(false)
+      expect(dialog).toHaveStyle({ position: 'fixed', inset: '0' })
+      expect(screen.getByTestId('today-action-dialog-content')).toHaveStyle({
+        overflowY: 'auto',
+        maxHeight: 'min(580px, calc(100vh - 220px))',
+      })
+      expect(document.body.style.overflow).toBe('hidden')
+      expect(screen.getByRole('button', { name: '关闭 AI 今日行动建议' })).toHaveFocus()
+
+      const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      ))
+      const firstFocusable = focusableElements[0]!
+      const lastFocusable = focusableElements[focusableElements.length - 1]!
+      lastFocusable.focus()
+      fireEvent.keyDown(dialog, { key: 'Tab' })
+      expect(firstFocusable).toHaveFocus()
+      firstFocusable.focus()
+      fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+      expect(lastFocusable).toHaveFocus()
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(mocks.onClose).toHaveBeenCalledTimes(1)
+
+      view.unmount()
+      unmount = undefined
+      expect(document.body.style.overflow).toBe('auto')
+      expect(opener).toHaveFocus()
+      expect(scrollTo).not.toHaveBeenCalled()
+    } finally {
+      unmount?.()
+      document.body.style.overflow = previousBodyOverflow
+      if (originalScrollY) Object.defineProperty(window, 'scrollY', originalScrollY)
+      else Reflect.deleteProperty(window, 'scrollY')
+      scrollTo.mockRestore()
+      transformedScroller.remove()
+      opener.remove()
+    }
+  })
+
+  it('distinguishes the first generation from replacement and starts B with fresh candidate state', async () => {
+    const replacementResponse = JSON.stringify({
+      suggestions: [
+        { title: '新一轮任务 C', type: 'focus', estimate_minutes: 15, reason: '这是独立的新一轮规划。', priority: 'high' },
+      ],
+    })
+    mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })
+
+    renderDialog()
+
+    const generateButton = screen.getByTestId('ai-plan-generate')
+    expect(generateButton).toHaveTextContent('生成建议')
+    expect(screen.queryByTestId('today-action-regeneration-warning')).not.toBeInTheDocument()
+
+    fireEvent.click(generateButton)
+    const firstTitle = await screen.findByDisplayValue('任务 A')
+
+    expect(generateButton).toHaveTextContent('重新生成一组建议')
+    expect(screen.getByTestId('today-action-regeneration-warning')).toHaveTextContent(
+      '重新生成会开始一次新的规划，当前尚未确认的候选和修改将被替换',
+    )
+    expect(screen.getByTestId('today-action-regeneration-warning')).toHaveTextContent('已创建的任务不受影响')
+
+    fireEvent.change(firstTitle, { target: { value: '用户修改的任务 A' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 任务 B' }))
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    expect(screen.getByTestId('today-action-regeneration-warning')).toBeInTheDocument()
+    mocks.aiChat.mockResolvedValueOnce({ content: replacementResponse })
+    fireEvent.click(generateButton)
+
+    expect(await screen.findByDisplayValue('新一轮任务 C')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('用户修改的任务 A')).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue('任务 B')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 新一轮任务 C' })).toBeChecked()
+    expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('已净编辑 0')
+    expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('保留但未选择 0')
+    expect(screen.getByTestId('today-action-candidate-decision-suggestion-1')).toHaveTextContent('新一轮任务 C')
+    expect(screen.getByTestId('today-action-candidate-decision-suggestion-1')).not.toHaveTextContent('用户修改的任务 A')
+    expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+  })
+
   it('generates validated suggestions and creates selected tasks only after user confirmation', async () => {
     renderDialog()
 
@@ -268,7 +377,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(screen.getByTestId('planning-context-today_entry')).toHaveTextContent('今天尚无日记')
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findByText('related_entry_ref is not in the allowlist')).toBeInTheDocument()
+    expect(await screen.findByText('关联的今日日记当前不可用，请重新选择或取消关联。')).toBeInTheDocument()
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('初始通过验证 0')
     expect(screen.getByRole('option', { name: '今天没有可关联日记' })).toBeInTheDocument()
     expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
@@ -360,8 +469,8 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findByText('An active review task for this mistake already exists today')).toBeInTheDocument()
-    expect(screen.getByText('type is invalid')).toBeInTheDocument()
+    expect(await screen.findByText('这道错题在计划日期已有复习任务，请取消关联或不选择此建议。')).toBeInTheDocument()
+    expect(screen.getByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
     const selections = screen.getAllByRole('checkbox', { name: '选择 共享候选标题' })
     expect(selections[0]).not.toBeChecked()
     expect(selections[1]).not.toBeChecked()
@@ -369,8 +478,8 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.change(screen.getAllByLabelText('建议类型')[1]!, { target: { value: 'focus' } })
 
     await waitFor(() => {
-      expect(screen.queryByText('type is invalid')).not.toBeInTheDocument()
-      expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.queryByText('这个建议的任务类型无法识别，请调整后再试。')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
     })
     const repairedDecision = screen.getByTestId('today-action-candidate-decision-suggestion-2')
@@ -423,7 +532,7 @@ describe('TodayActionSuggestionDialog', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(1)
+      expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(1)
       expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled()
     })
     expect(selectedA).toBeChecked()
@@ -435,7 +544,7 @@ describe('TodayActionSuggestionDialog', () => {
     })
 
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
     })
     const repairedDecision = screen.getByTestId('today-action-candidate-decision-suggestion-2')
@@ -474,22 +583,22 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findByText('An active task with this title already exists today')).toBeInTheDocument()
+    expect(await screen.findByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).toBeInTheDocument()
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
 
     fireEvent.click(screen.getByTestId('ai-plan-refresh-context'))
-    await waitFor(() => expect(screen.queryByText('An active task with this title already exists today')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).not.toBeInTheDocument())
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     expect(screen.queryByTestId('today-action-candidate-decision-suggestion-1')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 已存在的冲突任务' }))
-    expect(await screen.findByText('An active task with this title already exists today')).toBeInTheDocument()
+    expect(await screen.findByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).toBeInTheDocument()
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('建议标题'), { target: { value: '用户明确修复后的任务' } })
     await waitFor(() => {
-      expect(screen.queryByText('An active task with this title already exists today')).not.toBeInTheDocument()
+      expect(screen.queryByText('计划日期已有同名进行中任务，请修改标题或不选择此建议。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
       expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled()
     })
@@ -514,9 +623,9 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findByText('Selected suggestions exceed remaining available minutes')).toBeInTheDocument()
+    expect(await screen.findByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toBeInTheDocument()
     fireEvent.change(screen.getByTestId('ai-plan-available-minutes'), { target: { value: '120' } })
-    await waitFor(() => expect(screen.queryByText('Selected suggestions exceed remaining available minutes')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument())
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 预算候选' }))
@@ -525,12 +634,12 @@ describe('TodayActionSuggestionDialog', () => {
     expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('预计分钟'), { target: { value: '130' } })
-    expect(await screen.findByText('Selected suggestions exceed remaining available minutes')).toBeInTheDocument()
+    expect(await screen.findByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toBeInTheDocument()
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
 
     fireEvent.change(screen.getByLabelText('预计分钟'), { target: { value: '100' } })
     await waitFor(() => {
-      expect(screen.queryByText('Selected suggestions exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
       expect(screen.getByTestId('ai-plan-create-selected')).not.toBeDisabled()
     })
@@ -550,18 +659,18 @@ describe('TodayActionSuggestionDialog', () => {
     render(<StrictMode>{dialogElement()}</StrictMode>)
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findAllByText('Duplicate title in selected suggestions')).toHaveLength(2)
+    expect(await screen.findAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2)
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('初始通过验证 0')
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
 
     fireEvent.click(screen.getAllByRole('checkbox', { name: '选择 重复标题' })[0]!)
-    await waitFor(() => expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument())
     fireEvent.click(screen.getAllByRole('checkbox', { name: '选择 重复标题' })[1]!)
-    await waitFor(() => expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2))
 
     fireEvent.change(screen.getAllByLabelText('建议理由')[0]!, { target: { value: '仍然冲突的无关字段编辑。' } })
     await waitFor(() => {
-      expect(screen.getAllByText('Duplicate title in selected suggestions')).toHaveLength(2)
+      expect(screen.getAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2)
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     })
 
@@ -571,7 +680,7 @@ describe('TodayActionSuggestionDialog', () => {
 
     fireEvent.change(screen.getAllByLabelText('建议标题')[0]!, { target: { value: '修复后的唯一标题' } })
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
     })
     expect(screen.getAllByTestId('today-action-candidate-decision-suggestion-1')).toHaveLength(1)
@@ -614,20 +723,20 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2)
+    expect(await screen.findAllByText('多个选中建议关联了同一道错题，请只保留一个。')).toHaveLength(2)
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 错题复习 A' }))
-    await waitFor(() => expect(screen.queryByText('Duplicate related mistake in selected suggestions')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('多个选中建议关联了同一道错题，请只保留一个。')).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 错题复习 B' }))
-    await waitFor(() => expect(screen.getAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('多个选中建议关联了同一道错题，请只保留一个。')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('建议理由')[0]!, { target: { value: '仍然重复错题。' } })
     await waitFor(() => {
-      expect(screen.getAllByText('Duplicate related mistake in selected suggestions')).toHaveLength(2)
+      expect(screen.getAllByText('多个选中建议关联了同一道错题，请只保留一个。')).toHaveLength(2)
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     })
 
     fireEvent.change(screen.getAllByLabelText('建议类型')[0]!, { target: { value: 'focus' } })
     await waitFor(() => {
-      expect(screen.queryByText('Duplicate related mistake in selected suggestions')).not.toBeInTheDocument()
+      expect(screen.queryByText('多个选中建议关联了同一道错题，请只保留一个。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
     })
     expect(screen.getByTestId('today-action-candidate-decision-suggestion-1')).toHaveTextContent(
@@ -650,14 +759,14 @@ describe('TodayActionSuggestionDialog', () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
 
-    expect(await screen.findAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2)
+    expect(await screen.findAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2)
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 预算任务 A' }))
-    await waitFor(() => expect(screen.queryByText('Selected suggestions exceed remaining available minutes')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 预算任务 B' }))
-    await waitFor(() => expect(screen.getAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2))
     fireEvent.change(screen.getAllByLabelText('预计分钟')[0]!, { target: { value: '50' } })
     await waitFor(() => {
-      expect(screen.getAllByText('Selected suggestions exceed remaining available minutes')).toHaveLength(2)
+      expect(screen.getAllByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).toHaveLength(2)
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     })
 
@@ -665,7 +774,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     fireEvent.change(screen.getAllByLabelText('预计分钟')[0]!, { target: { value: '30' } })
     await waitFor(() => {
-      expect(screen.queryByText('Selected suggestions exceed remaining available minutes')).not.toBeInTheDocument()
+      expect(screen.queryByText('选中建议的预计总时长超过剩余可用时间，请缩短用时或减少选择。')).not.toBeInTheDocument()
       expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1')
     })
 
@@ -690,10 +799,10 @@ describe('TodayActionSuggestionDialog', () => {
 
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
-    expect(await screen.findAllByText('Duplicate title in selected suggestions')).toHaveLength(2)
+    expect(await screen.findAllByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).toHaveLength(2)
 
     fireEvent.click(screen.getAllByRole('button', { name: '删除建议' })[1]!)
-    await waitFor(() => expect(screen.queryByText('Duplicate title in selected suggestions')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('选中的建议中有重复标题，请修改标题或取消重复选择。')).not.toBeInTheDocument())
     expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 0')
     expect(screen.queryByTestId('today-action-candidate-decision-suggestion-1')).not.toBeInTheDocument()
 
@@ -719,7 +828,7 @@ describe('TodayActionSuggestionDialog', () => {
     })
     render(<StrictMode>{dialogElement()}</StrictMode>)
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
-    expect(await screen.findByText('type is invalid')).toBeInTheDocument()
+    expect(await screen.findByText('这个建议的任务类型无法识别，请调整后再试。')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('建议类型'), { target: { value: 'focus' } })
     await waitFor(() => expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('用户修复后纳入 1'))
@@ -825,7 +934,7 @@ describe('TodayActionSuggestionDialog', () => {
 
     expect(await screen.findByTestId('ai-plan-errors')).toHaveTextContent('浏览器端目前不支持')
     expect(screen.getByTestId('ai-plan-errors')).toHaveTextContent('重新生成建议')
-    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('重新生成建议')
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('重新生成一组建议')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
   })
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
 import type { AIContextAPI, EntriesContextAPI, MistakesContextAPI, SubjectsContextAPI, TasksContextAPI } from '../types/api'
@@ -49,6 +50,7 @@ import {
   type PlanningStudyTaskActionExecutionObservation,
   type PlanningSessionExplainability,
 } from '../utils/planningSessionExplainability'
+import { formatCandidateValidationMessage } from '../utils/candidateValidationMessages'
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
@@ -194,6 +196,8 @@ export default function TodayActionSuggestionDialog({
   const currentDateRef = useRef(date)
   const mountedRef = useRef(true)
   const dialogInstanceId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   const closeDialog = useCallback(() => {
     generationRef.current += 1
@@ -217,6 +221,51 @@ export default function TodayActionSuggestionDialog({
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [closeDialog, creating, generating])
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    const previousBodyOverflow = document.body.style.overflow
+
+    document.body.style.overflow = 'hidden'
+    closeButtonRef.current?.focus()
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow
+      previouslyFocused?.focus()
+    }
+  }, [])
+
+  const handleDialogKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+
+    if (focusableElements.length === 0) {
+      event.preventDefault()
+      dialog.focus()
+      return
+    }
+
+    const firstFocusable = focusableElements[0]!
+    const lastFocusable = focusableElements[focusableElements.length - 1]!
+    const activeElement = document.activeElement
+    const focusIsOutsideDialog = !dialog.contains(activeElement)
+
+    if (event.shiftKey && (activeElement === firstFocusable || focusIsOutsideDialog)) {
+      event.preventDefault()
+      lastFocusable.focus()
+    } else if (!event.shiftKey && (activeElement === lastFocusable || focusIsOutsideDialog)) {
+      event.preventDefault()
+      firstFocusable.focus()
+    }
+  }, [])
 
   useEffect(() => {
     currentDateRef.current = date
@@ -713,12 +762,21 @@ export default function TodayActionSuggestionDialog({
     )).length,
   }
   const confirmedOutcomes = explainabilityCandidates.filter(candidate => candidate.outcome !== null)
+  const hasReplaceableGenerationState = planningSession !== null && (
+    suggestions.some(suggestion => suggestion.creationState === 'draft')
+    || explainabilityCandidates.some(candidate => (
+      candidate.decision !== 'confirmed' && candidate.outcome === null
+    ))
+  )
 
-  return (
+  const modal = (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="today-action-suggestion-title"
+      tabIndex={-1}
+      onKeyDown={handleDialogKeyDown}
       style={{
         position: 'fixed',
         inset: 0,
@@ -752,6 +810,7 @@ export default function TodayActionSuggestionDialog({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             aria-label="关闭 AI 今日行动建议"
             className="button button-secondary"
@@ -763,7 +822,10 @@ export default function TodayActionSuggestionDialog({
           </button>
         </div>
 
-        <div style={{ padding: 'var(--space-lg)', overflowY: 'auto', maxHeight: 'min(580px, calc(100vh - 220px))' }}>
+        <div
+          data-testid="today-action-dialog-content"
+          style={{ padding: 'var(--space-lg)', overflowY: 'auto', maxHeight: 'min(580px, calc(100vh - 220px))' }}
+        >
           <div className="flex flex-wrap items-center gap-sm">
             <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               今日可用时间
@@ -792,9 +854,18 @@ export default function TodayActionSuggestionDialog({
             >
               {generating
                 ? <><Loader2 size={14} className="animate-spin" /> 生成中...</>
-                : <><Sparkles size={14} /> {errors.length > 0 ? '重新生成建议' : '生成建议'}</>}
+                : <><Sparkles size={14} /> {planningSession ? '重新生成一组建议' : '生成建议'}</>}
             </button>
           </div>
+          {hasReplaceableGenerationState && (
+            <p
+              className="mt-2 text-xs"
+              data-testid="today-action-regeneration-warning"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              重新生成会开始一次新的规划，当前尚未确认的候选和修改将被替换；已创建的任务不受影响。
+            </p>
+          )}
 
           <section className="mt-4" aria-label="当前本地规划预览" data-testid="planning-context-preview">
             <div className="flex flex-wrap items-center justify-between gap-sm">
@@ -1220,7 +1291,9 @@ export default function TodayActionSuggestionDialog({
                     </div>
                     {suggestion.validationErrors.length > 0 && (
                       <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>
-                        {suggestion.validationErrors.map(error => <li key={error}>{error}</li>)}
+                        {suggestion.validationErrors.map(error => (
+                          <li key={error}>{formatCandidateValidationMessage(error)}</li>
+                        ))}
                       </ul>
                     )}
                   </div>
@@ -1252,4 +1325,6 @@ export default function TodayActionSuggestionDialog({
       </div>
     </div>
   )
+
+  return createPortal(modal, document.body)
 }
