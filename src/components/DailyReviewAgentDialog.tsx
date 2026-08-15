@@ -67,6 +67,16 @@ import {
 } from '../utils/planningSessionExplainability'
 import { formatCandidateValidationMessage } from '../utils/candidateValidationMessages'
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
+import type { PlanningRunRecord, PlanningRunTransitionRequest } from '../types/planningHistory'
+import {
+  buildDailyReviewCandidateSnapshot,
+  buildDailyReviewPlanningRunRequest,
+  createPlanningRunId,
+  getDurablePlanningCandidateId,
+  getPlanningCandidateOrdinal,
+  getPlanningRunsAPI,
+  PLANNING_HISTORY_SAVE_WARNING,
+} from '../utils/planningHistoryClient'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: DailyReviewPriority[] = ['high', 'medium', 'low']
@@ -289,15 +299,96 @@ export default function DailyReviewAgentDialog({
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const [recoveryRevision, setRecoveryRevision] = useState(0)
   const [planningSession, setPlanningSession] = useState<PlanningSessionExplainability | null>(null)
+  const [planningHistoryWarning, setPlanningHistoryWarning] = useState<string | null>(null)
+  const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
+  const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
   const mountedRef = useRef(true)
   const dialogInstanceId = useId()
 
+  const transitionPlanningRun = useCallback(async (request: PlanningRunTransitionRequest) => {
+    const api = getPlanningRunsAPI()
+    if (!api) return null
+    let result: PlanningRunRecord | null = null
+    let failed = false
+    planningTransitionQueueRef.current = planningTransitionQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          result = await api.transition(request)
+          if (durablePlanningRunRef.current?.id === request.runId) {
+            durablePlanningRunRef.current = result
+          }
+        } catch {
+          failed = true
+        }
+      })
+    await planningTransitionQueueRef.current
+    if (failed) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+    return result
+  }, [])
+
+  const closePlanningRun = useCallback(async (reason: 'dialog_closed' | 'regenerated' | 'date_rollover') => {
+    const run = durablePlanningRunRef.current
+    if (run === null || run.closedAt !== null) return
+    await transitionPlanningRun({ kind: 'close_run', runId: run.id, reason })
+    if (durablePlanningRunRef.current?.id === run.id) durablePlanningRunRef.current = null
+  }, [transitionPlanningRun])
+
+  const persistCandidateSnapshot = useCallback(async (
+    candidate: DailyReviewCandidateDraft,
+    allowAdmission: boolean,
+  ) => {
+    const run = durablePlanningRunRef.current
+    const ordinal = getPlanningCandidateOrdinal('daily_review', candidate.clientId)
+    if (!run || ordinal === null || candidate.validationErrors.length > 0) return
+    if (getDurablePlanningCandidateId(run, 'daily_review', candidate.clientId) !== undefined) {
+      await transitionPlanningRun({
+        kind: 'commit_candidate',
+        runId: run.id,
+        ordinal,
+        candidate: buildDailyReviewCandidateSnapshot(candidate),
+      })
+    } else if (allowAdmission) {
+      await transitionPlanningRun({
+        kind: 'admit_repaired_candidate',
+        runId: run.id,
+        candidate: {
+          ordinal,
+          userDisposition: candidate.selected ? 'selected_unconfirmed' : 'unselected',
+          ...buildDailyReviewCandidateSnapshot(candidate),
+        },
+      })
+    }
+  }, [transitionPlanningRun])
+
+  const flushPlanningCandidates = useCallback(async (
+    finalCandidates: readonly DailyReviewCandidateDraft[],
+    session: PlanningSessionExplainability | null,
+  ) => {
+    for (const candidate of finalCandidates) {
+      const record = session?.candidates.find(item => item.clientId === candidate.clientId)
+      const mutable = record !== undefined
+        && record.decision !== 'confirmed'
+        && record.outcome === null
+        && !candidate.operationId
+      if (mutable) await persistCandidateSnapshot(candidate, true)
+    }
+  }, [persistCandidateSnapshot])
+
   const closeDialog = useCallback(() => {
+    pendingGenerationCloseReasonsRef.current.set(generationRef.current, 'dialog_closed')
     generationRef.current += 1
     contextRequestRef.current += 1
+    const finalCandidates = candidates
+    const finalSession = planningSession
+    void (async () => {
+      await flushPlanningCandidates(finalCandidates, finalSession)
+      await closePlanningRun('dialog_closed')
+    })()
     setObservations([])
     setCandidates([])
     setGenerationErrors([])
@@ -308,7 +399,7 @@ export default function DailyReviewAgentDialog({
     setCreationSummary(null)
     setPlanningSession(resetPlanningSessionExplainability())
     onClose()
-  }, [onClose])
+  }, [candidates, closePlanningRun, flushPlanningCandidates, onClose, planningSession])
 
   const refreshReviewContext = useCallback(async (): Promise<DailyReviewSafeContext | null> => {
     const request = ++contextRequestRef.current
@@ -340,6 +431,16 @@ export default function DailyReviewAgentDialog({
   }, [availableMinutes, date, entriesAPI, mistakesAPI, pomodoroAPI, subjectsAPI, tasksAPI])
 
   useEffect(() => {
+    const previousDate = currentDateRef.current
+    if (previousDate !== date) {
+      pendingGenerationCloseReasonsRef.current.set(generationRef.current, 'date_rollover')
+      const finalCandidates = candidates
+      const finalSession = planningSession
+      void (async () => {
+        await flushPlanningCandidates(finalCandidates, finalSession)
+        await closePlanningRun('date_rollover')
+      })()
+    }
     currentDateRef.current = date
     generationRef.current += 1
     contextRequestRef.current += 1
@@ -355,7 +456,7 @@ export default function DailyReviewAgentDialog({
     setStaleContextNotice(null)
     setCreationSummary(null)
     setPlanningSession(resetPlanningSessionExplainability())
-  }, [date])
+  }, [closePlanningRun, date, flushPlanningCandidates])
 
   useEffect(() => {
     void refreshReviewContext()
@@ -403,6 +504,7 @@ export default function DailyReviewAgentDialog({
     clientId: string,
     patch: Partial<DailyReviewCandidateDraft>,
     updateKind: 'edit' | 'selection',
+    commitImmediately = false,
   ) => {
     const beforeCandidates = candidates
     const nextCandidates = revalidateCandidates(beforeCandidates.map(candidate => {
@@ -422,6 +524,19 @@ export default function DailyReviewAgentDialog({
     const existingRecord = planningSession?.candidates.some(candidate => candidate.clientId === clientId) === true
     if (updateKind !== 'edit' || existingRecord) {
       setCandidates(nextCandidates)
+      const nextCandidate = nextCandidates.find(candidate => candidate.clientId === clientId)
+      const run = durablePlanningRunRef.current
+      const ordinal = getPlanningCandidateOrdinal('daily_review', clientId)
+      if (updateKind === 'selection' && run && ordinal !== null && getDurablePlanningCandidateId(run, 'daily_review', clientId) !== undefined) {
+        void transitionPlanningRun({
+          kind: 'set_selection',
+          runId: run.id,
+          ordinal,
+          selected: Boolean(nextCandidate?.selected),
+        })
+      } else if (updateKind === 'edit' && commitImmediately && nextCandidate) {
+        void persistCandidateSnapshot(nextCandidate, true)
+      }
       return
     }
     const admissionSelectedIds = getDailyReviewAdmissionSelectedIds(beforeCandidates, clientId)
@@ -480,6 +595,7 @@ export default function DailyReviewAgentDialog({
       || afterErrors === null
       || afterErrors.length > 0
     ) return
+    if (commitImmediately) void persistCandidateSnapshot(repairedCandidate, true)
     setPlanningSession(current => current
       ? addPlanningSessionCandidate(current, {
           clientId,
@@ -490,14 +606,28 @@ export default function DailyReviewAgentDialog({
   }
 
   const removeCandidate = (clientId: string) => {
+    const run = durablePlanningRunRef.current
+    const ordinal = getPlanningCandidateOrdinal('daily_review', clientId)
+    if (run && ordinal !== null && getDurablePlanningCandidateId(run, 'daily_review', clientId) !== undefined) {
+      void transitionPlanningRun({ kind: 'remove_candidate', runId: run.id, ordinal })
+    }
     setPlanningSession(current => current
       ? updatePlanningSessionCandidate(current, clientId, removePlanningCandidateRecord)
       : current)
     setCandidates(current => revalidateCandidates(current.filter(candidate => candidate.clientId !== clientId)))
   }
 
+  const commitCandidate = (candidate: DailyReviewCandidateDraft) => {
+    const admitted = planningSession?.candidates.some(record => record.clientId === candidate.clientId) === true
+    if (admitted) void persistCandidateSnapshot(candidate, true)
+  }
+
   const generateReview = async () => {
     if (generating || creating) return
+    if (durablePlanningRunRef.current !== null) {
+      await flushPlanningCandidates(candidates, planningSession)
+      await closePlanningRun('regenerated')
+    }
     const generation = ++generationRef.current
     const generationId = `daily-review${dialogInstanceId}-generation-${generation}`
     setGenerating(true)
@@ -553,6 +683,45 @@ export default function DailyReviewAgentDialog({
           generationContextSignature,
         ))
         setReviewedConfirmationContextSignature(generationContextSignature)
+        const planningRunsAPI = getPlanningRunsAPI()
+        if (planningRunsAPI) {
+          try {
+            const durableRun = await planningRunsAPI.create(buildDailyReviewPlanningRunRequest({
+              id: createPlanningRunId(),
+              planningDate: context.reviewDate,
+              targetDate: context.candidateDate,
+              contextDecisions: request.contextDecisions,
+              candidates: parsed.candidates,
+            }))
+            const pendingCloseReason = pendingGenerationCloseReasonsRef.current.get(generation)
+            pendingGenerationCloseReasonsRef.current.delete(generation)
+            if (pendingCloseReason) {
+              try {
+                await planningRunsAPI.transition({
+                  kind: 'close_run',
+                  runId: durableRun.id,
+                  reason: pendingCloseReason,
+                })
+              } catch {
+                if (mountedRef.current) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+              }
+            } else if (generationRef.current === generation && currentDateRef.current === date) {
+              durablePlanningRunRef.current = durableRun
+            } else {
+              try {
+                await planningRunsAPI.transition({
+                  kind: 'close_run',
+                  runId: durableRun.id,
+                  reason: currentDateRef.current === date ? 'dialog_closed' : 'date_rollover',
+                })
+              } catch {
+                if (mountedRef.current) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+              }
+            }
+          } catch {
+            if (generationRef.current === generation) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+          }
+        }
       }
     } catch (error) {
       if (generationRef.current === generation) {
@@ -596,6 +765,7 @@ export default function DailyReviewAgentDialog({
       }
 
       setStaleContextNotice(null)
+      await flushPlanningCandidates(currentCandidates, planningSession)
       const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
         mode: 'daily_review',
         generation: generationProvenance,
@@ -672,7 +842,12 @@ export default function DailyReviewAgentDialog({
               : item
           ))
           setCandidates(currentCandidates)
-          const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
+          const result = await executeConfirmedStudyTaskAction(
+            action,
+            confirmationSnapshot,
+            tasksAPI,
+            getDurablePlanningCandidateId(durablePlanningRunRef.current, 'daily_review', candidate.clientId),
+          )
           if (!mountedRef.current || currentDateRef.current !== createDate) return
           const observation = observeStudyTaskActionExecutionResult(result, operationId)
           setPlanningSession(current => current
@@ -989,6 +1164,11 @@ export default function DailyReviewAgentDialog({
               <p style={{ margin: '6px 0 0' }}>AI 返回格式无效；不会创建任务。请重新生成。</p>
             </div>
           )}
+          {planningHistoryWarning && (
+            <p className="mt-3 text-sm" role="status" data-testid="planning-history-save-warning" style={{ color: 'var(--warning, var(--text-secondary))' }}>
+              {planningHistoryWarning}
+            </p>
+          )}
           {creationError && <p className="mt-4 text-sm" role="alert" data-testid="daily-review-creation-error" style={{ color: 'var(--danger)' }}>{creationError}</p>}
           {staleContextNotice && <p className="mt-4 text-sm" role="status" data-testid="daily-review-stale-context" style={{ color: 'var(--warning, #b45309)' }}>{staleContextNotice}</p>}
           <PendingStudyTaskRecoveryPanel
@@ -1181,6 +1361,7 @@ export default function DailyReviewAgentDialog({
                             value={candidate.title}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { title: event.target.value }, 'edit')}
+                            onBlur={() => commitCandidate(candidate)}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
                         </label>
@@ -1191,7 +1372,7 @@ export default function DailyReviewAgentDialog({
                             aria-label="候选任务类型"
                             value={candidate.type}
                             disabled={isLocked}
-                            onChange={event => updateCandidate(candidate.clientId, { type: event.target.value as StudyTaskType }, 'edit')}
+                            onChange={event => updateCandidate(candidate.clientId, { type: event.target.value as StudyTaskType }, 'edit', true)}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {TASK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
@@ -1207,7 +1388,7 @@ export default function DailyReviewAgentDialog({
                             aria-label="候选预计分钟数"
                             value={candidate.estimate_minutes}
                             disabled={isLocked}
-                            onChange={event => updateCandidate(candidate.clientId, { estimate_minutes: Number(event.target.value) }, 'edit')}
+                            onChange={event => updateCandidate(candidate.clientId, { estimate_minutes: Number(event.target.value) }, 'edit', true)}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
                         </label>
@@ -1218,7 +1399,7 @@ export default function DailyReviewAgentDialog({
                             aria-label="候选关联科目"
                             value={candidate.subject_id ?? ''}
                             disabled={isLocked}
-                            onChange={event => updateCandidate(candidate.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit')}
+                            onChange={event => updateCandidate(candidate.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit', true)}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {!isKnownSubject && <option value={candidate.subject_id ?? ''} disabled>请选择有效科目</option>}
@@ -1240,7 +1421,7 @@ export default function DailyReviewAgentDialog({
                                 updateCandidate(candidate.clientId, {
                                   related_mistake_id: relatedMistakeId,
                                   ...(selectedMistake ? { subject_id: selectedMistake.subject_id } : {}),
-                                }, 'edit')
+                                }, 'edit', true)
                               }}
                               style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                             >
@@ -1257,7 +1438,7 @@ export default function DailyReviewAgentDialog({
                             aria-label="候选建议优先级"
                             value={candidate.priority}
                             disabled={isLocked}
-                            onChange={event => updateCandidate(candidate.clientId, { priority: event.target.value as DailyReviewPriority }, 'edit')}
+                            onChange={event => updateCandidate(candidate.clientId, { priority: event.target.value as DailyReviewPriority }, 'edit', true)}
                             style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {PRIORITIES.map(priority => <option key={priority} value={priority}>{PRIORITY_LABELS[priority]}</option>)}
@@ -1272,6 +1453,7 @@ export default function DailyReviewAgentDialog({
                           value={candidate.reason}
                           disabled={isLocked}
                           onChange={event => updateCandidate(candidate.clientId, { reason: event.target.value }, 'edit')}
+                          onBlur={() => commitCandidate(candidate)}
                           style={{ width: '100%', minHeight: 58, marginTop: 4 }}
                         />
                       </label>

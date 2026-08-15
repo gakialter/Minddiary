@@ -7,6 +7,7 @@ import type {
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
 import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api';
+import type { PlanningRunCreateRequest, PlanningRunTransitionRequest } from '../src/types/planningHistory';
 
 if (process.env.MINDDIARY_E2E_SANDBOX_PROBE === '1') {
     contextBridge.exposeInMainWorld('__minddiarySandboxProbe', Object.freeze({
@@ -153,14 +154,32 @@ contextBridge.exposeInMainWorld('api', {
         createForCurrentDate: (task: NewStudyTask, expectedCurrentDate: string) => (
             ipcRenderer.invoke('tasks:createForCurrentDate', task, expectedCurrentDate)
         ),
-        createIdempotentAIStudyTaskForCurrentDate: (request: IdempotentAIStudyTaskCreateRequest) => (
-            ipcRenderer.invoke('tasks:createIdempotentAIStudyTaskForCurrentDate', request)
+        createIdempotentAIStudyTaskForCurrentDate: (
+            request: IdempotentAIStudyTaskCreateRequest,
+            planningCandidateId?: number,
+        ) => (
+            ipcRenderer.invoke(
+                'tasks:createIdempotentAIStudyTaskForCurrentDate',
+                request,
+                planningCandidateId,
+            )
         ),
         update: (id: number, patch: Partial<StudyTask>) => ipcRenderer.invoke('tasks:update', id, patch),
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),
         complete: (id: number) => ipcRenderer.invoke('tasks:complete', id),
         skip: (id: number) => ipcRenderer.invoke('tasks:skip', id),
         startFocus: (id: number, date: string) => ipcRenderer.invoke('tasks:startFocus', id, date),
+    },
+
+    // Persistent Planning History (audit only; task execution remains on tasks.*)
+    planningRuns: {
+        create: (request: PlanningRunCreateRequest) => ipcRenderer.invoke('planningRuns:create', request),
+        transition: (request: PlanningRunTransitionRequest) => ipcRenderer.invoke('planningRuns:transition', request),
+        listRecent: (options?: { limit?: number; cursor?: { beforeCreatedAt: string; beforeId: string } }) => (
+            ipcRenderer.invoke('planningRuns:listRecent', options ?? {})
+        ),
+        get: (id: string) => ipcRenderer.invoke('planningRuns:get', id),
+        delete: (request: { runId: string | null }) => ipcRenderer.invoke('planningRuns:delete', request),
     },
 
     // Dashboard

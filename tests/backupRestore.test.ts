@@ -231,6 +231,53 @@ describe('automatic backup ZIP restore', () => {
     expect(fs.existsSync(path.join(userDataPath, 'mistake_images', 'old.png'))).toBe(false)
   })
 
+  it('passes manifest schema context to database restore', async () => {
+    const root = makeTempRoot()
+    const userDataPath = path.join(root, 'userData')
+    seedExistingData(userDataPath)
+    const zipPath = writeZip(root, createStoredZip([
+      { name: 'manifest.json', data: JSON.stringify(makeManifest({ schemaVersion: 6 })) },
+      { name: 'database.json', data: JSON.stringify(makeDatabasePayload()) },
+    ]))
+    const restoreDatabase = vi.fn()
+
+    await restoreAutoBackupFromZip({
+      zipPath,
+      userDataPath,
+      currentSchemaVersion: 7,
+      restoreDatabase,
+      logger: { warn: vi.fn(), error: vi.fn() },
+      tempRootParent: root,
+    })
+
+    expect(restoreDatabase).toHaveBeenCalledWith(makeDatabasePayload().data, 6)
+  })
+
+  it('preflights schema 7 planning sections before replacing media or invoking database restore', async () => {
+    const root = makeTempRoot()
+    const userDataPath = path.join(root, 'userData')
+    seedExistingData(userDataPath)
+    const zipPath = writeZip(root, createStoredZip([
+      { name: 'manifest.json', data: JSON.stringify(makeManifest({ schemaVersion: 7 })) },
+      { name: 'database.json', data: JSON.stringify(makeDatabasePayload()) },
+      { name: 'attachments/new.txt', data: 'new attachment' },
+    ]))
+    const restoreDatabase = vi.fn()
+
+    await expect(restoreAutoBackupFromZip({
+      zipPath,
+      userDataPath,
+      currentSchemaVersion: 7,
+      restoreDatabase,
+      logger: { warn: vi.fn(), error: vi.fn() },
+      tempRootParent: root,
+    })).rejects.toThrow(/planning_runs/i)
+
+    expect(restoreDatabase).not.toHaveBeenCalled()
+    expect(fs.readFileSync(path.join(userDataPath, 'attachments', 'old.txt'), 'utf8')).toBe('old attachment')
+    expect(fs.existsSync(path.join(userDataPath, 'attachments', 'new.txt'))).toBe(false)
+  })
+
   it('fails when manifest.json is missing', async () => {
     await expectRejectedWithoutMutation(createStoredZip([
       { name: 'database.json', data: JSON.stringify(makeDatabasePayload()) },

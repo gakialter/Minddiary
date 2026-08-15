@@ -183,9 +183,11 @@ export const createTasksApi = (
             throw error
         }
     },
-    createIdempotentAIStudyTaskForCurrentDate: async request => {
+    createIdempotentAIStudyTaskForCurrentDate: async (request, planningCandidateId) => {
         if (IS_ELECTRON) {
-            return window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
+            return planningCandidateId === undefined
+                ? window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
+                : window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request, planningCandidateId)
         }
         return {
             ok: false,

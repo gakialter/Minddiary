@@ -466,9 +466,12 @@ function isValidIdempotentResponse(
 export async function executeIdempotentAIStudyTaskCreateRequest(
   request: IdempotentAIStudyTaskCreateRequest,
   tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>,
+  planningCandidateId?: number,
 ): Promise<StudyTaskActionExecutionResult> {
   try {
-    const response = await tasksAPI.createIdempotentAIStudyTaskForCurrentDate(request)
+    const response = planningCandidateId === undefined
+      ? await tasksAPI.createIdempotentAIStudyTaskForCurrentDate(request)
+      : await tasksAPI.createIdempotentAIStudyTaskForCurrentDate(request, planningCandidateId)
     if (!isValidIdempotentResponse(response, request.operationId)) {
       return {
         operationId: request.operationId,
@@ -503,6 +506,7 @@ export async function executeConfirmedStudyTaskAction(
   action: ConfirmedStudyTaskAction,
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot,
   tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>,
+  planningCandidateId?: number,
 ): Promise<StudyTaskActionExecutionResult> {
   let validatedAction: ConfirmedStudyTaskAction
   try {
@@ -518,5 +522,6 @@ export async function executeConfirmedStudyTaskAction(
   return executeIdempotentAIStudyTaskCreateRequest(
     buildIdempotentAIStudyTaskCreateRequest(validatedAction),
     tasksAPI,
+    planningCandidateId,
   )
 }

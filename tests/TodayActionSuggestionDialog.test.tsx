@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TodayActionSuggestionDialog from '../src/components/TodayActionSuggestionDialog'
 import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
+import type {
+  PlanningRunCreateRequest,
+  PlanningRunRecord,
+  PlanningRunTransitionRequest,
+} from '../src/types/planningHistory'
 import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
 import {
   PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY,
@@ -20,7 +25,29 @@ const createDeferred = <T,>() => {
 
 type IdempotentRoute = (
   request: IdempotentAIStudyTaskCreateRequest,
+  planningCandidateId?: number,
 ) => Promise<IdempotentAIStudyTaskCreateResponse>
+
+const makePlanningRun = (request: PlanningRunCreateRequest): PlanningRunRecord => ({
+  ...request,
+  contextSummary: [...request.contextSummary],
+  createdAt: '2026-06-12T00:00:00.000Z',
+  updatedAt: '2026-06-12T00:00:00.000Z',
+  closedAt: null,
+  closeReason: null,
+  candidates: request.candidates.map((candidate, index) => ({
+    ...candidate,
+    id: 701 + index,
+    editBefore: {},
+    outcomeKind: null,
+    outcomeObservedAt: null,
+    admittedAt: '2026-06-12T00:00:00.000Z',
+    updatedAt: '2026-06-12T00:00:00.000Z',
+    sourceRelations: { subject: null, mistake: null, entry: null },
+    editBeforeSourceRelations: { subject: null, mistake: null, entry: null },
+    taskRelation: null,
+  })),
+})
 
 const subject: Subject = { id: 1, name: '数学', color: '#2563eb' }
 
@@ -168,6 +195,7 @@ describe('TodayActionSuggestionDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    delete window.api.planningRuns
     mocks.tasksCreate.mockReset()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
@@ -183,8 +211,11 @@ describe('TodayActionSuggestionDialog', () => {
       create: mocks.tasksCreateLegacy,
       createIdempotentAIStudyTaskForCurrentDate: routeOverride ?? (async (
         request: IdempotentAIStudyTaskCreateRequest,
+        planningCandidateId?: number,
       ): Promise<IdempotentAIStudyTaskCreateResponse> => {
-        const result = await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
+        const result = planningCandidateId === undefined
+          ? await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request)
+          : await mocks.tasksCreate(request.payload, request.expectedCurrentDate, request, planningCandidateId)
         if (result && typeof result === 'object' && 'ok' in result) {
           return { ...result, operationId: request.operationId } as IdempotentAIStudyTaskCreateResponse
         }
@@ -347,6 +378,95 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreateLegacy).not.toHaveBeenCalled()
     expect(await screen.findByText('已创建 #99')).toBeInTheDocument()
     expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent('已创建任务')
+  })
+
+  it('persists only semantic planning commits and correlates confirmation with the durable candidate', async () => {
+    let durableRun: PlanningRunRecord | null = null
+    const create = vi.fn(async (request: PlanningRunCreateRequest) => {
+      durableRun = makePlanningRun(request)
+      return durableRun
+    })
+    const transition = vi.fn(async () => durableRun!)
+    window.api.planningRuns = {
+      create,
+      transition,
+      listRecent: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    renderDialog()
+
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    const title = await screen.findByLabelText('建议标题')
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      entryPoint: 'today_action',
+      planningDate: '2026-06-12',
+      targetDate: '2026-06-12',
+      generationResultKind: 'candidate_set',
+      candidates: [expect.objectContaining({ ordinal: 0, description: '今天到期,先处理薄弱点。' })],
+    }))
+
+    transition.mockClear()
+    fireEvent.change(title, { target: { value: '语义提交后的标题' } })
+    expect(transition).not.toHaveBeenCalled()
+    fireEvent.blur(title)
+    await waitFor(() => expect(transition).toHaveBeenCalledWith({
+      kind: 'commit_candidate',
+      runId: durableRun!.id,
+      ordinal: 0,
+      candidate: expect.objectContaining({ title: '语义提交后的标题' }),
+    }))
+
+    const checkbox = screen.getByRole('checkbox', { name: '选择 语义提交后的标题' })
+    fireEvent.click(checkbox)
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'set_selection', selected: false, ordinal: 0,
+    })))
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '语义提交后的标题' }),
+      '2026-06-12',
+      expect.objectContaining({ operationKind: 'today_action' }),
+      701,
+    ))
+  })
+
+  it('closes a pending durable create with date_rollover when the date changes first', async () => {
+    const deferred = createDeferred<PlanningRunRecord>()
+    let createRequest: PlanningRunCreateRequest | null = null
+    const create = vi.fn((request: PlanningRunCreateRequest) => {
+      createRequest = request
+      return deferred.promise
+    })
+    const transition = vi.fn(async (request: PlanningRunTransitionRequest) => ({
+      ...makePlanningRun(createRequest!),
+      closedAt: '2026-06-12T01:00:00.000Z',
+      closeReason: request.kind === 'close_run' ? request.reason : null,
+    }))
+    window.api.planningRuns = {
+      create,
+      transition,
+      listRecent: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    const view = renderDialog()
+
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    view.rerender(dialogElement('2026-06-13'))
+    await act(async () => {
+      deferred.resolve(makePlanningRun(createRequest!))
+      await deferred.promise
+    })
+
+    await waitFor(() => expect(transition).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: createRequest!.id,
+      reason: 'date_rollover',
+    }))
   })
 
   it('shows local planning context before an AI request without creating tasks', async () => {

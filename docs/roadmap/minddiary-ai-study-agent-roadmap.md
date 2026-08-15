@@ -182,16 +182,20 @@ The user-facing semantics of this stage must be validated before durable Plannin
 
 ### Phase C2 — Minimal persistent Planning Run
 
+**Implementation status:** locally implemented on the dedicated Phase C2 branch; awaiting independent review and landing. This does not describe a published release.
+
 **Core problem:** after C1 semantics pass user validation, provide the smallest privacy-minimized Planning Run needed for cross-restart and backup-compatible audit.
 
-**Policy:**
+**Implemented policy:**
 
-- schema 7 requires separate authorization;
+- schema 7 adds bounded `planning_runs` and `planning_run_candidates` history;
 - all stored data is bounded and locally validated;
 - the Action Receipt remains the source of truth for confirmed-action execution;
 - the Planning Run remains an audit relation, not a command receipt or general event store;
 - complete feedback history is excluded from the first persistent version;
-- the schema 7 data model remains open until its dedicated review.
+- history survives restart and participates in backup/restore, but a run is never resumed;
+- runtime retention is 30 days and at most 100 runs; users can delete one run or clear history without deleting tasks or receipts;
+- Provider prompts, payloads, raw responses, reasoning, and prior Planning History remain outside this persistence contract.
 
 ### Phase C3 — Deterministic execution attribution
 
