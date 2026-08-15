@@ -442,6 +442,16 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('有效专注转化率')).toBeInTheDocument()
   })
 
+  it('opens recent AI planning history and explains browser fallback availability', async () => {
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '最近 AI 规划' }))
+
+    expect(screen.getByRole('dialog', { name: '最近 AI 规划' })).toHaveTextContent(
+      '当前环境不支持持久化 AI 规划记录',
+    )
+  })
+
   it('toggles expansion layer details and shows the decision explanation', async () => {
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)

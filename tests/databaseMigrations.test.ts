@@ -173,24 +173,24 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 6 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(6)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6])
+  it('defines schema version 7 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(7)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 6', () => {
+  it('migrates a new database from user_version 0 to schema version 7', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(7)
 
-    expect(getUserVersion(database)).toBe(6)
-    expect(getDatabaseSchemaVersion(database)).toBe(6)
-    for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'study_task_action_receipts', 'diary_templates']) {
+    expect(getUserVersion(database)).toBe(7)
+    expect(getDatabaseSchemaVersion(database)).toBe(7)
+    for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'study_task_action_receipts', 'planning_runs', 'planning_run_candidates', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
     for (const indexName of [
@@ -203,6 +203,8 @@ describe('SQLite schema migrations', () => {
       'idx_study_tasks_planned_date',
       'idx_study_tasks_related_chapter_id',
       'idx_study_task_action_receipts_task_id',
+      'idx_planning_runs_recent',
+      'idx_planning_run_candidates_operation_id',
     ]) {
       expect(indexExists(database, indexName)).toBe(true)
     }
@@ -220,12 +222,51 @@ describe('SQLite schema migrations', () => {
       'task_id',
       'created_at',
     ])
+    expect(getColumnNames(database, 'planning_runs')).toEqual([
+      'id',
+      'contract_version',
+      'entry_point',
+      'planning_date',
+      'target_date',
+      'generation_result_kind',
+      'context_summary_json',
+      'created_at',
+      'updated_at',
+      'closed_at',
+      'close_reason',
+    ])
+    expect(getColumnNames(database, 'planning_run_candidates')).toEqual([
+      'id',
+      'planning_run_id',
+      'ordinal',
+      'admission_origin',
+      'title',
+      'description',
+      'type',
+      'estimate_minutes',
+      'priority',
+      'subject_id',
+      'related_mistake_id',
+      'related_entry_id',
+      'edit_before_json',
+      'user_disposition',
+      'operation_id',
+      'outcome_kind',
+      'outcome_observed_at',
+      'admitted_at',
+      'updated_at',
+    ])
+    expect(getTableCount(database, 'planning_runs')).toBe(0)
+    expect(getTableCount(database, 'planning_run_candidates')).toBe(0)
     expect(database.prepare('PRAGMA foreign_key_list(study_task_action_receipts)').all()).toEqual([
       expect.objectContaining({ table: 'study_tasks', from: 'task_id', to: 'id', on_delete: 'SET NULL' }),
     ])
     expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: 'subject_chapters', from: 'related_chapter_id', to: 'id', on_delete: 'SET NULL' }),
     ]))
+    expect(database.prepare('PRAGMA foreign_key_list(planning_run_candidates)').all()).toEqual([
+      expect.objectContaining({ table: 'planning_runs', from: 'planning_run_id', to: 'id', on_delete: 'CASCADE' }),
+    ])
     expect(getColumnNames(database, 'subject_chapters')).toEqual(expect.arrayContaining([
       'id',
       'subject_id',
@@ -260,7 +301,7 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(6)
+    expect(getUserVersion(database)).toBe(7)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
@@ -279,6 +320,8 @@ describe('SQLite schema migrations', () => {
     })
     expect(tableExists(database, 'study_tasks')).toBe(true)
     expect(tableExists(database, 'study_task_action_receipts')).toBe(true)
+    expect(tableExists(database, 'planning_runs')).toBe(true)
+    expect(tableExists(database, 'planning_run_candidates')).toBe(true)
     expect(indexExists(database, 'idx_mistakes_next_review')).toBe(true)
     expect(indexExists(database, 'idx_study_tasks_subject_id')).toBe(true)
     expect(database.prepare('SELECT color FROM tags WHERE id = 1').get()).toEqual({ color: '#475569' })
@@ -290,6 +333,8 @@ describe('SQLite schema migrations', () => {
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(indexExists(database, 'idx_subject_chapters_subject_order')).toBe(true)
     expect(getTableCount(database, 'subject_chapters')).toBe(0)
+    expect(getTableCount(database, 'planning_runs')).toBe(0)
+    expect(getTableCount(database, 'planning_run_candidates')).toBe(0)
     expect(getTableCount(database, 'diary_templates')).toBe(1)
     expect(database.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
     expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
@@ -323,10 +368,12 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(6)
+    expect(getUserVersion(database)).toBe(7)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getTableCount(database, 'subject_chapters')).toBe(0)
     expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
+    expect(getTableCount(database, 'planning_runs')).toBe(0)
+    expect(getTableCount(database, 'planning_run_candidates')).toBe(0)
   })
 
   it('migrates schema version 2 databases to task-attributed pomodoro sessions', () => {
@@ -344,10 +391,10 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(2)
     expect(getColumnNames(database, 'pomodoro_sessions')).not.toContain('task_id')
 
-    expect(runDatabaseMigrations(database)).toBe(6)
-    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(7)
 
-    expect(getUserVersion(database)).toBe(6)
+    expect(getUserVersion(database)).toBe(7)
     expect(indexExists(database, 'idx_pomodoro_task_id')).toBe(true)
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
@@ -372,10 +419,10 @@ describe('SQLite schema migrations', () => {
     `).get(taskId) as { title: string; planned_date: string; status: string }
 
     expect(getColumnNames(database, 'study_tasks')).not.toContain('related_chapter_id')
-    expect(runDatabaseMigrations(database)).toBe(6)
-    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(7)
 
-    expect(getUserVersion(database)).toBe(6)
+    expect(getUserVersion(database)).toBe(7)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(indexExists(database, 'idx_study_tasks_related_chapter_id')).toBe(true)
     expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(
@@ -410,8 +457,8 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(5)
     expect(tableExists(database, 'study_task_action_receipts')).toBe(false)
 
-    expect(runDatabaseMigrations(database)).toBe(6)
-    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database, { targetVersion: 6 })).toBe(6)
+    expect(runDatabaseMigrations(database, { targetVersion: 6 })).toBe(6)
 
     expect(getUserVersion(database)).toBe(6)
     expect(database.prepare('SELECT id, title FROM study_tasks WHERE id = ?').get(taskId)).toEqual({
@@ -429,7 +476,7 @@ describe('SQLite schema migrations', () => {
     database.exec('CREATE TABLE study_task_action_receipts (operation_id TEXT PRIMARY KEY)')
     database.prepare("INSERT INTO study_task_action_receipts (operation_id) VALUES ('preserved')").run()
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/already exists/i)
+    expect(() => runDatabaseMigrations(database, { targetVersion: 6 })).toThrow(/already exists/i)
 
     expect(getUserVersion(database)).toBe(5)
     expect(getColumnNames(database, 'study_task_action_receipts')).toEqual(['operation_id'])
@@ -441,11 +488,11 @@ describe('SQLite schema migrations', () => {
 
   it('rejects databases from newer schema versions without mutation', () => {
     const database = createDatabase()
-    database.pragma('user_version = 7')
+    database.pragma('user_version = 8')
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 7.*supported version 6/i)
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 8.*supported version 7/i)
 
-    expect(getUserVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -480,7 +527,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 6', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 7', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -490,13 +537,17 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(6)
-    expect(getUserVersion(database)).toBe(6)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(7)
+    expect(getUserVersion(database)).toBe(7)
     expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
     expect(getColumnNames(database, 'pomodoro_sessions')).toContain('task_id')
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(tableExists(database, 'study_task_action_receipts')).toBe(true)
+    expect(tableExists(database, 'planning_runs')).toBe(true)
+    expect(tableExists(database, 'planning_run_candidates')).toBe(true)
+    expect(indexExists(database, 'idx_planning_runs_recent')).toBe(true)
+    expect(indexExists(database, 'idx_planning_run_candidates_operation_id')).toBe(true)
     expect(String(database.pragma('journal_mode', { simple: true })).toLowerCase()).toBe('wal')
     expect(database.pragma('foreign_keys', { simple: true })).toBe(1)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
@@ -505,17 +556,17 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 7')
+    seed.pragma('user_version = 8')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 7.*supported version 6/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 8.*supported version 7/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(7)
+    expect(getUserVersion(reopened)).toBe(8)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
@@ -535,9 +586,9 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(6)
+    expect(CURRENT_SCHEMA_VERSION).toBe(7)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 6')
+    expect(zipText).toContain('"schemaVersion": 7')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
 

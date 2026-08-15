@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { BACKUP_FORMAT_VERSION } from './backup';
+import { normalizeBackupDatabaseData } from './databaseBackupData';
 
 const MAX_STORED_ENTRY_BYTES = 256 * 1024 * 1024;
 const MEDIA_DIRECTORIES = ['attachments', 'mistake_images'] as const;
@@ -32,7 +33,7 @@ export interface RestoreAutoBackupOptions {
     zipPath: string;
     userDataPath: string;
     currentSchemaVersion: number;
-    restoreDatabase: (data: Record<string, unknown>) => void | Promise<void>;
+    restoreDatabase: (data: Record<string, unknown>, manifestSchemaVersion: number) => void | Promise<void>;
     logger: BackupLogger;
     tempRootParent?: string;
 }
@@ -442,10 +443,11 @@ export async function restoreAutoBackupFromZip({
 
         const manifest = validateManifest(parseJsonObject(manifestEntry.data, 'manifest.json'), currentSchemaVersion);
         const databasePayload = getBackupDataPayload(parseJsonObject(databaseEntry.data, 'database.json'));
+        normalizeBackupDatabaseData(databasePayload, manifest.schemaVersion);
 
         mediaSnapshots = await replaceMediaDirectories(userDataPath, tempRoot, rollbackRoot);
         try {
-            await restoreDatabase(databasePayload);
+            await restoreDatabase(databasePayload, manifest.schemaVersion);
         } catch (error) {
             await restoreMediaSnapshots(mediaSnapshots).catch(rollbackError => {
                 logger.error('[backup-restore] Failed to roll back media directories after database restore error', rollbackError);

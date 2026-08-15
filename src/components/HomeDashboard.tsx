@@ -8,6 +8,7 @@ import { TrustMetric } from './dashboard/TrustMetric'
 import DailyReviewAgentDialog from './DailyReviewAgentDialog'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
+import PlanningHistoryDialog from './PlanningHistoryDialog'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { usePomodoroActions, usePomodoroData, usePomodoroTimer } from '../contexts/PomodoroContext'
 import {
@@ -16,6 +17,7 @@ import {
   resolveTaskSourceLabels,
 } from '../utils/todayExecution'
 import type { NewStudyTask, StudyTask, StudyTaskType, Subject, SubjectChapter } from '../types'
+import { getPlanningRunsAPI } from '../utils/planningHistoryClient'
 
 const TASK_ESTIMATE_MINUTES_MIN = 1
 const TASK_ESTIMATE_MINUTES_MAX = 240
@@ -58,6 +60,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [reviewPickerOpen, setReviewPickerOpen] = useState(false)
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
   const [dailyReviewAgentOpenDate, setDailyReviewAgentOpenDate] = useState<string | null>(null)
+  const [planningHistoryOpen, setPlanningHistoryOpen] = useState(false)
   const todayDate = useCurrentLocalDateKey()
   const { hasActiveTimerSession } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
@@ -483,6 +486,14 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 <button
                   type="button"
                   className="button button-secondary"
+                  onClick={() => setPlanningHistoryOpen(true)}
+                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
+                >
+                  最近 AI 规划
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
                   data-testid="open-daily-review-agent"
                   disabled={taskMutating}
                   onClick={() => setDailyReviewAgentOpenDate(todayDate)}
@@ -901,6 +912,12 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
             await loadTasks({ throwOnError: true })
             requestDataRefresh()
           }}
+        />
+      )}
+      {planningHistoryOpen && (
+        <PlanningHistoryDialog
+          planningRunsAPI={getPlanningRunsAPI()}
+          onClose={() => setPlanningHistoryOpen(false)}
         />
       )}
     </div>

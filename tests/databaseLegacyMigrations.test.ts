@@ -153,6 +153,8 @@ const CURRENT_TABLES = [
   'mistakes',
   'study_tasks',
   'study_task_action_receipts',
+  'planning_runs',
+  'planning_run_candidates',
   'ai_chats',
   'settings',
   'diary_templates',
@@ -174,6 +176,8 @@ const CURRENT_INDEXES = [
   'idx_study_tasks_subject_id',
   'idx_study_tasks_related_chapter_id',
   'idx_study_task_action_receipts_task_id',
+  'idx_planning_runs_recent',
+  'idx_planning_run_candidates_operation_id',
 ] as const
 
 const tempRoots: string[] = []
@@ -257,7 +261,7 @@ function expectFixtureProvenance(): void {
 }
 
 function expectCurrentSchema(database: Database.Database): void {
-  expect(getUserVersion(database)).toBe(6)
+  expect(getUserVersion(database)).toBe(7)
   expect(getIntegrityCheck(database)).toBe('ok')
   expect(getForeignKeyViolations(database)).toEqual([])
 
@@ -312,12 +316,53 @@ function expectCurrentSchema(database: Database.Database): void {
     'created_at',
   ])
   expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
+  expect(getColumnNames(database, 'planning_runs')).toEqual([
+    'id',
+    'contract_version',
+    'entry_point',
+    'planning_date',
+    'target_date',
+    'generation_result_kind',
+    'context_summary_json',
+    'created_at',
+    'updated_at',
+    'closed_at',
+    'close_reason',
+  ])
+  expect(getColumnNames(database, 'planning_run_candidates')).toEqual([
+    'id',
+    'planning_run_id',
+    'ordinal',
+    'admission_origin',
+    'title',
+    'description',
+    'type',
+    'estimate_minutes',
+    'priority',
+    'subject_id',
+    'related_mistake_id',
+    'related_entry_id',
+    'edit_before_json',
+    'user_disposition',
+    'operation_id',
+    'outcome_kind',
+    'outcome_observed_at',
+    'admitted_at',
+    'updated_at',
+  ])
+  expect(getTableCount(database, 'planning_runs')).toBe(0)
+  expect(getTableCount(database, 'planning_run_candidates')).toBe(0)
 
   expect(getPrimaryKeyColumns(database, 'entries')).toEqual(['id'])
   expect(getPrimaryKeyColumns(database, 'tags')).toEqual(['id'])
   expect(getPrimaryKeyColumns(database, 'entry_tags')).toEqual(['entry_id', 'tag_id'])
   expect(getPrimaryKeyColumns(database, 'study_tasks')).toEqual(['id'])
   expect(getPrimaryKeyColumns(database, 'study_task_action_receipts')).toEqual(['operation_id'])
+  expect(getPrimaryKeyColumns(database, 'planning_runs')).toEqual(['id'])
+  expect(getPrimaryKeyColumns(database, 'planning_run_candidates')).toEqual(['id'])
+  expect(database.prepare('PRAGMA foreign_key_list(planning_run_candidates)').all()).toEqual([
+    expect.objectContaining({ table: 'planning_runs', from: 'planning_run_id', to: 'id', on_delete: 'CASCADE' }),
+  ])
 }
 
 function expectLegacyDataPreserved(database: Database.Database, expected: ExpectedLegacyData): void {
@@ -550,7 +595,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const { database, expected } = prepareFixtureDatabase(fixture)
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(6)
+    expect(runDatabaseMigrations(database)).toBe(7)
 
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
@@ -595,16 +640,16 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const fixture = legacyDatabaseFixtures[0]
     expect(fixture).toBeDefined()
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture!)
-    seedDatabase.pragma('user_version = 7')
+    seedDatabase.pragma('user_version = 8')
     closeTrackedDatabase(seedDatabase)
 
     const databaseModule = await loadRealDatabaseModule(root)
     databaseModule.setCustomDbPath(filepath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 7.*supported version 6/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 8.*supported version 7/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = trackDatabase(new BetterSqlite3(filepath))
-    expect(getUserVersion(reopened)).toBe(7)
+    expect(getUserVersion(reopened)).toBe(8)
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
@@ -627,7 +672,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
   })
 
   it('keeps schema and backup format constants aligned with the current schema', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(6)
+    expect(CURRENT_SCHEMA_VERSION).toBe(7)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
   })
 })

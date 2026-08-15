@@ -43,6 +43,14 @@ import {
 import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
 import { createIdempotentAIStudyTaskForCurrentDate } from './idempotentStudyTaskCreation';
+import {
+    createPlanningHistoryStore,
+    PlanningHistoryConflictError,
+    PlanningHistoryUnavailableError,
+    PlanningHistoryValidationError,
+} from './planningHistory';
+import { executeStudyTaskCommandWithPlanningAudit } from './planningTaskCorrelation';
+import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api';
 import { getLocalDateKey } from '../src/utils/dateKey';
 import {
     DEFAULT_EXAM_EVENT_ID,
@@ -97,6 +105,7 @@ import type {
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let mainWindowNavigationPolicy: NavigationPolicy | null = null;
+const planningRunIdsObservedThisProcess = new Set<string>();
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
 let smokeDiagnosticConfigurationFailed = false;
@@ -649,6 +658,20 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
 
+app.on('before-quit', () => {
+    try {
+        createPlanningHistoryStore({ database: db.getDb() }).closeRuns(
+            planningRunIdsObservedThisProcess,
+            'app_closed',
+        );
+    } catch (error) {
+        logger.warn(
+            '[planning-history] Failed to record clean app close',
+            error instanceof Error ? error.message : 'unknown error',
+        );
+    }
+});
+
 app.on('activate', () => {
     if (smokeDiagnosticRequest || smokeDiagnosticConfigurationFailed) return;
     if (BrowserWindow.getAllWindows().length === 0) createWindow(getRendererRuntimeMode());
@@ -1104,17 +1127,118 @@ ipcMain.handle('tasks:createForCurrentDate', (_: unknown, task: unknown, expecte
         runInTransaction: operation => db.getDb().transaction(operation)(),
     })
 ));
-ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (event: MainWindowIpcEvent, request: unknown) => {
+ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
+    event: MainWindowIpcEvent,
+    request: unknown,
+    planningCandidateId: unknown,
+) => {
     if (!isTrustedMainWindowIpcSender(event, {
         getMainWindow: () => mainWindow,
         getNavigationPolicy: getActiveMainNavigationPolicy,
     })) {
         throw new Error('Idempotent AI study task request rejected');
     }
-    return createIdempotentAIStudyTaskForCurrentDate(request, {
+    const planningHistory = createPlanningHistoryStore({ database: db.getDb() });
+    return executeStudyTaskCommandWithPlanningAudit(
+        request as IdempotentAIStudyTaskCreateRequest,
+        planningCandidateId,
+        {
+            claim: (candidateId, taskRequest) => planningHistory.claimConfirmation(candidateId, taskRequest),
+            execute: taskRequest => createIdempotentAIStudyTaskForCurrentDate(taskRequest, {
+                database: db.getDb(),
+                getCurrentDateKey: getCurrentTaskCreationDateKey,
+                createTask: db.createStudyTask,
+            }),
+            recordOutcome: (candidateId, operationId, outcome) => (
+                planningHistory.recordOutcome(candidateId, operationId, outcome)
+            ),
+            warn: (message, error) => logger.warn(
+                `[planning-history] ${message}`,
+                error instanceof Error ? error.message : 'unknown error',
+            ),
+        },
+    );
+});
+
+function assertTrustedPlanningHistorySender(event: MainWindowIpcEvent): void {
+    if (!isTrustedMainWindowIpcSender(event, {
+        getMainWindow: () => mainWindow,
+        getNavigationPolicy: getActiveMainNavigationPolicy,
+    })) {
+        throw new Error('Planning History request rejected');
+    }
+}
+
+function runPlanningHistoryOperation<T>(operation: () => T): T {
+    try {
+        return operation();
+    } catch (error) {
+        if (
+            error instanceof PlanningHistoryValidationError
+            || error instanceof PlanningHistoryConflictError
+            || error instanceof PlanningHistoryUnavailableError
+        ) {
+            throw error;
+        }
+        logger.warn(
+            '[planning-history] Operation failed',
+            error instanceof Error ? error.message : 'unknown error',
+        );
+        throw new Error('Planning History is unavailable');
+    }
+}
+
+function validatePlanningHistoryDeleteRequest(value: unknown): string | null {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new PlanningHistoryValidationError('Planning History delete request must be an object');
+    }
+    const prototype = Object.getPrototypeOf(value);
+    const keys = Reflect.ownKeys(value);
+    const descriptor = Object.getOwnPropertyDescriptor(value, 'runId');
+    if (
+        (prototype !== Object.prototype && prototype !== null)
+        || keys.length !== 1
+        || keys[0] !== 'runId'
+        || !descriptor
+        || !('value' in descriptor)
+        || (descriptor.value !== null && typeof descriptor.value !== 'string')
+    ) {
+        throw new PlanningHistoryValidationError('Planning History delete request contains unsupported fields');
+    }
+    return descriptor.value;
+}
+
+ipcMain.handle('planningRuns:create', (event: MainWindowIpcEvent, request: unknown) => {
+    assertTrustedPlanningHistorySender(event);
+    return runPlanningHistoryOperation(() => createPlanningHistoryStore({
         database: db.getDb(),
-        getCurrentDateKey: getCurrentTaskCreationDateKey,
-        createTask: db.createStudyTask,
+        onCreatedNew: runId => planningRunIdsObservedThisProcess.add(runId),
+    }).create(request));
+});
+ipcMain.handle('planningRuns:transition', (event: MainWindowIpcEvent, request: unknown) => {
+    assertTrustedPlanningHistorySender(event);
+    return runPlanningHistoryOperation(() => (
+        createPlanningHistoryStore({ database: db.getDb() }).transition(request)
+    ));
+});
+ipcMain.handle('planningRuns:listRecent', (event: MainWindowIpcEvent, options: unknown) => {
+    assertTrustedPlanningHistorySender(event);
+    return runPlanningHistoryOperation(() => (
+        createPlanningHistoryStore({ database: db.getDb() }).listRecent(options)
+    ));
+});
+ipcMain.handle('planningRuns:get', (event: MainWindowIpcEvent, id: unknown) => {
+    assertTrustedPlanningHistorySender(event);
+    return runPlanningHistoryOperation(() => (
+        createPlanningHistoryStore({ database: db.getDb() }).get(id)
+    ));
+});
+ipcMain.handle('planningRuns:delete', (event: MainWindowIpcEvent, request: unknown) => {
+    assertTrustedPlanningHistorySender(event);
+    return runPlanningHistoryOperation(() => {
+        const runId = validatePlanningHistoryDeleteRequest(request);
+        const planningHistory = createPlanningHistoryStore({ database: db.getDb() });
+        return runId === null ? planningHistory.clear() : planningHistory.delete(runId);
     });
 });
 ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
@@ -1322,7 +1446,9 @@ ipcMain.handle('settings:restoreBackupFromZip', async (_event: unknown, filepath
             zipPath,
             userDataPath: app.getPath('userData'),
             currentSchemaVersion: db.CURRENT_SCHEMA_VERSION,
-            restoreDatabase: (data) => db.restoreBackupData(data),
+            restoreDatabase: (data, manifestSchemaVersion) => (
+                db.restoreBackupData(data, manifestSchemaVersion)
+            ),
             logger,
         });
         return { success: true, manifest: result.manifest };

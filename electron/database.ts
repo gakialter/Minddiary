@@ -16,6 +16,10 @@ import {
     CURRENT_SCHEMA_VERSION,
     runDatabaseMigrations,
 } from './databaseMigrations';
+import {
+    PLANNING_HISTORY_MAX_RUNS,
+    PLANNING_HISTORY_RETENTION_DAYS,
+} from './planningHistory';
 import { createDatabaseRepositories, type DatabaseRepositories } from './repositories/databaseRepositoryFactory';
 import type Database from 'better-sqlite3';
 import type {
@@ -716,8 +720,71 @@ function insertBackupRows(table: string, allowedColumns: readonly string[], rows
     }
 }
 
-function restoreBackupData(data: Record<string, unknown>): void {
-    const normalized = normalizeBackupDatabaseData(data);
+function getPlanningLogicalReferenceHighWater(
+    candidates: DatabaseBackupRow[],
+    currentField: 'subject_id' | 'related_mistake_id' | 'related_entry_id',
+): number {
+    let highWater = 0;
+    for (const candidate of candidates) {
+        const currentValue = candidate[currentField];
+        if (typeof currentValue === 'number') highWater = Math.max(highWater, currentValue);
+        const editBefore = JSON.parse(String(candidate.edit_before_json)) as Record<string, unknown>;
+        const beforeValue = editBefore[currentField];
+        if (typeof beforeValue === 'number') highWater = Math.max(highWater, beforeValue);
+    }
+    return highWater;
+}
+
+function raiseAutoincrementHighWater(table: 'entries' | 'subjects' | 'mistakes', historicalHighWater: number): void {
+    const tableHighWater = db.prepare(`SELECT COALESCE(MAX(id), 0) AS value FROM ${table}`).get() as { value: number };
+    const sequenceRow = db.prepare('SELECT MAX(seq) AS value FROM sqlite_sequence WHERE name = ?').get(table) as {
+        value: number | null;
+    };
+    const highWater = Math.max(historicalHighWater, tableHighWater.value, sequenceRow.value ?? 0);
+    if (sequenceRow.value === null) {
+        db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(table, highWater);
+    } else if (highWater > sequenceRow.value) {
+        db.prepare('UPDATE sqlite_sequence SET seq = ? WHERE name = ?').run(highWater, table);
+    }
+}
+
+function repairPlanningLogicalReferenceSequences(): void {
+    const candidates = db.prepare(`
+        SELECT subject_id, related_mistake_id, related_entry_id, edit_before_json
+        FROM planning_run_candidates
+    `).all() as DatabaseBackupRow[];
+    raiseAutoincrementHighWater(
+        'entries',
+        getPlanningLogicalReferenceHighWater(candidates, 'related_entry_id'),
+    );
+    raiseAutoincrementHighWater(
+        'subjects',
+        getPlanningLogicalReferenceHighWater(candidates, 'subject_id'),
+    );
+    raiseAutoincrementHighWater(
+        'mistakes',
+        getPlanningLogicalReferenceHighWater(candidates, 'related_mistake_id'),
+    );
+}
+
+function applyPlanningHistoryRetention(now = new Date()): void {
+    const cutoff = new Date(
+        now.getTime() - PLANNING_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    db.prepare('DELETE FROM planning_runs WHERE created_at < ?').run(cutoff);
+    db.prepare(`
+        DELETE FROM planning_runs
+        WHERE id IN (
+          SELECT id
+          FROM planning_runs
+          ORDER BY created_at DESC, id DESC
+          LIMIT -1 OFFSET ?
+        )
+    `).run(PLANNING_HISTORY_MAX_RUNS);
+}
+
+function restoreBackupData(data: Record<string, unknown>, manifestSchemaVersion = 6): void {
+    const normalized = normalizeBackupDatabaseData(data, manifestSchemaVersion);
     const transaction = db.transaction(() => {
         for (const definition of [...DATABASE_BACKUP_TABLES].reverse()) {
             db.prepare(`DELETE FROM ${definition.table}`).run();
@@ -725,9 +792,18 @@ function restoreBackupData(data: Record<string, unknown>): void {
         for (const definition of DATABASE_BACKUP_TABLES) {
             insertBackupRows(definition.table, definition.columns, getNormalizedBackupRows(normalized, definition.key));
         }
+        applyPlanningHistoryRetention();
+        repairPlanningLogicalReferenceSequences();
         const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
         if (foreignKeyViolations.length > 0) {
             throw new Error(`Backup restore failed foreign_key_check with ${foreignKeyViolations.length} violation(s)`);
+        }
+        const integrityRows = db.prepare('PRAGMA integrity_check').all() as Array<Record<string, unknown>>;
+        if (
+            integrityRows.length !== 1
+            || Object.values(integrityRows[0] ?? {})[0] !== 'ok'
+        ) {
+            throw new Error('Backup restore failed integrity_check');
         }
     });
     transaction();

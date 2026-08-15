@@ -9,6 +9,7 @@ import type {
   TodayDashboardData, DiaryTemplate, ReviewData, MistakeReviewResult, CountdownEvent,
   FocusWhitelistItem, ActiveAppInfo,
 } from '.'
+import type { ElectronPlanningRunsAPI } from './planningHistory'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
 
@@ -180,6 +181,7 @@ export interface ElectronTasksAPI {
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
   createIdempotentAIStudyTaskForCurrentDate: (
     request: IdempotentAIStudyTaskCreateRequest,
+    planningCandidateId?: number,
   ) => Promise<IdempotentAIStudyTaskCreateResponse>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
@@ -298,6 +300,7 @@ export interface ElectronAPI {
   export: ElectronExportAPI
   focusGuard: ElectronFocusGuardAPI
   templates: ElectronTemplatesAPI
+  planningRuns?: ElectronPlanningRunsAPI
 }
 
 // ─── Context API shapes (consumed by components via useDiary) ────────────────
@@ -372,6 +375,7 @@ export interface TasksContextAPI {
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
   createIdempotentAIStudyTaskForCurrentDate: (
     request: IdempotentAIStudyTaskCreateRequest,
+    planningCandidateId?: number,
   ) => Promise<IdempotentAIStudyTaskCreateResponse>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>

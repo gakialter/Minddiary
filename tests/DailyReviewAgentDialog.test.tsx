@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DailyReviewAgentDialog from '../src/components/DailyReviewAgentDialog'
 import type { AIResponse, DiaryEntry, Mistake, PomodoroStat, StudyTask, Subject } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
+import type {
+  PlanningRunCreateRequest,
+  PlanningRunRecord,
+  PlanningRunTransitionRequest,
+} from '../src/types/planningHistory'
 import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
 import * as aiOperationContracts from '../src/utils/aiOperationContracts'
 import { PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY } from '../src/utils/pendingStudyTaskOperations'
@@ -78,7 +83,29 @@ const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
 
 type IdempotentCreateRoute = (
   request: IdempotentAIStudyTaskCreateRequest,
+  planningCandidateId?: number,
 ) => Promise<IdempotentAIStudyTaskCreateResponse>
+
+const makePlanningRun = (request: PlanningRunCreateRequest): PlanningRunRecord => ({
+  ...request,
+  contextSummary: [...request.contextSummary],
+  createdAt: '2026-06-12T00:00:00.000Z',
+  updatedAt: '2026-06-12T00:00:00.000Z',
+  closedAt: null,
+  closeReason: null,
+  candidates: request.candidates.map((candidate, index) => ({
+    ...candidate,
+    id: 801 + index,
+    editBefore: {},
+    outcomeKind: null,
+    outcomeObservedAt: null,
+    admittedAt: '2026-06-12T00:00:00.000Z',
+    updatedAt: '2026-06-12T00:00:00.000Z',
+    sourceRelations: { subject: null, mistake: null, entry: null },
+    editBeforeSourceRelations: { subject: null, mistake: null, entry: null },
+    taskRelation: null,
+  })),
+})
 
 const createValidationThenMalformedSuccess = (operationId: string) => {
   const validTask = makeTask()
@@ -187,6 +214,7 @@ describe('DailyReviewAgentDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    delete window.api.planningRuns
     mocks.tasksCreate.mockReset()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
@@ -324,6 +352,77 @@ describe('DailyReviewAgentDialog', () => {
     expect(screen.getByRole('dialog')).not.toHaveTextContent('AI 已使用')
     expect(localStorage.length).toBe(0)
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
+  })
+
+  it('persists a Daily Review run and sends its durable candidate id through the existing task command', async () => {
+    let durableRun: PlanningRunRecord | null = null
+    const create = vi.fn(async (request: PlanningRunCreateRequest) => {
+      durableRun = makePlanningRun(request)
+      return durableRun
+    })
+    const transition = vi.fn(async () => durableRun!)
+    window.api.planningRuns = {
+      create,
+      transition,
+      listRecent: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    const route = vi.fn(async (request: IdempotentAIStudyTaskCreateRequest) => ({
+      ok: true as const,
+      operationId: request.operationId,
+      task: makeTask(),
+      replayed: false,
+    }))
+    renderDialog(REVIEW_DATE, mocks.onCreated, route)
+
+    await generateCandidates()
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      entryPoint: 'daily_review',
+      planningDate: REVIEW_DATE,
+      targetDate: CANDIDATE_DATE,
+      generationResultKind: 'candidate_set',
+      candidates: [expect.objectContaining({ ordinal: 0, relatedEntryId: null })],
+    })))
+    fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledWith(expect.any(Object), 801))
+  })
+
+  it('closes a pending durable create with date_rollover when the review date changes first', async () => {
+    const deferred = createDeferred<PlanningRunRecord>()
+    let createRequest: PlanningRunCreateRequest | null = null
+    const create = vi.fn((request: PlanningRunCreateRequest) => {
+      createRequest = request
+      return deferred.promise
+    })
+    const transition = vi.fn(async (request: PlanningRunTransitionRequest) => ({
+      ...makePlanningRun(createRequest!),
+      closedAt: '2026-06-12T01:00:00.000Z',
+      closeReason: request.kind === 'close_run' ? request.reason : null,
+    }))
+    window.api.planningRuns = {
+      create,
+      transition,
+      listRecent: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    const view = renderDialog()
+
+    await generateCandidates()
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    view.rerender(<DailyReviewAgentDialog {...dialogProps('2026-06-13')} />)
+    await act(async () => {
+      deferred.resolve(makePlanningRun(createRequest!))
+      await deferred.promise
+    })
+
+    await waitFor(() => expect(transition).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: createRequest!.id,
+      reason: 'date_rollover',
+    }))
   })
 
   it('shows the Pomodoro unavailable marker as included without claiming source records were sent', async () => {

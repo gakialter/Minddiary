@@ -437,7 +437,7 @@ describe('DataContext', () => {
         { title: 'date-bound task', planned_date: '2026-05-06' },
         '2026-05-05',
       )
-      await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(idempotentRequest)
+      await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(idempotentRequest, 73)
       await result.current.tasks.update(1, { status: 'doing' })
       await result.current.tasks.startFocus(1, '2026-05-05')
       await result.current.tasks.complete(1)
@@ -489,7 +489,7 @@ describe('DataContext', () => {
       { title: 'date-bound task', planned_date: '2026-05-06' },
       '2026-05-05',
     )
-    expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(idempotentRequest)
+    expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(idempotentRequest, 73)
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
     expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
     expect(window.api.tasks.complete).toHaveBeenCalledWith(1)

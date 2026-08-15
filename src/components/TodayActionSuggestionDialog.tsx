@@ -52,6 +52,16 @@ import {
 } from '../utils/planningSessionExplainability'
 import { formatCandidateValidationMessage } from '../utils/candidateValidationMessages'
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
+import type { PlanningRunRecord, PlanningRunTransitionRequest } from '../types/planningHistory'
+import {
+  buildTodayActionCandidateSnapshot,
+  buildTodayActionPlanningRunRequest,
+  createPlanningRunId,
+  getDurablePlanningCandidateId,
+  getPlanningCandidateOrdinal,
+  getPlanningRunsAPI,
+  PLANNING_HISTORY_SAVE_WARNING,
+} from '../utils/planningHistoryClient'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: TodayActionPriority[] = ['high', 'medium', 'low']
@@ -191,6 +201,10 @@ export default function TodayActionSuggestionDialog({
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
   const [recoveryRevision, setRecoveryRevision] = useState(0)
   const [planningSession, setPlanningSession] = useState<PlanningSessionExplainability | null>(null)
+  const [planningHistoryWarning, setPlanningHistoryWarning] = useState<string | null>(null)
+  const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
+  const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
@@ -199,9 +213,86 @@ export default function TodayActionSuggestionDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
+  const transitionPlanningRun = useCallback(async (request: PlanningRunTransitionRequest) => {
+    const api = getPlanningRunsAPI()
+    if (!api) return null
+    let result: PlanningRunRecord | null = null
+    let failed = false
+    planningTransitionQueueRef.current = planningTransitionQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          result = await api.transition(request)
+          if (durablePlanningRunRef.current?.id === request.runId) {
+            durablePlanningRunRef.current = result
+          }
+        } catch {
+          failed = true
+        }
+      })
+    await planningTransitionQueueRef.current
+    if (failed) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+    return result
+  }, [])
+
+  const closePlanningRun = useCallback(async (reason: 'dialog_closed' | 'regenerated' | 'date_rollover') => {
+    const run = durablePlanningRunRef.current
+    if (run === null || run.closedAt !== null) return
+    await transitionPlanningRun({ kind: 'close_run', runId: run.id, reason })
+    if (durablePlanningRunRef.current?.id === run.id) durablePlanningRunRef.current = null
+  }, [transitionPlanningRun])
+
+  const persistSuggestionSnapshot = useCallback(async (
+    suggestion: TodayActionSuggestionDraft,
+    allowAdmission: boolean,
+  ) => {
+    const run = durablePlanningRunRef.current
+    const ordinal = getPlanningCandidateOrdinal('today_action', suggestion.clientId)
+    if (!run || ordinal === null || suggestion.validationErrors.length > 0) return
+    if (getDurablePlanningCandidateId(run, 'today_action', suggestion.clientId) !== undefined) {
+      await transitionPlanningRun({
+        kind: 'commit_candidate',
+        runId: run.id,
+        ordinal,
+        candidate: buildTodayActionCandidateSnapshot(suggestion),
+      })
+    } else if (allowAdmission) {
+      await transitionPlanningRun({
+        kind: 'admit_repaired_candidate',
+        runId: run.id,
+        candidate: {
+          ordinal,
+          userDisposition: suggestion.selected ? 'selected_unconfirmed' : 'unselected',
+          ...buildTodayActionCandidateSnapshot(suggestion),
+        },
+      })
+    }
+  }, [transitionPlanningRun])
+
+  const flushPlanningCandidates = useCallback(async (
+    finalSuggestions: readonly TodayActionSuggestionDraft[],
+    session: PlanningSessionExplainability | null,
+  ) => {
+    for (const suggestion of finalSuggestions) {
+      const record = session?.candidates.find(candidate => candidate.clientId === suggestion.clientId)
+      const mutable = record !== undefined
+        && record.decision !== 'confirmed'
+        && record.outcome === null
+        && !suggestion.operationId
+      if (mutable) await persistSuggestionSnapshot(suggestion, true)
+    }
+  }, [persistSuggestionSnapshot])
+
   const closeDialog = useCallback(() => {
+    pendingGenerationCloseReasonsRef.current.set(generationRef.current, 'dialog_closed')
     generationRef.current += 1
     contextRequestRef.current += 1
+    const finalSuggestions = suggestions
+    const finalSession = planningSession
+    void (async () => {
+      await flushPlanningCandidates(finalSuggestions, finalSession)
+      await closePlanningRun('dialog_closed')
+    })()
     setSuggestions([])
     setErrors([])
     setGenerationProvenance(null)
@@ -210,7 +301,7 @@ export default function TodayActionSuggestionDialog({
     setCreationSummary(null)
     setPlanningSession(resetPlanningSessionExplainability())
     onClose()
-  }, [onClose])
+  }, [closePlanningRun, flushPlanningCandidates, onClose, planningSession, suggestions])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -268,6 +359,16 @@ export default function TodayActionSuggestionDialog({
   }, [])
 
   useEffect(() => {
+    const previousDate = currentDateRef.current
+    if (previousDate !== date) {
+      pendingGenerationCloseReasonsRef.current.set(generationRef.current, 'date_rollover')
+      const finalSuggestions = suggestions
+      const finalSession = planningSession
+      void (async () => {
+        await flushPlanningCandidates(finalSuggestions, finalSession)
+        await closePlanningRun('date_rollover')
+      })()
+    }
     currentDateRef.current = date
     generationRef.current += 1
     contextRequestRef.current += 1
@@ -281,7 +382,7 @@ export default function TodayActionSuggestionDialog({
     setStaleContextNotice(null)
     setCreationSummary(null)
     setPlanningSession(resetPlanningSessionExplainability())
-  }, [date])
+  }, [closePlanningRun, date, flushPlanningCandidates])
 
   useEffect(() => {
     mountedRef.current = true
@@ -349,6 +450,7 @@ export default function TodayActionSuggestionDialog({
     clientId: string,
     patch: Partial<TodayActionSuggestionDraft>,
     updateKind: 'edit' | 'selection',
+    commitImmediately = false,
   ) => {
     const beforeSuggestions = suggestions
     const nextSuggestions = revalidate(beforeSuggestions.map(suggestion => {
@@ -364,6 +466,19 @@ export default function TodayActionSuggestionDialog({
     const existingRecord = planningSession?.candidates.some(candidate => candidate.clientId === clientId) === true
     if (updateKind !== 'edit' || existingRecord) {
       setSuggestions(nextSuggestions)
+      const nextCandidate = nextSuggestions.find(suggestion => suggestion.clientId === clientId)
+      const run = durablePlanningRunRef.current
+      const ordinal = getPlanningCandidateOrdinal('today_action', clientId)
+      if (updateKind === 'selection' && run && ordinal !== null && getDurablePlanningCandidateId(run, 'today_action', clientId) !== undefined) {
+        void transitionPlanningRun({
+          kind: 'set_selection',
+          runId: run.id,
+          ordinal,
+          selected: Boolean(nextCandidate?.selected),
+        })
+      } else if (updateKind === 'edit' && commitImmediately && nextCandidate) {
+        void persistSuggestionSnapshot(nextCandidate, true)
+      }
       return
     }
     const admissionSelectedIds = getTodayActionAdmissionSelectedIds(beforeSuggestions, clientId)
@@ -422,6 +537,7 @@ export default function TodayActionSuggestionDialog({
       || afterErrors === null
       || afterErrors.length > 0
     ) return
+    if (commitImmediately) void persistSuggestionSnapshot(repairedCandidate, true)
     setPlanningSession(current => current
       ? addPlanningSessionCandidate(current, {
           clientId,
@@ -432,14 +548,28 @@ export default function TodayActionSuggestionDialog({
   }
 
   const removeSuggestion = (clientId: string) => {
+    const run = durablePlanningRunRef.current
+    const ordinal = getPlanningCandidateOrdinal('today_action', clientId)
+    if (run && ordinal !== null && getDurablePlanningCandidateId(run, 'today_action', clientId) !== undefined) {
+      void transitionPlanningRun({ kind: 'remove_candidate', runId: run.id, ordinal })
+    }
     setPlanningSession(current => current
       ? updatePlanningSessionCandidate(current, clientId, removePlanningCandidateRecord)
       : current)
     setSuggestions(current => revalidate(current.filter(suggestion => suggestion.clientId !== clientId)))
   }
 
+  const commitSuggestion = (suggestion: TodayActionSuggestionDraft) => {
+    const admitted = planningSession?.candidates.some(candidate => candidate.clientId === suggestion.clientId) === true
+    if (admitted) void persistSuggestionSnapshot(suggestion, true)
+  }
+
   const generateSuggestions = async () => {
     if (generating || creating) return
+    if (durablePlanningRunRef.current !== null) {
+      await flushPlanningCandidates(suggestions, planningSession)
+      await closePlanningRun('regenerated')
+    }
     const generation = ++generationRef.current
     const generationId = `today-action${dialogInstanceId}-generation-${generation}`
     setGenerating(true)
@@ -494,6 +624,44 @@ export default function TodayActionSuggestionDialog({
           generationContextSignature,
         ))
         setReviewedConfirmationContextSignature(generationContextSignature)
+        const planningRunsAPI = getPlanningRunsAPI()
+        if (planningRunsAPI) {
+          try {
+            const durableRun = await planningRunsAPI.create(buildTodayActionPlanningRunRequest({
+              id: createPlanningRunId(),
+              date,
+              contextDecisions: request.contextDecisions,
+              suggestions: parsed.suggestions,
+            }))
+            const pendingCloseReason = pendingGenerationCloseReasonsRef.current.get(generation)
+            pendingGenerationCloseReasonsRef.current.delete(generation)
+            if (pendingCloseReason) {
+              try {
+                await planningRunsAPI.transition({
+                  kind: 'close_run',
+                  runId: durableRun.id,
+                  reason: pendingCloseReason,
+                })
+              } catch {
+                if (mountedRef.current) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+              }
+            } else if (generationRef.current === generation && currentDateRef.current === date) {
+              durablePlanningRunRef.current = durableRun
+            } else {
+              try {
+                await planningRunsAPI.transition({
+                  kind: 'close_run',
+                  runId: durableRun.id,
+                  reason: currentDateRef.current === date ? 'dialog_closed' : 'date_rollover',
+                })
+              } catch {
+                if (mountedRef.current) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+              }
+            }
+          } catch {
+            if (generationRef.current === generation) setPlanningHistoryWarning(PLANNING_HISTORY_SAVE_WARNING)
+          }
+        }
       }
     } catch (error) {
       if (generationRef.current === generation) {
@@ -535,6 +703,7 @@ export default function TodayActionSuggestionDialog({
       }
 
       setStaleContextNotice(null)
+      await flushPlanningCandidates(currentSuggestions, planningSession)
       const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
         mode: 'today_action',
         generation: generationProvenance,
@@ -610,7 +779,12 @@ export default function TodayActionSuggestionDialog({
               : item
           ))
           setSuggestions(currentSuggestions)
-          const result = await executeConfirmedStudyTaskAction(action, confirmationSnapshot, tasksAPI)
+          const result = await executeConfirmedStudyTaskAction(
+            action,
+            confirmationSnapshot,
+            tasksAPI,
+            getDurablePlanningCandidateId(durablePlanningRunRef.current, 'today_action', suggestion.clientId),
+          )
           if (!mountedRef.current || currentDateRef.current !== createDate) return
           const observation = observeStudyTaskActionExecutionResult(result, operationId)
           setPlanningSession(current => current
@@ -964,6 +1138,11 @@ export default function TodayActionSuggestionDialog({
               <div>请检查规划依据后重新生成建议；在出现这些错误时不会创建任务。</div>
             </div>
           )}
+          {planningHistoryWarning && (
+            <p className="mt-3 text-sm" role="status" data-testid="planning-history-save-warning" style={{ color: 'var(--warning, var(--text-secondary))' }}>
+              {planningHistoryWarning}
+            </p>
+          )}
 
           {staleContextNotice && (
             <p className="mt-3 text-sm" role="status" data-testid="ai-plan-stale-context" style={{ color: 'var(--warning, var(--text-secondary))' }}>
@@ -1162,6 +1341,7 @@ export default function TodayActionSuggestionDialog({
                         value={suggestion.title}
                         disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { title: event.target.value }, 'edit')}
+                        onBlur={() => commitSuggestion(suggestion)}
                         style={{ flex: '1 1 220px', minHeight: 36 }}
                       />
                       <select
@@ -1169,7 +1349,7 @@ export default function TodayActionSuggestionDialog({
                         aria-label="建议类型"
                         value={suggestion.type}
                         disabled={isLocked}
-                        onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType }, 'edit')}
+                        onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType }, 'edit', true)}
                         style={{ width: 112, minHeight: 36 }}
                       >
                         {!TASK_TYPES.includes(suggestion.type) && <option value={suggestion.type} disabled>请选择有效类型</option>}
@@ -1183,7 +1363,7 @@ export default function TodayActionSuggestionDialog({
                         max={180}
                         value={suggestion.estimate_minutes}
                         disabled={isLocked}
-                        onChange={event => updateSuggestion(suggestion.clientId, { estimate_minutes: Math.round(Number(event.target.value) || 0) }, 'edit')}
+                        onChange={event => updateSuggestion(suggestion.clientId, { estimate_minutes: Math.round(Number(event.target.value) || 0) }, 'edit', true)}
                         style={{ width: 86, minHeight: 36 }}
                       />
                       <select
@@ -1191,7 +1371,7 @@ export default function TodayActionSuggestionDialog({
                         aria-label="建议科目"
                         value={suggestion.subject_id ?? ''}
                         disabled={isLocked}
-                        onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit')}
+                        onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit', true)}
                         style={{ width: 120, minHeight: 36 }}
                       >
                         {!isKnownSubject && <option value={suggestion.subject_id ?? ''} disabled>请选择有效科目</option>}
@@ -1227,7 +1407,7 @@ export default function TodayActionSuggestionDialog({
                               ...(selectedMistake?.subject_id !== null && selectedMistake?.subject_id !== undefined
                                 ? { subject_id: selectedMistake.subject_id }
                                 : {}),
-                            }, 'edit')
+                            }, 'edit', true)
                           }}
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
@@ -1250,7 +1430,7 @@ export default function TodayActionSuggestionDialog({
                           disabled={isLocked}
                           onChange={event => updateSuggestion(suggestion.clientId, {
                             related_entry_id: event.target.value ? Number(event.target.value) : null,
-                          }, 'edit')}
+                          }, 'edit', true)}
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
                           {!isKnownEntry && <option value={suggestion.related_entry_id ?? ''} disabled>请选择有效日记</option>}
@@ -1267,7 +1447,7 @@ export default function TodayActionSuggestionDialog({
                           aria-label="建议优先级"
                           value={suggestion.priority}
                           disabled={isLocked}
-                          onChange={event => updateSuggestion(suggestion.clientId, { priority: event.target.value as TodayActionPriority }, 'edit')}
+                          onChange={event => updateSuggestion(suggestion.clientId, { priority: event.target.value as TodayActionPriority }, 'edit', true)}
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
                           {!PRIORITIES.includes(suggestion.priority) && <option value={suggestion.priority} disabled>请选择有效优先级</option>}
@@ -1281,6 +1461,7 @@ export default function TodayActionSuggestionDialog({
                       value={suggestion.reason}
                       disabled={isLocked}
                       onChange={event => updateSuggestion(suggestion.clientId, { reason: event.target.value }, 'edit')}
+                      onBlur={() => commitSuggestion(suggestion)}
                       style={{ width: '100%', minHeight: 58, marginTop: 8 }}
                     />
                     <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
