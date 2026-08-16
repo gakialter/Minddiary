@@ -1,4 +1,4 @@
-import type { StudyTaskType } from './index'
+import type { StudyTaskType, StudyTaskStatus } from './index'
 
 export type PlanningEntryPoint = 'today_action' | 'daily_review'
 export type PlanningGenerationResultKind = 'valid_empty' | 'candidate_set'
@@ -52,6 +52,66 @@ export interface PlanningContextSummaryItem {
   disposition: PlanningContextDisposition
   reasonCode: PlanningContextReasonCode
 }
+
+// ─── C3: Deterministic Execution Attribution ────────────────────────────────
+
+export interface PlanningSemanticDifference<T> {
+  candidateValue: T
+  currentValue: T
+}
+
+export interface PlanningSemanticDrift {
+  hasDrift: boolean
+  differences: {
+    title?: PlanningSemanticDifference<string>
+    description?: PlanningSemanticDifference<string>
+    type?: PlanningSemanticDifference<StudyTaskType>
+    subjectId?: PlanningSemanticDifference<number | null>
+    relatedMistakeId?: PlanningSemanticDifference<number | null>
+    relatedEntryId?: PlanningSemanticDifference<number | null>
+    relatedChapterId?: PlanningSemanticDifference<number | null>
+    plannedDate?: PlanningSemanticDifference<string>
+    estimateMinutes?: PlanningSemanticDifference<number>
+  }
+}
+
+export type PlanningFocusAttributionState =
+  | 'available'
+  | 'unavailable'
+  | 'corrupt_data'
+  | 'not_applicable'
+
+export type PlanningFocusUnavailableReason =
+  | 'task_deleted'
+  | 'confirmation_uncertain'
+
+export interface PlanningFocusAttribution {
+  state: PlanningFocusAttributionState
+  totalDurationMinutes: number | null
+  sessionCount: number | null
+  unavailableReason: PlanningFocusUnavailableReason | null
+}
+
+export type PlanningExecutionAttributionKind =
+  | 'verified_linked'
+  | 'task_deleted'
+  | 'known_conflict'
+  | 'no_execution_expected'
+  | 'unresolved'
+  | 'integrity_inconsistency'
+  | 'not_confirmed'
+
+export interface PlanningExecutionAttribution {
+  kind: PlanningExecutionAttributionKind
+  receiptValidated: boolean
+  taskId: number | null
+  taskCurrentTitle: string | null
+  taskCurrentStatus: StudyTaskStatus | null
+  semanticDrift: PlanningSemanticDrift | null
+  focus: PlanningFocusAttribution
+}
+
+// ─── End C3 Types ───────────────────────────────────────────────────────────
 
 export interface PlanningCandidateSnapshot {
   title: string
@@ -111,6 +171,7 @@ export interface PlanningRunCandidateRecord extends PlanningCandidateSnapshot {
     entry: PlanningSourceRelation | null
   }
   taskRelation: PlanningTaskRelation | null
+  executionAttribution: PlanningExecutionAttribution | null
 }
 
 export interface PlanningRunRecord {

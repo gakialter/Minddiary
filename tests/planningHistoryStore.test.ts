@@ -763,4 +763,31 @@ describe('trusted-main planning history create seam', () => {
       },
     })
   })
+
+  it('projects executionAttribution on get and listRecent results', () => {
+    const { store } = createStore()
+    store.create(todayRun())
+
+    const record = store.get('11111111-1111-4111-8111-111111111111')
+    expect(record).not.toBeNull()
+    expect(record?.candidates[0]?.executionAttribution).toEqual({
+      kind: 'not_confirmed',
+      receiptValidated: false,
+      taskId: null,
+      taskCurrentTitle: null,
+      taskCurrentStatus: null,
+      semanticDrift: null,
+      focus: {
+        state: 'not_applicable',
+        totalDurationMinutes: null,
+        sessionCount: null,
+        unavailableReason: null,
+      },
+    })
+
+    const listResult = store.listRecent()
+    expect(listResult.items[0]?.candidates[0]?.executionAttribution).toEqual(
+      record?.candidates[0]?.executionAttribution,
+    )
+  })
 })

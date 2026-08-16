@@ -10,6 +10,8 @@ import type {
     PlanningContextReasonCode,
     PlanningContextSummaryItem,
     PlanningEntryPoint,
+    PlanningExecutionAttribution,
+    PlanningFocusAttribution,
     PlanningGenerationResultKind,
     PlanningRunCandidateCreateInput,
     PlanningRunCandidateRecord,
@@ -18,8 +20,10 @@ import type {
     PlanningRunRecord,
     PlanningRunCloseReason,
     PlanningRunTransitionRequest,
+    PlanningSemanticDrift,
+    PlanningSourceRelation,
 } from '../src/types/planningHistory'
-import type { StudyTaskType } from '../src/types'
+import type { StudyTaskStatus, StudyTaskType } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api'
 import {
     buildIdempotentAIStudyTaskRequestDigest,
@@ -608,6 +612,20 @@ function readCandidateRows(database: Database.Database, runId: string): Planning
     `).all(runId) as PlanningCandidateRow[]
 }
 
+function readCandidatesForRunIds(database: Database.Database, runIds: string[]): PlanningCandidateRow[] {
+    if (runIds.length === 0) return []
+    const placeholders = runIds.map(() => '?').join(',')
+    return database.prepare(`
+        SELECT id, planning_run_id, ordinal, admission_origin, title, description,
+               type, estimate_minutes, priority, subject_id, related_mistake_id,
+               related_entry_id, edit_before_json, user_disposition, operation_id,
+               outcome_kind, outcome_observed_at, admitted_at, updated_at
+        FROM planning_run_candidates
+        WHERE planning_run_id IN (${placeholders})
+        ORDER BY planning_run_id ASC, ordinal ASC
+    `).all(...runIds) as PlanningCandidateRow[]
+}
+
 function requireStoredTimestamp(value: unknown, label: string): string {
     if (typeof value !== 'string' || !UTC_TIMESTAMP_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) {
         throw new PlanningHistoryUnavailableError(`${label} is unavailable`)
@@ -632,6 +650,909 @@ function normalizeRelationLabel(value: unknown): string | null {
         .trim()
     return normalized ? normalized.slice(0, 80) : null
 }
+
+// ─── C3: Batch Query Infrastructure ─────────────────────────────────────────
+
+type BatchRelationMap = Map<number, PlanningSourceRelation>
+type BatchReceiptRow = {
+    operation_id: string
+    operation_kind: string
+    action_contract_version: string
+    request_digest: string
+    expected_current_date: string
+    planned_date: string
+    task_id: number | null
+}
+type BatchTaskRow = {
+    id: number
+    title: string
+    description: string
+    type: string
+    subject_id: number | null
+    related_mistake_id: number | null
+    related_entry_id: number | null
+    related_chapter_id: number | null
+    planned_date: string
+    estimate_minutes: number
+    status: string
+    source: string
+}
+type BatchPomodoroRow = {
+    id: unknown
+    task_id: unknown
+    duration: unknown
+}
+
+const STUDY_TASK_STATUSES: readonly StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped']
+const STUDY_TASK_SOURCES: readonly string[] = ['manual', 'dashboard', 'ai', 'pomodoro']
+
+function batchLoadRelations(
+    database: Database.Database,
+    table: 'subjects' | 'mistakes' | 'entries',
+    ids: Set<number>,
+): BatchRelationMap {
+    const map: BatchRelationMap = new Map()
+    if (ids.size === 0) return map
+    const idArray = Array.from(ids)
+    const placeholders = idArray.map(() => '?').join(',')
+    const select = table === 'subjects'
+        ? `SELECT id, name AS label FROM subjects WHERE id IN (${placeholders})`
+        : table === 'mistakes'
+            ? `SELECT id, question AS label FROM mistakes WHERE id IN (${placeholders})`
+            : `SELECT id, COALESCE(NULLIF(TRIM(title), ''), date) AS label FROM entries WHERE id IN (${placeholders})`
+    const rows = database.prepare(select).all(...idArray) as { id: number; label: unknown }[]
+    // Pre-populate missing IDs as available:false
+    for (const id of idArray) {
+        map.set(id, { available: false, id })
+    }
+    for (const row of rows) {
+        const label = normalizeRelationLabel(row.label)
+        if (label) {
+            map.set(row.id, { available: true, id: row.id, label })
+        }
+        // If label is null, it stays as available:false from pre-population
+    }
+    return map
+}
+
+function resolveRelationFromMap(
+    map: BatchRelationMap,
+    idValue: unknown,
+): PlanningSourceRelation | null {
+    if (idValue === null) return null
+    if (typeof idValue !== 'number' || !Number.isSafeInteger(idValue) || idValue <= 0) {
+        throw new PlanningHistoryUnavailableError('Planning source relation is unavailable')
+    }
+    return map.get(idValue) ?? { available: false, id: idValue }
+}
+
+function batchLoadReceipts(
+    database: Database.Database,
+    operationIds: Set<string>,
+): Map<string, BatchReceiptRow> {
+    const map = new Map<string, BatchReceiptRow>()
+    if (operationIds.size === 0) return map
+    const idArray = Array.from(operationIds)
+    const placeholders = idArray.map(() => '?').join(',')
+    const rows = database.prepare(`
+        SELECT operation_id, operation_kind, action_contract_version,
+               request_digest, expected_current_date, planned_date, task_id
+        FROM study_task_action_receipts
+        WHERE operation_id IN (${placeholders})
+    `).all(...idArray) as {
+        operation_id: unknown; operation_kind: unknown; action_contract_version: unknown
+        request_digest: unknown; expected_current_date: unknown; planned_date: unknown
+        task_id: unknown
+    }[]
+    for (const row of rows) {
+        if (typeof row.operation_id === 'string'
+            && typeof row.operation_kind === 'string'
+            && typeof row.action_contract_version === 'string'
+            && typeof row.request_digest === 'string'
+            && typeof row.expected_current_date === 'string'
+            && typeof row.planned_date === 'string'
+        ) {
+            const taskId = row.task_id === null ? null
+                : (typeof row.task_id === 'number' && Number.isSafeInteger(row.task_id) && row.task_id > 0)
+                    ? row.task_id : null
+            map.set(row.operation_id, {
+                operation_id: row.operation_id,
+                operation_kind: row.operation_kind,
+                action_contract_version: row.action_contract_version,
+                request_digest: row.request_digest,
+                expected_current_date: row.expected_current_date,
+                planned_date: row.planned_date,
+                task_id: taskId,
+            })
+        }
+    }
+    return map
+}
+
+type BatchTaskLookup =
+    | { status: 'found'; task: BatchTaskRow }
+    | { status: 'corrupt' }
+    | { status: 'missing' }
+
+function batchLoadTasks(
+    database: Database.Database,
+    taskIds: Set<number>,
+): Map<number, BatchTaskLookup> {
+    const map = new Map<number, BatchTaskLookup>()
+    if (taskIds.size === 0) return map
+    const idArray = Array.from(taskIds)
+    const placeholders = idArray.map(() => '?').join(',')
+    const rows = database.prepare(`
+        SELECT id, title, description, type, subject_id, related_mistake_id,
+               related_entry_id, related_chapter_id, planned_date, estimate_minutes,
+               status, source
+        FROM study_tasks
+        WHERE id IN (${placeholders})
+    `).all(...idArray) as Record<string, unknown>[]
+    const foundIds = new Set<number>()
+    for (const row of rows) {
+        const id = row.id as number
+        foundIds.add(id)
+        const validated = validateTaskRow(row)
+        if (validated) {
+            map.set(id, { status: 'found', task: validated })
+        } else {
+            map.set(id, { status: 'corrupt' })
+        }
+    }
+    // Mark missing IDs as missing
+    for (const id of idArray) {
+        if (!foundIds.has(id)) {
+            map.set(id, { status: 'missing' })
+        }
+    }
+    return map
+}
+
+function validateTaskRow(row: Record<string, unknown>): BatchTaskRow | null {
+    if (
+        typeof row.id !== 'number' || !Number.isSafeInteger(row.id) || row.id <= 0
+        || typeof row.title !== 'string'
+        || typeof row.description !== 'string'
+        || typeof row.type !== 'string' || !STUDY_TASK_TYPES.includes(row.type as StudyTaskType)
+        || !isNullablePositiveSafeInteger(row.subject_id)
+        || !isNullablePositiveSafeInteger(row.related_mistake_id)
+        || !isNullablePositiveSafeInteger(row.related_entry_id)
+        || !isNullablePositiveSafeInteger(row.related_chapter_id)
+        || !isCanonicalStoredDateKey(row.planned_date)
+        || typeof row.estimate_minutes !== 'number'
+        || !Number.isInteger(row.estimate_minutes)
+        || row.estimate_minutes < 5 || row.estimate_minutes > 180
+        || typeof row.status !== 'string'
+        || !STUDY_TASK_STATUSES.includes(row.status as StudyTaskStatus)
+        || typeof row.source !== 'string'
+        || !STUDY_TASK_SOURCES.includes(row.source)
+    ) {
+        return null // fail closed — semantically invalid task
+    }
+    return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        type: row.type,
+        subject_id: row.subject_id as number | null,
+        related_mistake_id: row.related_mistake_id as number | null,
+        related_entry_id: row.related_entry_id as number | null,
+        related_chapter_id: row.related_chapter_id as number | null,
+        planned_date: row.planned_date,
+        estimate_minutes: row.estimate_minutes,
+        status: row.status,
+        source: row.source,
+    }
+}
+
+function batchLoadPomodoro(
+    database: Database.Database,
+    taskIds: Set<number>,
+): Map<number, BatchPomodoroRow[]> {
+    const map = new Map<number, BatchPomodoroRow[]>()
+    if (taskIds.size === 0) return map
+    // Initialize all task IDs with empty arrays
+    for (const id of taskIds) map.set(id, [])
+    const idArray = Array.from(taskIds)
+    const placeholders = idArray.map(() => '?').join(',')
+    const rows = database.prepare(`
+        SELECT id, task_id, duration
+        FROM pomodoro_sessions
+        WHERE task_id IN (${placeholders})
+    `).all(...idArray) as BatchPomodoroRow[]
+    for (const row of rows) {
+        if (typeof row.task_id === 'number' && Number.isSafeInteger(row.task_id) && row.task_id > 0) {
+            const sessions = map.get(row.task_id)
+            if (sessions) sessions.push(row)
+        }
+    }
+    return map
+}
+
+function computeFocusAttribution(
+    sessions: BatchPomodoroRow[] | undefined,
+    taskDeleted: boolean,
+): PlanningFocusAttribution {
+    if (taskDeleted) {
+        return {
+            state: 'unavailable',
+            totalDurationMinutes: null,
+            sessionCount: null,
+            unavailableReason: 'task_deleted',
+        }
+    }
+    if (!sessions) {
+        return {
+            state: 'not_applicable',
+            totalDurationMinutes: null,
+            sessionCount: null,
+            unavailableReason: null,
+        }
+    }
+    // Validate all sessions — any corruption → fail closed
+    for (const session of sessions) {
+        if (
+            typeof session.id !== 'number' || !Number.isSafeInteger(session.id) || session.id <= 0
+            || typeof session.task_id !== 'number' || !Number.isSafeInteger(session.task_id) || session.task_id <= 0
+            || typeof session.duration !== 'number' || !Number.isFinite(session.duration) || session.duration <= 0
+        ) {
+            return {
+                state: 'corrupt_data',
+                totalDurationMinutes: null,
+                sessionCount: null,
+                unavailableReason: null,
+            }
+        }
+    }
+    // duration is already in minutes — sum directly, DO NOT divide by 60
+    const totalDurationMinutes = sessions.reduce((sum, s) => sum + (s.duration as number), 0)
+    return {
+        state: 'available',
+        totalDurationMinutes,
+        sessionCount: sessions.length,
+        unavailableReason: null,
+    }
+}
+
+function computeSemanticDrift(
+    candidateRow: PlanningCandidateRow,
+    run: { targetDate: string },
+    task: BatchTaskRow,
+): PlanningSemanticDrift {
+    const differences: PlanningSemanticDrift['differences'] = {}
+    let hasDrift = false
+    // Compare 9 frozen contract fields
+    // 1. title
+    if (candidateRow.title !== task.title) {
+        differences.title = { candidateValue: candidateRow.title as string, currentValue: task.title }
+        hasDrift = true
+    }
+    // 2. description
+    if (candidateRow.description !== task.description) {
+        differences.description = { candidateValue: candidateRow.description as string, currentValue: task.description }
+        hasDrift = true
+    }
+    // 3. type
+    if (candidateRow.type !== task.type) {
+        differences.type = {
+            candidateValue: candidateRow.type as StudyTaskType,
+            currentValue: task.type as StudyTaskType,
+        }
+        hasDrift = true
+    }
+    // 4. subject_id
+    if (candidateRow.subject_id !== task.subject_id) {
+        differences.subjectId = {
+            candidateValue: candidateRow.subject_id as number | null,
+            currentValue: task.subject_id,
+        }
+        hasDrift = true
+    }
+    // 5. related_mistake_id
+    if (candidateRow.related_mistake_id !== task.related_mistake_id) {
+        differences.relatedMistakeId = {
+            candidateValue: candidateRow.related_mistake_id as number | null,
+            currentValue: task.related_mistake_id,
+        }
+        hasDrift = true
+    }
+    // 6. related_entry_id
+    if (candidateRow.related_entry_id !== task.related_entry_id) {
+        differences.relatedEntryId = {
+            candidateValue: candidateRow.related_entry_id as number | null,
+            currentValue: task.related_entry_id,
+        }
+        hasDrift = true
+    }
+    // 7. related_chapter_id (candidate expectation is always null)
+    if (task.related_chapter_id !== null) {
+        differences.relatedChapterId = { candidateValue: null, currentValue: task.related_chapter_id }
+        hasDrift = true
+    }
+    // 8. planned_date (candidate expectation = run.targetDate)
+    if (run.targetDate !== task.planned_date) {
+        differences.plannedDate = { candidateValue: run.targetDate, currentValue: task.planned_date }
+        hasDrift = true
+    }
+    // 9. estimate_minutes
+    if (candidateRow.estimate_minutes !== task.estimate_minutes) {
+        differences.estimateMinutes = {
+            candidateValue: candidateRow.estimate_minutes as number,
+            currentValue: task.estimate_minutes,
+        }
+        hasDrift = true
+    }
+    // NOTE: status and source are explicitly excluded per frozen contract §7.2
+    return { hasDrift, differences }
+}
+
+function computeExecutionAttribution(
+    candidateRow: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
+    receiptMap: Map<string, BatchReceiptRow>,
+    taskMap: Map<number, BatchTaskLookup>,
+    pomodoroMap: Map<number, BatchPomodoroRow[]>,
+): PlanningExecutionAttribution | null {
+    // §10.1 Unconfirmed candidates get not_confirmed
+    if (candidateRow.user_disposition !== 'confirmed') {
+        return {
+            kind: 'not_confirmed',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+    // Must have operation_id to proceed
+    if (typeof candidateRow.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(candidateRow.operation_id)) {
+        return null
+    }
+    const operationId = candidateRow.operation_id
+    const outcomeKind = candidateRow.outcome_kind as PlanningCandidateOutcomeKind | null
+
+    // §10.9 date_mismatch + receipt absent → no_execution_expected
+    if (outcomeKind === 'date_mismatch') {
+        return {
+            kind: 'no_execution_expected',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+    // §10.10 validation_error + receipt absent → no_execution_expected
+    if (outcomeKind === 'validation_error') {
+        return {
+            kind: 'no_execution_expected',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+    // §10.11 integrity_error → integrity_inconsistency
+    if (outcomeKind === 'integrity_error') {
+        return {
+            kind: 'integrity_inconsistency',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+
+    // Look up receipt
+    const receipt = receiptMap.get(operationId)
+
+    // Validate receipt by reconstructing idempotent request and recomputing digest
+    let receiptValidated = false
+    if (receipt) {
+        try {
+            const request: IdempotentAIStudyTaskCreateRequest = {
+                operationId,
+                operationKind: run.entryPoint,
+                actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
+                expectedCurrentDate: run.planningDate,
+                payload: {
+                    title: candidateRow.title as string,
+                    description: candidateRow.description as string,
+                    type: candidateRow.type as StudyTaskType,
+                    subject_id: candidateRow.subject_id as number | null,
+                    related_mistake_id: candidateRow.related_mistake_id as number | null,
+                    related_entry_id: candidateRow.related_entry_id as number | null,
+                    related_chapter_id: null,
+                    planned_date: run.targetDate,
+                    estimate_minutes: candidateRow.estimate_minutes as number,
+                    status: 'todo',
+                    source: 'ai',
+                },
+            }
+            const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
+            receiptValidated = (
+                receipt.operation_kind === run.entryPoint
+                && receipt.action_contract_version === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+                && receipt.request_digest === expectedDigest
+                && receipt.expected_current_date === run.planningDate
+                && receipt.planned_date === run.targetDate
+            )
+        } catch {
+            receiptValidated = false
+        }
+    }
+
+    // §10.2 created/replayed + matching receipt + valid task → verified_linked
+    if (outcomeKind === 'created' || outcomeKind === 'replayed') {
+        if (!receipt || !receiptValidated) {
+            // §10.4 created/replayed + receipt missing → integrity_inconsistency
+            return {
+                kind: 'integrity_inconsistency',
+                receiptValidated: false,
+                taskId: null,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+            }
+        }
+        // §10.3 created/replayed + receipt.task_id = null → task_deleted
+        if (receipt.task_id === null) {
+            return {
+                kind: 'task_deleted',
+                receiptValidated: true,
+                taskId: null,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: computeFocusAttribution(undefined, true),
+            }
+        }
+        const taskLookup = taskMap.get(receipt.task_id)
+        if (!taskLookup || taskLookup.status === 'missing') {
+            return {
+                kind: 'task_deleted',
+                receiptValidated: true,
+                taskId: null,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: computeFocusAttribution(undefined, true),
+            }
+        }
+        if (taskLookup.status === 'corrupt') {
+            // Task row exists in study_tasks but failed validation → integrity_inconsistency
+            return {
+                kind: 'integrity_inconsistency',
+                receiptValidated: true,
+                taskId: receipt.task_id,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+            }
+        }
+        const task = taskLookup.task
+        const title = normalizeRelationLabel(task.title)
+        return {
+            kind: 'verified_linked',
+            receiptValidated: true,
+            taskId: receipt.task_id,
+            taskCurrentTitle: title,
+            taskCurrentStatus: task.status as StudyTaskStatus,
+            semanticDrift: computeSemanticDrift(candidateRow, run, task),
+            focus: computeFocusAttribution(pomodoroMap.get(receipt.task_id), false),
+        }
+    }
+
+    // §10.5 uncertain + matching receipt + task exists → verified_linked
+    // §10.6 uncertain + no receipt → unresolved
+    if (outcomeKind === 'uncertain') {
+        if (receipt && receiptValidated && receipt.task_id !== null) {
+            const taskLookup = taskMap.get(receipt.task_id)
+            if (taskLookup && taskLookup.status === 'found') {
+                const task = taskLookup.task
+                const title = normalizeRelationLabel(task.title)
+                return {
+                    kind: 'verified_linked',
+                    receiptValidated: true,
+                    taskId: receipt.task_id,
+                    taskCurrentTitle: title,
+                    taskCurrentStatus: task.status as StudyTaskStatus,
+                    semanticDrift: computeSemanticDrift(candidateRow, run, task),
+                    focus: computeFocusAttribution(pomodoroMap.get(receipt.task_id), false),
+                }
+            }
+            if (taskLookup && taskLookup.status === 'missing') {
+                return {
+                    kind: 'task_deleted',
+                    receiptValidated: true,
+                    taskId: null,
+                    taskCurrentTitle: null,
+                    taskCurrentStatus: null,
+                    semanticDrift: null,
+                    focus: computeFocusAttribution(undefined, true),
+                }
+            }
+        }
+        if (receipt && receiptValidated && receipt.task_id === null) {
+            return {
+                kind: 'task_deleted',
+                receiptValidated: true,
+                taskId: null,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: computeFocusAttribution(undefined, true),
+            }
+        }
+        return {
+            kind: 'unresolved',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: 'confirmation_uncertain' },
+        }
+    }
+
+    // §10.7 conflict + mismatching existing receipt → known_conflict
+    // §10.8 conflict + receipt missing → integrity_inconsistency
+    if (outcomeKind === 'conflict') {
+        if (receipt) {
+            return {
+                kind: 'known_conflict',
+                receiptValidated: receiptValidated,
+                taskId: null,
+                taskCurrentTitle: null,
+                taskCurrentStatus: null,
+                semanticDrift: null,
+                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+            }
+        }
+        return {
+            kind: 'integrity_inconsistency',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+
+    // §10.3 deleted outcome → task_deleted
+    if (outcomeKind === 'deleted') {
+        return {
+            kind: 'task_deleted',
+            receiptValidated: receipt ? receiptValidated : false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: computeFocusAttribution(undefined, true),
+        }
+    }
+
+    // Fallback: outcome not yet recorded but confirmed
+    if (outcomeKind === null) {
+        return {
+            kind: 'unresolved',
+            receiptValidated: false,
+            taskId: null,
+            taskCurrentTitle: null,
+            taskCurrentStatus: null,
+            semanticDrift: null,
+            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        }
+    }
+
+    return null
+}
+
+// Batch projection types for read path
+type BatchMaps = {
+    subjectMap: BatchRelationMap
+    mistakeMap: BatchRelationMap
+    entryMap: BatchRelationMap
+    receiptMap: Map<string, BatchReceiptRow>
+    taskMap: Map<number, BatchTaskLookup>
+    pomodoroMap: Map<number, BatchPomodoroRow[]>
+}
+
+function collectBatchIds(candidateRows: PlanningCandidateRow[]): {
+    subjectIds: Set<number>
+    mistakeIds: Set<number>
+    entryIds: Set<number>
+    operationIds: Set<string>
+} {
+    const subjectIds = new Set<number>()
+    const mistakeIds = new Set<number>()
+    const entryIds = new Set<number>()
+    const operationIds = new Set<string>()
+    for (const row of candidateRows) {
+        // Current relations
+        if (typeof row.subject_id === 'number' && Number.isSafeInteger(row.subject_id) && row.subject_id > 0) {
+            subjectIds.add(row.subject_id)
+        }
+        if (typeof row.related_mistake_id === 'number' && Number.isSafeInteger(row.related_mistake_id) && row.related_mistake_id > 0) {
+            mistakeIds.add(row.related_mistake_id)
+        }
+        if (typeof row.related_entry_id === 'number' && Number.isSafeInteger(row.related_entry_id) && row.related_entry_id > 0) {
+            entryIds.add(row.related_entry_id)
+        }
+        // editBefore relations
+        if (typeof row.edit_before_json === 'string') {
+            try {
+                const parsed = JSON.parse(row.edit_before_json)
+                if (parsed && typeof parsed === 'object') {
+                    if (typeof parsed.subject_id === 'number' && Number.isSafeInteger(parsed.subject_id) && parsed.subject_id > 0) {
+                        subjectIds.add(parsed.subject_id)
+                    }
+                    if (typeof parsed.related_mistake_id === 'number' && Number.isSafeInteger(parsed.related_mistake_id) && parsed.related_mistake_id > 0) {
+                        mistakeIds.add(parsed.related_mistake_id)
+                    }
+                    if (typeof parsed.related_entry_id === 'number' && Number.isSafeInteger(parsed.related_entry_id) && parsed.related_entry_id > 0) {
+                        entryIds.add(parsed.related_entry_id)
+                    }
+                }
+            } catch { /* ignore — parseEditBefore will handle bad JSON */ }
+        }
+        // Operation IDs for receipt lookup
+        if (typeof row.operation_id === 'string' && LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)) {
+            operationIds.add(row.operation_id)
+        }
+    }
+    return { subjectIds, mistakeIds, entryIds, operationIds }
+}
+
+function loadBatchMaps(
+    database: Database.Database,
+    candidateRows: PlanningCandidateRow[],
+): BatchMaps {
+    const { subjectIds, mistakeIds, entryIds, operationIds } = collectBatchIds(candidateRows)
+    const subjectMap = batchLoadRelations(database, 'subjects', subjectIds)
+    const mistakeMap = batchLoadRelations(database, 'mistakes', mistakeIds)
+    const entryMap = batchLoadRelations(database, 'entries', entryIds)
+    const receiptMap = batchLoadReceipts(database, operationIds)
+
+    // Collect task IDs from receipts
+    const taskIds = new Set<number>()
+    for (const receipt of receiptMap.values()) {
+        if (receipt.task_id !== null) taskIds.add(receipt.task_id)
+    }
+    const taskMap = batchLoadTasks(database, taskIds)
+
+    // Collect valid task IDs for pomodoro lookup
+    const validTaskIds = new Set<number>()
+    for (const [id, lookup] of taskMap) {
+        if (lookup.status === 'found') validTaskIds.add(id)
+    }
+    const pomodoroMap = batchLoadPomodoro(database, validTaskIds)
+
+    return { subjectMap, mistakeMap, entryMap, receiptMap, taskMap, pomodoroMap }
+}
+
+function projectCandidateBatch(
+    row: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string; createdAt: string },
+    maps: BatchMaps,
+): PlanningRunCandidateRecord {
+    if (
+        typeof row.id !== 'number'
+        || !Number.isSafeInteger(row.id)
+        || row.id <= 0
+        || typeof row.ordinal !== 'number'
+        || !Number.isInteger(row.ordinal)
+        || row.ordinal < 0
+        || row.ordinal > 5
+        || !isValidStoredText(row.title, 80, PLANNING_HISTORY_TITLE_MAX_UTF8_BYTES)
+        || !isValidStoredText(row.description, 240, PLANNING_HISTORY_DESCRIPTION_MAX_UTF8_BYTES)
+        || typeof row.type !== 'string'
+        || !STUDY_TASK_TYPES.includes(row.type as StudyTaskType)
+        || typeof row.estimate_minutes !== 'number'
+        || !Number.isInteger(row.estimate_minutes)
+        || row.estimate_minutes < 5
+        || row.estimate_minutes > 180
+        || typeof row.priority !== 'string'
+        || !PRIORITIES.includes(row.priority as PlanningCandidatePriority)
+        || typeof row.admission_origin !== 'string'
+        || !ADMISSION_ORIGINS.includes(row.admission_origin as PlanningCandidateAdmissionOrigin)
+        || typeof row.user_disposition !== 'string'
+        || !['selected_unconfirmed', 'unselected', 'confirmed'].includes(row.user_disposition)
+        || !isNullablePositiveSafeInteger(row.subject_id)
+        || !isNullablePositiveSafeInteger(row.related_mistake_id)
+        || !isNullablePositiveSafeInteger(row.related_entry_id)
+        || (row.type === 'review' ? row.related_mistake_id === null : row.related_mistake_id !== null)
+        || (run.entryPoint === 'daily_review' && row.related_entry_id !== null)
+        || (row.user_disposition === 'confirmed'
+            ? typeof row.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)
+            : row.operation_id !== null)
+        || (row.user_disposition !== 'confirmed'
+            && (row.outcome_kind !== null || row.outcome_observed_at !== null))
+        || (row.outcome_kind !== null && !OUTCOME_KINDS.includes(row.outcome_kind as PlanningCandidateOutcomeKind))
+        || ((row.outcome_kind === null) !== (row.outcome_observed_at === null))
+    ) {
+        throw new PlanningHistoryUnavailableError('Planning candidate history is unavailable')
+    }
+    const admittedAt = requireStoredTimestamp(row.admitted_at, 'candidate admission timestamp')
+    const updatedAt = requireStoredTimestamp(row.updated_at, 'candidate update timestamp')
+    const outcomeObservedAt = row.outcome_observed_at === null
+        ? null
+        : requireStoredTimestamp(row.outcome_observed_at, 'candidate outcome timestamp')
+    if (
+        admittedAt < run.createdAt
+        || updatedAt < admittedAt
+        || (outcomeObservedAt !== null && outcomeObservedAt < admittedAt)
+    ) {
+        throw new PlanningHistoryUnavailableError('Planning candidate history is unavailable')
+    }
+    const finalSnapshot = snapshotFromRow(row)
+    const editBefore = parseEditBefore(row.edit_before_json, finalSnapshot, run.entryPoint)
+    return {
+        id: row.id,
+        ordinal: row.ordinal,
+        admissionOrigin: row.admission_origin as PlanningCandidateAdmissionOrigin,
+        title: row.title,
+        description: row.description,
+        type: row.type as StudyTaskType,
+        estimateMinutes: row.estimate_minutes,
+        priority: row.priority as PlanningCandidatePriority,
+        subjectId: row.subject_id as number | null,
+        relatedMistakeId: row.related_mistake_id as number | null,
+        relatedEntryId: row.related_entry_id as number | null,
+        editBefore,
+        editBeforeSourceRelations: {
+            subject: Object.prototype.hasOwnProperty.call(editBefore, 'subjectId')
+                ? resolveRelationFromMap(maps.subjectMap, editBefore.subjectId)
+                : null,
+            mistake: Object.prototype.hasOwnProperty.call(editBefore, 'relatedMistakeId')
+                ? resolveRelationFromMap(maps.mistakeMap, editBefore.relatedMistakeId)
+                : null,
+            entry: Object.prototype.hasOwnProperty.call(editBefore, 'relatedEntryId')
+                ? resolveRelationFromMap(maps.entryMap, editBefore.relatedEntryId)
+                : null,
+        },
+        userDisposition: row.user_disposition as PlanningCandidateDisposition,
+        outcomeKind: row.outcome_kind as PlanningRunCandidateRecord['outcomeKind'],
+        outcomeObservedAt,
+        admittedAt,
+        updatedAt,
+        sourceRelations: {
+            subject: resolveRelationFromMap(maps.subjectMap, row.subject_id),
+            mistake: resolveRelationFromMap(maps.mistakeMap, row.related_mistake_id),
+            entry: resolveRelationFromMap(maps.entryMap, row.related_entry_id),
+        },
+        taskRelation: resolveTaskRelationFromMaps(row, run, maps),
+        executionAttribution: computeExecutionAttribution(row, run, maps.receiptMap, maps.taskMap, maps.pomodoroMap),
+    }
+}
+
+function resolveTaskRelationFromMaps(
+    row: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
+    maps: BatchMaps,
+) {
+    if (row.operation_id === null) return null
+    if (typeof row.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)) {
+        return { available: false as const }
+    }
+    const receipt = maps.receiptMap.get(row.operation_id)
+    if (!receipt) return { available: false as const }
+    // Validate receipt fields match expected
+    try {
+        const request: IdempotentAIStudyTaskCreateRequest = {
+            operationId: row.operation_id,
+            operationKind: run.entryPoint,
+            actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
+            expectedCurrentDate: run.planningDate,
+            payload: {
+                title: row.title as string,
+                description: row.description as string,
+                type: row.type as StudyTaskType,
+                subject_id: row.subject_id as number | null,
+                related_mistake_id: row.related_mistake_id as number | null,
+                related_entry_id: row.related_entry_id as number | null,
+                related_chapter_id: null,
+                planned_date: run.targetDate,
+                estimate_minutes: row.estimate_minutes as number,
+                status: 'todo',
+                source: 'ai',
+            },
+        }
+        const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
+        if (
+            receipt.operation_kind !== run.entryPoint
+            || receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+            || receipt.request_digest !== expectedDigest
+            || receipt.expected_current_date !== run.planningDate
+            || receipt.planned_date !== run.targetDate
+            || receipt.task_id === null
+        ) {
+            return { available: false as const }
+        }
+        const taskLookup = maps.taskMap.get(receipt.task_id)
+        if (!taskLookup || taskLookup.status !== 'found') return { available: false as const }
+        const task = taskLookup.task
+        const title = normalizeRelationLabel(task.title)
+        if (!title || !STUDY_TASK_STATUSES.includes(task.status as StudyTaskStatus)) {
+            return { available: false as const }
+        }
+        return { available: true as const, title, status: task.status }
+    } catch {
+        return { available: false as const }
+    }
+}
+
+function projectRunFromMaps(
+    row: PlanningRunRow,
+    candidateRows: PlanningCandidateRow[],
+    maps: BatchMaps,
+): PlanningRunRecord {
+    if (
+        typeof row.id !== 'string'
+        || !LOWERCASE_UUID_V4_PATTERN.test(row.id)
+        || row.contract_version !== PLANNING_HISTORY_CONTRACT_VERSION
+        || (row.entry_point !== 'today_action' && row.entry_point !== 'daily_review')
+        || (row.generation_result_kind !== 'valid_empty' && row.generation_result_kind !== 'candidate_set')
+        || !isCanonicalStoredDateKey(row.planning_date)
+        || !isCanonicalStoredDateKey(row.target_date)
+        || row.target_date !== (row.entry_point === 'today_action'
+            ? row.planning_date
+            : nextDateKey(row.planning_date))
+        || ((row.closed_at === null) !== (row.close_reason === null))
+        || (row.close_reason !== null
+            && !['dialog_closed', 'regenerated', 'date_rollover', 'app_closed'].includes(String(row.close_reason)))
+    ) {
+        throw new PlanningHistoryUnavailableError('Planning run history is unavailable')
+    }
+    let contextSummary: PlanningContextSummaryItem[]
+    try {
+        const parsed = JSON.parse(String(row.context_summary_json))
+        contextSummary = validateContextSummary(parsed, row.entry_point).items
+    } catch {
+        throw new PlanningHistoryUnavailableError('Planning run history is unavailable')
+    }
+    const entryPoint = row.entry_point
+    const planningDate = row.planning_date
+    const targetDate = row.target_date
+    const createdAt = requireStoredTimestamp(row.created_at, 'run creation timestamp')
+    const updatedAt = requireStoredTimestamp(row.updated_at, 'run update timestamp')
+    const closedAt = row.closed_at === null ? null : requireStoredTimestamp(row.closed_at, 'run close timestamp')
+    if (updatedAt < createdAt || (closedAt !== null && closedAt < createdAt)) {
+        throw new PlanningHistoryUnavailableError('Planning run history is unavailable')
+    }
+    if (candidateRows.length > 6 || (row.generation_result_kind === 'valid_empty' && candidateRows.length !== 0)) {
+        throw new PlanningHistoryUnavailableError('Planning run history is unavailable')
+    }
+    return {
+        id: row.id,
+        entryPoint,
+        planningDate,
+        targetDate,
+        generationResultKind: row.generation_result_kind,
+        contextSummary,
+        createdAt,
+        updatedAt,
+        closedAt,
+        closeReason: row.close_reason as PlanningRunRecord['closeReason'],
+        candidates: candidateRows.map(candidate => projectCandidateBatch(
+            candidate,
+            { entryPoint, planningDate, targetDate, createdAt },
+            maps,
+        )),
+    }
+}
+
+// ─── End C3 Batch Infrastructure ────────────────────────────────────────────
 
 function resolveSourceRelation(
     database: Database.Database,
@@ -841,6 +1762,7 @@ function projectCandidate(
             entry: resolveSourceRelation(database, 'entries', row.related_entry_id),
         },
         taskRelation: resolveTaskRelation(database, row, run),
+        executionAttribution: null,
     }
 }
 
@@ -1227,7 +2149,10 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
     function get(idValue: unknown): PlanningRunRecord | null {
         const id = requireUuid(idValue, 'run id')
         const row = readRunRow(database, id)
-        return row ? projectRun(database, row) : null
+        if (!row) return null
+        const candidateRows = readCandidateRows(database, id)
+        const maps = loadBatchMaps(database, candidateRows)
+        return projectRunFromMaps(row, candidateRows, maps)
     }
 
     function create(value: unknown): PlanningRunRecord {
@@ -1554,7 +2479,34 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
             `).all(rawLimit)) as PlanningRunRow[]
-        const items = rows.map(row => projectRun(database, row))
+
+        if (rows.length === 0) {
+            return {
+                items: [],
+                nextCursor: null,
+            }
+        }
+
+        const runIds = rows.map(r => r.id as string)
+        const allCandidateRows = readCandidatesForRunIds(database, runIds)
+        const maps = loadBatchMaps(database, allCandidateRows)
+
+        const candidatesByRunId = new Map<string, PlanningCandidateRow[]>()
+        for (const runId of runIds) {
+            candidatesByRunId.set(runId, [])
+        }
+        for (const candidate of allCandidateRows) {
+            const list = candidatesByRunId.get(candidate.planning_run_id as string)
+            if (list) {
+                list.push(candidate)
+            }
+        }
+
+        const items = rows.map(row => projectRunFromMaps(
+            row,
+            candidatesByRunId.get(row.id as string) ?? [],
+            maps,
+        ))
         const last = items.length > 0 ? items[items.length - 1] : undefined
         return {
             items,
