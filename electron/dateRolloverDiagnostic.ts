@@ -264,8 +264,10 @@ const INSTALL_CLOCK_AND_OPEN_OLD_DIALOG = `(async () => {
     const candidateRegion = document.querySelector('[data-testid="daily-review-candidates"]');
     if (!candidateRegion?.textContent?.includes('2026-06-01')) throw new Error('Old candidate date is incorrect');
     step = 'capture-old-create-button';
-    probe.oldCreateButton = document.querySelector('[data-testid="daily-review-create-selected"]');
-    if (!probe.oldCreateButton || probe.oldCreateButton.disabled) throw new Error('Old candidate is not confirmable');
+    probe.oldCreateButton = await waitFor(() => {
+        const button = document.querySelector('[data-testid="daily-review-create-selected"]');
+        return button && !button.disabled ? button : null;
+    }, 'old-date create button');
     events.push('old-candidate-generated:2026-06-01');
     return { events: [...events], oldDialogOpened: true, oldCandidateGenerated: true };
     } catch {
