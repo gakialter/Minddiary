@@ -60,6 +60,15 @@ function makeRun(): PlanningRunRecord {
           entry: null,
         },
         taskRelation: { available: true, title: '复习第三章', status: 'todo' },
+        executionAttribution: {
+          kind: 'verified_linked',
+          receiptValidated: true,
+          taskId: 101,
+          taskCurrentTitle: '复习第三章',
+          taskCurrentStatus: 'todo',
+          semanticDrift: { hasDrift: false, differences: {} },
+          focus: { state: 'available', totalDurationMinutes: 0, sessionCount: 0, unavailableReason: null },
+        },
       },
       {
         id: 18,
@@ -82,6 +91,15 @@ function makeRun(): PlanningRunRecord {
         sourceRelations: { subject: null, mistake: null, entry: null },
         editBeforeSourceRelations: { subject: null, mistake: null, entry: null },
         taskRelation: null,
+        executionAttribution: {
+          kind: 'not_confirmed',
+          receiptValidated: false,
+          taskId: null,
+          taskCurrentTitle: null,
+          taskCurrentStatus: null,
+          semanticDrift: null,
+          focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
+        },
       },
     ],
   }

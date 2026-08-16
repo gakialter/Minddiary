@@ -211,6 +211,58 @@ function CandidateDetail({ candidate }: { candidate: PlanningRunCandidateRecord 
             <p className="mt-1">当前任务：{candidate.taskRelation.title}（{candidate.taskRelation.status}）</p>
           )}
           {candidate.taskRelation?.available === false && <p className="mt-1">当前任务不可用</p>}
+          {candidate.executionAttribution && (
+            <div className="mt-2 text-xs space-y-1" style={{ color: 'var(--text-muted)' }}>
+              {candidate.executionAttribution.kind === 'task_deleted' && (
+                <p>关联任务后来已删除，历史专注归属不可再验证</p>
+              )}
+              {candidate.executionAttribution.kind === 'known_conflict' && (
+                <p>确认操作与既有操作记录冲突</p>
+              )}
+              {candidate.executionAttribution.kind === 'unresolved' && (
+                <p>确认结果仍无法验证</p>
+              )}
+              {candidate.executionAttribution.kind === 'integrity_inconsistency' && (
+                <p>数据完整性异常，当前执行归属不可验证</p>
+              )}
+              {candidate.executionAttribution.kind === 'verified_linked' && (
+                <>
+                  {candidate.executionAttribution.semanticDrift?.hasDrift && (
+                    <div className="rounded p-2" style={{ background: 'var(--bg-secondary)' }}>
+                      <p className="font-medium" style={{ color: 'var(--text-primary)' }}>任务后续调整：</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {candidate.executionAttribution.semanticDrift.differences.title && (
+                          <li>标题：{candidate.executionAttribution.semanticDrift.differences.title.candidateValue} → {candidate.executionAttribution.semanticDrift.differences.title.currentValue}</li>
+                        )}
+                        {candidate.executionAttribution.semanticDrift.differences.description && (
+                          <li>说明：{candidate.executionAttribution.semanticDrift.differences.description.candidateValue} → {candidate.executionAttribution.semanticDrift.differences.description.currentValue}</li>
+                        )}
+                        {candidate.executionAttribution.semanticDrift.differences.type && (
+                          <li>类型：{TYPE_LABELS[candidate.executionAttribution.semanticDrift.differences.type.candidateValue]} → {TYPE_LABELS[candidate.executionAttribution.semanticDrift.differences.type.currentValue]}</li>
+                        )}
+                        {candidate.executionAttribution.semanticDrift.differences.estimateMinutes && (
+                          <li>预计时间：{candidate.executionAttribution.semanticDrift.differences.estimateMinutes.candidateValue} 分钟 → {candidate.executionAttribution.semanticDrift.differences.estimateMinutes.currentValue} 分钟</li>
+                        )}
+                        {candidate.executionAttribution.semanticDrift.differences.plannedDate && (
+                          <li>计划日期：{candidate.executionAttribution.semanticDrift.differences.plannedDate.candidateValue} → {candidate.executionAttribution.semanticDrift.differences.plannedDate.currentValue}</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {candidate.executionAttribution.focus.state === 'available' && (
+                    candidate.executionAttribution.focus.totalDurationMinutes !== null && candidate.executionAttribution.focus.totalDurationMinutes > 0 ? (
+                      <p>已累计专注 {candidate.executionAttribution.focus.totalDurationMinutes} 分钟（{candidate.executionAttribution.focus.sessionCount} 次专注）</p>
+                    ) : (
+                      <p>暂无显式绑定专注记录</p>
+                    )
+                  )}
+                  {candidate.executionAttribution.focus.state === 'corrupt_data' && (
+                    <p>专注记录数据异常</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </article>

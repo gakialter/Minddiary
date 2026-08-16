@@ -46,6 +46,7 @@ const makePlanningRun = (request: PlanningRunCreateRequest): PlanningRunRecord =
     sourceRelations: { subject: null, mistake: null, entry: null },
     editBeforeSourceRelations: { subject: null, mistake: null, entry: null },
     taskRelation: null,
+    executionAttribution: null,
   })),
 })
 
