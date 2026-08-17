@@ -1,4 +1,5 @@
 import type { AIMessage, DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
+import { buildPlanningFeedbackMessage, type PlanningFeedbackPayload } from './planningFeedback'
 import type {
   ContextPreparationState,
   ContextReasonCode,
@@ -598,6 +599,7 @@ export function parseTodayActionSuggestions(
 
 export function buildTodayActionSuggestionRequest(
   context: TodayActionPlanningContext,
+  feedbackPayload?: PlanningFeedbackPayload | null,
 ): { messages: AIMessage[]; contextDecisions: PlanningContextDecision[] } {
   const availableMinutes = clampTodayActionAvailableMinutes(context.availableMinutes)
   const preparedActiveTasks = getActiveTodayTasks(context)
@@ -648,6 +650,13 @@ export function buildTodayActionSuggestionRequest(
       ].join('\n'),
     },
   ]
+
+  if (feedbackPayload && feedbackPayload.items.length > 0) {
+    messages.push({
+      role: 'user',
+      content: buildPlanningFeedbackMessage(feedbackPayload),
+    })
+  }
 
   const preparedDueMistakeCount = Math.max(context.dueMistakeTotal || 0, context.dueMistakes.length)
   const contextDecisions: PlanningContextDecision[] = [
@@ -709,6 +718,9 @@ export function buildTodayActionSuggestionRequest(
   return { messages, contextDecisions }
 }
 
-export function buildTodayActionSuggestionMessages(context: TodayActionPlanningContext): AIMessage[] {
-  return buildTodayActionSuggestionRequest(context).messages
+export function buildTodayActionSuggestionMessages(
+  context: TodayActionPlanningContext,
+  feedbackPayload?: PlanningFeedbackPayload | null,
+): AIMessage[] {
+  return buildTodayActionSuggestionRequest(context, feedbackPayload).messages
 }

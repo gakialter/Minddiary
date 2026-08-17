@@ -56,7 +56,7 @@ const OPERATION_CONTRACTS: Readonly<Record<
 >> = Object.freeze({
   today_action: freezeContract({
     operationKind: 'today_action',
-    promptVersion: 'today-action.prompt.v1',
+    promptVersion: 'today-action.prompt.v2',
     responseSchemaVersion: 'today-action.response-schema.v1',
     parserVersion: 'today-action.parser.v1',
     policyVersion: 'today-action.policy.v1',
