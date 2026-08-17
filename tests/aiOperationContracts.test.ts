@@ -113,7 +113,7 @@ const DAILY_CONTEXT_FIXTURE: DailyReviewSafeContext = {
 }
 
 const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
-  'today-action.prompt.v1': '714c15862b8a460cfe0d43b76c2712f97e89eae30959b7c2155c19337589d7cd',
+  'today-action.prompt.v2': '714c15862b8a460cfe0d43b76c2712f97e89eae30959b7c2155c19337589d7cd',
   'daily-review.prompt.v1': 'eeb1f243248729df1b96d3ae1a3d0bd75838a33ba7d9f0c4732cbea76f843b26',
 })
 
@@ -145,7 +145,7 @@ describe('AI study task operation contracts', () => {
     expect(AI_STUDY_TASK_OPERATION_KINDS).toEqual(['today_action', 'daily_review'])
     expect(getAIStudyTaskOperationContract('today_action')).toEqual({
       operationKind: 'today_action',
-      promptVersion: 'today-action.prompt.v1',
+      promptVersion: 'today-action.prompt.v2',
       responseSchemaVersion: 'today-action.response-schema.v1',
       parserVersion: 'today-action.parser.v1',
       policyVersion: 'today-action.policy.v1',
@@ -185,7 +185,7 @@ describe('AI study task operation contracts', () => {
     expect(Reflect.set(provenance.versions, 'parserVersion', 'forged')).toBe(false)
     expect(Reflect.setPrototypeOf(contract, { promptVersion: 'forged' })).toBe(false)
     expect(Reflect.setPrototypeOf(AI_STUDY_TASK_OPERATION_KINDS, [])).toBe(false)
-    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v1')
+    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v2')
     expect(createAIStudyTaskGenerationProvenance('today_action', 'second-signature').versions.parserVersion)
       .toBe('today-action.parser.v1')
   })

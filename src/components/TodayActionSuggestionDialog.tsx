@@ -54,6 +54,14 @@ import { formatCandidateValidationMessage } from '../utils/candidateValidationMe
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 import type { PlanningRunRecord, PlanningRunTransitionRequest } from '../types/planningHistory'
 import {
+  buildCombinedGenerationContextSignature,
+  deriveTodayActionFeedbackCandidates,
+  revalidatePlanningFeedbackSelection,
+  type PlanningFeedbackCandidateItem,
+  type PlanningFeedbackPayload,
+  type PlanningFeedbackSourceKey,
+} from '../utils/planningFeedback'
+import {
   buildTodayActionCandidateSnapshot,
   buildTodayActionPlanningRunRequest,
   createPlanningRunId,
@@ -202,6 +210,12 @@ export default function TodayActionSuggestionDialog({
   const [recoveryRevision, setRecoveryRevision] = useState(0)
   const [planningSession, setPlanningSession] = useState<PlanningSessionExplainability | null>(null)
   const [planningHistoryWarning, setPlanningHistoryWarning] = useState<string | null>(null)
+  const [feedbackPreviewCandidates, setFeedbackPreviewCandidates] = useState<readonly PlanningFeedbackCandidateItem[]>([])
+  const [selectedFeedbackKeys, setSelectedFeedbackKeys] = useState<Set<string>>(new Set())
+  const [showFeedbackPreview, setShowFeedbackPreview] = useState(false)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null)
+  const [feedbackStaleNotice, setFeedbackStaleNotice] = useState<string | null>(null)
   const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
   const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
   const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
@@ -293,6 +307,12 @@ export default function TodayActionSuggestionDialog({
       await flushPlanningCandidates(finalSuggestions, finalSession)
       await closePlanningRun('dialog_closed')
     })()
+    setShowFeedbackPreview(false)
+    setFeedbackPreviewCandidates([])
+    setSelectedFeedbackKeys(new Set())
+    setFeedbackWarning(null)
+    setFeedbackStaleNotice(null)
+    setFeedbackLoading(false)
     setSuggestions([])
     setErrors([])
     setGenerationProvenance(null)
@@ -305,13 +325,13 @@ export default function TodayActionSuggestionDialog({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !generating && !creating) closeDialog()
+      if (event.key === 'Escape' && !generating && !creating && !feedbackLoading) closeDialog()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [closeDialog, creating, generating])
+  }, [closeDialog, creating, feedbackLoading, generating])
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement
@@ -372,6 +392,12 @@ export default function TodayActionSuggestionDialog({
     currentDateRef.current = date
     generationRef.current += 1
     contextRequestRef.current += 1
+    setShowFeedbackPreview(false)
+    setFeedbackPreviewCandidates([])
+    setSelectedFeedbackKeys(new Set())
+    setFeedbackWarning(null)
+    setFeedbackStaleNotice(null)
+    setFeedbackLoading(false)
     setPlanningContext(null)
     setSuggestions([])
     setErrors([])
@@ -564,7 +590,35 @@ export default function TodayActionSuggestionDialog({
     if (admitted) void persistSuggestionSnapshot(suggestion, true)
   }
 
-  const generateSuggestions = async () => {
+  const cancelFeedbackPreview = useCallback(() => {
+    setShowFeedbackPreview(false)
+    setFeedbackPreviewCandidates([])
+    setSelectedFeedbackKeys(new Set())
+    setFeedbackWarning(null)
+    setFeedbackStaleNotice(null)
+  }, [])
+
+  const toggleFeedbackSelectAll = useCallback(() => {
+    if (selectedFeedbackKeys.size === feedbackPreviewCandidates.length) {
+      setSelectedFeedbackKeys(new Set())
+    } else {
+      setSelectedFeedbackKeys(new Set(feedbackPreviewCandidates.map(c => `${c.key.runId}:${c.key.candidateId}`)))
+    }
+  }, [feedbackPreviewCandidates, selectedFeedbackKeys.size])
+
+  const toggleFeedbackKey = useCallback((keyStr: string) => {
+    setSelectedFeedbackKeys(current => {
+      const next = new Set(current)
+      if (next.has(keyStr)) {
+        next.delete(keyStr)
+      } else {
+        next.add(keyStr)
+      }
+      return next
+    })
+  }, [])
+
+  const startActualGeneration = async (feedbackPayload: PlanningFeedbackPayload | null) => {
     if (generating || creating) return
     if (durablePlanningRunRef.current !== null) {
       await flushPlanningCandidates(suggestions, planningSession)
@@ -575,6 +629,11 @@ export default function TodayActionSuggestionDialog({
     setGenerating(true)
     setErrors([])
     setSuggestions([])
+    setShowFeedbackPreview(false)
+    setFeedbackPreviewCandidates([])
+    setSelectedFeedbackKeys(new Set())
+    setFeedbackWarning(null)
+    setFeedbackStaleNotice(null)
     setGenerationProvenance(null)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
@@ -590,7 +649,7 @@ export default function TodayActionSuggestionDialog({
       if (generationRef.current !== generation) return
       setPlanningContext(context)
 
-      const request = buildTodayActionSuggestionRequest(context)
+      const request = buildTodayActionSuggestionRequest(context, feedbackPayload)
       setPlanningSession(createPlanningSessionExplainability({
         generationId,
         contextDecisions: request.contextDecisions,
@@ -618,12 +677,16 @@ export default function TodayActionSuggestionDialog({
               selected: suggestion.selected,
             })),
         }))
-        const generationContextSignature = buildTodayActionPlanningContextSignature(context)
+        const baseContextSignature = buildTodayActionPlanningContextSignature(context)
+        const generationContextSignature = buildCombinedGenerationContextSignature(
+          baseContextSignature,
+          feedbackPayload,
+        )
         setGenerationProvenance(createAIStudyTaskGenerationProvenance(
           'today_action',
           generationContextSignature,
         ))
-        setReviewedConfirmationContextSignature(generationContextSignature)
+        setReviewedConfirmationContextSignature(baseContextSignature)
         const planningRunsAPI = getPlanningRunsAPI()
         if (planningRunsAPI) {
           try {
@@ -671,6 +734,132 @@ export default function TodayActionSuggestionDialog({
       if (generationRef.current === generation) setGenerating(false)
     }
   }
+
+  const requestGeneration = async () => {
+    if (generating || creating || feedbackLoading) return
+    const planningRunsAPI = getPlanningRunsAPI()
+    if (!planningRunsAPI) {
+      await startActualGeneration(null)
+      return
+    }
+
+    const currentGeneration = generationRef.current
+    const currentDate = date
+    setFeedbackLoading(true)
+    setFeedbackWarning(null)
+    setFeedbackStaleNotice(null)
+    try {
+      const recentResult = await planningRunsAPI.listRecent({ limit: 20 })
+      if (
+        !mountedRef.current
+        || generationRef.current !== currentGeneration
+        || currentDateRef.current !== currentDate
+      ) {
+        return
+      }
+      const runs = recentResult && Array.isArray(recentResult.items)
+        ? recentResult.items
+        : null
+      if (!runs) {
+        setFeedbackWarning('读取历史规划记录失败。你可以重试，或直接选择“不使用历史反馈生成”。')
+        setFeedbackPreviewCandidates([])
+        setSelectedFeedbackKeys(new Set())
+        setShowFeedbackPreview(true)
+        return
+      }
+      const eligibleCandidates = deriveTodayActionFeedbackCandidates(runs)
+      if (eligibleCandidates.length === 0) {
+        await startActualGeneration(null)
+        return
+      }
+      setFeedbackPreviewCandidates(eligibleCandidates)
+      setSelectedFeedbackKeys(new Set(eligibleCandidates.map(c => `${c.key.runId}:${c.key.candidateId}`)))
+      setShowFeedbackPreview(true)
+    } catch {
+      if (
+        !mountedRef.current
+        || generationRef.current !== currentGeneration
+        || currentDateRef.current !== currentDate
+      ) {
+        return
+      }
+      setFeedbackWarning('读取历史规划记录失败。你可以重试，或直接选择“不使用历史反馈生成”。')
+      setFeedbackPreviewCandidates([])
+      setSelectedFeedbackKeys(new Set())
+      setShowFeedbackPreview(true)
+    } finally {
+      if (mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
+        setFeedbackLoading(false)
+      }
+    }
+  }
+
+  const confirmFeedbackGeneration = async () => {
+    if (generating || creating || feedbackLoading) return
+    const planningRunsAPI = getPlanningRunsAPI()
+    if (!planningRunsAPI) {
+      await startActualGeneration(null)
+      return
+    }
+
+    const currentGeneration = generationRef.current
+    const currentDate = date
+    const selectedItems = feedbackPreviewCandidates.filter(c => (
+      selectedFeedbackKeys.has(`${c.key.runId}:${c.key.candidateId}`)
+    ))
+
+    if (selectedItems.length === 0) return
+
+    setFeedbackLoading(true)
+    setFeedbackStaleNotice(null)
+    try {
+      const freshResult = await planningRunsAPI.listRecent({ limit: 20 })
+      if (
+        !mountedRef.current
+        || generationRef.current !== currentGeneration
+        || currentDateRef.current !== currentDate
+      ) {
+        return
+      }
+
+      const freshRuns = freshResult && Array.isArray(freshResult.items)
+        ? freshResult.items
+        : null
+      if (!freshRuns) {
+        setFeedbackWarning('读取历史规划记录失败。你可以重试，或直接选择“不使用历史反馈生成”。')
+        return
+      }
+
+      const selectedKeys: PlanningFeedbackSourceKey[] = selectedItems.map(c => c.key)
+      const expectedItems = selectedItems.map(c => c.payloadItem)
+      const reval = revalidatePlanningFeedbackSelection(selectedKeys, expectedItems, freshRuns)
+
+      if (!reval.valid) {
+        setFeedbackPreviewCandidates(reval.freshCandidates)
+        setSelectedFeedbackKeys(new Set(reval.freshCandidates.map(c => `${c.key.runId}:${c.key.candidateId}`)))
+        setFeedbackStaleNotice('历史参考信息已发生变化，已刷新列表。请重新检查并确认。')
+        return
+      }
+
+      setShowFeedbackPreview(false)
+      await startActualGeneration(reval.payload)
+    } catch {
+      if (
+        !mountedRef.current
+        || generationRef.current !== currentGeneration
+        || currentDateRef.current !== currentDate
+      ) {
+        return
+      }
+      setFeedbackWarning('读取历史规划记录失败。你可以重试，或直接选择“不使用历史反馈生成”。')
+    } finally {
+      if (mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
+        setFeedbackLoading(false)
+      }
+    }
+  }
+
+  const generateSuggestions = requestGeneration
 
   const createSelectedSuggestions = async () => {
     if (creating || !planningContext) return
@@ -1023,11 +1212,11 @@ export default function TodayActionSuggestionDialog({
               type="button"
               className="button button-primary"
               data-testid="ai-plan-generate"
-              disabled={generating || creating}
+              disabled={generating || creating || feedbackLoading}
               onClick={generateSuggestions}
             >
-              {generating
-                ? <><Loader2 size={14} className="animate-spin" /> 生成中...</>
+              {generating || feedbackLoading
+                ? <><Loader2 size={14} className="animate-spin" /> {feedbackLoading ? '准备中...' : '生成中...'}</>
                 : <><Sparkles size={14} /> {planningSession ? '重新生成一组建议' : '生成建议'}</>}
             </button>
           </div>
@@ -1039,6 +1228,144 @@ export default function TodayActionSuggestionDialog({
             >
               重新生成会开始一次新的规划，当前尚未确认的候选和修改将被替换；已创建的任务不受影响。
             </p>
+          )}
+
+          {showFeedbackPreview && (
+            <section
+              data-testid="today-action-feedback-preview"
+              aria-label="历史参考信息预览"
+              className="mt-3 p-3 rounded"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 14 }}>
+                  历史参考信息（可选）
+                </h4>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="ai-plan-feedback-cancel"
+                  disabled={feedbackLoading}
+                  onClick={cancelFeedbackPreview}
+                  style={{ padding: '2px 8px', fontSize: 12 }}
+                >
+                  取消
+                </button>
+              </div>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                以下是此前确认并执行的规划记录。只有你确认后，它们才会作为本次候选生成的参考数据。完成、跳过或专注记录不代表建议好坏，也不表示 AI 导致了这些结果。
+              </p>
+
+              {feedbackWarning && (
+                <div
+                  role="alert"
+                  data-testid="today-action-feedback-warning"
+                  className="mt-2 text-xs"
+                  style={{ color: 'var(--warning, #b45309)', padding: 8, backgroundColor: 'var(--bg-card)', borderRadius: 4 }}
+                >
+                  {feedbackWarning}
+                </div>
+              )}
+
+              {feedbackStaleNotice && (
+                <div
+                  role="alert"
+                  data-testid="today-action-feedback-stale-notice"
+                  className="mt-2 text-xs"
+                  style={{ color: 'var(--danger, #dc2626)', padding: 8, backgroundColor: 'var(--bg-card)', borderRadius: 4 }}
+                >
+                  {feedbackStaleNotice}
+                </div>
+              )}
+
+              {feedbackPreviewCandidates.length > 0 && (
+                <>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      已选 {selectedFeedbackKeys.size} / {feedbackPreviewCandidates.length} 项
+                    </span>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      data-testid="ai-plan-feedback-toggle-all"
+                      disabled={feedbackLoading}
+                      onClick={toggleFeedbackSelectAll}
+                      style={{ padding: '2px 8px', fontSize: 12 }}
+                    >
+                      {selectedFeedbackKeys.size === feedbackPreviewCandidates.length ? '全不选' : '全选'}
+                    </button>
+                  </div>
+
+                  <div className="mt-2 flex flex-col gap-xs">
+                    {feedbackPreviewCandidates.map(candidate => {
+                      const keyStr = `${candidate.key.runId}:${candidate.key.candidateId}`
+                      const isSelected = selectedFeedbackKeys.has(keyStr)
+                      const statusLabel = candidate.currentStatus === 'done' ? '已完成'
+                        : candidate.currentStatus === 'skipped' ? '已跳过'
+                        : candidate.currentStatus === 'doing' ? '进行中'
+                        : '待办'
+
+                      return (
+                        <label
+                          key={keyStr}
+                          data-testid={`feedback-item-${candidate.key.runId}-${candidate.key.candidateId}`}
+                          className="flex items-start gap-sm p-2 rounded cursor-pointer"
+                          style={{
+                            backgroundColor: isSelected ? 'var(--bg-card)' : 'transparent',
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`选择历史反馈 ${candidate.title}`}
+                            checked={isSelected}
+                            disabled={feedbackLoading}
+                            onChange={() => toggleFeedbackKey(keyStr)}
+                            style={{ marginTop: 3 }}
+                          />
+                          <div className="flex-1">
+                            <div className="flex flex-wrap items-center gap-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                              <span>{candidate.title}</span>
+                              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                （{candidate.targetDate} · {candidate.type} · {candidate.estimateMinutes}分钟 · {statusLabel}）
+                              </span>
+                            </div>
+                            <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                              专注时长：{candidate.focusMinutes} 分钟 · 专注次数：{candidate.focusSessions} 次
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-sm">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  data-testid="ai-plan-feedback-skip"
+                  disabled={feedbackLoading}
+                  onClick={() => { void startActualGeneration(null) }}
+                >
+                  不使用历史反馈生成
+                </button>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  data-testid="ai-plan-feedback-confirm"
+                  disabled={feedbackLoading || selectedFeedbackKeys.size === 0}
+                  onClick={() => { void confirmFeedbackGeneration() }}
+                >
+                  {feedbackLoading ? <><Loader2 size={14} className="animate-spin" /> 处理中...</> : '使用选中历史反馈生成'}
+                </button>
+              </div>
+            </section>
           )}
 
           <section className="mt-4" aria-label="当前本地规划预览" data-testid="planning-context-preview">
