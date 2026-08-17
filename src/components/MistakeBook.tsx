@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
-import { ArrowRightLeft, BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X } from 'lucide-react'
+import { ArrowRightLeft, BookX, Search, CheckCircle2, Clock, Undo2, Pencil, Trash2, Pin, BookOpen, ImagePlus, X, Sparkles } from 'lucide-react'
 import { logger } from '../utils/logger'
 import type { Mistake, Subject, MistakeFilters } from '../types'
 import { isDueForReview } from '../utils/spacedRepetition'
@@ -15,6 +15,7 @@ import FormatToolbar from './common/FormatToolbar'
 import { useTextFormat } from '../hooks/useTextFormat'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import MistakeReviewModal from './MistakeReviewModal'
+import MistakeReviewAgentDialog from './MistakeReviewAgentDialog'
 
 interface MistakeFilter {
     subject_id: string
@@ -137,6 +138,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [draggingRole, setDraggingRole] = useState<ImageRole | null>(null)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
     const [showManualReview, setShowManualReview] = useState(false)
+    const [showAIReview, setShowAIReview] = useState(false)
     const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
     const [editScrollRequest, setEditScrollRequest] = useState(0)
     const [uploadingImageCount, setUploadingImageCount] = useState(0)
@@ -770,6 +772,15 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                         type="button"
+                        className="button button-secondary"
+                        data-testid="mistake-ai-review-btn"
+                        onClick={() => setShowAIReview(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                        <Sparkles size={16} /> AI 复习规划
+                    </button>
+                    <button
+                        type="button"
                         className="button button-primary"
                         data-testid="mistake-start-review-btn"
                         onClick={() => setShowManualReview(true)}
@@ -967,6 +978,21 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     }}
                     variant="manual"
                     subjectId={filter.subject_id ? Number(filter.subject_id) : undefined}
+                />
+            )}
+            {showAIReview && (
+                <MistakeReviewAgentDialog
+                    mistakesAPI={diary.mistakes}
+                    subjectsAPI={diary.subjects}
+                    tasksAPI={diary.tasks}
+                    aiAPI={diary.ai}
+                    onClose={() => {
+                        setShowAIReview(false)
+                        loadMistakes()
+                    }}
+                    onTaskCreated={() => {
+                        loadMistakes()
+                    }}
                 />
             )}
             <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />

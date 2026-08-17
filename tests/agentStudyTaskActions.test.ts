@@ -25,6 +25,7 @@ const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
 
 const OPERATION_ID = '11111111-1111-4111-8111-111111111111'
 const DAILY_OPERATION_ID = '22222222-2222-4222-8222-222222222222'
+const MISTAKE_OPERATION_ID = '33333333-3333-4333-8333-333333333333'
 
 const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'daily_review',
@@ -32,6 +33,14 @@ const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   confirmationContextSignature: 'daily-confirmation-context-fixture',
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-13',
+}
+
+const mistakeSnapshot: StudyTaskActionConfirmationSnapshot = {
+  mode: 'mistake_review',
+  generation: createAIStudyTaskGenerationProvenance('mistake_review', 'mistake-generation-context-fixture'),
+  confirmationContextSignature: 'mistake-confirmation-context-fixture',
+  expectedCurrentDate: '2026-06-12',
+  plannedDate: '2026-06-12',
 }
 
 const todayDraft: ConfirmedStudyTaskDraft = {
@@ -50,6 +59,17 @@ const dailyDraft: ConfirmedStudyTaskDraft = {
   description: '截至次日到期,先处理薄弱点。',
   type: 'review',
   estimate_minutes: 10,
+  subject_id: 1,
+  related_mistake_id: 12,
+  related_entry_id: null,
+  related_chapter_id: null,
+}
+
+const mistakeDraft: ConfirmedStudyTaskDraft = {
+  title: '复习函数极限错题',
+  description: '今天到期,先处理薄弱点。',
+  type: 'review',
+  estimate_minutes: 25,
   subject_id: 1,
   related_mistake_id: 12,
   related_entry_id: null,
@@ -93,7 +113,7 @@ describe('agentStudyTaskActions', () => {
     expect(() => createConfirmedStudyTaskOperationId(() => 'not-secure')).toThrow('lowercase UUID v4')
   })
 
-  it('accepts canonical Today Action and Daily Review fixtures', () => {
+  it('accepts canonical Today Action, Daily Review, and Mistake Review fixtures', () => {
     expect(createAction()).toMatchObject({
       kind: 'create_study_task',
       operationId: OPERATION_ID,
@@ -107,6 +127,12 @@ describe('agentStudyTaskActions', () => {
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-13',
       draft: dailyDraft,
+    })
+    expect(createAction(mistakeSnapshot, mistakeDraft, MISTAKE_OPERATION_ID)).toMatchObject({
+      mode: 'mistake_review',
+      expectedCurrentDate: '2026-06-12',
+      plannedDate: '2026-06-12',
+      draft: mistakeDraft,
     })
   })
 
@@ -247,11 +273,13 @@ describe('agentStudyTaskActions', () => {
     })).toThrow('study task draft.related_entry_id')
   })
 
-  it('enforces Today Action and Daily Review date invariants', () => {
+  it('enforces Today Action, Daily Review, and Mistake Review date invariants', () => {
     expect(() => createAction({ ...todaySnapshot, plannedDate: '2026-06-13' }))
       .toThrow('today_action plannedDate')
     expect(() => createAction({ ...dailySnapshot, plannedDate: dailySnapshot.expectedCurrentDate }))
       .toThrow('daily_review plannedDate')
+    expect(() => createAction({ ...mistakeSnapshot, plannedDate: '2026-06-13' }, mistakeDraft, MISTAKE_OPERATION_ID))
+      .toThrow('mistake_review plannedDate')
   })
 
   it.each([

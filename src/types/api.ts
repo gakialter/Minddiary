@@ -143,7 +143,7 @@ export interface ElectronPomodoroAPI {
   getRange: (start: string, end: string) => Promise<PomodoroRangeEntry[]>
 }
 
-export type IdempotentAIStudyTaskOperationKind = 'today_action' | 'daily_review'
+export type IdempotentAIStudyTaskOperationKind = 'today_action' | 'daily_review' | 'mistake_review'
 
 export interface IdempotentAIStudyTaskCreateRequest {
   operationId: string

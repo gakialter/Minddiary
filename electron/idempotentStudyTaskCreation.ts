@@ -11,7 +11,10 @@ import type {
     IdempotentAIStudyTaskCreateRequest,
     IdempotentAIStudyTaskCreateResponse,
 } from '../src/types/api';
-import { CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION } from '../src/utils/aiOperationContracts';
+import {
+    CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+    CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
+} from '../src/utils/aiOperationContracts';
 
 export const IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION =
     CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION;
@@ -84,6 +87,7 @@ type StudyTaskRow = {
 };
 
 class RequestValidationError extends Error {}
+class FreshMistakeReviewValidationError extends Error {}
 class CurrentDateMismatchError extends Error {}
 class PersistenceIntegrityError extends Error {}
 
@@ -270,12 +274,24 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     }
 
     const operationKind = readOwnDataProperty(request, 'operationKind', 'request');
-    if (operationKind !== 'today_action' && operationKind !== 'daily_review') {
+    if (
+        operationKind !== 'today_action'
+        && operationKind !== 'daily_review'
+        && operationKind !== 'mistake_review'
+    ) {
         throw new RequestValidationError('request.operationKind is invalid');
     }
 
     const actionContractVersion = readOwnDataProperty(request, 'actionContractVersion', 'request');
-    if (actionContractVersion !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+    if (operationKind === 'today_action' || operationKind === 'daily_review') {
+        if (actionContractVersion !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+            throw new RequestValidationError('request.actionContractVersion is unsupported');
+        }
+    } else if (operationKind === 'mistake_review') {
+        if (actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+            throw new RequestValidationError('request.actionContractVersion is unsupported');
+        }
+    } else {
         throw new RequestValidationError('request.actionContractVersion is unsupported');
     }
 
@@ -284,7 +300,7 @@ export function validateIdempotentAIStudyTaskCreateRequest(
         'request.expectedCurrentDate',
     );
     const payload = validatePayload(readOwnDataProperty(request, 'payload', 'request'));
-    const invariantPlannedDate = operationKind === 'today_action'
+    const invariantPlannedDate = (operationKind === 'today_action' || operationKind === 'mistake_review')
         ? expectedCurrentDate
         : getNextDateKey(expectedCurrentDate);
     if (payload.planned_date !== invariantPlannedDate) {
@@ -296,7 +312,7 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     return {
         operationId,
         operationKind,
-        actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
+        actionContractVersion,
         expectedCurrentDate,
         payload,
     };
@@ -392,8 +408,12 @@ function isValidReceiptRow(receipt: StudyTaskActionReceiptRow): boolean {
     if (
         typeof receipt.operation_id !== 'string'
         || !LOWERCASE_UUID_V4_PATTERN.test(receipt.operation_id)
-        || (receipt.operation_kind !== 'today_action' && receipt.operation_kind !== 'daily_review')
-        || receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+        || (
+            receipt.operation_kind !== 'today_action'
+            && receipt.operation_kind !== 'daily_review'
+            && receipt.operation_kind !== 'mistake_review'
+        )
+        || typeof receipt.action_contract_version !== 'string'
         || typeof receipt.request_digest !== 'string'
         || !SHA256_PATTERN.test(receipt.request_digest)
         || !isActualDateKey(receipt.expected_current_date)
@@ -404,7 +424,23 @@ function isValidReceiptRow(receipt: StudyTaskActionReceiptRow): boolean {
     ) {
         return false;
     }
-    const invariantPlannedDate = receipt.operation_kind === 'today_action'
+
+    if (receipt.operation_kind === 'today_action' || receipt.operation_kind === 'daily_review') {
+        if (receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+            return false;
+        }
+    } else if (receipt.operation_kind === 'mistake_review') {
+        if (receipt.action_contract_version !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+
+    const invariantPlannedDate = (
+        receipt.operation_kind === 'today_action'
+        || receipt.operation_kind === 'mistake_review'
+    )
         ? receipt.expected_current_date
         : getNextDateKey(receipt.expected_current_date);
     return receipt.planned_date === invariantPlannedDate;
@@ -589,6 +625,74 @@ function extractOperationId(value: unknown): string {
         : '';
 }
 
+function validateFreshMistakeReviewDomain(
+    payload: CanonicalAIStudyTaskPayload,
+    expectedCurrentDate: string,
+    database: Database.Database,
+): void {
+    if (
+        payload.type !== 'review'
+        || payload.related_mistake_id === null
+        || payload.related_mistake_id <= 0
+        || payload.subject_id === null
+        || payload.subject_id <= 0
+        || payload.related_entry_id !== null
+        || payload.related_chapter_id !== null
+        || payload.planned_date !== expectedCurrentDate
+        || payload.status !== 'todo'
+        || payload.source !== 'ai'
+    ) {
+        throw new FreshMistakeReviewValidationError('Fresh mistake review task payload is invalid');
+    }
+
+    const mistakeRow = database.prepare(`
+        SELECT id, subject_id, mastered, next_review_date
+        FROM mistakes
+        WHERE id = ?
+    `).get(payload.related_mistake_id) as {
+        id: number;
+        subject_id: number | null;
+        mastered: number;
+        next_review_date: string | null;
+    } | undefined;
+
+    if (!mistakeRow) {
+        throw new FreshMistakeReviewValidationError('Referenced mistake does not exist');
+    }
+
+    if (mistakeRow.mastered !== 0) {
+        throw new FreshMistakeReviewValidationError('Referenced mistake is already mastered');
+    }
+
+    if (mistakeRow.next_review_date !== null && mistakeRow.next_review_date > expectedCurrentDate) {
+        throw new FreshMistakeReviewValidationError('Referenced mistake is not due for review');
+    }
+
+    if (mistakeRow.subject_id === null || mistakeRow.subject_id !== payload.subject_id) {
+        throw new FreshMistakeReviewValidationError('Mistake subject does not match payload subject');
+    }
+
+    const subjectRow = database.prepare(`
+        SELECT id FROM subjects WHERE id = ?
+    `).get(payload.subject_id);
+
+    if (!subjectRow) {
+        throw new FreshMistakeReviewValidationError('Referenced subject does not exist');
+    }
+
+    const collisionRow = database.prepare(`
+        SELECT id FROM study_tasks
+        WHERE type = 'review'
+          AND planned_date = ?
+          AND status IN ('todo', 'doing')
+          AND related_mistake_id = ?
+    `).get(expectedCurrentDate, payload.related_mistake_id);
+
+    if (collisionRow) {
+        throw new FreshMistakeReviewValidationError('An active same-day review task already exists for this mistake');
+    }
+}
+
 export function createIdempotentAIStudyTaskForCurrentDate(
     value: unknown,
     dependencies: IdempotentStudyTaskCreationDependencies,
@@ -622,6 +726,15 @@ export function createIdempotentAIStudyTaskForCurrentDate(
                 }
 
                 assertCurrentDate(request.expectedCurrentDate, dependencies.getCurrentDateKey);
+
+                if (request.operationKind === 'mistake_review') {
+                    validateFreshMistakeReviewDomain(
+                        request.payload as CanonicalAIStudyTaskPayload,
+                        request.expectedCurrentDate,
+                        dependencies.database,
+                    );
+                }
+
                 const createdTask = dependencies.createTask(request.payload);
                 if (
                     !createdTask
@@ -673,6 +786,13 @@ export function createIdempotentAIStudyTaskForCurrentDate(
 
         return createInTransaction();
     } catch (error) {
+        if (error instanceof FreshMistakeReviewValidationError) {
+            return errorResponse(
+                request.operationId,
+                'INVALID_REQUEST',
+                error.message,
+            );
+        }
         if (error instanceof CurrentDateMismatchError) {
             return errorResponse(
                 request.operationId,

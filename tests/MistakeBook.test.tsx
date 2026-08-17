@@ -1306,4 +1306,38 @@ describe('MistakeBook Component', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     await waitFor(() => expect(root).toHaveAttribute('data-mistake-form-open', 'false'))
   })
+
+  it('renders distinct AI review and manual review buttons and opens AI review dialog', async () => {
+    mockUseDiary.mockReturnValue({
+      mistakes: mistakesApi,
+      subjects: subjectsApi,
+      tasks: {
+        find: vi.fn().mockResolvedValue([]),
+        createIdempotentAIStudyTaskForCurrentDate: vi.fn(),
+      },
+      ai: {
+        chat: vi.fn().mockResolvedValue({ content: '{"suggestions":[]}' }),
+      },
+      requestDataRefresh: vi.fn(),
+    })
+
+    render(<MistakeBook />)
+    await screen.findByTestId('mistake-ai-review-btn')
+
+    const aiBtn = screen.getByTestId('mistake-ai-review-btn')
+    const manualBtn = screen.getByTestId('mistake-start-review-btn')
+
+    expect(aiBtn).toBeInTheDocument()
+    expect(aiBtn).toHaveTextContent('AI 复习规划')
+    expect(manualBtn).toBeInTheDocument()
+    expect(manualBtn).toHaveTextContent('开始复习')
+
+    // Click AI review button
+    fireEvent.click(aiBtn)
+    expect(await screen.findByTestId('mistake-review-agent-dialog')).toBeInTheDocument()
+
+    // Close dialog
+    fireEvent.click(screen.getByTestId('mistake-review-close-btn'))
+    await waitFor(() => expect(screen.queryByTestId('mistake-review-agent-dialog')).not.toBeInTheDocument())
+  })
 })

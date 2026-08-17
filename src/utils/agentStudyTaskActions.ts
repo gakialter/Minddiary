@@ -200,7 +200,7 @@ export function createConfirmedStudyTaskOperationId(randomUUID?: () => string): 
 }
 
 function requireMode(value: unknown): StudyTaskActionMode {
-  if (value !== 'today_action' && value !== 'daily_review') {
+  if (value !== 'today_action' && value !== 'daily_review' && value !== 'mistake_review') {
     throw new Error('action mode is invalid')
   }
   return value
@@ -235,7 +235,7 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   )
   const expectedCurrentDate = requireValidLocalDateKey(snapshot.expectedCurrentDate, 'confirmation expectedCurrentDate')
   const plannedDate = requireValidLocalDateKey(snapshot.plannedDate, 'confirmation plannedDate')
-  const invariantPlannedDate = mode === 'today_action'
+  const invariantPlannedDate = (mode === 'today_action' || mode === 'mistake_review')
     ? expectedCurrentDate
     : getNextLocalDateKey(expectedCurrentDate)
   if (plannedDate !== invariantPlannedDate) {

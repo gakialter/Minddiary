@@ -146,6 +146,8 @@ describe('pendingStudyTaskOperations', () => {
     }
     expect(() => validatePendingStudyTaskOperation({ ...base, operationKind: 'other' }))
       .toThrow('operation kind')
+    expect(() => validatePendingStudyTaskOperation({ ...base, operationKind: 'mistake_review' as any }))
+      .toThrow('operation kind')
     expect(() => validatePendingStudyTaskOperation({ ...base, actionContractVersion: 'forged' }))
       .toThrow('not canonical')
     expect(() => validatePendingStudyTaskOperation({
