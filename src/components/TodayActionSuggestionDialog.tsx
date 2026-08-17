@@ -769,6 +769,7 @@ export default function TodayActionSuggestionDialog({
       }
       const eligibleCandidates = deriveTodayActionFeedbackCandidates(runs)
       if (eligibleCandidates.length === 0) {
+        setFeedbackLoading(false)
         await startActualGeneration(null)
         return
       }
@@ -842,6 +843,7 @@ export default function TodayActionSuggestionDialog({
       }
 
       setShowFeedbackPreview(false)
+      setFeedbackLoading(false)
       await startActualGeneration(reval.payload)
     } catch {
       if (

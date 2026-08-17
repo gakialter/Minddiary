@@ -2067,5 +2067,119 @@ describe('TodayActionSuggestionDialog', () => {
       expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
       expect(mocks.aiChat).not.toHaveBeenCalled()
     })
+
+    it('C4-H1-01: releases feedback loading on base generation transition so subsequent generation can be started', async () => {
+      const listRecent = vi.fn(async () => ({ items: [], nextCursor: null }))
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const transition = vi.fn(async (req: PlanningRunTransitionRequest) => makePlanningRun({
+        id: req.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create,
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      const generateButton = screen.getByTestId('ai-plan-generate')
+      expect(generateButton).toBeEnabled()
+
+      // First generation (0 eligible feedback items -> direct base generation)
+      fireEvent.click(generateButton)
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      expect(generateButton).toBeEnabled()
+
+      // Second generation should not be blocked by feedbackLoading
+      fireEvent.click(generateButton)
+      await waitFor(() => {
+        expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+      })
+      expect(generateButton).toBeEnabled()
+    })
+
+    it('C4-H1-02: releases feedback loading on feedback generation transition so subsequent generation can be started', async () => {
+      const historicalRun = makeHistoricalRun()
+      let callCount = 0
+      const listRecent = vi.fn(async () => {
+        callCount += 1
+        return { items: [historicalRun], nextCursor: null }
+      })
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const transition = vi.fn(async (req: PlanningRunTransitionRequest) => makePlanningRun({
+        id: req.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create,
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      const generateButton = screen.getByTestId('ai-plan-generate')
+      expect(generateButton).toBeEnabled()
+
+      // First generation with feedback preview confirmation
+      fireEvent.click(generateButton)
+      expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
+      expect(listRecent).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByTestId('ai-plan-feedback-confirm'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(listRecent).toHaveBeenCalledTimes(2)
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      expect(generateButton).toBeEnabled()
+
+      // Second generation should not be blocked by feedbackLoading
+      fireEvent.click(generateButton)
+      expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
+      expect(listRecent).toHaveBeenCalledTimes(3)
+    })
+
+    it('C4-H1-03: preserves stale callback protection when preflight resolves after dialog close', async () => {
+      const deferred = createDeferred<{ items: PlanningRunRecord[]; nextCursor: null }>()
+      const listRecent = vi.fn(() => deferred.promise)
+      window.api.planningRuns = {
+        create: vi.fn(),
+        transition: vi.fn(),
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(listRecent).toHaveBeenCalledTimes(1)
+
+      // Dialog is closed while preflight is still pending
+      fireEvent.click(screen.getByLabelText('关闭 AI 今日行动建议'))
+      expect(mocks.onClose).toHaveBeenCalledTimes(1)
+
+      // Preflight resolves after close
+      await act(async () => {
+        deferred.resolve({ items: [makeHistoricalRun()], nextCursor: null })
+        await deferred.promise
+      })
+
+      // Must not call AI chat or show preview
+      expect(mocks.aiChat).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('today-action-feedback-preview')).not.toBeInTheDocument()
+    })
   })
 })
