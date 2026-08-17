@@ -487,3 +487,268 @@ describe('idempotent AI study task persistence', () => {
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
 })
+
+describe('mistake_review idempotent AI study task persistence', () => {
+  const MISTAKE_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
+  const MISTAKE_OP_ID = '33333333-3333-4333-8333-333333333333'
+
+  function insertSubject(database: Database.Database, name = 'Math'): number {
+    return Number(database.prepare('INSERT INTO subjects (name, color) VALUES (?, ?)').run(name, '#2563eb').lastInsertRowid)
+  }
+
+  function insertMistake(
+    database: Database.Database,
+    overrides: {
+      subject_id?: number | null
+      question?: string
+      mastered?: number
+      next_review_date?: string | null
+    } = {},
+  ): number {
+    const subjectId = overrides.subject_id === undefined ? insertSubject(database) : overrides.subject_id
+    return Number(database.prepare(`
+      INSERT INTO mistakes (
+        subject_id,
+        question,
+        answer,
+        notes,
+        mastered,
+        ease_factor,
+        review_interval,
+        next_review_date,
+        review_count
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      subjectId,
+      overrides.question ?? 'Test Question',
+      'Answer',
+      'Notes',
+      overrides.mastered ?? 0,
+      2.5,
+      1,
+      overrides.next_review_date === undefined ? EXPECTED_DATE : overrides.next_review_date,
+      1,
+    ).lastInsertRowid)
+  }
+
+  function makeMistakeRequest(
+    harness: ReturnType<typeof createHarness>,
+    overrides: {
+      operationId?: string
+      subject_id?: number
+      related_mistake_id?: number
+      actionContractVersion?: string
+      planned_date?: string
+      status?: string
+      source?: string
+      type?: string
+      related_entry_id?: number | null
+      related_chapter_id?: number | null
+    } = {},
+  ): IdempotentAIStudyTaskCreateRequest {
+    const subjectId = overrides.subject_id ?? insertSubject(harness.database)
+    const mistakeId = overrides.related_mistake_id ?? insertMistake(harness.database, { subject_id: subjectId })
+
+    return {
+      operationId: overrides.operationId ?? MISTAKE_OP_ID,
+      operationKind: 'mistake_review',
+      actionContractVersion: overrides.actionContractVersion ?? MISTAKE_CONTRACT_VERSION,
+      expectedCurrentDate: EXPECTED_DATE,
+      payload: {
+        title: 'Review Mistake',
+        description: 'Overdue mistake review',
+        type: (overrides.type ?? 'review') as any,
+        subject_id: subjectId,
+        related_mistake_id: mistakeId,
+        related_entry_id: overrides.related_entry_id ?? null,
+        related_chapter_id: overrides.related_chapter_id ?? null,
+        planned_date: overrides.planned_date ?? EXPECTED_DATE,
+        estimate_minutes: 25,
+        status: (overrides.status ?? 'todo') as any,
+        source: (overrides.source ?? 'ai') as any,
+      },
+    }
+  }
+
+  it('creates a task and receipt for a valid fresh mistake_review request', () => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: true,
+      operationId: MISTAKE_OP_ID,
+      replayed: false,
+      task: {
+        title: 'Review Mistake',
+        type: 'review',
+        subject_id: request.payload.subject_id,
+        related_mistake_id: request.payload.related_mistake_id,
+        planned_date: EXPECTED_DATE,
+        status: 'todo',
+        source: 'ai',
+      },
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(1)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when mistake is already mastered', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const mistakeId = insertMistake(harness.database, { subject_id: subjectId, mastered: 1 })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: mistakeId })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when mistake is not due for review', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const mistakeId = insertMistake(harness.database, { subject_id: subjectId, next_review_date: '2026-08-01' }) // future
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: mistakeId })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when referenced mistake does not exist', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: 9999 })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when mistake has null subject', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const mistakeId = insertMistake(harness.database, { subject_id: null })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: mistakeId })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when referenced subject does not exist', () => {
+    const harness = createHarness()
+    const mistakeId = insertMistake(harness.database)
+    const request = makeMistakeRequest(harness, { subject_id: 9999, related_mistake_id: mistakeId })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when mistake subject does not match payload subject', () => {
+    const harness = createHarness()
+    const subject1 = insertSubject(harness.database, 'Subject 1')
+    const subject2 = insertSubject(harness.database, 'Subject 2')
+    const mistakeId = insertMistake(harness.database, { subject_id: subject1 })
+    const request = makeMistakeRequest(harness, { subject_id: subject2, related_mistake_id: mistakeId })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects mistake_review with INVALID_REQUEST when an active same-day review task already exists', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const mistakeId = insertMistake(harness.database, { subject_id: subjectId })
+
+    // Existing active review task for same date and mistake
+    insertTask(harness.database, {
+      title: 'Existing Review',
+      type: 'review',
+      planned_date: EXPECTED_DATE,
+      status: 'todo',
+      subject_id: subjectId,
+      related_mistake_id: mistakeId,
+      estimate_minutes: 25,
+      source: 'manual',
+    })
+
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: mistakeId })
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(1)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects cross-pair contract version (mistake_review with confirmed-study-task-action.v1)', () => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness, { actionContractVersion: 'confirmed-study-task-action.v1' })
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'INVALID_REQUEST',
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('replays existing receipt without revalidating current mistake state (historical truth wins)', () => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+
+    const firstResult = execute(harness, request)
+    expect(firstResult.ok).toBe(true)
+
+    // Now change mistake state to mastered and not due
+    harness.database.prepare('UPDATE mistakes SET mastered = 1, next_review_date = ? WHERE id = ?')
+      .run('2026-12-31', request.payload.related_mistake_id)
+
+    // Replay with exact same request
+    const replayResult = execute(harness, request)
+    expect(replayResult).toMatchObject({
+      ok: true,
+      operationId: MISTAKE_OP_ID,
+      replayed: true,
+    })
+  })
+})

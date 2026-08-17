@@ -4,6 +4,7 @@ import type { AIMessage } from '../src/types'
 import {
   AI_STUDY_TASK_OPERATION_KINDS,
   CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+  CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
   createAIStudyTaskGenerationProvenance,
   getAIStudyTaskOperationContract,
   validateAIStudyTaskGenerationProvenance,
@@ -16,6 +17,10 @@ import {
   buildTodayActionSuggestionMessages,
   type TodayActionPlanningContext,
 } from '../src/utils/todayActionSuggestions'
+import {
+  buildMistakeReviewPromptMessages,
+  type MistakeReviewContextProjection,
+} from '../src/utils/mistakeReviewSuggestions'
 
 const TODAY_CONTEXT_FIXTURE: TodayActionPlanningContext = {
   date: '2026-06-12',
@@ -112,10 +117,16 @@ const DAILY_CONTEXT_FIXTURE: DailyReviewSafeContext = {
   dueMistakeTotal: 1,
 }
 
-const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
-  'today-action.prompt.v2': '714c15862b8a460cfe0d43b76c2712f97e89eae30959b7c2155c19337589d7cd',
-  'daily-review.prompt.v1': 'eeb1f243248729df1b96d3ae1a3d0bd75838a33ba7d9f0c4732cbea76f843b26',
-})
+const MISTAKE_REVIEW_CONTEXT_FIXTURE: MistakeReviewContextProjection = {
+  current_date: '2026-06-12',
+  due_mistakes: [{
+    mistake_ref: 'm1',
+    subject_name: '数学',
+    question_excerpt: '函数极限换元时忽略定义域',
+    overdue_days: 2,
+    review_count: 1,
+  }],
+}
 
 function canonicalSerialize(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -140,9 +151,15 @@ function digestMessages(messages: AIMessage[]): string {
     .digest('hex')
 }
 
+const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
+  'today-action.prompt.v2': '714c15862b8a460cfe0d43b76c2712f97e89eae30959b7c2155c19337589d7cd',
+  'daily-review.prompt.v1': 'eeb1f243248729df1b96d3ae1a3d0bd75838a33ba7d9f0c4732cbea76f843b26',
+  'mistake-review.prompt.v1': digestMessages(buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)),
+})
+
 describe('AI study task operation contracts', () => {
-  it('contains exactly the two closed operations with their canonical version tuples', () => {
-    expect(AI_STUDY_TASK_OPERATION_KINDS).toEqual(['today_action', 'daily_review'])
+  it('contains exactly the three closed operations with their canonical version tuples', () => {
+    expect(AI_STUDY_TASK_OPERATION_KINDS).toEqual(['today_action', 'daily_review', 'mistake_review'])
     expect(getAIStudyTaskOperationContract('today_action')).toEqual({
       operationKind: 'today_action',
       promptVersion: 'today-action.prompt.v2',
@@ -161,10 +178,21 @@ describe('AI study task operation contracts', () => {
       contextProjectionVersion: 'daily-review.context-projection.v1',
       actionContractVersion: 'confirmed-study-task-action.v1',
     })
+    expect(getAIStudyTaskOperationContract('mistake_review')).toEqual({
+      operationKind: 'mistake_review',
+      promptVersion: 'mistake-review.prompt.v1',
+      responseSchemaVersion: 'mistake-review.response-schema.v1',
+      parserVersion: 'mistake-review.parser.v1',
+      policyVersion: 'mistake-review.policy.v1',
+      contextProjectionVersion: 'mistake-review.context-projection.v1',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v1',
+    })
     expect(getAIStudyTaskOperationContract('today_action').actionContractVersion)
       .toBe(CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION)
     expect(getAIStudyTaskOperationContract('daily_review').actionContractVersion)
       .toBe(CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION)
+    expect(getAIStudyTaskOperationContract('mistake_review').actionContractVersion)
+      .toBe(CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION)
   })
 
   it('fails closed for an unknown operation kind', () => {
@@ -195,6 +223,11 @@ describe('AI study task operation contracts', () => {
     expect(validateAIStudyTaskGenerationProvenance(provenance, 'daily_review')).toEqual(provenance)
     expect(() => createAIStudyTaskGenerationProvenance('daily_review', '  ')).toThrow('non-empty')
     expect(() => validateAIStudyTaskGenerationProvenance(provenance, 'today_action'))
+      .toThrow('operation kind does not match action mode')
+
+    const mistakeProvenance = createAIStudyTaskGenerationProvenance('mistake_review', 'mistake-signature')
+    expect(validateAIStudyTaskGenerationProvenance(mistakeProvenance, 'mistake_review')).toEqual(mistakeProvenance)
+    expect(() => validateAIStudyTaskGenerationProvenance(mistakeProvenance, 'today_action'))
       .toThrow('operation kind does not match action mode')
   })
 
@@ -239,6 +272,10 @@ describe('versioned prompt drift fixtures', () => {
     {
       operationKind: 'daily_review' as const,
       messages: buildDailyReviewMessages(DAILY_CONTEXT_FIXTURE),
+    },
+    {
+      operationKind: 'mistake_review' as const,
+      messages: buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE),
     },
   ])('binds canonical $operationKind AIMessage bytes to its promptVersion', ({ operationKind, messages }) => {
     const promptVersion = getAIStudyTaskOperationContract(operationKind).promptVersion

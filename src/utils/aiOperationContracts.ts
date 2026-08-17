@@ -1,6 +1,7 @@
 export type AIStudyTaskOperationKind =
   | 'today_action'
   | 'daily_review'
+  | 'mistake_review'
 
 export interface AIOperationContractVersions {
   readonly promptVersion: string
@@ -23,10 +24,12 @@ export interface AIStudyTaskGenerationProvenance {
 }
 
 export const CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
+export const CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
 
 export const AI_STUDY_TASK_OPERATION_KINDS = Object.freeze([
   'today_action',
   'daily_review',
+  'mistake_review',
 ] as const)
 
 const VERSION_KEYS = [
@@ -72,6 +75,15 @@ const OPERATION_CONTRACTS: Readonly<Record<
     contextProjectionVersion: 'daily-review.context-projection.v1',
     actionContractVersion: CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
   }),
+  mistake_review: freezeContract({
+    operationKind: 'mistake_review',
+    promptVersion: 'mistake-review.prompt.v1',
+    responseSchemaVersion: 'mistake-review.response-schema.v1',
+    parserVersion: 'mistake-review.parser.v1',
+    policyVersion: 'mistake-review.policy.v1',
+    contextProjectionVersion: 'mistake-review.context-projection.v1',
+    actionContractVersion: CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
+  }),
 })
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,7 +118,7 @@ function requireNonEmptyString(value: unknown, label: string): string {
 }
 
 function requireOperationKind(value: unknown): AIStudyTaskOperationKind {
-  if (value !== 'today_action' && value !== 'daily_review') {
+  if (value !== 'today_action' && value !== 'daily_review' && value !== 'mistake_review') {
     throw new Error('AI study task operation kind is invalid')
   }
   return value
