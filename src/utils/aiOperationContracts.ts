@@ -59,7 +59,7 @@ const OPERATION_CONTRACTS: Readonly<Record<
 >> = Object.freeze({
   today_action: freezeContract({
     operationKind: 'today_action',
-    promptVersion: 'today-action.prompt.v2',
+    promptVersion: 'today-action.prompt.v3',
     responseSchemaVersion: 'today-action.response-schema.v1',
     parserVersion: 'today-action.parser.v1',
     policyVersion: 'today-action.policy.v1',
@@ -68,7 +68,7 @@ const OPERATION_CONTRACTS: Readonly<Record<
   }),
   daily_review: freezeContract({
     operationKind: 'daily_review',
-    promptVersion: 'daily-review.prompt.v1',
+    promptVersion: 'daily-review.prompt.v2',
     responseSchemaVersion: 'daily-review.response-schema.v1',
     parserVersion: 'daily-review.parser.v1',
     policyVersion: 'daily-review.policy.v1',

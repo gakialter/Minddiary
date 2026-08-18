@@ -6,6 +6,7 @@ import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject } from '../src
 import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
 import type {
   PlanningRunCreateRequest,
+  PlanningRunListResult,
   PlanningRunRecord,
   PlanningRunTransitionRequest,
 } from '../src/types/planningHistory'
@@ -48,6 +49,58 @@ const makePlanningRun = (request: PlanningRunCreateRequest): PlanningRunRecord =
     taskRelation: null,
     executionAttribution: null,
   })),
+})
+
+const makeHistoricalRun = (overrides: Partial<PlanningRunRecord> = {}): PlanningRunRecord => ({
+  id: 'historical-run-1',
+  entryPoint: 'today_action',
+  planningDate: '2026-06-11',
+  targetDate: '2026-06-11',
+  generationResultKind: 'candidate_set',
+  contextSummary: [],
+  createdAt: '2026-06-11T08:00:00.000Z',
+  updatedAt: '2026-06-11T08:05:00.000Z',
+  closedAt: '2026-06-11T08:10:00.000Z',
+  closeReason: 'dialog_closed',
+  candidates: [
+    {
+      id: 901,
+      ordinal: 0,
+      title: '历史任务 A',
+      description: '历史原因',
+      type: 'focus',
+      estimateMinutes: 30,
+      priority: 'high',
+      subjectId: null,
+      relatedMistakeId: null,
+      relatedEntryId: null,
+      admissionOrigin: 'provider_validated',
+      editBefore: {},
+      editBeforeSourceRelations: { subject: null, mistake: null, entry: null },
+      userDisposition: 'confirmed',
+      outcomeKind: 'created',
+      outcomeObservedAt: '2026-06-11T08:05:00.000Z',
+      admittedAt: '2026-06-11T08:00:00.000Z',
+      updatedAt: '2026-06-11T08:05:00.000Z',
+      sourceRelations: { subject: null, mistake: null, entry: null },
+      taskRelation: { available: true, title: '历史任务 A', status: 'done' },
+      executionAttribution: {
+        kind: 'verified_linked',
+        receiptValidated: true,
+        taskId: 55,
+        taskCurrentTitle: '历史任务 A',
+        taskCurrentStatus: 'done',
+        semanticDrift: { hasDrift: false, differences: {} },
+        focus: {
+          state: 'available',
+          totalDurationMinutes: 45,
+          sessionCount: 2,
+          unavailableReason: null,
+        },
+      },
+    },
+  ],
+  ...overrides,
 })
 
 const subject: Subject = { id: 1, name: '数学', color: '#2563eb' }
@@ -1176,7 +1229,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(createActionSpy).toHaveBeenCalledTimes(1)
     const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
     expect(snapshot?.generation.operationKind).toBe('today_action')
-    expect(snapshot?.generation.versions.promptVersion).toBe('today-action.prompt.v2')
+    expect(snapshot?.generation.versions.promptVersion).toBe('today-action.prompt.v3')
     expect(snapshot?.generation.generationContextSignature)
       .not.toBe(snapshot?.confirmationContextSignature)
     expect(snapshot?.generation.generationContextSignature).not.toContain('新出现的任务')
@@ -1298,10 +1351,10 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
     await waitFor(() => expect(createActionSpy).toHaveBeenCalledTimes(1))
     const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
-    const generatedContext = JSON.parse(snapshot?.generation.generationContextSignature || '{}') as {
-      date?: string
-    }
-    expect(generatedContext.date).toBe('2026-06-13')
+    const rawGenSig = snapshot?.generation.generationContextSignature || '{}'
+    const genSigObj = JSON.parse(rawGenSig) as { baseDomainContextSignature?: string; date?: string }
+    const baseObj = JSON.parse(genSigObj.baseDomainContextSignature || rawGenSig) as { date?: string }
+    expect(baseObj.date).toBe('2026-06-13')
     createActionSpy.mockRestore()
   })
 
@@ -2180,6 +2233,403 @@ describe('TodayActionSuggestionDialog', () => {
       // Must not call AI chat or show preview
       expect(mocks.aiChat).not.toHaveBeenCalled()
       expect(screen.queryByTestId('today-action-feedback-preview')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Phase C6 Planning Strategy Presets', () => {
+    it('C6-TA-01: renders strategy selector with balanced as default and all three options', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(selector).toBeInTheDocument()
+      expect(selector).toBeEnabled()
+      expect(selector.value).toBe('balanced')
+
+      const options = Array.from(selector.options).map(opt => ({ value: opt.value, text: opt.text }))
+      expect(options).toEqual([
+        { value: 'balanced', text: '均衡规划' },
+        { value: 'deep_focus', text: '深度专注' },
+        { value: 'light_load', text: '轻量推进' },
+      ])
+    })
+
+    it('C6-TA-02: generates with selected strategy directive and renders attribution badge', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect((selector as HTMLSelectElement).value).toBe('deep_focus')
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：深度专注（deep_focus）。倾向于建议较少数量、较长连续时长的单科目深度学习块，减少科目频繁切换，优先安排需要高度沉浸的核心攻坚或系统性复习。',
+      )
+
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toBeInTheDocument()
+      expect(badge).toHaveTextContent('当前候选基于「深度专注」策略生成')
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-03: shows mismatch notice when changing strategy after generation and clears when reverted', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      // Switch to light_load without regenerating
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+
+      const mismatchNotice = screen.getByTestId('today-action-strategy-mismatch-notice')
+      expect(mismatchNotice).toBeInTheDocument()
+      expect(mismatchNotice).toHaveTextContent(
+        '（当前显示基于「深度专注」；切换为「轻量推进」将在重新生成时生效）',
+      )
+
+      // Switch back to deep_focus
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-04: regenerates with updated strategy, updates badge and clears mismatch notice', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector')
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(screen.getByTestId('today-action-generated-strategy-badge')).toHaveTextContent('当前候选基于「均衡规划」策略生成')
+
+      // Switch to light_load
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(screen.getByTestId('today-action-strategy-mismatch-notice')).toBeInTheDocument()
+
+      // Regenerate
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+      const secondPromptMessages = mocks.aiChat.mock.calls[1]![0]
+      expect(secondPromptMessages[1]!.content).toContain(
+        '规划策略：轻量推进（light_load）。倾向于建议启动门槛低、单项时长适中偏短、易于执行的行动，优先消化到期错题或完成小颗粒度目标，避免安排高负荷长时任务。',
+      )
+
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「轻量推进」策略生成')
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-05: prevents stale closures during feedback preview and captures selectedStrategyRef', async () => {
+      const historicalRun = makeHistoricalRun()
+      const listRecent = vi.fn(async () => ({ items: [historicalRun], nextCursor: null }))
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const transition = vi.fn(async (req: PlanningRunTransitionRequest) => makePlanningRun({
+        id: req.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create,
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      // Trigger generation with default balanced -> enters feedback preview
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
+
+      // User changes strategy selector while preview is active
+      const selector = screen.getByTestId('today-action-strategy-selector')
+      expect(selector).toBeEnabled()
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      // User confirms feedback generation
+      fireEvent.click(screen.getByTestId('ai-plan-feedback-confirm'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：深度专注（deep_focus）。倾向于建议较少数量、较长连续时长的单科目深度学习块，减少科目频繁切换，优先安排需要高度沉浸的核心攻坚或系统性复习。',
+      )
+
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「深度专注」策略生成')
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-06: resets strategy to balanced on date rollover and clears attribution and mismatch', async () => {
+      const { rerender } = renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(screen.getByTestId('today-action-generated-strategy-badge')).toBeInTheDocument()
+
+      // Date rollover
+      rerender(dialogElement('2026-06-13'))
+
+      const rolledSelector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(rolledSelector.value).toBe('balanced')
+      expect(screen.queryByTestId('today-action-generated-strategy-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-07: retains strategy in generation provenance upon task creation and keeps confirmation snapshot clean', async () => {
+      const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+      await waitFor(() => {
+        expect(createActionSpy).toHaveBeenCalled()
+      })
+
+      const callArg = createActionSpy.mock.calls[0]![0]
+      const snapshot = callArg.confirmationSnapshot
+      expect(snapshot.generation.operationKind).toBe('today_action')
+      const parsedGenSig = JSON.parse(snapshot.generation.generationContextSignature)
+      expect(parsedGenSig.strategyId).toBe('light_load')
+      expect(parsedGenSig.feedback).toBeNull()
+
+      // Confirmation context signature strictly matches base signature without strategy
+      const parsedConfSig = JSON.parse(snapshot.confirmationContextSignature)
+      expect(parsedConfSig.date).toBe('2026-06-12')
+      expect(parsedConfSig).not.toHaveProperty('strategyId')
+      expect(parsedConfSig).not.toHaveProperty('feedback')
+      createActionSpy.mockRestore()
+    })
+
+    it('C6-TA-08: allows changing strategy while planning history discovery is in-flight and uses selected strategy when discovery returns zero eligible feedback', async () => {
+      const listRecentDeferred = createDeferred<PlanningRunListResult>()
+      const listRecent = vi.fn(() => listRecentDeferred.promise)
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const transition = vi.fn(async (req: PlanningRunTransitionRequest) => makePlanningRun({
+        id: req.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create,
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(selector.value).toBe('balanced')
+
+      // Trigger generation under balanced -> discovery starts and is in-flight
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(listRecent).toHaveBeenCalledTimes(1)
+
+      // Selector MUST remain enabled while feedback discovery is in-flight
+      expect(selector).toBeEnabled()
+
+      // User changes strategy to deep_focus while discovery is in-flight
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect(selector.value).toBe('deep_focus')
+
+      // Discovery resolves with zero eligible candidates
+      listRecentDeferred.resolve({ items: [], nextCursor: null })
+
+      // Generation proceeds with deep_focus
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：深度专注（deep_focus）。倾向于建议较少数量、较长连续时长的单科目深度学习块，减少科目频繁切换，优先安排需要高度沉浸的核心攻坚或系统性复习。',
+      )
+
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「深度专注」策略生成')
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-09: allows changing strategy while AI generation is in-flight and shows mismatch notice upon return without altering in-flight attribution', async () => {
+      const aiChatDeferred = createDeferred<{ content: string }>()
+      mocks.aiChat.mockReturnValueOnce(aiChatDeferred.promise)
+      renderDialog()
+
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(selector.value).toBe('balanced')
+
+      // Trigger generation under balanced -> aiChat is in-flight
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await waitFor(() => {
+        expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      })
+
+      // Strategy selector MUST remain enabled while AI provider request is in-flight
+      expect(selector).toBeEnabled()
+
+      // User changes strategy to light_load while Provider request is in-flight
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(selector.value).toBe('light_load')
+
+      // Provider returns candidates
+      aiChatDeferred.resolve({ content: validAiResponse })
+
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+
+      // Returned candidates must be attributed to balanced (the strategy at generation start)
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「均衡规划」策略生成')
+
+      // Selector remains light_load and mismatch notice is displayed
+      expect(selector.value).toBe('light_load')
+      const mismatchNotice = screen.getByTestId('today-action-strategy-mismatch-notice')
+      expect(mismatchNotice).toHaveTextContent(
+        '（当前显示基于「均衡规划」；切换为「轻量推进」将在重新生成时生效）',
+      )
+    })
+
+    it('C6-TA-10: clears generated strategy and attribution at regeneration start even if new request fails or is malformed', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(selector.value).toBe('balanced')
+
+      // First generation succeeds under balanced
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(screen.getByTestId('today-action-generated-strategy-badge')).toHaveTextContent('当前候选基于「均衡规划」策略生成')
+
+      // Switch to light_load
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(screen.getByTestId('today-action-strategy-mismatch-notice')).toBeInTheDocument()
+
+      // Regenerate with failing / malformed provider response
+      mocks.aiChat.mockResolvedValueOnce({ error: 'Model overloaded' })
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+      // Old candidates, badge, and mismatch notice MUST NOT survive
+      expect(await screen.findByText('Model overloaded')).toBeInTheDocument()
+      expect(screen.queryByLabelText('建议标题')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('today-action-generated-strategy-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-11: captures selected strategy immediately before Provider request dispatch in direct path after async context refresh', async () => {
+      const getByDateDeferred = createDeferred<StudyTask[]>()
+      mocks.tasksGetByDate.mockImplementationOnce(() => getByDateDeferred.promise)
+      renderDialog()
+
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      expect(selector.value).toBe('balanced')
+
+      // Click generate while balanced -> context preparation is in-flight
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(mocks.tasksGetByDate).toHaveBeenCalled()
+      expect(mocks.aiChat).not.toHaveBeenCalled()
+
+      // Change strategy to light_load while context preparation is pending
+      expect(selector).toBeEnabled()
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(selector.value).toBe('light_load')
+
+      // Resolve context preparation
+      getByDateDeferred.resolve([])
+
+      // Provider request is now dispatched with light_load
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：轻量推进（light_load）。倾向于建议启动门槛低、单项时长适中偏短、易于执行的行动，优先消化到期错题或完成小颗粒度目标，避免安排高负荷长时任务。',
+      )
+
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「轻量推进」策略生成')
+      expect(screen.queryByTestId('today-action-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-TA-12: freezes strategy at final feedback authorization before async revalidation while allowing selector change', async () => {
+      const historicalRun = makeHistoricalRun()
+      const listRecentDeferred = createDeferred<PlanningRunListResult>()
+      let listRecentCallCount = 0
+      const listRecent = vi.fn(async () => {
+        listRecentCallCount++
+        if (listRecentCallCount === 1) {
+          return { items: [historicalRun], nextCursor: null }
+        }
+        return listRecentDeferred.promise
+      })
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const transition = vi.fn(async (req: PlanningRunTransitionRequest) => makePlanningRun({
+        id: req.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create,
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      // Initial generation opens feedback preview
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
+
+      const selector = screen.getByTestId('today-action-strategy-selector') as HTMLSelectElement
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect(selector.value).toBe('deep_focus')
+
+      // Click final feedback confirmation -> freezes deep_focus and starts async revalidation
+      fireEvent.click(screen.getByTestId('ai-plan-feedback-confirm'))
+      expect(listRecent).toHaveBeenCalledTimes(2)
+
+      // While revalidation is pending, user changes strategy to light_load
+      expect(selector).toBeEnabled()
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(selector.value).toBe('light_load')
+
+      // Resolve revalidation
+      listRecentDeferred.resolve({ items: [historicalRun], nextCursor: null })
+
+      // Generation completes with deep_focus
+      expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：深度专注（deep_focus）。倾向于建议较少数量、较长连续时长的单科目深度学习块，减少科目频繁切换，优先安排需要高度沉浸的核心攻坚或系统性复习。',
+      )
+
+      // Provenance and badge reflect frozen deep_focus
+      const badge = screen.getByTestId('today-action-generated-strategy-badge')
+      expect(badge).toHaveTextContent('当前候选基于「深度专注」策略生成')
+
+      // Selector remains light_load and mismatch notice is shown
+      expect(selector.value).toBe('light_load')
+      const mismatchNotice = screen.getByTestId('today-action-strategy-mismatch-notice')
+      expect(mismatchNotice).toHaveTextContent(
+        '（当前显示基于「深度专注」；切换为「轻量推进」将在重新生成时生效）',
+      )
     })
   })
 })

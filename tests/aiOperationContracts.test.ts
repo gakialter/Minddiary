@@ -152,8 +152,8 @@ function digestMessages(messages: AIMessage[]): string {
 }
 
 const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
-  'today-action.prompt.v2': '714c15862b8a460cfe0d43b76c2712f97e89eae30959b7c2155c19337589d7cd',
-  'daily-review.prompt.v1': 'eeb1f243248729df1b96d3ae1a3d0bd75838a33ba7d9f0c4732cbea76f843b26',
+  'today-action.prompt.v3': '8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681',
+  'daily-review.prompt.v2': '582c458b685032a9aef79b5d6dba8d7dfb660644bf1201aed8f4c2fea206821f',
   'mistake-review.prompt.v1': digestMessages(buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)),
 })
 
@@ -162,7 +162,7 @@ describe('AI study task operation contracts', () => {
     expect(AI_STUDY_TASK_OPERATION_KINDS).toEqual(['today_action', 'daily_review', 'mistake_review'])
     expect(getAIStudyTaskOperationContract('today_action')).toEqual({
       operationKind: 'today_action',
-      promptVersion: 'today-action.prompt.v2',
+      promptVersion: 'today-action.prompt.v3',
       responseSchemaVersion: 'today-action.response-schema.v1',
       parserVersion: 'today-action.parser.v1',
       policyVersion: 'today-action.policy.v1',
@@ -171,7 +171,7 @@ describe('AI study task operation contracts', () => {
     })
     expect(getAIStudyTaskOperationContract('daily_review')).toEqual({
       operationKind: 'daily_review',
-      promptVersion: 'daily-review.prompt.v1',
+      promptVersion: 'daily-review.prompt.v2',
       responseSchemaVersion: 'daily-review.response-schema.v1',
       parserVersion: 'daily-review.parser.v1',
       policyVersion: 'daily-review.policy.v1',
@@ -213,7 +213,7 @@ describe('AI study task operation contracts', () => {
     expect(Reflect.set(provenance.versions, 'parserVersion', 'forged')).toBe(false)
     expect(Reflect.setPrototypeOf(contract, { promptVersion: 'forged' })).toBe(false)
     expect(Reflect.setPrototypeOf(AI_STUDY_TASK_OPERATION_KINDS, [])).toBe(false)
-    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v2')
+    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v3')
     expect(createAIStudyTaskGenerationProvenance('today_action', 'second-signature').versions.parserVersion)
       .toBe('today-action.parser.v1')
   })

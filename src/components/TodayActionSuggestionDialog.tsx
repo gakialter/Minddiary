@@ -54,13 +54,19 @@ import { formatCandidateValidationMessage } from '../utils/candidateValidationMe
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 import type { PlanningRunRecord, PlanningRunTransitionRequest } from '../types/planningHistory'
 import {
-  buildCombinedGenerationContextSignature,
   deriveTodayActionFeedbackCandidates,
   revalidatePlanningFeedbackSelection,
   type PlanningFeedbackCandidateItem,
   type PlanningFeedbackPayload,
   type PlanningFeedbackSourceKey,
 } from '../utils/planningFeedback'
+import {
+  DEFAULT_PLANNING_STRATEGY_ID,
+  PLANNING_STRATEGIES,
+  buildTodayActionGenerationContextSignature,
+  getPlanningStrategyMetadata,
+  type PlanningStrategyId,
+} from '../utils/planningStrategies'
 import {
   buildTodayActionCandidateSnapshot,
   buildTodayActionPlanningRunRequest,
@@ -216,6 +222,10 @@ export default function TodayActionSuggestionDialog({
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null)
   const [feedbackStaleNotice, setFeedbackStaleNotice] = useState<string | null>(null)
+  const [selectedStrategy, setSelectedStrategy] = useState<PlanningStrategyId>(DEFAULT_PLANNING_STRATEGY_ID)
+  const [generatedStrategy, setGeneratedStrategy] = useState<PlanningStrategyId | null>(null)
+  const selectedStrategyRef = useRef<PlanningStrategyId>(DEFAULT_PLANNING_STRATEGY_ID)
+  selectedStrategyRef.current = selectedStrategy
   const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
   const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
   const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
@@ -407,6 +417,8 @@ export default function TodayActionSuggestionDialog({
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
+    setSelectedStrategy(DEFAULT_PLANNING_STRATEGY_ID)
+    setGeneratedStrategy(null)
     setPlanningSession(resetPlanningSessionExplainability())
   }, [closePlanningRun, date, flushPlanningCandidates])
 
@@ -618,7 +630,10 @@ export default function TodayActionSuggestionDialog({
     })
   }, [])
 
-  const startActualGeneration = async (feedbackPayload: PlanningFeedbackPayload | null) => {
+  const startActualGeneration = async (
+    feedbackPayload: PlanningFeedbackPayload | null,
+    authorizedStrategy?: PlanningStrategyId,
+  ) => {
     if (generating || creating) return
     if (durablePlanningRunRef.current !== null) {
       await flushPlanningCandidates(suggestions, planningSession)
@@ -638,6 +653,7 @@ export default function TodayActionSuggestionDialog({
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
+    setGeneratedStrategy(null)
     setPlanningSession(createPlanningSessionExplainability({
       generationId,
       contextDecisions: [],
@@ -649,7 +665,8 @@ export default function TodayActionSuggestionDialog({
       if (generationRef.current !== generation) return
       setPlanningContext(context)
 
-      const request = buildTodayActionSuggestionRequest(context, feedbackPayload)
+      const strategyToUse = authorizedStrategy ?? selectedStrategyRef.current
+      const request = buildTodayActionSuggestionRequest(context, strategyToUse, feedbackPayload)
       setPlanningSession(createPlanningSessionExplainability({
         generationId,
         contextDecisions: request.contextDecisions,
@@ -678,15 +695,17 @@ export default function TodayActionSuggestionDialog({
             })),
         }))
         const baseContextSignature = buildTodayActionPlanningContextSignature(context)
-        const generationContextSignature = buildCombinedGenerationContextSignature(
-          baseContextSignature,
+        const generationContextSignature = buildTodayActionGenerationContextSignature({
+          baseDomainContextSignature: baseContextSignature,
+          strategyId: strategyToUse,
           feedbackPayload,
-        )
+        })
         setGenerationProvenance(createAIStudyTaskGenerationProvenance(
           'today_action',
           generationContextSignature,
         ))
         setReviewedConfirmationContextSignature(baseContextSignature)
+        setGeneratedStrategy(strategyToUse)
         const planningRunsAPI = getPlanningRunsAPI()
         if (planningRunsAPI) {
           try {
@@ -797,6 +816,7 @@ export default function TodayActionSuggestionDialog({
 
   const confirmFeedbackGeneration = async () => {
     if (generating || creating || feedbackLoading) return
+    const strategyAtFinalAuthorization = selectedStrategyRef.current
     const planningRunsAPI = getPlanningRunsAPI()
     if (!planningRunsAPI) {
       await startActualGeneration(null)
@@ -844,7 +864,7 @@ export default function TodayActionSuggestionDialog({
 
       setShowFeedbackPreview(false)
       setFeedbackLoading(false)
-      await startActualGeneration(reval.payload)
+      await startActualGeneration(reval.payload, strategyAtFinalAuthorization)
     } catch {
       if (
         !mountedRef.current
@@ -1210,6 +1230,24 @@ export default function TodayActionSuggestionDialog({
               />
               分钟
             </label>
+            <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              规划策略
+              <select
+                data-testid="today-action-strategy-selector"
+                aria-label="规划策略"
+                className="input"
+                value={selectedStrategy}
+                disabled={creating}
+                onChange={event => setSelectedStrategy(event.target.value as PlanningStrategyId)}
+                style={{ marginLeft: 8, minHeight: 36 }}
+              >
+                {PLANNING_STRATEGIES.map(strategy => (
+                  <option key={strategy.id} value={strategy.id} title={strategy.description}>
+                    {strategy.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="button button-primary"
@@ -1230,6 +1268,31 @@ export default function TodayActionSuggestionDialog({
             >
               重新生成会开始一次新的规划，当前尚未确认的候选和修改将被替换；已创建的任务不受影响。
             </p>
+          )}
+
+          {generatedStrategy !== null && suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-sm">
+              <span
+                data-testid="today-action-generated-strategy-badge"
+                className="text-xs px-2 py-1 rounded"
+                style={{
+                  backgroundColor: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                当前候选基于「{getPlanningStrategyMetadata(generatedStrategy).label}」策略生成
+              </span>
+              {selectedStrategy !== generatedStrategy && (
+                <span
+                  data-testid="today-action-strategy-mismatch-notice"
+                  className="text-xs"
+                  style={{ color: 'var(--warning, #b45309)' }}
+                >
+                  （当前显示基于「{getPlanningStrategyMetadata(generatedStrategy).label}」；切换为「{getPlanningStrategyMetadata(selectedStrategy).label}」将在重新生成时生效）
+                </span>
+              )}
+            </div>
           )}
 
           {showFeedbackPreview && (
