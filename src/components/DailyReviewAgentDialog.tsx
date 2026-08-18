@@ -69,6 +69,13 @@ import { formatCandidateValidationMessage } from '../utils/candidateValidationMe
 import PendingStudyTaskRecoveryPanel from './PendingStudyTaskRecoveryPanel'
 import type { PlanningRunRecord, PlanningRunTransitionRequest } from '../types/planningHistory'
 import {
+  DEFAULT_PLANNING_STRATEGY_ID,
+  PLANNING_STRATEGIES,
+  buildDailyReviewGenerationContextSignature,
+  getPlanningStrategyMetadata,
+  type PlanningStrategyId,
+} from '../utils/planningStrategies'
+import {
   buildDailyReviewCandidateSnapshot,
   buildDailyReviewPlanningRunRequest,
   createPlanningRunId,
@@ -300,6 +307,10 @@ export default function DailyReviewAgentDialog({
   const [recoveryRevision, setRecoveryRevision] = useState(0)
   const [planningSession, setPlanningSession] = useState<PlanningSessionExplainability | null>(null)
   const [planningHistoryWarning, setPlanningHistoryWarning] = useState<string | null>(null)
+  const [selectedStrategy, setSelectedStrategy] = useState<PlanningStrategyId>(DEFAULT_PLANNING_STRATEGY_ID)
+  const [generatedStrategy, setGeneratedStrategy] = useState<PlanningStrategyId | null>(null)
+  const selectedStrategyRef = useRef<PlanningStrategyId>(DEFAULT_PLANNING_STRATEGY_ID)
+  selectedStrategyRef.current = selectedStrategy
   const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
   const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
   const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
@@ -455,6 +466,8 @@ export default function DailyReviewAgentDialog({
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
+    setSelectedStrategy(DEFAULT_PLANNING_STRATEGY_ID)
+    setGeneratedStrategy(null)
     setPlanningSession(resetPlanningSessionExplainability())
   }, [closePlanningRun, date, flushPlanningCandidates])
 
@@ -630,6 +643,7 @@ export default function DailyReviewAgentDialog({
     }
     const generation = ++generationRef.current
     const generationId = `daily-review${dialogInstanceId}-generation-${generation}`
+    const strategyToUse = selectedStrategyRef.current
     setGenerating(true)
     setGenerationErrors([])
     setCreationError(null)
@@ -639,6 +653,7 @@ export default function DailyReviewAgentDialog({
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
+    setGeneratedStrategy(null)
     setPlanningSession(createPlanningSessionExplainability({
       generationId,
       contextDecisions: [],
@@ -648,7 +663,7 @@ export default function DailyReviewAgentDialog({
       const context = await refreshReviewContext()
       if (!context || generationRef.current !== generation) return
 
-      const request = buildDailyReviewRequest(context)
+      const request = buildDailyReviewRequest(context, strategyToUse)
       setPlanningSession(createPlanningSessionExplainability({
         generationId,
         contextDecisions: request.contextDecisions,
@@ -677,12 +692,17 @@ export default function DailyReviewAgentDialog({
               selected: candidate.selected,
             })),
         }))
-        const generationContextSignature = buildDailyReviewContextSignature(context)
+        const baseContextSignature = buildDailyReviewContextSignature(context)
+        const generationContextSignature = buildDailyReviewGenerationContextSignature({
+          baseDomainContextSignature: baseContextSignature,
+          strategyId: strategyToUse,
+        })
         setGenerationProvenance(createAIStudyTaskGenerationProvenance(
           'daily_review',
           generationContextSignature,
         ))
-        setReviewedConfirmationContextSignature(generationContextSignature)
+        setReviewedConfirmationContextSignature(baseContextSignature)
+        setGeneratedStrategy(strategyToUse)
         const planningRunsAPI = getPlanningRunsAPI()
         if (planningRunsAPI) {
           try {
@@ -1072,6 +1092,24 @@ export default function DailyReviewAgentDialog({
               />
               分钟
             </label>
+            <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              次日规划策略
+              <select
+                data-testid="daily-review-strategy-selector"
+                aria-label="次日规划策略"
+                className="input"
+                value={selectedStrategy}
+                disabled={creating}
+                onChange={event => setSelectedStrategy(event.target.value as PlanningStrategyId)}
+                style={{ marginLeft: 8, minHeight: 36 }}
+              >
+                {PLANNING_STRATEGIES.map(strategy => (
+                  <option key={strategy.id} value={strategy.id} title={strategy.description}>
+                    {strategy.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="button button-primary"
@@ -1084,6 +1122,31 @@ export default function DailyReviewAgentDialog({
                 : <><Sparkles size={14} /> {generationErrors.length > 0 ? '重新生成复盘建议' : '生成复盘建议'}</>}
             </button>
           </div>
+
+          {generatedStrategy !== null && candidates.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-sm">
+              <span
+                data-testid="daily-review-generated-strategy-badge"
+                className="text-xs px-2 py-1 rounded"
+                style={{
+                  backgroundColor: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                次日候选基于「{getPlanningStrategyMetadata(generatedStrategy).label}」策略生成
+              </span>
+              {selectedStrategy !== generatedStrategy && (
+                <span
+                  data-testid="daily-review-strategy-mismatch-notice"
+                  className="text-xs"
+                  style={{ color: 'var(--warning, #b45309)' }}
+                >
+                  （当前显示基于「{getPlanningStrategyMetadata(generatedStrategy).label}」；切换为「{getPlanningStrategyMetadata(selectedStrategy).label}」将在重新生成时生效）
+                </span>
+              )}
+            </div>
+          )}
 
           <section className="mt-4" aria-label="每日复盘依据" data-testid="daily-review-context-preview">
             <div className="flex flex-wrap items-center justify-between gap-sm">

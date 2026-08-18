@@ -1065,7 +1065,7 @@ describe('DailyReviewAgentDialog', () => {
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
     const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
     expect(snapshot?.generation.operationKind).toBe('daily_review')
-    expect(snapshot?.generation.versions.promptVersion).toBe('daily-review.prompt.v1')
+    expect(snapshot?.generation.versions.promptVersion).toBe('daily-review.prompt.v2')
     expect(snapshot?.generation.generationContextSignature)
       .not.toBe(snapshot?.confirmationContextSignature)
     expect(snapshot?.generation.generationContextSignature).not.toContain('新出现的次日任务')
@@ -1668,5 +1668,232 @@ describe('DailyReviewAgentDialog', () => {
     expect(retryRequest).toEqual(firstRequest)
     expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
     expect(mocks.onCreated).toHaveBeenCalledTimes(1)
+  })
+
+  describe('Phase C6 Planning Strategy Presets', () => {
+    it('C6-DR-01: renders strategy selector with balanced as default and all three options', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      expect(selector).toBeInTheDocument()
+      expect(selector).toBeEnabled()
+      expect(selector.value).toBe('balanced')
+
+      const options = Array.from(selector.options).map(opt => ({ value: opt.value, text: opt.text }))
+      expect(options).toEqual([
+        { value: 'balanced', text: '均衡规划' },
+        { value: 'deep_focus', text: '深度专注' },
+        { value: 'light_load', text: '轻量推进' },
+      ])
+    })
+
+    it('C6-DR-02: generates with selected strategy directive and observation isolation clause, renders attribution badge', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect((selector as HTMLSelectElement).value).toBe('deep_focus')
+
+      await generateCandidates()
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      const promptMessages = mocks.aiChat.mock.calls[0]![0]
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略仅影响次日候选任务（candidates）的规划偏好；\n复盘洞察（observations）必须严格依据受控上下文中的可引用事实，\n不得因规划策略改变、软化或强化事实判断。',
+      )
+      expect(promptMessages[1]!.content).toContain(
+        '规划策略：深度专注（deep_focus）。次日候选任务倾向于安排少数重点科目的深度专注块，减少多科目碎片化切换。',
+      )
+
+      const badge = screen.getByTestId('daily-review-generated-strategy-badge')
+      expect(badge).toBeInTheDocument()
+      expect(badge).toHaveTextContent('次日候选基于「深度专注」策略生成')
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-DR-03: shows mismatch notice when changing strategy after generation and clears when reverted', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      await generateCandidates()
+      expect(screen.getByTestId('daily-review-generated-strategy-badge')).toBeInTheDocument()
+
+      // Switch to light_load without regenerating
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+
+      const mismatchNotice = screen.getByTestId('daily-review-strategy-mismatch-notice')
+      expect(mismatchNotice).toBeInTheDocument()
+      expect(mismatchNotice).toHaveTextContent(
+        '（当前显示基于「深度专注」；切换为「轻量推进」将在重新生成时生效）',
+      )
+
+      // Switch back to deep_focus
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-DR-04: regenerates with updated strategy, updates badge and clears mismatch notice', async () => {
+      renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector')
+      await generateCandidates()
+      expect(screen.getByTestId('daily-review-generated-strategy-badge')).toHaveTextContent('次日候选基于「均衡规划」策略生成')
+
+      // Switch to light_load
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(screen.getByTestId('daily-review-strategy-mismatch-notice')).toBeInTheDocument()
+
+      // Regenerate
+      fireEvent.click(screen.getByTestId('daily-review-generate'))
+      await waitFor(() => {
+        expect(mocks.aiChat).toHaveBeenCalledTimes(2)
+      })
+
+      const secondPromptMessages = mocks.aiChat.mock.calls[1]![0]
+      expect(secondPromptMessages[1]!.content).toContain(
+        '规划策略：轻量推进（light_load）。次日候选任务倾向于轻量、低启动负担的温和推进，优先清理到期错题或小切口行动，避免重负荷任务。',
+      )
+
+      const badge = screen.getByTestId('daily-review-generated-strategy-badge')
+      expect(badge).toHaveTextContent('次日候选基于「轻量推进」策略生成')
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-DR-05: resets strategy to balanced on date rollover and clears attribution and mismatch', async () => {
+      const { rerender } = renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      await generateCandidates()
+      expect(screen.getByTestId('daily-review-generated-strategy-badge')).toBeInTheDocument()
+
+      // Date rollover
+      rerender(
+        <DailyReviewAgentDialog
+          {...dialogProps('2026-06-13')}
+        />,
+      )
+
+      const rolledSelector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      expect(rolledSelector.value).toBe('balanced')
+      expect(screen.queryByTestId('daily-review-generated-strategy-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-DR-06: retains strategy in generation provenance upon task creation and keeps confirmation snapshot clean', async () => {
+      const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
+      renderDialog()
+      const selector = screen.getByTestId('daily-review-strategy-selector')
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+
+      await generateCandidates()
+      fireEvent.click(screen.getByTestId('daily-review-create-selected'))
+      await waitFor(() => {
+        expect(createActionSpy).toHaveBeenCalled()
+      })
+
+      const callArg = createActionSpy.mock.calls[0]![0]
+      const snapshot = callArg.confirmationSnapshot
+      expect(snapshot.generation.operationKind).toBe('daily_review')
+      const parsedGenSig = JSON.parse(snapshot.generation.generationContextSignature)
+      expect(parsedGenSig.strategyId).toBe('light_load')
+      expect(parsedGenSig.baseDomainContextSignature).toBeDefined()
+
+      // Confirmation context signature strictly matches base signature without strategy
+      const parsedConfSig = JSON.parse(snapshot.confirmationContextSignature)
+      expect(parsedConfSig.reviewDate).toBe(REVIEW_DATE)
+      expect(parsedConfSig.candidateDate).toBe(CANDIDATE_DATE)
+      expect(parsedConfSig).not.toHaveProperty('strategyId')
+      createActionSpy.mockRestore()
+    })
+
+    it('C6-DR-07: allows changing strategy while Daily Review generation is in-flight and keeps in-flight provenance intact', async () => {
+      const aiChatDeferred = createDeferred<{ content: string }>()
+      mocks.aiChat.mockReturnValueOnce(aiChatDeferred.promise)
+      renderDialog()
+      await waitForInitialContext()
+
+      const selector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+      expect(selector.value).toBe('deep_focus')
+
+      // Trigger generation under deep_focus
+      fireEvent.click(screen.getByTestId('daily-review-generate'))
+      await waitFor(() => {
+        expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+      })
+
+      // Selector MUST remain enabled while Provider request is in-flight
+      expect(selector).toBeEnabled()
+
+      // User changes selector to light_load while Provider request is in-flight
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(selector.value).toBe('light_load')
+
+      // Provider responds
+      aiChatDeferred.resolve({ content: validAiResponse })
+
+      expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+
+      // Attribution badge reflects deep_focus (strategy at generation start)
+      const badge = screen.getByTestId('daily-review-generated-strategy-badge')
+      expect(badge).toHaveTextContent('次日候选基于「深度专注」策略生成')
+
+      // Mismatch notice is shown because selector is now light_load
+      const mismatchNotice = screen.getByTestId('daily-review-strategy-mismatch-notice')
+      expect(mismatchNotice).toHaveTextContent(
+        '（当前显示基于「深度专注」；切换为「轻量推进」将在重新生成时生效）',
+      )
+    })
+
+    it('C6-DR-08: renders observations without displaying candidate strategy attribution badge when output has zero candidates', async () => {
+      const observationsOnlyResponse = JSON.stringify({
+        observations: [
+          {
+            summary: '今日按时完成专注',
+            reason: '本地记录显示完成了番茄专注。',
+            source_refs: ['pomodoro'],
+          },
+        ],
+        candidates: [],
+      })
+      mocks.aiChat.mockResolvedValueOnce({ content: observationsOnlyResponse })
+      renderDialog()
+      await waitForInitialContext()
+
+      const selector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      fireEvent.change(selector, { target: { value: 'deep_focus' } })
+
+      fireEvent.click(screen.getByTestId('daily-review-generate'))
+      expect(await screen.findByText('今日按时完成专注')).toBeInTheDocument()
+
+      // Attribution badge and mismatch notice MUST NOT be shown for observations-only outputs
+      expect(screen.queryByTestId('daily-review-generated-strategy-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
+
+    it('C6-DR-09: clears generated strategy and attribution at regeneration start even if new request fails or is malformed', async () => {
+      renderDialog()
+      await waitForInitialContext()
+
+      const selector = screen.getByTestId('daily-review-strategy-selector') as HTMLSelectElement
+      expect(selector.value).toBe('balanced')
+
+      // First generation succeeds under balanced
+      fireEvent.click(screen.getByTestId('daily-review-generate'))
+      expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+      expect(screen.getByTestId('daily-review-generated-strategy-badge')).toHaveTextContent('次日候选基于「均衡规划」策略生成')
+
+      // Switch to light_load
+      fireEvent.change(selector, { target: { value: 'light_load' } })
+      expect(screen.getByTestId('daily-review-strategy-mismatch-notice')).toBeInTheDocument()
+
+      // Regenerate with failing / malformed provider response
+      mocks.aiChat.mockResolvedValueOnce({ error: 'Provider down' })
+      fireEvent.click(screen.getByTestId('daily-review-generate'))
+
+      // Old candidates, observations, badge, and mismatch notice MUST NOT survive
+      expect(await screen.findByText('Provider down')).toBeInTheDocument()
+      expect(screen.queryByDisplayValue('复习函数极限错题')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('daily-review-generated-strategy-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('daily-review-strategy-mismatch-notice')).not.toBeInTheDocument()
+    })
   })
 })

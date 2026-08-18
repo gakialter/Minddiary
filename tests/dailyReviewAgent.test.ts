@@ -15,9 +15,7 @@ import {
 } from '../src/utils/dailyReviewAgent'
 import { TODAY_ACTION_RESPONSE_MAX_CHARS } from '../src/utils/todayActionSuggestions'
 
-// Derived from the exact 89bdd042d6155769e5675b03b16e45193abcfe17 builder
-// with the fixed limit-and-unavailable-marker input below. Do not derive this from the current wrapper.
-const BASE_DAILY_MESSAGES_SHA256 = '423610a25a3857bc18d1a268a0bcf8ea6f0535c3de383553cd5da309985ab902'
+const BASE_DAILY_MESSAGES_SHA256 = '121e680382033b860d528281c24c09df1fb68a1bcfef6eb0051d8ee238fd79a4'
 
 const REVIEW_DATE = '2026-06-12'
 const CANDIDATE_DATE = '2026-06-13'
@@ -328,7 +326,7 @@ describe('dailyReviewAgent safe context and calendar helpers', () => {
     })
     const messagesJson = JSON.stringify(buildDailyReviewRequest(fixedInput).messages)
 
-    expect(Buffer.byteLength(messagesJson, 'utf8')).toBe(9578)
+    expect(Buffer.byteLength(messagesJson, 'utf8')).toBe(9979)
     expect(createHash('sha256').update(messagesJson, 'utf8').digest('hex')).toBe(
       BASE_DAILY_MESSAGES_SHA256,
     )
@@ -692,5 +690,48 @@ describe('dailyReviewAgent candidate validation and stale signature', () => {
     expect(buildDailyReviewContextSignature(reordered)).toBe(signature)
     expect(buildDailyReviewContextSignature(changed)).not.toBe(signature)
     expect(created[0]?.selected).toBe(false)
+  })
+
+  it('renders exact observation isolation clause and strategy directives for balanced, deep_focus, and light_load', () => {
+    const balancedMessages = buildDailyReviewMessages(context(), 'balanced')
+    expect(balancedMessages[1]!.content).toContain(
+      '规划策略仅影响次日候选任务（candidates）的规划偏好；\n复盘洞察（observations）必须严格依据受控上下文中的可引用事实，\n不得因规划策略改变、软化或强化事实判断。',
+    )
+    expect(balancedMessages[1]!.content).toContain(
+      '规划策略：均衡规划（balanced）。次日候选任务兼顾各学科复习与新内容推进，单项时长适中，节奏平稳。',
+    )
+
+    const deepFocusMessages = buildDailyReviewMessages(context(), 'deep_focus')
+    expect(deepFocusMessages[1]!.content).toContain(
+      '规划策略：深度专注（deep_focus）。次日候选任务倾向于安排少数重点科目的深度专注块，减少多科目碎片化切换。',
+    )
+
+    const lightLoadMessages = buildDailyReviewMessages(context(), 'light_load')
+    expect(lightLoadMessages[1]!.content).toContain(
+      '规划策略：轻量推进（light_load）。次日候选任务倾向于轻量、低启动负担的温和推进，优先清理到期错题或小切口行动，避免重负荷任务。',
+    )
+  })
+
+  it('instructs {"observations":[],"candidates":[]} for insufficient evidence in prompt, parses valid empty and observations-only objects, and rejects bare array', () => {
+    const messages = buildDailyReviewMessages(context())
+    expect(messages[1]!.content).toContain('证据不足时返回：{"observations":[],"candidates":[]}。')
+    expect(messages[1]!.content).not.toContain('返回空数组')
+
+    const emptyParsed = parseDailyReviewOutput(JSON.stringify({ observations: [], candidates: [] }), context())
+    expect(emptyParsed.errors).toEqual([])
+    expect(emptyParsed.observations).toEqual([])
+    expect(emptyParsed.candidates).toEqual([])
+
+    const obsOnlyParsed = parseDailyReviewOutput(JSON.stringify({
+      observations: [{ summary: '今日复习良好', reason: '完成了计划任务。', source_refs: ['today_tasks'] }],
+      candidates: [],
+    }), context())
+    expect(obsOnlyParsed.errors).toEqual([])
+    expect(obsOnlyParsed.observations).toHaveLength(1)
+    expect(obsOnlyParsed.candidates).toEqual([])
+
+    const bareArrayParsed = parseDailyReviewOutput('[]', context())
+    expect(bareArrayParsed.errors[0]).toContain('Top-level AI response must be an object')
+    expect(bareArrayParsed.candidates).toEqual([])
   })
 })
