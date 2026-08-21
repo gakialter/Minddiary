@@ -13,7 +13,7 @@ import {
 import { getLocalDateKey, getNextLocalDateKey, isDateKey } from './dateKey'
 
 const STUDY_TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
-const ACTION_KEYS = [
+const BASE_ACTION_KEYS = [
   'kind',
   'operationId',
   'mode',
@@ -23,13 +23,15 @@ const ACTION_KEYS = [
   'plannedDate',
   'draft',
 ] as const
-const SNAPSHOT_KEYS = [
+const MISTAKE_ACTION_KEYS = [...BASE_ACTION_KEYS, 'generationMistakeRef'] as const
+const BASE_SNAPSHOT_KEYS = [
   'mode',
   'generation',
   'confirmationContextSignature',
   'expectedCurrentDate',
   'plannedDate',
 ] as const
+const MISTAKE_SNAPSHOT_KEYS = [...BASE_SNAPSHOT_KEYS, 'generationMistakeRef'] as const
 const DRAFT_KEYS = [
   'title',
   'description',
@@ -73,6 +75,8 @@ const DESCRIPTION_MAX_LENGTH = 240
 const ESTIMATE_MINUTES_MIN = 5
 const ESTIMATE_MINUTES_MAX = 180
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
+const MISTAKE_REF_PATTERN = /^m(?:[1-9]|1[0-2])$/
 const UNCERTAIN_RESULT_MESSAGE = '任务创建结果不确定。请使用相同操作 ID 检查并恢复。'
 const IDEMPOTENT_ERROR_CODES: readonly IdempotentAIStudyTaskCreateErrorCode[] = [
   'INVALID_REQUEST',
@@ -95,24 +99,40 @@ export interface ConfirmedStudyTaskDraft {
   related_chapter_id?: number | null
 }
 
-export interface StudyTaskActionConfirmationSnapshot {
-  mode: StudyTaskActionMode
+interface StudyTaskActionConfirmationSnapshotBase {
   generation: AIStudyTaskGenerationProvenance
   confirmationContextSignature: string
   expectedCurrentDate: string
   plannedDate: string
 }
 
-export interface ConfirmedStudyTaskAction {
+export type StudyTaskActionConfirmationSnapshot =
+  | (StudyTaskActionConfirmationSnapshotBase & {
+      mode: 'today_action' | 'daily_review'
+    })
+  | (StudyTaskActionConfirmationSnapshotBase & {
+      mode: 'mistake_review'
+      generationMistakeRef: string
+    })
+
+interface ConfirmedStudyTaskActionBase {
   kind: 'create_study_task'
   operationId: string
-  mode: StudyTaskActionMode
   generation: AIStudyTaskGenerationProvenance
   confirmationContextSignature: string
   expectedCurrentDate: string
   plannedDate: string
   draft: ConfirmedStudyTaskDraft
 }
+
+export type ConfirmedStudyTaskAction =
+  | (ConfirmedStudyTaskActionBase & {
+      mode: 'today_action' | 'daily_review'
+    })
+  | (ConfirmedStudyTaskActionBase & {
+      mode: 'mistake_review'
+      generationMistakeRef: string
+    })
 
 export type StudyTaskActionExecutionResult =
   | {
@@ -206,6 +226,20 @@ function requireMode(value: unknown): StudyTaskActionMode {
   return value
 }
 
+function requireMistakeGenerationSignature(value: unknown): string {
+  if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+    throw new Error('mistake review generation context signature must be lowercase SHA-256')
+  }
+  return value
+}
+
+function requireMistakeRef(value: unknown): string {
+  if (typeof value !== 'string' || !MISTAKE_REF_PATTERN.test(value)) {
+    throw new Error('mistake review generationMistakeRef must be m1 through m12')
+  }
+  return value
+}
+
 function requireValidLocalDateKey(value: unknown, label: string): string {
   if (!isDateKey(value)) throw new Error(`${label} must be a YYYY-MM-DD local date key`)
   const [year, month, day] = value.split('-').map(Number)
@@ -226,8 +260,12 @@ function requireNullableId(value: unknown, label: string): number | null {
 
 function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   const snapshot = requireRecord(value, 'confirmation snapshot')
-  assertExactKeys({ record: snapshot, allowed: SNAPSHOT_KEYS, label: 'confirmation snapshot' })
   const mode = requireMode(snapshot.mode)
+  assertExactKeys({
+    record: snapshot,
+    allowed: mode === 'mistake_review' ? MISTAKE_SNAPSHOT_KEYS : BASE_SNAPSHOT_KEYS,
+    label: 'confirmation snapshot',
+  })
   const generation = validateAIStudyTaskGenerationProvenance(snapshot.generation, mode)
   const confirmationContextSignature = requireNonEmptyString(
     snapshot.confirmationContextSignature,
@@ -241,13 +279,22 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   if (plannedDate !== invariantPlannedDate) {
     throw new Error(`${mode} plannedDate does not match its local-date invariant`)
   }
-  return {
+  const base = {
     mode,
     generation,
     confirmationContextSignature,
     expectedCurrentDate,
     plannedDate,
   }
+  if (mode === 'mistake_review') {
+    requireMistakeGenerationSignature(generation.generationContextSignature)
+    requireMistakeGenerationSignature(confirmationContextSignature)
+    if (confirmationContextSignature !== generation.generationContextSignature) {
+      throw new Error('mistake review confirmation context must match generation context')
+    }
+    return { ...base, mode, generationMistakeRef: requireMistakeRef(snapshot.generationMistakeRef) }
+  }
+  return { ...base, mode }
 }
 
 function validateDraft(value: unknown): ConfirmedStudyTaskDraft {
@@ -292,10 +339,14 @@ export function validateConfirmedStudyTaskAction(
   confirmationSnapshot: StudyTaskActionConfirmationSnapshot,
 ): ConfirmedStudyTaskAction {
   const action = requireRecord(value, 'confirmed study task action')
-  assertExactKeys({ record: action, allowed: ACTION_KEYS, label: 'confirmed study task action' })
   if (action.kind !== 'create_study_task') throw new Error('confirmed study task action kind is invalid')
   const operationId = validateConfirmedStudyTaskOperationId(action.operationId)
   const mode = requireMode(action.mode)
+  assertExactKeys({
+    record: action,
+    allowed: mode === 'mistake_review' ? MISTAKE_ACTION_KEYS : BASE_ACTION_KEYS,
+    label: 'confirmed study task action',
+  })
   const generation = validateAIStudyTaskGenerationProvenance(action.generation, mode)
   const confirmationContextSignature = requireNonEmptyString(
     action.confirmationContextSignature,
@@ -329,7 +380,7 @@ export function validateConfirmedStudyTaskAction(
     throw new Error('confirmed study task action plannedDate does not match confirmation snapshot')
   }
 
-  return {
+  const base = {
     kind: 'create_study_task',
     operationId,
     mode,
@@ -339,6 +390,14 @@ export function validateConfirmedStudyTaskAction(
     plannedDate,
     draft: validateDraft(action.draft),
   }
+  if (mode === 'mistake_review') {
+    const generationMistakeRef = requireMistakeRef(action.generationMistakeRef)
+    if (snapshot.mode !== 'mistake_review' || generationMistakeRef !== snapshot.generationMistakeRef) {
+      throw new Error('confirmed study task action generationMistakeRef does not match confirmation snapshot')
+    }
+    return { ...base, kind: 'create_study_task', mode, generationMistakeRef }
+  }
+  return { ...base, kind: 'create_study_task', mode }
 }
 
 export function createConfirmedStudyTaskAction({
@@ -359,6 +418,9 @@ export function createConfirmedStudyTaskAction({
     confirmationContextSignature: snapshot.confirmationContextSignature,
     expectedCurrentDate: snapshot.expectedCurrentDate,
     plannedDate: snapshot.plannedDate,
+    ...(snapshot.mode === 'mistake_review'
+      ? { generationMistakeRef: snapshot.generationMistakeRef }
+      : {}),
     draft,
   }, snapshot)
 }
@@ -382,12 +444,27 @@ export function buildConfirmedStudyTaskPayload(action: ConfirmedStudyTaskAction)
 export function buildIdempotentAIStudyTaskCreateRequest(
   action: ConfirmedStudyTaskAction,
 ): IdempotentAIStudyTaskCreateRequest {
-  return {
+  const base = {
     operationId: action.operationId,
     operationKind: action.mode,
     actionContractVersion: action.generation.versions.actionContractVersion,
     expectedCurrentDate: action.expectedCurrentDate,
     payload: buildConfirmedStudyTaskPayload(action),
+  }
+  if (action.mode === 'mistake_review') {
+    return {
+      ...base,
+      operationKind: action.mode,
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
+      contextProjectionVersion: action.generation.versions.contextProjectionVersion as 'mistake-review.context-projection.v1',
+      generationContextSignature: action.generation.generationContextSignature,
+      generationMistakeRef: action.generationMistakeRef,
+    }
+  }
+  return {
+    ...base,
+    operationKind: action.mode,
+    actionContractVersion: 'confirmed-study-task-action.v1',
   }
 }
 

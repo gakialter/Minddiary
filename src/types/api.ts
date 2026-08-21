@@ -150,7 +150,37 @@ export interface IdempotentAIStudyTaskCreateRequest {
   operationKind: IdempotentAIStudyTaskOperationKind
   actionContractVersion: string
   expectedCurrentDate: string
+  contextProjectionVersion?: string
+  generationContextSignature?: string
+  generationMistakeRef?: string
   payload: NewStudyTask
+}
+
+export interface IdempotentTodayOrDailyStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'today_action' | 'daily_review'
+  actionContractVersion: 'confirmed-study-task-action.v1'
+  contextProjectionVersion?: never
+  generationContextSignature?: never
+  generationMistakeRef?: never
+}
+
+export interface LegacyIdempotentMistakeReviewStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'mistake_review'
+  actionContractVersion: 'confirmed-mistake-review-task-action.v1'
+  contextProjectionVersion?: never
+  generationContextSignature?: never
+  generationMistakeRef?: never
+}
+
+export interface IdempotentMistakeReviewStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'mistake_review'
+  actionContractVersion: 'confirmed-mistake-review-task-action.v2'
+  contextProjectionVersion: 'mistake-review.context-projection.v1'
+  generationContextSignature: string
+  generationMistakeRef: string
 }
 
 export type IdempotentAIStudyTaskCreateErrorCode =

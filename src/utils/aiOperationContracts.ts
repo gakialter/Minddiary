@@ -24,7 +24,7 @@ export interface AIStudyTaskGenerationProvenance {
 }
 
 export const CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
-export const CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
+export const CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v2'
 
 export const AI_STUDY_TASK_OPERATION_KINDS = Object.freeze([
   'today_action',

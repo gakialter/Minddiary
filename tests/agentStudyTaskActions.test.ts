@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { StudyTask } from '../src/types'
 import {
   buildConfirmedStudyTaskPayload,
+  buildIdempotentAIStudyTaskCreateRequest,
   createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
@@ -26,6 +27,7 @@ const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
 const OPERATION_ID = '11111111-1111-4111-8111-111111111111'
 const DAILY_OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 const MISTAKE_OPERATION_ID = '33333333-3333-4333-8333-333333333333'
+const MISTAKE_CONTEXT_SIGNATURE = 'a'.repeat(64)
 
 const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'daily_review',
@@ -37,8 +39,9 @@ const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
 
 const mistakeSnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'mistake_review',
-  generation: createAIStudyTaskGenerationProvenance('mistake_review', 'mistake-generation-context-fixture'),
-  confirmationContextSignature: 'mistake-confirmation-context-fixture',
+  generation: createAIStudyTaskGenerationProvenance('mistake_review', MISTAKE_CONTEXT_SIGNATURE),
+  confirmationContextSignature: MISTAKE_CONTEXT_SIGNATURE,
+  generationMistakeRef: 'm1',
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-12',
 }
@@ -130,6 +133,7 @@ describe('agentStudyTaskActions', () => {
     })
     expect(createAction(mistakeSnapshot, mistakeDraft, MISTAKE_OPERATION_ID)).toMatchObject({
       mode: 'mistake_review',
+      generationMistakeRef: 'm1',
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-12',
       draft: mistakeDraft,
@@ -362,6 +366,20 @@ describe('agentStudyTaskActions', () => {
       estimate_minutes: 10,
       status: 'todo',
       source: 'ai',
+    })
+  })
+
+  it('builds a C5 v2 privileged request carrying the whole-context proof and candidate alias', () => {
+    const action = createAction(mistakeSnapshot, mistakeDraft, MISTAKE_OPERATION_ID)
+    expect(buildIdempotentAIStudyTaskCreateRequest(action)).toEqual({
+      operationId: MISTAKE_OPERATION_ID,
+      operationKind: 'mistake_review',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      contextProjectionVersion: 'mistake-review.context-projection.v1',
+      generationContextSignature: MISTAKE_CONTEXT_SIGNATURE,
+      generationMistakeRef: 'm1',
+      payload: buildConfirmedStudyTaskPayload(action),
     })
   })
 

@@ -1,11 +1,13 @@
 import { createHash } from 'crypto';
 import type Database from 'better-sqlite3';
 import type {
+    Mistake,
     NewStudyTask,
     StudyTask,
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
+    Subject,
 } from '../src/types';
 import type {
     IdempotentAIStudyTaskCreateRequest,
@@ -15,15 +17,29 @@ import {
     CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
     CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
 } from '../src/utils/aiOperationContracts';
+import {
+    buildMistakeReviewContextSignatureString,
+    prepareMistakeReviewSession,
+} from '../src/utils/mistakeReviewSuggestions';
 
 export const IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION =
     CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION;
 
-const REQUEST_KEYS = [
+const BASE_REQUEST_KEYS = [
     'operationId',
     'operationKind',
     'actionContractVersion',
     'expectedCurrentDate',
+    'payload',
+] as const;
+const MISTAKE_V2_REQUEST_KEYS = [
+    'operationId',
+    'operationKind',
+    'actionContractVersion',
+    'expectedCurrentDate',
+    'contextProjectionVersion',
+    'generationContextSignature',
+    'generationMistakeRef',
     'payload',
 ] as const;
 const PAYLOAD_KEYS = [
@@ -45,6 +61,10 @@ const STUDY_TASK_SOURCES: readonly StudyTaskSource[] = ['manual', 'dashboard', '
 const LOWERCASE_UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const MISTAKE_REF_PATTERN = /^m(?:[1-9]|1[0-2])$/;
+const LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1';
+const MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION = 'mistake-review.context-projection.v1';
+const STALE_MISTAKE_REVIEW_MESSAGE = '错题上下文已变化，请重新生成建议后再确认；本次未创建任务。';
 const TITLE_MAX_LENGTH = 80;
 const DESCRIPTION_MAX_LENGTH = 240;
 const ESTIMATE_MINUTES_MIN = 5;
@@ -266,13 +286,6 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     value: unknown,
 ): IdempotentAIStudyTaskCreateRequest {
     const request = requireObjectRecord(value, 'request');
-    assertExactOwnKeys(request, REQUEST_KEYS, 'request');
-
-    const operationId = readOwnDataProperty(request, 'operationId', 'request');
-    if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
-        throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
-    }
-
     const operationKind = readOwnDataProperty(request, 'operationKind', 'request');
     if (
         operationKind !== 'today_action'
@@ -283,12 +296,28 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     }
 
     const actionContractVersion = readOwnDataProperty(request, 'actionContractVersion', 'request');
+    const isMistakeV2 = operationKind === 'mistake_review'
+        && actionContractVersion === CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION;
+    assertExactOwnKeys(
+        request,
+        isMistakeV2 ? MISTAKE_V2_REQUEST_KEYS : BASE_REQUEST_KEYS,
+        'request',
+    );
+
+    const operationId = readOwnDataProperty(request, 'operationId', 'request');
+    if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
+        throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
+    }
+
     if (operationKind === 'today_action' || operationKind === 'daily_review') {
         if (actionContractVersion !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
             throw new RequestValidationError('request.actionContractVersion is unsupported');
         }
     } else if (operationKind === 'mistake_review') {
-        if (actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+        if (
+            actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+            && actionContractVersion !== LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        ) {
             throw new RequestValidationError('request.actionContractVersion is unsupported');
         }
     } else {
@@ -309,35 +338,72 @@ export function validateIdempotentAIStudyTaskCreateRequest(
         );
     }
 
-    return {
+    const base: IdempotentAIStudyTaskCreateRequest = {
         operationId,
         operationKind,
         actionContractVersion,
         expectedCurrentDate,
         payload,
     };
+    if (isMistakeV2) {
+        const contextProjectionVersion = readOwnDataProperty(request, 'contextProjectionVersion', 'request');
+        if (contextProjectionVersion !== MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION) {
+            throw new RequestValidationError('request.contextProjectionVersion is unsupported');
+        }
+        const generationContextSignature = readOwnDataProperty(request, 'generationContextSignature', 'request');
+        if (typeof generationContextSignature !== 'string' || !SHA256_PATTERN.test(generationContextSignature)) {
+            throw new RequestValidationError('request.generationContextSignature must be a lowercase SHA-256 digest');
+        }
+        const generationMistakeRef = readOwnDataProperty(request, 'generationMistakeRef', 'request');
+        if (typeof generationMistakeRef !== 'string' || !MISTAKE_REF_PATTERN.test(generationMistakeRef)) {
+            throw new RequestValidationError('request.generationMistakeRef must be m1 through m12');
+        }
+        return {
+            ...base,
+            contextProjectionVersion,
+            generationContextSignature,
+            generationMistakeRef,
+        };
+    }
+    return base;
 }
 
 function buildCanonicalDigestJson(request: IdempotentAIStudyTaskCreateRequest): string {
     const payload = request.payload as CanonicalAIStudyTaskPayload;
+    const canonicalPayload = {
+        title: payload.title,
+        description: payload.description,
+        type: payload.type,
+        subject_id: payload.subject_id,
+        related_mistake_id: payload.related_mistake_id,
+        related_entry_id: payload.related_entry_id,
+        related_chapter_id: payload.related_chapter_id,
+        planned_date: payload.planned_date,
+        estimate_minutes: payload.estimate_minutes,
+        status: payload.status,
+        source: payload.source,
+    };
+    if (
+        request.operationKind === 'mistake_review'
+        && request.actionContractVersion === CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+    ) {
+        return JSON.stringify({
+            operationId: request.operationId,
+            operationKind: request.operationKind,
+            actionContractVersion: request.actionContractVersion,
+            expectedCurrentDate: request.expectedCurrentDate,
+            contextProjectionVersion: request.contextProjectionVersion,
+            generationContextSignature: request.generationContextSignature,
+            generationMistakeRef: request.generationMistakeRef,
+            payload: canonicalPayload,
+        });
+    }
     return JSON.stringify({
         operationKind: request.operationKind,
         actionContractVersion: request.actionContractVersion,
         expectedCurrentDate: request.expectedCurrentDate,
         plannedDate: payload.planned_date,
-        payload: {
-            title: payload.title,
-            description: payload.description,
-            type: payload.type,
-            subject_id: payload.subject_id,
-            related_mistake_id: payload.related_mistake_id,
-            related_entry_id: payload.related_entry_id,
-            related_chapter_id: payload.related_chapter_id,
-            planned_date: payload.planned_date,
-            estimate_minutes: payload.estimate_minutes,
-            status: payload.status,
-            source: payload.source,
-        },
+        payload: canonicalPayload,
     });
 }
 
@@ -430,7 +496,10 @@ function isValidReceiptRow(receipt: StudyTaskActionReceiptRow): boolean {
             return false;
         }
     } else if (receipt.operation_kind === 'mistake_review') {
-        if (receipt.action_contract_version !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+        if (
+            receipt.action_contract_version !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+            && receipt.action_contract_version !== LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        ) {
             return false;
         }
     } else {
@@ -626,12 +695,19 @@ function extractOperationId(value: unknown): string {
 }
 
 function validateFreshMistakeReviewDomain(
-    payload: CanonicalAIStudyTaskPayload,
-    expectedCurrentDate: string,
+    request: IdempotentAIStudyTaskCreateRequest,
     database: Database.Database,
 ): void {
+    const payload = request.payload as CanonicalAIStudyTaskPayload;
+    const expectedCurrentDate = request.expectedCurrentDate;
     if (
-        payload.type !== 'review'
+        request.actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        || request.contextProjectionVersion !== MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION
+        || typeof request.generationContextSignature !== 'string'
+        || !SHA256_PATTERN.test(request.generationContextSignature)
+        || typeof request.generationMistakeRef !== 'string'
+        || !MISTAKE_REF_PATTERN.test(request.generationMistakeRef)
+        || payload.type !== 'review'
         || payload.related_mistake_id === null
         || payload.related_mistake_id <= 0
         || payload.subject_id === null
@@ -642,54 +718,96 @@ function validateFreshMistakeReviewDomain(
         || payload.status !== 'todo'
         || payload.source !== 'ai'
     ) {
-        throw new FreshMistakeReviewValidationError('Fresh mistake review task payload is invalid');
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
     }
 
-    const mistakeRow = database.prepare(`
-        SELECT id, subject_id, mastered, next_review_date
-        FROM mistakes
-        WHERE id = ?
-    `).get(payload.related_mistake_id) as {
+    type MistakeDomainRow = {
         id: number;
         subject_id: number | null;
+        question: string;
+        answer: string | null;
+        notes: string | null;
         mastered: number;
+        ease_factor: number;
+        review_interval: number;
         next_review_date: string | null;
-    } | undefined;
-
-    if (!mistakeRow) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake does not exist');
-    }
-
-    if (mistakeRow.mastered !== 0) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake is already mastered');
-    }
-
-    if (mistakeRow.next_review_date !== null && mistakeRow.next_review_date > expectedCurrentDate) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake is not due for review');
-    }
-
-    if (mistakeRow.subject_id === null || mistakeRow.subject_id !== payload.subject_id) {
-        throw new FreshMistakeReviewValidationError('Mistake subject does not match payload subject');
-    }
-
-    const subjectRow = database.prepare(`
-        SELECT id FROM subjects WHERE id = ?
-    `).get(payload.subject_id);
-
-    if (!subjectRow) {
-        throw new FreshMistakeReviewValidationError('Referenced subject does not exist');
-    }
-
-    const collisionRow = database.prepare(`
-        SELECT id FROM study_tasks
+        review_count: number;
+        created_at: string;
+        updated_at: string | undefined;
+    };
+    const mistakeRows = database.prepare(`
+        SELECT id, subject_id, question, answer, notes, mastered, ease_factor,
+               review_interval, next_review_date, review_count, created_at, updated_at
+        FROM mistakes
+    `).all() as MistakeDomainRow[];
+    const subjectRows = database.prepare(`
+        SELECT id, name, color
+        FROM subjects
+    `).all() as Subject[];
+    const activeReviewTaskRows = database.prepare(`
+        SELECT id, type, planned_date, status, related_mistake_id
+        FROM study_tasks
         WHERE type = 'review'
           AND planned_date = ?
           AND status IN ('todo', 'doing')
-          AND related_mistake_id = ?
-    `).get(expectedCurrentDate, payload.related_mistake_id);
+    `).all(expectedCurrentDate) as Array<Pick<
+        StudyTask,
+        'id' | 'type' | 'planned_date' | 'status' | 'related_mistake_id'
+    >>;
+
+    const mistakes = mistakeRows.map(row => ({
+        ...row,
+        answer: row.answer ?? '',
+        notes: row.notes ?? '',
+        mastered: row.mastered !== 0,
+    })) as Mistake[];
+    const session = prepareMistakeReviewSession({
+        mistakes,
+        subjects: subjectRows,
+        activeReviewTasks: activeReviewTaskRows as StudyTask[],
+        currentDate: expectedCurrentDate,
+    });
+    const currentSignature = createHash('sha256')
+        .update(buildMistakeReviewContextSignatureString(session.projection), 'utf8')
+        .digest('hex');
+    if (currentSignature !== request.generationContextSignature) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+    const aliasedMistake = session.aliasMap.get(request.generationMistakeRef);
+    if (!aliasedMistake || aliasedMistake.id !== payload.related_mistake_id) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const mistakeRow = mistakeRows.find(row => row.id === payload.related_mistake_id);
+
+    if (!mistakeRow) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.mastered !== 0) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.next_review_date !== null && mistakeRow.next_review_date > expectedCurrentDate) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.subject_id === null || mistakeRow.subject_id !== payload.subject_id) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const subjectRow = subjectRows.find(subject => subject.id === payload.subject_id);
+
+    if (!subjectRow) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const collisionRow = activeReviewTaskRows.find(task => (
+        task.related_mistake_id === payload.related_mistake_id
+    ));
 
     if (collisionRow) {
-        throw new FreshMistakeReviewValidationError('An active same-day review task already exists for this mistake');
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
     }
 }
 
@@ -725,12 +843,18 @@ export function createIdempotentAIStudyTaskForCurrentDate(
                     return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
                 }
 
+                if (
+                    request.operationKind === 'mistake_review'
+                    && request.actionContractVersion === LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+                ) {
+                    throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+                }
+
                 assertCurrentDate(request.expectedCurrentDate, dependencies.getCurrentDateKey);
 
                 if (request.operationKind === 'mistake_review') {
                     validateFreshMistakeReviewDomain(
-                        request.payload as CanonicalAIStudyTaskPayload,
-                        request.expectedCurrentDate,
+                        request,
                         dependencies.database,
                     );
                 }

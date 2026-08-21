@@ -196,6 +196,7 @@ export default function MistakeReviewAgentDialog({
       mode: 'mistake_review',
       generation: provenance,
       confirmationContextSignature: sessionSignature,
+      generationMistakeRef: candidate.mistake_ref,
       expectedCurrentDate: currentDate,
       plannedDate: currentDate,
     }

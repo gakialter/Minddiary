@@ -235,8 +235,11 @@ describe('MistakeReviewAgentDialog Component', () => {
     const passedRequest = tasksAPI.createIdempotentAIStudyTaskForCurrentDate.mock.calls[0]![0]
     expect(passedRequest).toMatchObject({
       operationKind: 'mistake_review',
-      actionContractVersion: 'confirmed-mistake-review-task-action.v1',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
       expectedCurrentDate: currentDate,
+      contextProjectionVersion: 'mistake-review.context-projection.v1',
+      generationContextSignature: expect.stringMatching(/^[0-9a-f]{64}$/),
+      generationMistakeRef: 'm1',
       payload: {
         title: '复习极限基础',
         type: 'review',

@@ -154,7 +154,7 @@ function digestMessages(messages: AIMessage[]): string {
 const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
   'today-action.prompt.v3': '8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681',
   'daily-review.prompt.v2': '582c458b685032a9aef79b5d6dba8d7dfb660644bf1201aed8f4c2fea206821f',
-  'mistake-review.prompt.v1': digestMessages(buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)),
+  'mistake-review.prompt.v1': '608e1dc0f12a36d5f0edb1801ef9e75053acfab019e46a2a8c2893cd5ea18305',
 })
 
 describe('AI study task operation contracts', () => {
@@ -185,7 +185,7 @@ describe('AI study task operation contracts', () => {
       parserVersion: 'mistake-review.parser.v1',
       policyVersion: 'mistake-review.policy.v1',
       contextProjectionVersion: 'mistake-review.context-projection.v1',
-      actionContractVersion: 'confirmed-mistake-review-task-action.v1',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
     })
     expect(getAIStudyTaskOperationContract('today_action').actionContractVersion)
       .toBe(CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION)
@@ -283,5 +283,14 @@ describe('versioned prompt drift fixtures', () => {
 
     expect(serialization).not.toContain('\r')
     expect(digestMessages(messages)).toBe(EXPECTED_PROMPT_DIGESTS[promptVersion])
+  })
+
+  it('detects a one-character Mistake Review prompt mutation against the frozen oracle', () => {
+    const messages = buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)
+      .map(message => ({ ...message }))
+    messages[1] = { ...messages[1]!, content: `${messages[1]!.content}!` }
+
+    expect(digestMessages(messages))
+      .not.toBe(EXPECTED_PROMPT_DIGESTS['mistake-review.prompt.v1'])
   })
 })
