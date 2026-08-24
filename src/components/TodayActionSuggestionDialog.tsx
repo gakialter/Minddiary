@@ -2,7 +2,15 @@ import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId
 import { createPortal } from 'react-dom'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
-import type { AIContextAPI, EntriesContextAPI, MistakesContextAPI, SubjectsContextAPI, TasksContextAPI } from '../types/api'
+import type {
+  AIContextAPI,
+  EntriesContextAPI,
+  MistakesContextAPI,
+  SubjectChaptersContextAPI,
+  SubjectsContextAPI,
+  TasksContextAPI,
+  TodayActionAuthoritativeChapterContext,
+} from '../types/api'
 import {
   buildTodayActionPlanningContextSignature,
   buildTodayActionSuggestionRequest,
@@ -17,6 +25,7 @@ import {
 } from '../utils/todayActionSuggestions'
 import {
   buildIdempotentAIStudyTaskCreateRequest,
+  buildTodayActionStaleReviewAuthorizationRequest,
   createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
@@ -30,6 +39,13 @@ import {
   removePendingStudyTaskOperation,
   savePendingStudyTaskOperation,
 } from '../utils/pendingStudyTaskOperations'
+import {
+  computeTodayActionChapterSignature,
+  computeTodayActionGenerationContextSignature,
+  createEmptyTodayActionChapterProjection,
+  loadTodayActionChapterProjectionForGeneration,
+  type TodayActionProviderChapterProjection,
+} from '../utils/todayActionChapterContext'
 import {
   addPlanningSessionCandidate,
   applyPlanningCandidateObservedOutcome,
@@ -63,7 +79,6 @@ import {
 import {
   DEFAULT_PLANNING_STRATEGY_ID,
   PLANNING_STRATEGIES,
-  buildTodayActionGenerationContextSignature,
   getPlanningStrategyMetadata,
   type PlanningStrategyId,
 } from '../utils/planningStrategies'
@@ -151,9 +166,17 @@ interface CreationSummary {
 interface TodayActionSuggestionDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createIdempotentAIStudyTaskForCurrentDate'>
+  tasksAPI: Pick<
+    TasksContextAPI,
+    | 'getByDate'
+    | 'createIdempotentAIStudyTaskForCurrentDate'
+    | 'getTodayActionAuthoritativeChapterContext'
+    | 'authorizeTodayActionStaleReview'
+    | 'getCommittedAIStudyTaskOperationStatus'
+  >
   mistakesAPI: Pick<MistakesContextAPI, 'getAll'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
+  subjectChaptersAPI: Pick<SubjectChaptersContextAPI, 'getBySubject'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
   onClose: () => void
   onCreated: () => void | Promise<void>
@@ -197,6 +220,7 @@ export default function TodayActionSuggestionDialog({
   tasksAPI,
   mistakesAPI,
   subjectsAPI,
+  subjectChaptersAPI,
   entriesAPI,
   onClose,
   onCreated,
@@ -210,6 +234,14 @@ export default function TodayActionSuggestionDialog({
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
   const [generationProvenance, setGenerationProvenance] = useState<AIStudyTaskGenerationProvenance | null>(null)
+  const [generationChapterSignature, setGenerationChapterSignature] = useState<string | null>(null)
+  const [latestReviewedChapterSignature, setLatestReviewedChapterSignature] = useState<string | null>(null)
+  const [generationChapterProjection, setGenerationChapterProjection] = useState<TodayActionProviderChapterProjection>(
+    createEmptyTodayActionChapterProjection,
+  )
+  const [refreshedChapterProjection, setRefreshedChapterProjection] = useState<TodayActionProviderChapterProjection | null>(null)
+  const [pendingChapterReviewSignature, setPendingChapterReviewSignature] = useState<string | null>(null)
+  const [staleChapterNotice, setStaleChapterNotice] = useState<string | null>(null)
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
@@ -326,6 +358,12 @@ export default function TodayActionSuggestionDialog({
     setSuggestions([])
     setErrors([])
     setGenerationProvenance(null)
+    setGenerationChapterSignature(null)
+    setLatestReviewedChapterSignature(null)
+    setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+    setRefreshedChapterProjection(null)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice(null)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -414,6 +452,12 @@ export default function TodayActionSuggestionDialog({
     setGenerating(false)
     setCreating(false)
     setGenerationProvenance(null)
+    setGenerationChapterSignature(null)
+    setLatestReviewedChapterSignature(null)
+    setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+    setRefreshedChapterProjection(null)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice(null)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -650,6 +694,12 @@ export default function TodayActionSuggestionDialog({
     setFeedbackWarning(null)
     setFeedbackStaleNotice(null)
     setGenerationProvenance(null)
+    setGenerationChapterSignature(null)
+    setLatestReviewedChapterSignature(null)
+    setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+    setRefreshedChapterProjection(null)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice(null)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -666,7 +716,22 @@ export default function TodayActionSuggestionDialog({
       setPlanningContext(context)
 
       const strategyToUse = authorizedStrategy ?? selectedStrategyRef.current
-      const request = buildTodayActionSuggestionRequest(context, strategyToUse, feedbackPayload)
+      const chapterProjection = await loadTodayActionChapterProjectionForGeneration({
+        loadSubjects: async () => context.subjects,
+        loadChapters: subjectId => subjectChaptersAPI.getBySubject(subjectId),
+      })
+      if (generationRef.current !== generation) return
+      const request = buildTodayActionSuggestionRequest(
+        context,
+        strategyToUse,
+        feedbackPayload,
+        chapterProjection,
+      )
+      const [originalGenerationContextSignature, chapterSignature] = await Promise.all([
+        computeTodayActionGenerationContextSignature(request.messages),
+        computeTodayActionChapterSignature(chapterProjection),
+      ])
+      if (generationRef.current !== generation) return
       setPlanningSession(createPlanningSessionExplainability({
         generationId,
         contextDecisions: request.contextDecisions,
@@ -695,15 +760,16 @@ export default function TodayActionSuggestionDialog({
             })),
         }))
         const baseContextSignature = buildTodayActionPlanningContextSignature(context)
-        const generationContextSignature = buildTodayActionGenerationContextSignature({
-          baseDomainContextSignature: baseContextSignature,
-          strategyId: strategyToUse,
-          feedbackPayload,
-        })
         setGenerationProvenance(createAIStudyTaskGenerationProvenance(
           'today_action',
-          generationContextSignature,
+          originalGenerationContextSignature,
         ))
+        setGenerationChapterProjection(chapterProjection)
+        setGenerationChapterSignature(chapterSignature)
+        setLatestReviewedChapterSignature(chapterSignature)
+        setRefreshedChapterProjection(null)
+        setPendingChapterReviewSignature(null)
+        setStaleChapterNotice(null)
         setReviewedConfirmationContextSignature(baseContextSignature)
         setGeneratedStrategy(strategyToUse)
         const planningRunsAPI = getPlanningRunsAPI()
@@ -883,6 +949,13 @@ export default function TodayActionSuggestionDialog({
 
   const generateSuggestions = requestGeneration
 
+  const acceptRefreshedChapterContext = () => {
+    if (pendingChapterReviewSignature === null || refreshedChapterProjection === null) return
+    setLatestReviewedChapterSignature(pendingChapterReviewSignature)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice('你已审阅更新后的章节进度。再次确认时，MindDiary 会为每个候选请求一次会话内授权。')
+  }
+
   const createSelectedSuggestions = async () => {
     if (creating || !planningContext) return
     const createDate = date
@@ -903,7 +976,11 @@ export default function TodayActionSuggestionDialog({
       setPlanningContext(latestContext)
       let currentSuggestions = validateTodayActionDrafts(suggestions, latestContext)
       setSuggestions(currentSuggestions)
-      if (generationProvenance === null) return
+      if (
+        generationProvenance === null
+        || generationChapterSignature === null
+        || latestReviewedChapterSignature === null
+      ) return
       if (
         reviewedConfirmationContextSignature === null
         || reviewedConfirmationContextSignature !== latestSignature
@@ -914,14 +991,43 @@ export default function TodayActionSuggestionDialog({
       }
 
       setStaleContextNotice(null)
-      await flushPlanningCandidates(currentSuggestions, planningSession)
-      const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
-        mode: 'today_action',
-        generation: generationProvenance,
-        confirmationContextSignature: latestSignature,
-        expectedCurrentDate: createDate,
-        plannedDate: createDate,
+      let authoritativeChapterContext: TodayActionAuthoritativeChapterContext
+      try {
+        authoritativeChapterContext = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+        const verifiedSignature = await computeTodayActionChapterSignature(
+          authoritativeChapterContext.chapterProjection,
+        )
+        if (verifiedSignature !== authoritativeChapterContext.currentChapterSignature) {
+          throw new Error('chapter signature mismatch')
+        }
+      } catch {
+        setStaleChapterNotice('无法安全验证当前章节进度，本次未创建任务。请稍后重试或重新生成建议。')
+        return
       }
+      if (authoritativeChapterContext.currentChapterSignature !== latestReviewedChapterSignature) {
+        setRefreshedChapterProjection(authoritativeChapterContext.chapterProjection)
+        setPendingChapterReviewSignature(authoritativeChapterContext.currentChapterSignature)
+        setStaleChapterNotice('章节进度已变化。原建议仍基于生成时的旧上下文；请查看刷新后的章节进度，再选择重新生成或明确接受原建议。')
+        return
+      }
+
+      const staleContextOverride = latestReviewedChapterSignature !== generationChapterSignature
+      setPendingChapterReviewSignature(null)
+      setStaleChapterNotice(null)
+      await flushPlanningCandidates(currentSuggestions, planningSession)
+      const freshConfirmationSnapshot: StudyTaskActionConfirmationSnapshot | null = staleContextOverride
+        ? null
+        : {
+            mode: 'today_action',
+            generation: generationProvenance,
+            confirmationContextSignature: latestSignature,
+            generationChapterSignature,
+            latestReviewedChapterSignature,
+            staleContextOverride: false,
+            staleReviewToken: null,
+            expectedCurrentDate: createDate,
+            plannedDate: createDate,
+          }
       let currentContext = latestContext
       let createdCount = 0
       let replayedCount = 0
@@ -947,19 +1053,63 @@ export default function TodayActionSuggestionDialog({
         ) continue
         try {
           const operationId = createConfirmedStudyTaskOperationId()
+          const draft = {
+            title: suggestion.title,
+            description: suggestion.reason,
+            type: suggestion.type,
+            subject_id: suggestion.subject_id,
+            related_mistake_id: suggestion.related_mistake_id,
+            related_entry_id: suggestion.related_entry_id,
+            related_chapter_id: null,
+            estimate_minutes: suggestion.estimate_minutes,
+          }
+          let staleReviewToken: string | null = null
+          if (staleContextOverride) {
+            const authorizationCore = buildTodayActionStaleReviewAuthorizationRequest({
+              operationId,
+              generation: generationProvenance,
+              generationChapterSignature,
+              latestReviewedChapterSignature,
+              expectedCurrentDate: createDate,
+              draft,
+            })
+            let authorization: { staleReviewToken: string }
+            try {
+              authorization = await tasksAPI.authorizeTodayActionStaleReview(authorizationCore)
+            } catch {
+              try {
+                const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+                const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
+                if (verifiedSignature === refreshed.currentChapterSignature) {
+                  setRefreshedChapterProjection(refreshed.chapterProjection)
+                  setPendingChapterReviewSignature(refreshed.currentChapterSignature)
+                  setStaleChapterNotice('章节进度在授权前再次变化。请重新查看刷新后的章节进度；本次未创建任务。')
+                }
+              } catch {
+                setStaleChapterNotice('章节进度授权失败，本次未创建任务。请重新查看或重新生成建议。')
+              }
+              throw new Error('章节进度授权失败，本次未创建任务。')
+            }
+            if (!/^[0-9a-f]{64}$/.test(authorization.staleReviewToken)) {
+              throw new Error('章节进度授权响应无效，本次未创建任务。')
+            }
+            staleReviewToken = authorization.staleReviewToken
+          }
+          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = freshConfirmationSnapshot ?? {
+              mode: 'today_action',
+              generation: generationProvenance,
+              confirmationContextSignature: latestSignature,
+              generationChapterSignature,
+              latestReviewedChapterSignature,
+              staleContextOverride: true,
+              staleReviewToken: staleReviewToken!,
+              expectedCurrentDate: createDate,
+              plannedDate: createDate,
+            }
           const action = createConfirmedStudyTaskAction({
             operationId,
             confirmationSnapshot,
-            draft: {
-              title: suggestion.title,
-              description: suggestion.reason,
-              type: suggestion.type,
-              subject_id: suggestion.subject_id,
-              related_mistake_id: suggestion.related_mistake_id,
-              related_entry_id: suggestion.related_entry_id,
-              related_chapter_id: null,
-              estimate_minutes: suggestion.estimate_minutes,
-            },
+            draft,
           })
           const request = buildIdempotentAIStudyTaskCreateRequest(action)
           try {
@@ -1005,6 +1155,22 @@ export default function TodayActionSuggestionDialog({
             : current)
           if (observation.status === 'failed') {
             failedCount += 1
+            if (staleContextOverride && observation.code === 'INVALID_REQUEST') {
+              try {
+                const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+                const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
+                if (
+                  verifiedSignature === refreshed.currentChapterSignature
+                  && refreshed.currentChapterSignature !== latestReviewedChapterSignature
+                ) {
+                  setRefreshedChapterProjection(refreshed.chapterProjection)
+                  setPendingChapterReviewSignature(refreshed.currentChapterSignature)
+                  setStaleChapterNotice('章节进度在最终确认前再次变化。请重新查看刷新后的章节进度；本次未创建任务。')
+                }
+              } catch {
+                setStaleChapterNotice('无法重新验证章节进度，本次未创建任务。请重新生成建议。')
+              }
+            }
             const retainForConflict = observation.code === 'IDEMPOTENCY_CONFLICT'
             if (!retainForConflict) {
               try {
@@ -1117,7 +1283,7 @@ export default function TodayActionSuggestionDialog({
     ? planningContext
     : null
   const planningPreview = visiblePlanningContext
-    ? buildTodayActionPlanningContextPreview(visiblePlanningContext)
+    ? buildTodayActionPlanningContextPreview(visiblePlanningContext, generationChapterProjection)
     : []
   const isPlanningContextEmpty = visiblePlanningContext
     && planningPreview.find(item => item.source === 'today_tasks')?.count === 0
@@ -1540,6 +1706,48 @@ export default function TodayActionSuggestionDialog({
             <p className="mt-3 text-sm" role="status" data-testid="ai-plan-stale-context" style={{ color: 'var(--warning, var(--text-secondary))' }}>
               {staleContextNotice}
             </p>
+          )}
+
+          {staleChapterNotice && (
+            <section
+              className="mt-3"
+              role="alert"
+              data-testid="today-action-stale-chapter-context"
+              style={{
+                border: '1px solid var(--warning, var(--border))',
+                borderRadius: 'var(--radius)',
+                padding: 'var(--space-sm)',
+                color: 'var(--warning, var(--text-secondary))',
+              }}
+            >
+              <p className="text-sm" style={{ margin: 0 }}>{staleChapterNotice}</p>
+              {refreshedChapterProjection && (
+                <ul
+                  className="mt-2 text-xs"
+                  data-testid="today-action-refreshed-chapter-context"
+                  style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}
+                >
+                  {refreshedChapterProjection.chapter_progress.length === 0
+                    ? <li>当前 bounded 章节投影为空。</li>
+                    : refreshedChapterProjection.chapter_progress.map((chapter, index) => (
+                        <li key={`${chapter.subject_ref}:${index}`}>
+                          {chapter.subject_ref} · {chapter.title} · {chapter.completed ? '已完成' : '未完成'}
+                        </li>
+                      ))}
+                </ul>
+              )}
+              {pendingChapterReviewSignature && refreshedChapterProjection && (
+                <button
+                  type="button"
+                  className="button button-secondary mt-2"
+                  data-testid="today-action-accept-stale-chapter-context"
+                  disabled={creating || generating}
+                  onClick={acceptRefreshedChapterContext}
+                >
+                  我已查看更新，仍接受原建议
+                </button>
+              )}
+            </section>
           )}
 
           {planningSession && (

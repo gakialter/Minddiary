@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import path from 'node:path'
-import type { IdempotentAIStudyTaskCreateRequest } from '../../src/types/api'
+import type { TodayActionCommittedStatusRequest } from '../../src/types/api'
 import {
   createDisposableElectronProfile,
   removeDisposableElectronProfile,
@@ -9,7 +9,7 @@ import {
 
 const projectRoot = path.resolve(__dirname, '..', '..')
 const profilePrefix = 'minddiary-planning-history-e2e-'
-const actionContractVersion = 'confirmed-study-task-action.v1'
+const actionContractVersion = 'confirmed-study-task-action.v2'
 
 const todayOriginalTitle = 'E2E Generation A 原始任务'
 const todayFinalTitle = 'E2E Generation A 编辑后任务'
@@ -265,32 +265,19 @@ test.describe('Phase C2 Planning History through Electron', () => {
       expect(await getTasksForDate(page, today)).toHaveLength(2)
 
       if (!confirmedTask) throw new Error('Confirmed task was unexpectedly unavailable')
-      const replayRequest: IdempotentAIStudyTaskCreateRequest = {
+      const statusRequest: TodayActionCommittedStatusRequest = {
         operationId,
         operationKind: 'today_action',
         actionContractVersion,
         expectedCurrentDate: today,
-        payload: {
-          title: todayFinalTitle,
-          description: todayFinalReason,
-          type: 'focus',
-          subject_id: null,
-          related_mistake_id: null,
-          related_entry_id: null,
-          related_chapter_id: null,
-          planned_date: today,
-          estimate_minutes: 25,
-          status: 'todo',
-          source: 'ai',
-        },
+        plannedDate: today,
       }
-      const replayAfterDelete = await page.evaluate(request => (
-        window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
-      ), replayRequest)
-      expect(replayAfterDelete).toMatchObject({
-        ok: true,
+      const statusAfterDelete = await page.evaluate(request => (
+        window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)
+      ), statusRequest)
+      expect(statusAfterDelete).toMatchObject({
+        status: 'RECOVERED_COMMITTED',
         operationId,
-        replayed: true,
         task: { id: confirmedTask.id },
       })
 
@@ -298,13 +285,12 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await expect(rows).toHaveCount(0)
       await expect(page.getByText('还没有持久化的 AI 规划记录。')).toBeVisible()
 
-      const replayAfterClear = await page.evaluate(request => (
-        window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
-      ), replayRequest)
-      expect(replayAfterClear).toMatchObject({
-        ok: true,
+      const statusAfterClear = await page.evaluate(request => (
+        window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)
+      ), statusRequest)
+      expect(statusAfterClear).toMatchObject({
+        status: 'RECOVERED_COMMITTED',
         operationId,
-        replayed: true,
         task: { id: confirmedTask.id },
       })
       expect(await getTasksForDate(page, today)).toHaveLength(2)

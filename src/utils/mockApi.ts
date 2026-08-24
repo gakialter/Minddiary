@@ -158,6 +158,15 @@ const mockApi: ElectronAPI = {
             code: 'INVALID_REQUEST',
             message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
         }),
+        getTodayActionAuthoritativeChapterContext: async () => {
+            throw new Error('Today Action 章节权威确认仅支持 MindDiary 桌面版')
+        },
+        authorizeTodayActionStaleReview: async () => {
+            throw new Error('Today Action 过期上下文授权仅支持 MindDiary 桌面版')
+        },
+        getCommittedAIStudyTaskOperationStatus: async () => {
+            throw new Error('Today Action 已提交状态检查仅支持 MindDiary 桌面版')
+        },
         update: async (id, patch) => ({
             id,
             title: patch.title || '',

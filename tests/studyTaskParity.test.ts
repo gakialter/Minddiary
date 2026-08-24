@@ -152,6 +152,18 @@ describe('study task SQLite/browser fallback parity', () => {
     expect(fallback.tasksRef.current).toEqual([])
   })
 
+  it('does not simulate C7 authoritative confirmation, token authorization, or receipt status in browser fallback', async () => {
+    const fallback = createFallbackFixture()
+
+    await expect(fallback.tasks.getTodayActionAuthoritativeChapterContext())
+      .rejects.toThrow('桌面版')
+    await expect(fallback.tasks.authorizeTodayActionStaleReview({} as never))
+      .rejects.toThrow('桌面版')
+    await expect(fallback.tasks.getCommittedAIStudyTaskOperationStatus({} as never))
+      .rejects.toThrow('桌面版')
+    expect(fallback.tasksRef.current).toEqual([])
+  })
+
   it('rolls back browser fallback creation when the date changes inside the call', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 31, 23, 59, 59))

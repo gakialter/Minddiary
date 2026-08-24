@@ -3,7 +3,12 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockEntries, mockMistakes, mockSubjectChapters, mockSubjects, mockTags, STORAGE_KEYS } from '../src/data/mockData'
 import type { AIMessage, Attachment, DiaryEntry, DiaryTemplate, Mistake, StudyTask, SubjectChapter } from '../src/types'
-import type { ElectronAPI, IdempotentAIStudyTaskCreateRequest } from '../src/types/api'
+import type {
+  ElectronAPI,
+  IdempotentAIStudyTaskCreateRequest,
+  TodayActionCommittedStatusRequest,
+  TodayActionStaleReviewAuthorizationRequest,
+} from '../src/types/api'
 
 const mocks = vi.hoisted(() => ({
   isElectron: true,
@@ -164,6 +169,9 @@ const createWindowApiMock = (): ElectronAPI => ({
       updated_at: '2026-05-31T00:00:00.000Z',
     }),
     createIdempotentAIStudyTaskForCurrentDate: vi.fn(),
+    getTodayActionAuthoritativeChapterContext: vi.fn(),
+    authorizeTodayActionStaleReview: vi.fn(),
+    getCommittedAIStudyTaskOperationStatus: vi.fn(),
     update: vi.fn().mockResolvedValue({
       id: 1,
       title: 'task',
@@ -398,6 +406,25 @@ describe('DataContext', () => {
         source: 'ai',
       },
     }
+    const staleAuthorizationRequest: TodayActionStaleReviewAuthorizationRequest = {
+      operationId: '22222222-2222-4222-8222-222222222222',
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-05-05',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: 'a'.repeat(64),
+      generationChapterSignature: 'b'.repeat(64),
+      latestReviewedChapterSignature: 'c'.repeat(64),
+      staleContextOverride: true,
+      payload: idempotentRequest.payload,
+    }
+    const committedStatusRequest: TodayActionCommittedStatusRequest = {
+      operationId: staleAuthorizationRequest.operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-05-05',
+      plannedDate: '2026-05-05',
+    }
     let chatResult: Awaited<ReturnType<typeof result.current.ai.chat>> | undefined
     let savedAttachment: Attachment | undefined
 
@@ -438,6 +465,9 @@ describe('DataContext', () => {
         '2026-05-05',
       )
       await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(idempotentRequest, 73)
+      await result.current.tasks.getTodayActionAuthoritativeChapterContext()
+      await result.current.tasks.authorizeTodayActionStaleReview(staleAuthorizationRequest)
+      await result.current.tasks.getCommittedAIStudyTaskOperationStatus(committedStatusRequest)
       await result.current.tasks.update(1, { status: 'doing' })
       await result.current.tasks.startFocus(1, '2026-05-05')
       await result.current.tasks.complete(1)
@@ -490,6 +520,9 @@ describe('DataContext', () => {
       '2026-05-05',
     )
     expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(idempotentRequest, 73)
+    expect(window.api.tasks.getTodayActionAuthoritativeChapterContext).toHaveBeenCalledTimes(1)
+    expect(window.api.tasks.authorizeTodayActionStaleReview).toHaveBeenCalledWith(staleAuthorizationRequest)
+    expect(window.api.tasks.getCommittedAIStudyTaskOperationStatus).toHaveBeenCalledWith(committedStatusRequest)
     expect(window.api.tasks.update).toHaveBeenCalledWith(1, { status: 'doing' })
     expect(window.api.tasks.startFocus).toHaveBeenCalledWith(1, '2026-05-05')
     expect(window.api.tasks.complete).toHaveBeenCalledWith(1)

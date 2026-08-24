@@ -49,4 +49,24 @@ describe('Phase C2 IPC surface', () => {
     expect(mainSource).not.toContain('planningRuns:confirmCandidate')
     expect(preloadSource).not.toContain('planningRuns:confirmCandidate')
   })
+
+  it('exposes exactly the three C7 authoritative/status channels through main and preload', () => {
+    const expected = [
+      'tasks:authorizeTodayActionStaleReview',
+      'tasks:getCommittedAIStudyTaskOperationStatus',
+      'tasks:getTodayActionAuthoritativeChapterContext',
+    ]
+    const mainChannels = collectLiteralChannels(mainSource, 'ipcMain.handle')
+      .filter(channel => expected.includes(channel))
+      .sort()
+    const preloadChannels = collectLiteralChannels(preloadSource, 'ipcRenderer.invoke')
+      .filter(channel => expected.includes(channel))
+      .sort()
+
+    expect(mainChannels).toEqual(expected)
+    expect(preloadChannels).toEqual(expected)
+    expect(mainSource).toContain('todayActionIpcHandlers.getAuthoritativeChapterContext(event)')
+    expect(mainSource).toContain('todayActionIpcHandlers.authorizeStaleReview(event, request)')
+    expect(mainSource).toContain('todayActionIpcHandlers.getCommittedStatus(event, request)')
+  })
 })

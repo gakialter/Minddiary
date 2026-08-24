@@ -9,7 +9,10 @@ import {
 } from '../utils/planningSessionExplainability'
 import {
   getPendingStudyTaskCreateRequest,
+  getPendingTodayActionCommittedStatusRequest,
+  isPendingTodayActionStudyTaskOperationV2,
   loadPendingStudyTaskOperations,
+  observePendingTodayActionCommittedStatus,
   removePendingStudyTaskOperation,
   type PendingStudyTaskOperation,
 } from '../utils/pendingStudyTaskOperations'
@@ -17,6 +20,7 @@ import {
 interface PendingStudyTaskRecoveryPanelProps {
   operationKind: IdempotentAIStudyTaskOperationKind
   tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>
+    & Partial<Pick<TasksContextAPI, 'getCommittedAIStudyTaskOperationStatus'>>
   revision: number
   onOutcome: (observation: PlanningStudyTaskActionExecutionObservation) => void | Promise<void>
 }
@@ -68,14 +72,46 @@ export default function PendingStudyTaskRecoveryPanel({
     if (recoveringOperationId !== null) return
     setRecoveringOperationId(operation.operationId)
     setOutcome(null)
-    const result = await executeIdempotentAIStudyTaskCreateRequest(
-      getPendingStudyTaskCreateRequest(operation),
-      tasksAPI,
-    )
+    let observation: PlanningStudyTaskActionExecutionObservation
+    let terminalTodayV2Status = false
+    if (isPendingTodayActionStudyTaskOperationV2(operation)) {
+      try {
+        const getCommittedStatus = tasksAPI.getCommittedAIStudyTaskOperationStatus
+        if (typeof getCommittedStatus !== 'function') {
+          throw new Error('Committed operation status is unsupported')
+        }
+        const status = await getCommittedStatus(
+          getPendingTodayActionCommittedStatusRequest(operation),
+        )
+        const resolution = observePendingTodayActionCommittedStatus(operation, status)
+        observation = resolution.observation
+        terminalTodayV2Status = resolution.terminal
+      } catch {
+        observation = observeStudyTaskActionExecutionResult({
+          operationId: operation.operationId,
+          status: 'uncertain',
+          error: 'Committed operation status is unavailable',
+        }, operation.operationId)
+      }
+    } else {
+      const result = await executeIdempotentAIStudyTaskCreateRequest(
+        getPendingStudyTaskCreateRequest(operation),
+        tasksAPI,
+      )
+      observation = observeStudyTaskActionExecutionResult(result, operation.operationId)
+    }
     if (!mountedRef.current) return
-    const observation = observeStudyTaskActionExecutionResult(result, operation.operationId)
 
-    if (observation.status === 'succeeded') {
+    if (isPendingTodayActionStudyTaskOperationV2(operation) && terminalTodayV2Status) {
+      const cleared = clearOperation(operation.operationId)
+      if (cleared) {
+        setOperations(current => current.filter(item => item.operationId !== operation.operationId))
+      }
+      const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
+      setOutcome(cleared
+        ? `${terminalMessage}；恢复记录已结束。`
+        : `${terminalMessage}；恢复记录尚未清除。`)
+    } else if (observation.status === 'succeeded') {
       const cleared = clearOperation(operation.operationId)
       if (cleared) {
         setOperations(current => current.filter(item => item.operationId !== operation.operationId))
@@ -121,7 +157,7 @@ export default function PendingStudyTaskRecoveryPanel({
     >
       <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>待检查的任务创建结果</strong>
       <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
-        MindDiary 不会自动重试。请手动检查；恢复始终复用原操作 ID 和已确认内容。
+        MindDiary 不会自动重试。Daily Review 可复用原确认请求；Today Action 重启后只读检查已提交结果，不会重建或重发任务。
       </p>
       {warning && <p className="text-xs" role="alert" data-testid="pending-study-task-warning" style={{ color: 'var(--warning)' }}>{warning}</p>}
       {outcome && <p className="text-xs" role="status" data-testid="pending-study-task-outcome" style={{ color: 'var(--text-secondary)' }}>{outcome}</p>}
@@ -132,7 +168,9 @@ export default function PendingStudyTaskRecoveryPanel({
           data-testid={`pending-study-task-operation-${operation.operationId}`}
         >
           <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {operation.payload.title} · {operation.payload.planned_date}
+            {isPendingTodayActionStudyTaskOperationV2(operation)
+              ? `Today Action · ${operation.plannedDate}`
+              : `${operation.payload.title} · ${operation.payload.planned_date}`}
             <span style={{ display: 'block', color: 'var(--text-muted)' }}>操作 ID：{operation.operationId}</span>
           </span>
           <button

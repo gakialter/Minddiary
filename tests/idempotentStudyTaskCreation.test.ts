@@ -20,7 +20,12 @@ import {
 const OPERATION_ID = '123e4567-e89b-42d3-a456-426614174000'
 const EXPECTED_DATE = '2026-07-30'
 const NEXT_DATE = '2026-07-31'
-const ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
+const ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v2'
+const LEGACY_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
+const TODAY_CONTEXT_PROJECTION_VERSION = 'today-action.context-projection.v2'
+const EMPTY_CHAPTER_SIGNATURE = createHash('sha256')
+  .update(`${TODAY_CONTEXT_PROJECTION_VERSION}\u0000{"chapter_progress":[]}`, 'utf8')
+  .digest('hex')
 
 const BASE_PAYLOAD = {
   title: 'Review calculus',
@@ -43,15 +48,42 @@ type RequestOverrides = Partial<Omit<IdempotentAIStudyTaskCreateRequest, 'payloa
 const databases: Database.Database[] = []
 
 function makeRequest(overrides: RequestOverrides = {}): IdempotentAIStudyTaskCreateRequest {
+  const operationKind = overrides.operationKind ?? 'today_action'
+  const payload = {
+    ...BASE_PAYLOAD,
+    ...overrides.payload,
+  }
+  if (operationKind === 'daily_review') {
+    return {
+      operationId: overrides.operationId ?? OPERATION_ID,
+      operationKind,
+      actionContractVersion: overrides.actionContractVersion ?? LEGACY_ACTION_CONTRACT_VERSION,
+      expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
+      payload,
+    }
+  }
   return {
     operationId: overrides.operationId ?? OPERATION_ID,
-    operationKind: overrides.operationKind ?? 'today_action',
+    operationKind,
     actionContractVersion: overrides.actionContractVersion ?? ACTION_CONTRACT_VERSION,
     expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
-    payload: {
-      ...BASE_PAYLOAD,
-      ...overrides.payload,
-    },
+    contextProjectionVersion: overrides.contextProjectionVersion ?? TODAY_CONTEXT_PROJECTION_VERSION,
+    originalGenerationContextSignature: overrides.originalGenerationContextSignature ?? '1'.repeat(64),
+    generationChapterSignature: overrides.generationChapterSignature ?? EMPTY_CHAPTER_SIGNATURE,
+    latestReviewedChapterSignature: overrides.latestReviewedChapterSignature ?? EMPTY_CHAPTER_SIGNATURE,
+    staleContextOverride: overrides.staleContextOverride ?? false,
+    staleReviewToken: overrides.staleReviewToken ?? null,
+    payload,
+  }
+}
+
+function makeLegacyTodayRequest(overrides: RequestOverrides = {}): IdempotentAIStudyTaskCreateRequest {
+  return {
+    operationId: overrides.operationId ?? OPERATION_ID,
+    operationKind: 'today_action',
+    actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
+    expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
+    payload: { ...BASE_PAYLOAD, ...overrides.payload },
   }
 }
 
@@ -160,7 +192,7 @@ describe('idempotent AI study task request validation and digest', () => {
     const request = {
       payload,
       expectedCurrentDate: EXPECTED_DATE,
-      actionContractVersion: ACTION_CONTRACT_VERSION,
+      actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
       operationKind: 'today_action',
       operationId: OPERATION_ID,
     }
@@ -192,7 +224,7 @@ describe('idempotent AI study task request validation and digest', () => {
   })
 
   it('locks the manually ordered canonical UTF-8 SHA-256 fixture', () => {
-    expect(buildIdempotentAIStudyTaskRequestDigest(makeRequest())).toBe(
+    expect(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest())).toBe(
       '55952fa2d0e899a89728442042e142c4c5b04e039d1ed08b876174d12b2db070',
     )
   })
@@ -213,17 +245,17 @@ describe('idempotent AI study task request validation and digest', () => {
         title: 'Review calculus',
       },
       expectedCurrentDate: EXPECTED_DATE,
-      actionContractVersion: ACTION_CONTRACT_VERSION,
+      actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
       operationKind: 'today_action',
       operationId: OPERATION_ID,
     }
 
     expect(buildIdempotentAIStudyTaskRequestDigest(reordered)).toBe(
-      buildIdempotentAIStudyTaskRequestDigest(makeRequest()),
+      buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest()),
     )
-    expect(buildIdempotentAIStudyTaskRequestDigest(makeRequest({
+    expect(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest({
       payload: { description: 'Focus on integral mistakes' },
-    }))).not.toBe(buildIdempotentAIStudyTaskRequestDigest(makeRequest()))
+    }))).not.toBe(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest()))
   })
 
   it('rejects non-enumerable and symbol extras at both exact-key boundaries', () => {
@@ -245,7 +277,7 @@ describe('idempotent AI study task request validation and digest', () => {
   it.each([
     ['uppercase UUID', makeRequest({ operationId: OPERATION_ID.toUpperCase() })],
     ['wrong UUID version', makeRequest({ operationId: '123e4567-e89b-12d3-a456-426614174000' })],
-    ['unsupported action contract', makeRequest({ actionContractVersion: 'confirmed-study-task-action.v2' })],
+    ['unsupported action contract', makeRequest({ actionContractVersion: 'confirmed-study-task-action.v3' })],
     ['impossible date', makeRequest({ expectedCurrentDate: '2026-02-30', payload: { planned_date: '2026-02-30' } })],
     ['today invariant mismatch', makeRequest({ payload: { planned_date: NEXT_DATE } })],
     ['non-todo status', makeRequest({ payload: { status: 'doing' } })],

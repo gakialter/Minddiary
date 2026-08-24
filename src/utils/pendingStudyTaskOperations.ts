@@ -1,11 +1,17 @@
 import type {
   IdempotentAIStudyTaskCreateRequest,
   IdempotentAIStudyTaskOperationKind,
+  TodayActionCommittedStatusRequest,
 } from '../types/api'
 import type { NewStudyTask, StudyTaskSource, StudyTaskStatus, StudyTaskType } from '../types'
+import type { PlanningStudyTaskActionExecutionObservation } from './planningSessionExplainability'
 import { getLocalDateKey, getNextLocalDateKey, isDateKey } from './dateKey'
 import { validateConfirmedStudyTaskOperationId } from './agentStudyTaskActions'
-import { CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION } from './aiOperationContracts'
+import { observeStudyTaskActionExecutionResult } from './planningSessionExplainability'
+import {
+  CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+  CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+} from './aiOperationContracts'
 
 export const PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY = 'minddiary.pending-study-task-operations.v1'
 export const PENDING_STUDY_TASK_OPERATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
@@ -13,12 +19,20 @@ export const PENDING_STUDY_TASK_OPERATION_MAX_COUNT = 20
 export const PENDING_STUDY_TASK_OPERATION_MAX_BYTES = 64 * 1024
 
 const ENVELOPE_KEYS = ['version', 'operations'] as const
-const OPERATION_KEYS = [
+const V1_OPERATION_KEYS = [
   'operationId',
   'operationKind',
   'actionContractVersion',
   'expectedCurrentDate',
   'payload',
+  'createdAt',
+] as const
+const TODAY_V2_MARKER_KEYS = [
+  'operationId',
+  'operationKind',
+  'actionContractVersion',
+  'expectedCurrentDate',
+  'plannedDate',
   'createdAt',
 ] as const
 const PAYLOAD_KEYS = [
@@ -38,9 +52,27 @@ const TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mista
 const TASK_STATUS: StudyTaskStatus = 'todo'
 const TASK_SOURCE: StudyTaskSource = 'ai'
 
-export interface PendingStudyTaskOperation extends IdempotentAIStudyTaskCreateRequest {
+export interface PendingStudyTaskOperationV1 {
+  operationId: string
+  operationKind: 'today_action' | 'daily_review'
+  actionContractVersion: 'confirmed-study-task-action.v1'
+  expectedCurrentDate: string
+  payload: NewStudyTask
   createdAt: string
 }
+
+export interface PendingTodayActionStudyTaskOperationV2 {
+  operationId: string
+  operationKind: 'today_action'
+  actionContractVersion: 'confirmed-study-task-action.v2'
+  expectedCurrentDate: string
+  plannedDate: string
+  createdAt: string
+}
+
+export type PendingStudyTaskOperation =
+  | PendingStudyTaskOperationV1
+  | PendingTodayActionStudyTaskOperationV2
 
 export interface PendingStudyTaskOperationLoadResult {
   operations: PendingStudyTaskOperation[]
@@ -98,7 +130,9 @@ function requireNullableId(value: unknown, label: string): number | null {
   return value
 }
 
-function requireOperationKind(value: unknown): IdempotentAIStudyTaskOperationKind {
+function requireOperationKind(
+  value: unknown,
+): Exclude<IdempotentAIStudyTaskOperationKind, 'mistake_review'> {
   if (value !== 'today_action' && value !== 'daily_review') {
     throw new Error('pending operation kind is invalid')
   }
@@ -140,9 +174,34 @@ function validatePayload(value: unknown): NewStudyTask {
 
 export function validatePendingStudyTaskOperation(value: unknown): PendingStudyTaskOperation {
   const operation = requireRecord(value, 'pending study task operation')
-  assertExactKeys(operation, OPERATION_KEYS, 'pending study task operation')
+  const isTodayV2 = operation.operationKind === 'today_action'
+    && operation.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+  assertExactKeys(
+    operation,
+    isTodayV2 ? TODAY_V2_MARKER_KEYS : V1_OPERATION_KEYS,
+    'pending study task operation',
+  )
   const operationKind = requireOperationKind(operation.operationKind)
   const expectedCurrentDate = requireDateKey(operation.expectedCurrentDate, 'pending expectedCurrentDate')
+  const operationId = validateConfirmedStudyTaskOperationId(operation.operationId)
+  const createdAt = requireString(operation.createdAt, 'pending createdAt', 64)
+  if (!Number.isFinite(Date.parse(createdAt))) throw new Error('pending createdAt is invalid')
+
+  if (isTodayV2) {
+    const plannedDate = requireDateKey(operation.plannedDate, 'pending plannedDate')
+    if (plannedDate !== expectedCurrentDate) {
+      throw new Error('pending task date invariant is invalid')
+    }
+    return {
+      operationId,
+      operationKind: 'today_action',
+      actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+      expectedCurrentDate,
+      plannedDate,
+      createdAt,
+    }
+  }
+
   const payload = validatePayload(operation.payload)
   const expectedPlannedDate = operationKind === 'today_action'
     ? expectedCurrentDate
@@ -158,12 +217,10 @@ export function validatePendingStudyTaskOperation(value: unknown): PendingStudyT
   if (actionContractVersion !== CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION) {
     throw new Error('pending action contract version is not canonical')
   }
-  const createdAt = requireString(operation.createdAt, 'pending createdAt', 64)
-  if (!Number.isFinite(Date.parse(createdAt))) throw new Error('pending createdAt is invalid')
   return {
-    operationId: validateConfirmedStudyTaskOperationId(operation.operationId),
+    operationId,
     operationKind,
-    actionContractVersion,
+    actionContractVersion: actionContractVersion as 'confirmed-study-task-action.v1',
     expectedCurrentDate,
     payload,
     createdAt,
@@ -193,6 +250,9 @@ function persistOperations(
 export function getPendingStudyTaskCreateRequest(
   operation: PendingStudyTaskOperation,
 ): IdempotentAIStudyTaskCreateRequest {
+  if (isPendingTodayActionStudyTaskOperationV2(operation)) {
+    throw new Error('Today Action v2 pending marker cannot reconstruct a create request')
+  }
   return {
     operationId: operation.operationId,
     operationKind: operation.operationKind,
@@ -200,6 +260,155 @@ export function getPendingStudyTaskCreateRequest(
     expectedCurrentDate: operation.expectedCurrentDate,
     payload: operation.payload,
   }
+}
+
+export function isPendingTodayActionStudyTaskOperationV2(
+  operation: PendingStudyTaskOperation,
+): operation is PendingTodayActionStudyTaskOperationV2 {
+  return operation.operationKind === 'today_action'
+    && operation.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+}
+
+export function getPendingTodayActionCommittedStatusRequest(
+  operation: PendingStudyTaskOperation,
+): TodayActionCommittedStatusRequest {
+  if (!isPendingTodayActionStudyTaskOperationV2(operation)) {
+    throw new Error('Only a Today Action v2 pending marker can build a committed status request')
+  }
+  return {
+    operationId: operation.operationId,
+    operationKind: 'today_action',
+    actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+    expectedCurrentDate: operation.expectedCurrentDate,
+    plannedDate: operation.plannedDate,
+  }
+}
+
+export interface PendingTodayActionCommittedStatusResolution {
+  terminal: boolean
+  observation: PlanningStudyTaskActionExecutionObservation
+}
+
+function snapshotPlainOwnDataRecord(value: unknown): Readonly<Record<string, unknown>> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const snapshot: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+    for (const key of Reflect.ownKeys(descriptors)) {
+      if (typeof key !== 'string') return null
+      const descriptor = descriptors[key]
+      if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        return null
+      }
+      snapshot[key] = descriptor.value
+    }
+    return Object.freeze(snapshot)
+  } catch {
+    return null
+  }
+}
+
+function hasExactSnapshotKeys(
+  snapshot: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): boolean {
+  const ownKeys = Reflect.ownKeys(snapshot)
+  return ownKeys.length === keys.length
+    && ownKeys.every(key => typeof key === 'string' && keys.includes(key))
+}
+
+function uncertainTodayActionStatusResolution(
+  operationId: string,
+): PendingTodayActionCommittedStatusResolution {
+  return {
+    terminal: false,
+    observation: observeStudyTaskActionExecutionResult({
+      operationId,
+      status: 'uncertain',
+      error: 'Committed operation status could not be verified',
+    }, operationId),
+  }
+}
+
+export function observePendingTodayActionCommittedStatus(
+  operation: PendingStudyTaskOperation,
+  response: unknown,
+): PendingTodayActionCommittedStatusResolution {
+  if (!isPendingTodayActionStudyTaskOperationV2(operation)) {
+    throw new Error('Only a Today Action v2 pending marker can observe committed status')
+  }
+  const operationId = operation.operationId
+  const snapshot = snapshotPlainOwnDataRecord(response)
+  if (
+    snapshot === null
+    || snapshot.operationId !== operationId
+    || typeof snapshot.status !== 'string'
+  ) return uncertainTodayActionStatusResolution(operationId)
+
+  if (snapshot.status === 'NOT_COMMITTED') {
+    if (!hasExactSnapshotKeys(snapshot, ['status', 'operationId'])) {
+      return uncertainTodayActionStatusResolution(operationId)
+    }
+    return {
+      terminal: true,
+      observation: Object.freeze({
+        status: 'failed',
+        operationId,
+        code: 'INVALID_REQUEST',
+        outcome: Object.freeze({
+          kind: 'validation_error',
+          operationId,
+          message: '未发现已提交任务；恢复记录已过期，请重新生成并确认。',
+        }),
+      }),
+    }
+  }
+
+  if (snapshot.status === 'RECOVERED_COMMITTED') {
+    if (!hasExactSnapshotKeys(snapshot, ['status', 'operationId', 'task'])) {
+      return uncertainTodayActionStatusResolution(operationId)
+    }
+    const observation = observeStudyTaskActionExecutionResult({
+      operationId,
+      status: 'succeeded',
+      task: snapshot.task,
+      replayed: true,
+    }, operationId)
+    if (
+      observation.status !== 'succeeded'
+      || observation.task.related_chapter_id !== null
+    ) return uncertainTodayActionStatusResolution(operationId)
+    return { terminal: true, observation }
+  }
+
+  const failureCode = snapshot.status === 'IDEMPOTENCY_CONFLICT'
+    ? 'IDEMPOTENCY_CONFLICT'
+    : snapshot.status === 'RESULT_DELETED'
+      ? 'RESULT_DELETED'
+      : snapshot.status === 'INTEGRITY_ERROR'
+        ? 'INTEGRITY_ERROR'
+        : null
+  if (
+    failureCode === null
+    || !hasExactSnapshotKeys(snapshot, ['status', 'operationId'])
+  ) return uncertainTodayActionStatusResolution(operationId)
+
+  const observation = observeStudyTaskActionExecutionResult({
+    operationId,
+    status: 'failed',
+    code: failureCode,
+    error: 'Committed operation status reached a terminal state',
+  }, operationId)
+  return observation.status === 'uncertain'
+    ? uncertainTodayActionStatusResolution(operationId)
+    : { terminal: true, observation }
+}
+
+function getPendingStudyTaskOperationIdentity(operation: PendingStudyTaskOperation): string {
+  return JSON.stringify(isPendingTodayActionStudyTaskOperationV2(operation)
+    ? getPendingTodayActionCommittedStatusRequest(operation)
+    : getPendingStudyTaskCreateRequest(operation))
 }
 
 export function loadPendingStudyTaskOperations(
@@ -256,16 +465,36 @@ export function savePendingStudyTaskOperation(
   storage: PendingStudyTaskOperationStorage = getDefaultStorage(),
   now = Date.now(),
 ): PendingStudyTaskOperation {
-  const operation = validatePendingStudyTaskOperation({
-    ...request,
-    createdAt: new Date(now).toISOString(),
-  })
+  const createdAt = new Date(now).toISOString()
+  const operation = request.operationKind === 'today_action'
+    && request.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+    ? (() => {
+        const expectedCurrentDate = requireDateKey(
+          request.expectedCurrentDate,
+          'pending expectedCurrentDate',
+        )
+        const payload = validatePayload(request.payload)
+        if (payload.planned_date !== expectedCurrentDate) {
+          throw new Error('pending task date invariant is invalid')
+        }
+        return validatePendingStudyTaskOperation({
+          operationId: request.operationId,
+          operationKind: 'today_action',
+          actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+          expectedCurrentDate,
+          plannedDate: payload.planned_date,
+          createdAt,
+        })
+      })()
+    : validatePendingStudyTaskOperation({
+        ...request,
+        createdAt,
+      })
   const loaded = loadPendingStudyTaskOperations(storage, now)
   const existing = loaded.operations.find(item => item.operationId === operation.operationId)
   if (
     existing
-    && JSON.stringify(getPendingStudyTaskCreateRequest(existing))
-      !== JSON.stringify(getPendingStudyTaskCreateRequest(operation))
+    && getPendingStudyTaskOperationIdentity(existing) !== getPendingStudyTaskOperationIdentity(operation)
   ) {
     throw new Error('Pending operation ID already belongs to a different request')
   }

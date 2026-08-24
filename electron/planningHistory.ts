@@ -30,6 +30,7 @@ import {
     IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
     validateIdempotentAIStudyTaskCreateRequest,
 } from './idempotentStudyTaskCreation'
+import { CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION } from '../src/utils/aiOperationContracts'
 
 export const PLANNING_HISTORY_CONTRACT_VERSION = 'planning-history.v1'
 export const PLANNING_HISTORY_RETENTION_DAYS = 30
@@ -768,7 +769,9 @@ function batchLoadReceipts(
         if (!LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)
             || !operationIds.has(row.operation_id)
             || (operationKind !== 'today_action' && operationKind !== 'daily_review')
-            || row.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+            || (row.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+                && !(operationKind === 'today_action'
+                    && row.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION))
             || typeof row.request_digest !== 'string'
             || !SHA256_PATTERN.test(row.request_digest)
             || !isCanonicalStoredDateKey(expectedCurrentDate)
@@ -1018,6 +1021,15 @@ function receiptMatchesCandidate(
     run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
 ): boolean {
     if (typeof candidateRow.operation_id !== 'string') return false
+    if (receipt.operation_kind !== run.entryPoint
+        || receipt.expected_current_date !== run.planningDate
+        || receipt.planned_date !== run.targetDate
+    ) {
+        return false
+    }
+    if (receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+        return run.entryPoint === 'today_action'
+    }
     try {
         const request: IdempotentAIStudyTaskCreateRequest = {
             operationId: candidateRow.operation_id,
@@ -1039,11 +1051,8 @@ function receiptMatchesCandidate(
             },
         }
         const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
-        return receipt.operation_kind === run.entryPoint
-            && receipt.action_contract_version === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+        return receipt.action_contract_version === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
             && receipt.request_digest === expectedDigest
-            && receipt.expected_current_date === run.planningDate
-            && receipt.planned_date === run.targetDate
     } catch {
         return false
     }

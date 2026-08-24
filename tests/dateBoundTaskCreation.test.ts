@@ -87,8 +87,12 @@ describe('date-bound main-process task creation', () => {
     database.exec('CREATE TABLE writes (id INTEGER PRIMARY KEY)')
     const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
       mode: 'today_action',
-      generation: createAIStudyTaskGenerationProvenance('today_action', 'today-before-midnight'),
+      generation: createAIStudyTaskGenerationProvenance('today_action', 'a'.repeat(64)),
       confirmationContextSignature: 'today-before-midnight',
+      generationChapterSignature: 'b'.repeat(64),
+      latestReviewedChapterSignature: 'b'.repeat(64),
+      staleContextOverride: false,
+      staleReviewToken: null,
       expectedCurrentDate: '2026-05-31',
       plannedDate: '2026-05-31',
     }

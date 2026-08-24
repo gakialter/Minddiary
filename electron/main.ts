@@ -42,7 +42,16 @@ import {
 } from './updaterState';
 import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
-import { createIdempotentAIStudyTaskForCurrentDate } from './idempotentStudyTaskCreation';
+import {
+    createIdempotentAIStudyTaskForCurrentDate,
+    getCommittedAIStudyTaskOperationStatus,
+} from './idempotentStudyTaskCreation';
+import {
+    TodayActionStaleReviewTokenStore,
+    authorizeTodayActionStaleReview,
+    readAuthoritativeTodayActionChapterContext,
+} from './todayActionChapterContext';
+import { createTodayActionIpcHandlers } from './todayActionIpc';
 import {
     createPlanningHistoryStore,
     PlanningHistoryConflictError,
@@ -106,6 +115,7 @@ import type {
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let mainWindowNavigationPolicy: NavigationPolicy | null = null;
 const planningRunIdsObservedThisProcess = new Set<string>();
+const todayActionStaleReviewTokenStore = new TodayActionStaleReviewTokenStore();
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
 let smokeDiagnosticConfigurationFailed = false;
@@ -135,6 +145,29 @@ function getMainNavigationPolicy(runtimeMode: RendererRuntimeMode): NavigationPo
 function getActiveMainNavigationPolicy(): NavigationPolicy {
     return mainWindowNavigationPolicy ?? getMainNavigationPolicy(getRendererRuntimeMode());
 }
+
+const todayActionIpcHandlers = createTodayActionIpcHandlers({
+    isTrustedSender: event => isTrustedMainWindowIpcSender(event as MainWindowIpcEvent, {
+        getMainWindow: () => mainWindow,
+        getNavigationPolicy: getActiveMainNavigationPolicy,
+    }),
+    readChapterContext: () => {
+        const context = readAuthoritativeTodayActionChapterContext(db.getDb());
+        return {
+            chapterProjection: context.chapterProjection,
+            currentChapterSignature: context.currentChapterSignature,
+        };
+    },
+    authorizeStaleReview: (request, trustedSession) => authorizeTodayActionStaleReview(request, {
+        database: db.getDb(),
+        getCurrentDateKey: getCurrentTaskCreationDateKey,
+        trustedSession,
+        tokenStore: todayActionStaleReviewTokenStore,
+    }),
+    getCommittedStatus: request => getCommittedAIStudyTaskOperationStatus(request, {
+        database: db.getDb(),
+    }),
+});
 
 function configureWindowsAppUserModelId() {
     if (process.platform !== 'win32') return;
@@ -1127,6 +1160,17 @@ ipcMain.handle('tasks:createForCurrentDate', (_: unknown, task: unknown, expecte
         runInTransaction: operation => db.getDb().transaction(operation)(),
     })
 ));
+ipcMain.handle('tasks:getTodayActionAuthoritativeChapterContext', (event: MainWindowIpcEvent) => (
+    todayActionIpcHandlers.getAuthoritativeChapterContext(event)
+));
+ipcMain.handle('tasks:authorizeTodayActionStaleReview', (
+    event: MainWindowIpcEvent,
+    request: unknown,
+) => todayActionIpcHandlers.authorizeStaleReview(event, request));
+ipcMain.handle('tasks:getCommittedAIStudyTaskOperationStatus', (
+    event: MainWindowIpcEvent,
+    request: unknown,
+) => todayActionIpcHandlers.getCommittedStatus(event, request));
 ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
     event: MainWindowIpcEvent,
     request: unknown,
@@ -1148,6 +1192,8 @@ ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
                 database: db.getDb(),
                 getCurrentDateKey: getCurrentTaskCreationDateKey,
                 createTask: db.createStudyTask,
+                trustedSession: event.sender,
+                tokenStore: todayActionStaleReviewTokenStore,
             }),
             recordOutcome: (candidateId, operationId, outcome) => (
                 planningHistory.recordOutcome(candidateId, operationId, outcome)

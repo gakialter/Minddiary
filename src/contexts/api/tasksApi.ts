@@ -196,6 +196,18 @@ export const createTasksApi = (
             message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
         }
     },
+    getTodayActionAuthoritativeChapterContext: async () => {
+        if (IS_ELECTRON) return window.api.tasks.getTodayActionAuthoritativeChapterContext()
+        throw new Error('Today Action 章节权威确认仅支持 MindDiary 桌面版')
+    },
+    authorizeTodayActionStaleReview: async request => {
+        if (IS_ELECTRON) return window.api.tasks.authorizeTodayActionStaleReview(request)
+        throw new Error('Today Action 过期上下文授权仅支持 MindDiary 桌面版')
+    },
+    getCommittedAIStudyTaskOperationStatus: async request => {
+        if (IS_ELECTRON) return window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)
+        throw new Error('Today Action 已提交状态检查仅支持 MindDiary 桌面版')
+    },
     update: async (id: number, patch: Partial<StudyTask>) => {
         if (IS_ELECTRON) return window.api.tasks.update(id, patch)
 

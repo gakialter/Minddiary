@@ -4,6 +4,7 @@ import type {
   IdempotentAIStudyTaskCreateRequest,
   IdempotentAIStudyTaskCreateResponse,
   TasksContextAPI,
+  TodayActionStaleReviewAuthorizationRequest,
 } from '../types/api'
 import {
   validateAIStudyTaskGenerationProvenance,
@@ -23,6 +24,13 @@ const BASE_ACTION_KEYS = [
   'plannedDate',
   'draft',
 ] as const
+const TODAY_ACTION_KEYS = [
+  ...BASE_ACTION_KEYS,
+  'generationChapterSignature',
+  'latestReviewedChapterSignature',
+  'staleContextOverride',
+  'staleReviewToken',
+] as const
 const MISTAKE_ACTION_KEYS = [...BASE_ACTION_KEYS, 'generationMistakeRef'] as const
 const BASE_SNAPSHOT_KEYS = [
   'mode',
@@ -30,6 +38,13 @@ const BASE_SNAPSHOT_KEYS = [
   'confirmationContextSignature',
   'expectedCurrentDate',
   'plannedDate',
+] as const
+const TODAY_SNAPSHOT_KEYS = [
+  ...BASE_SNAPSHOT_KEYS,
+  'generationChapterSignature',
+  'latestReviewedChapterSignature',
+  'staleContextOverride',
+  'staleReviewToken',
 ] as const
 const MISTAKE_SNAPSHOT_KEYS = [...BASE_SNAPSHOT_KEYS, 'generationMistakeRef'] as const
 const DRAFT_KEYS = [
@@ -108,7 +123,14 @@ interface StudyTaskActionConfirmationSnapshotBase {
 
 export type StudyTaskActionConfirmationSnapshot =
   | (StudyTaskActionConfirmationSnapshotBase & {
-      mode: 'today_action' | 'daily_review'
+      mode: 'today_action'
+      generationChapterSignature: string
+      latestReviewedChapterSignature: string
+      staleContextOverride: boolean
+      staleReviewToken: string | null
+    })
+  | (StudyTaskActionConfirmationSnapshotBase & {
+      mode: 'daily_review'
     })
   | (StudyTaskActionConfirmationSnapshotBase & {
       mode: 'mistake_review'
@@ -127,7 +149,14 @@ interface ConfirmedStudyTaskActionBase {
 
 export type ConfirmedStudyTaskAction =
   | (ConfirmedStudyTaskActionBase & {
-      mode: 'today_action' | 'daily_review'
+      mode: 'today_action'
+      generationChapterSignature: string
+      latestReviewedChapterSignature: string
+      staleContextOverride: boolean
+      staleReviewToken: string | null
+    })
+  | (ConfirmedStudyTaskActionBase & {
+      mode: 'daily_review'
     })
   | (ConfirmedStudyTaskActionBase & {
       mode: 'mistake_review'
@@ -233,6 +262,52 @@ function requireMistakeGenerationSignature(value: unknown): string {
   return value
 }
 
+function requireSha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+    throw new Error(`${label} must be lowercase SHA-256`)
+  }
+  return value
+}
+
+function validateTodayActionReviewState(value: Record<string, unknown>): {
+  generationChapterSignature: string
+  latestReviewedChapterSignature: string
+  staleContextOverride: boolean
+  staleReviewToken: string | null
+} {
+  const generationChapterSignature = requireSha256(
+    value.generationChapterSignature,
+    'generationChapterSignature',
+  )
+  const latestReviewedChapterSignature = requireSha256(
+    value.latestReviewedChapterSignature,
+    'latestReviewedChapterSignature',
+  )
+  if (typeof value.staleContextOverride !== 'boolean') {
+    throw new Error('staleContextOverride must be a boolean')
+  }
+  if (!value.staleContextOverride) {
+    if (value.staleReviewToken !== null) {
+      throw new Error('staleReviewToken must be null when staleContextOverride is false')
+    }
+    if (latestReviewedChapterSignature !== generationChapterSignature) {
+      throw new Error('latestReviewedChapterSignature must match generationChapterSignature without stale override')
+    }
+    return {
+      generationChapterSignature,
+      latestReviewedChapterSignature,
+      staleContextOverride: false,
+      staleReviewToken: null,
+    }
+  }
+  return {
+    generationChapterSignature,
+    latestReviewedChapterSignature,
+    staleContextOverride: true,
+    staleReviewToken: requireSha256(value.staleReviewToken, 'staleReviewToken'),
+  }
+}
+
 function requireMistakeRef(value: unknown): string {
   if (typeof value !== 'string' || !MISTAKE_REF_PATTERN.test(value)) {
     throw new Error('mistake review generationMistakeRef must be m1 through m12')
@@ -252,7 +327,7 @@ function requireValidLocalDateKey(value: unknown, label: string): string {
 
 function requireNullableId(value: unknown, label: string): number | null {
   if (value === null) return null
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive integer or null`)
   }
   return value
@@ -263,7 +338,11 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
   const mode = requireMode(snapshot.mode)
   assertExactKeys({
     record: snapshot,
-    allowed: mode === 'mistake_review' ? MISTAKE_SNAPSHOT_KEYS : BASE_SNAPSHOT_KEYS,
+    allowed: mode === 'today_action'
+      ? TODAY_SNAPSHOT_KEYS
+      : mode === 'mistake_review'
+        ? MISTAKE_SNAPSHOT_KEYS
+        : BASE_SNAPSHOT_KEYS,
     label: 'confirmation snapshot',
   })
   const generation = validateAIStudyTaskGenerationProvenance(snapshot.generation, mode)
@@ -293,6 +372,14 @@ function validateSnapshot(value: unknown): StudyTaskActionConfirmationSnapshot {
       throw new Error('mistake review confirmation context must match generation context')
     }
     return { ...base, mode, generationMistakeRef: requireMistakeRef(snapshot.generationMistakeRef) }
+  }
+  if (mode === 'today_action') {
+    requireSha256(generation.generationContextSignature, 'today action generation context signature')
+    return {
+      ...base,
+      mode,
+      ...validateTodayActionReviewState(snapshot),
+    }
   }
   return { ...base, mode }
 }
@@ -344,7 +431,11 @@ export function validateConfirmedStudyTaskAction(
   const mode = requireMode(action.mode)
   assertExactKeys({
     record: action,
-    allowed: mode === 'mistake_review' ? MISTAKE_ACTION_KEYS : BASE_ACTION_KEYS,
+    allowed: mode === 'today_action'
+      ? TODAY_ACTION_KEYS
+      : mode === 'mistake_review'
+        ? MISTAKE_ACTION_KEYS
+        : BASE_ACTION_KEYS,
     label: 'confirmed study task action',
   })
   const generation = validateAIStudyTaskGenerationProvenance(action.generation, mode)
@@ -380,6 +471,10 @@ export function validateConfirmedStudyTaskAction(
     throw new Error('confirmed study task action plannedDate does not match confirmation snapshot')
   }
 
+  const draft = validateDraft(action.draft)
+  if (mode === 'today_action' && draft.related_chapter_id !== null) {
+    throw new Error('Today Action related_chapter_id must be null')
+  }
   const base = {
     kind: 'create_study_task',
     operationId,
@@ -388,7 +483,7 @@ export function validateConfirmedStudyTaskAction(
     confirmationContextSignature,
     expectedCurrentDate,
     plannedDate,
-    draft: validateDraft(action.draft),
+    draft,
   }
   if (mode === 'mistake_review') {
     const generationMistakeRef = requireMistakeRef(action.generationMistakeRef)
@@ -396,6 +491,19 @@ export function validateConfirmedStudyTaskAction(
       throw new Error('confirmed study task action generationMistakeRef does not match confirmation snapshot')
     }
     return { ...base, kind: 'create_study_task', mode, generationMistakeRef }
+  }
+  if (mode === 'today_action') {
+    const reviewState = validateTodayActionReviewState(action)
+    if (
+      snapshot.mode !== 'today_action'
+      || reviewState.generationChapterSignature !== snapshot.generationChapterSignature
+      || reviewState.latestReviewedChapterSignature !== snapshot.latestReviewedChapterSignature
+      || reviewState.staleContextOverride !== snapshot.staleContextOverride
+      || reviewState.staleReviewToken !== snapshot.staleReviewToken
+    ) {
+      throw new Error('confirmed study task action stale-review state does not match confirmation snapshot')
+    }
+    return { ...base, kind: 'create_study_task', mode, ...reviewState }
   }
   return { ...base, kind: 'create_study_task', mode }
 }
@@ -420,12 +528,22 @@ export function createConfirmedStudyTaskAction({
     plannedDate: snapshot.plannedDate,
     ...(snapshot.mode === 'mistake_review'
       ? { generationMistakeRef: snapshot.generationMistakeRef }
-      : {}),
+      : snapshot.mode === 'today_action'
+        ? {
+            generationChapterSignature: snapshot.generationChapterSignature,
+            latestReviewedChapterSignature: snapshot.latestReviewedChapterSignature,
+            staleContextOverride: snapshot.staleContextOverride,
+            staleReviewToken: snapshot.staleReviewToken,
+          }
+        : {}),
     draft,
   }, snapshot)
 }
 
 export function buildConfirmedStudyTaskPayload(action: ConfirmedStudyTaskAction): NewStudyTask {
+  if (action.mode === 'today_action' && action.draft.related_chapter_id !== null) {
+    throw new Error('Today Action related_chapter_id must be null')
+  }
   return {
     title: action.draft.title,
     description: action.draft.description,
@@ -441,30 +559,109 @@ export function buildConfirmedStudyTaskPayload(action: ConfirmedStudyTaskAction)
   }
 }
 
+export function buildTodayActionStaleReviewAuthorizationRequest({
+  operationId,
+  generation,
+  generationChapterSignature,
+  latestReviewedChapterSignature,
+  expectedCurrentDate,
+  draft,
+}: {
+  operationId: string
+  generation: AIStudyTaskGenerationProvenance
+  generationChapterSignature: string
+  latestReviewedChapterSignature: string
+  expectedCurrentDate: string
+  draft: unknown
+}): TodayActionStaleReviewAuthorizationRequest {
+  const validatedOperationId = validateConfirmedStudyTaskOperationId(operationId)
+  const validatedGeneration = validateAIStudyTaskGenerationProvenance(generation, 'today_action')
+  requireSha256(
+    validatedGeneration.generationContextSignature,
+    'today action generation context signature',
+  )
+  const validatedGenerationChapterSignature = requireSha256(
+    generationChapterSignature,
+    'generationChapterSignature',
+  )
+  const validatedLatestReviewedChapterSignature = requireSha256(
+    latestReviewedChapterSignature,
+    'latestReviewedChapterSignature',
+  )
+  if (validatedLatestReviewedChapterSignature === validatedGenerationChapterSignature) {
+    throw new Error('stale review requires a changed latestReviewedChapterSignature')
+  }
+  const validatedExpectedCurrentDate = requireValidLocalDateKey(
+    expectedCurrentDate,
+    'stale review expectedCurrentDate',
+  )
+  const validatedDraft = validateDraft(draft)
+  if (validatedDraft.related_chapter_id !== null) {
+    throw new Error('Today Action related_chapter_id must be null')
+  }
+  return {
+    operationId: validatedOperationId,
+    operationKind: 'today_action',
+    actionContractVersion: 'confirmed-study-task-action.v2',
+    expectedCurrentDate: validatedExpectedCurrentDate,
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: validatedGeneration.generationContextSignature,
+    generationChapterSignature: validatedGenerationChapterSignature,
+    latestReviewedChapterSignature: validatedLatestReviewedChapterSignature,
+    staleContextOverride: true,
+    payload: {
+      title: validatedDraft.title,
+      description: validatedDraft.description,
+      type: validatedDraft.type,
+      subject_id: validatedDraft.subject_id,
+      related_mistake_id: validatedDraft.related_mistake_id,
+      related_entry_id: validatedDraft.related_entry_id,
+      related_chapter_id: null,
+      planned_date: validatedExpectedCurrentDate,
+      estimate_minutes: validatedDraft.estimate_minutes,
+      status: 'todo',
+      source: 'ai',
+    },
+  }
+}
+
 export function buildIdempotentAIStudyTaskCreateRequest(
   action: ConfirmedStudyTaskAction,
 ): IdempotentAIStudyTaskCreateRequest {
-  const base = {
-    operationId: action.operationId,
-    operationKind: action.mode,
-    actionContractVersion: action.generation.versions.actionContractVersion,
-    expectedCurrentDate: action.expectedCurrentDate,
-    payload: buildConfirmedStudyTaskPayload(action),
+  const payload = buildConfirmedStudyTaskPayload(action)
+  if (action.mode === 'today_action') {
+    return {
+      operationId: action.operationId,
+      operationKind: action.mode,
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: action.expectedCurrentDate,
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: action.generation.generationContextSignature,
+      generationChapterSignature: action.generationChapterSignature,
+      latestReviewedChapterSignature: action.latestReviewedChapterSignature,
+      staleContextOverride: action.staleContextOverride,
+      staleReviewToken: action.staleReviewToken,
+      payload,
+    }
   }
   if (action.mode === 'mistake_review') {
     return {
-      ...base,
+      operationId: action.operationId,
       operationKind: action.mode,
       actionContractVersion: 'confirmed-mistake-review-task-action.v2',
+      expectedCurrentDate: action.expectedCurrentDate,
       contextProjectionVersion: action.generation.versions.contextProjectionVersion as 'mistake-review.context-projection.v1',
       generationContextSignature: action.generation.generationContextSignature,
       generationMistakeRef: action.generationMistakeRef,
+      payload,
     }
   }
   return {
-    ...base,
+    operationId: action.operationId,
     operationKind: action.mode,
     actionContractVersion: 'confirmed-study-task-action.v1',
+    expectedCurrentDate: action.expectedCurrentDate,
+    payload,
   }
 }
 

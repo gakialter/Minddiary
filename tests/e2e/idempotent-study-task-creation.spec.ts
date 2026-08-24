@@ -50,12 +50,19 @@ function makeRequest(
   operationId: string,
   date: string,
   title: string,
+  chapterSignature: string,
 ): IdempotentAIStudyTaskCreateRequest {
   return {
     operationId,
     operationKind: 'today_action',
-    actionContractVersion: 'confirmed-study-task-action.v1',
+    actionContractVersion: 'confirmed-study-task-action.v2',
     expectedCurrentDate: date,
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: 'd'.repeat(64),
+    generationChapterSignature: chapterSignature,
+    latestReviewedChapterSignature: chapterSignature,
+    staleContextOverride: false,
+    staleReviewToken: null,
     payload: {
       title,
       description: '真实 preload、IPC 与 SQLite 幂等验证。',
@@ -159,7 +166,10 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       await finishOnboarding(page)
       const today = localDateKey(new Date())
       const operationId = 'a1111111-1111-4111-8111-111111111111'
-      const request = makeRequest(operationId, today, 'E2E 幂等任务')
+      const chapterSignature = await page.evaluate(async () => (
+        await window.api.tasks.getTodayActionAuthoritativeChapterContext()
+      ).currentChapterSignature)
+      const request = makeRequest(operationId, today, 'E2E 幂等任务', chapterSignature)
 
       const first = await invokeCreate(page, request)
       expect(first).toMatchObject({ ok: true, operationId, replayed: false })
@@ -181,6 +191,26 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       expect(conflict).toMatchObject({ ok: false, operationId, code: 'IDEMPOTENCY_CONFLICT' })
       expect(await getTasksForDate(page, today)).toHaveLength(1)
 
+      const forgedChapterRelationRequest = makeRequest(
+        'd4444444-4444-4444-8444-444444444444',
+        today,
+        'E2E forged chapter relation',
+        chapterSignature,
+      )
+      const forgedChapterRelation = await invokeCreate(page, {
+        ...forgedChapterRelationRequest,
+        payload: {
+          ...forgedChapterRelationRequest.payload,
+          related_chapter_id: 1,
+        },
+      })
+      expect(forgedChapterRelation).toMatchObject({
+        ok: false,
+        operationId: 'd4444444-4444-4444-8444-444444444444',
+        code: 'INVALID_REQUEST',
+      })
+      expect(await getTasksForDate(page, today)).toHaveLength(1)
+
       const tomorrowAtNoon = new Date()
       tomorrowAtNoon.setDate(tomorrowAtNoon.getDate() + 1)
       tomorrowAtNoon.setHours(12, 0, 0, 0)
@@ -189,7 +219,7 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
 
       const staleNewOperation = await invokeCreate(
         page,
-        makeRequest('b2222222-2222-4222-8222-222222222222', today, 'E2E 旧日期新操作'),
+        makeRequest('b2222222-2222-4222-8222-222222222222', today, 'E2E 旧日期新操作', chapterSignature),
       )
       expect(staleNewOperation).toMatchObject({ ok: false, code: 'DATE_MISMATCH' })
       const crossDateReplay = await invokeCreate(page, request)
@@ -208,14 +238,21 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       expect(await getTasksForDate(page, today)).toEqual([])
 
       const recoveryOperationId = 'c3333333-3333-4333-8333-333333333333'
-      const recoveryRequest = makeRequest(recoveryOperationId, today, 'E2E 重启恢复任务')
+      const recoveryRequest = makeRequest(recoveryOperationId, today, 'E2E 重启恢复任务', chapterSignature)
       const recoverySeed = await invokeCreate(page, recoveryRequest)
       expect(recoverySeed).toMatchObject({ ok: true, replayed: false })
       if (!recoverySeed.ok) throw new Error(`Recovery seed failed: ${recoverySeed.code}`)
       await page.evaluate(({ key, pendingRequest }) => {
         localStorage.setItem(key, JSON.stringify({
           version: 1,
-          operations: [{ ...pendingRequest, createdAt: new Date().toISOString() }],
+          operations: [{
+            operationId: pendingRequest.operationId,
+            operationKind: 'today_action',
+            actionContractVersion: 'confirmed-study-task-action.v2',
+            expectedCurrentDate: pendingRequest.expectedCurrentDate,
+            plannedDate: pendingRequest.payload.planned_date,
+            createdAt: new Date().toISOString(),
+          }],
         }))
       }, { key: PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY, pendingRequest: recoveryRequest })
 
@@ -237,7 +274,7 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
         .not.toBeNull()
 
       await page.getByTestId(`recover-pending-study-task-${recoveryOperationId}`).click()
-      await expect(page.getByTestId('pending-study-task-outcome')).toHaveText(
+      await expect(page.getByTestId('pending-study-task-outcome')).toContainText(
         '原操作此前已完成，本次未重复创建',
       )
       expect(await page.evaluate(key => localStorage.getItem(key), PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY))

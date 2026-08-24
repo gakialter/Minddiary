@@ -509,6 +509,157 @@ describe('Planning History Execution Attribution', () => {
     })
   })
 
+  describe('Today Action v2 dynamic attribution compatibility', () => {
+    const OPAQUE_V2_REQUEST_DIGEST = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+
+    function setupV2Attribution(options: {
+      operationId?: unknown
+      operationKind?: unknown
+      actionContractVersion?: unknown
+      requestDigest?: unknown
+      expectedCurrentDate?: unknown
+      plannedDate?: unknown
+      taskId?: unknown
+      corruptTask?: boolean
+    } = {}) {
+      const { database, store } = createStore()
+      const created = store.create(todayRun())
+      const candidateId = created.candidates[0]!.id
+      const claim = taskRequest()
+      store.claimConfirmation(candidateId, claim)
+
+      const taskId = Number(database.prepare(`
+        INSERT INTO study_tasks (
+          title, description, type, subject_id, related_mistake_id,
+          planned_date, estimate_minutes, status, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        '复习 函数极限',
+        '今天到期,适合先处理。',
+        'review',
+        1,
+        12,
+        '2026-08-13',
+        25,
+        options.corruptTask ? 'INVALID_STATUS' : 'todo',
+        'ai',
+      ).lastInsertRowid)
+
+      database.pragma('foreign_keys = OFF')
+      database.prepare(`
+        INSERT INTO study_task_action_receipts (
+          operation_id, operation_kind, action_contract_version, request_digest,
+          expected_current_date, planned_date, task_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        options.operationId ?? claim.operationId,
+        options.operationKind ?? 'today_action',
+        options.actionContractVersion ?? 'confirmed-study-task-action.v2',
+        options.requestDigest ?? OPAQUE_V2_REQUEST_DIGEST,
+        options.expectedCurrentDate ?? '2026-08-13',
+        options.plannedDate ?? '2026-08-13',
+        Object.prototype.hasOwnProperty.call(options, 'taskId') ? options.taskId : taskId,
+      )
+      store.recordOutcome(candidateId, claim.operationId, 'created')
+      return { database, store, taskId }
+    }
+
+    it('attributes an authoritative v2 receipt while treating its digest as an opaque commitment', () => {
+      const { store, taskId } = setupV2Attribution()
+
+      const fromGet = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      const fromList = store.listRecent().items[0]!.candidates[0]!.executionAttribution!
+
+      expect(fromGet).toMatchObject({
+        kind: 'verified_linked',
+        receiptValidated: true,
+        taskId,
+        taskCurrentTitle: '复习 函数极限',
+        taskCurrentStatus: 'todo',
+        semanticDrift: { hasDrift: false, differences: {} },
+      })
+      expect(fromList).toEqual(fromGet)
+    })
+
+    it('preserves v2 explicit-null deletion and current-task semantic drift semantics', () => {
+      const deleted = setupV2Attribution({ taskId: null })
+      const deletedAttribution = deleted.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(deletedAttribution.kind).toBe('task_deleted')
+      expect(deletedAttribution.receiptValidated).toBe(true)
+      expect(deletedAttribution.taskId).toBeNull()
+
+      const drifted = setupV2Attribution()
+      drifted.database.prepare('UPDATE study_tasks SET title = ? WHERE id = ?')
+        .run('已编辑任务', drifted.taskId)
+      const driftAttribution = drifted.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(driftAttribution.kind).toBe('verified_linked')
+      expect(driftAttribution.receiptValidated).toBe(true)
+      expect(driftAttribution.semanticDrift!.differences.title).toEqual({
+        candidateValue: '复习 函数极限',
+        currentValue: '已编辑任务',
+      })
+    })
+
+    it.each([
+      ['uppercase operation UUID', { operationId: '33333333-3333-4333-8333-33333333333A' }],
+      ['wrong operation kind', { operationKind: 'daily_review' }],
+      ['wrong action contract', { actionContractVersion: 'confirmed-study-task-action.v3' }],
+      ['malformed digest', { requestDigest: 'not-a-digest' }],
+      ['uppercase digest', { requestDigest: 'A'.repeat(64) }],
+      ['non-string receipt metadata', { operationKind: Buffer.from([0]) }],
+    ] as const)('fails closed for v2 receipt metadata corruption: %s', (_label, overrides) => {
+      const { store } = setupV2Attribution(overrides)
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it.each([
+      ['invalid expected date', { expectedCurrentDate: '2026-02-30' }],
+      ['invalid planned date', { plannedDate: '2026-8-13' }],
+      ['unequal receipt dates', { plannedDate: '2026-08-14' }],
+      ['non-authoritative receipt dates', { expectedCurrentDate: '2026-08-12', plannedDate: '2026-08-12' }],
+    ] as const)('fails closed for v2 receipt date corruption: %s', (_label, overrides) => {
+      const { store } = setupV2Attribution(overrides)
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it.each([
+      ['zero', 0],
+      ['negative', -1],
+      ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+      ['non-integer', 1.5],
+      ['string', 'corrupt-task-id'],
+    ])('fails closed before task lookup for a corrupt v2 task relation: %s', (_label, taskId) => {
+      const { store } = setupV2Attribution({ taskId })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it('fails closed when a v2 receipt points to a missing or corrupt authoritative task', () => {
+      const missing = setupV2Attribution({ taskId: 999 })
+      const missingAttribution = missing.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(missingAttribution.kind).toBe('integrity_inconsistency')
+      expect(missingAttribution.receiptValidated).toBe(true)
+      expect(missingAttribution.taskId).toBe(999)
+
+      const corrupt = setupV2Attribution({ corruptTask: true })
+      const corruptAttribution = corrupt.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(corruptAttribution.kind).toBe('integrity_inconsistency')
+      expect(corruptAttribution.receiptValidated).toBe(true)
+      expect(corruptAttribution.taskId).toBe(corrupt.taskId)
+    })
+  })
+
   describe('Attribution Matrix', () => {
     it('case 1: verified_linked - confirmed candidate + outcome=created + valid receipt + existing task', () => {
       const { database, store } = createStore()
