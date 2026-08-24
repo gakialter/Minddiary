@@ -311,6 +311,7 @@ describe('trusted confirmation correlation and retention', () => {
 
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'uncertain'))
       .toEqual({ recorded: true })
+    expect(store.claimConfirmation(candidateId, taskRequest())).toEqual({ claimed: true })
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'created'))
       .toEqual({ recorded: true })
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'created'))
@@ -320,6 +321,37 @@ describe('trusted confirmation correlation and retention', () => {
     expect(store.get('11111111-1111-4111-8111-111111111111')?.candidates[0]).toEqual(
       expect.objectContaining({ userDisposition: 'confirmed', outcomeKind: 'created' }),
     )
+  })
+
+  it('keeps a validation-failed candidate bound to O1 and accepts O2 only for a fresh generation candidate', () => {
+    const { store } = createStore('2026-08-13T14:00:00.000Z')
+    const firstRun = store.create(todayRun())
+    const firstCandidateId = firstRun.candidates[0]!.id
+    const firstRequest = taskRequest()
+    const secondRequest = taskRequest({ operationId: '44444444-4444-4444-8444-444444444444' })
+
+    expect(store.claimConfirmation(firstCandidateId, firstRequest)).toEqual({ claimed: true })
+    expect(store.recordOutcome(firstCandidateId, firstRequest.operationId, 'validation_error'))
+      .toEqual({ recorded: true })
+    expect(() => store.claimConfirmation(firstCandidateId, secondRequest)).toThrow(/operation|outcome/i)
+
+    const secondRun = store.create(todayRun({
+      id: '22222222-2222-4222-8222-222222222222',
+    }))
+    const secondCandidateId = secondRun.candidates[0]!.id
+    expect(secondCandidateId).not.toBe(firstCandidateId)
+    expect(store.claimConfirmation(secondCandidateId, secondRequest)).toEqual({ claimed: true })
+    expect(store.recordOutcome(secondCandidateId, secondRequest.operationId, 'created'))
+      .toEqual({ recorded: true })
+
+    expect(store.get(firstRun.id)?.candidates[0]).toEqual(expect.objectContaining({
+      userDisposition: 'confirmed',
+      outcomeKind: 'validation_error',
+    }))
+    expect(store.get(secondRun.id)?.candidates[0]).toEqual(expect.objectContaining({
+      userDisposition: 'confirmed',
+      outcomeKind: 'created',
+    }))
   })
 
   it('allows same-operation outcome fill after close and silently ignores deleted history', () => {

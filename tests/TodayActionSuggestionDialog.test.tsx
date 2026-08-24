@@ -1295,7 +1295,7 @@ describe('TodayActionSuggestionDialog', () => {
     createActionSpy.mockRestore()
   })
 
-  it('blocks again when chapter state changes after explicit review and does not keep the stale token marker', async () => {
+  it('requires regeneration after a definitive second chapter drift and never dispatches O2 for the old candidate', async () => {
     const firstRefreshedProjection = {
       chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: false }],
     }
@@ -1304,16 +1304,63 @@ describe('TodayActionSuggestionDialog', () => {
     }
     const firstSignature = await computeTodayActionChapterSignature(firstRefreshedProjection)
     const secondSignature = await computeTodayActionChapterSignature(secondRefreshedProjection)
-    mocks.tasksGetChapterContext
-      .mockResolvedValueOnce({ chapterProjection: firstRefreshedProjection, currentChapterSignature: firstSignature })
-      .mockResolvedValueOnce({ chapterProjection: firstRefreshedProjection, currentChapterSignature: firstSignature })
-      .mockResolvedValueOnce({ chapterProjection: secondRefreshedProjection, currentChapterSignature: secondSignature })
-    const route = vi.fn(async (request: IdempotentAIStudyTaskCreateRequest): Promise<IdempotentAIStudyTaskCreateResponse> => ({
-      ok: false,
-      operationId: request.operationId,
-      code: 'INVALID_REQUEST',
-      message: 'chapter drifted again',
-    }))
+    const freshCandidateResponse = JSON.stringify({
+      suggestions: [{
+        title: '按最新章节复习连续性',
+        type: 'focus',
+        estimate_minutes: 15,
+        reason: '基于最新章节进度重新规划。',
+        priority: 'high',
+      }],
+    })
+    const durableRuns: PlanningRunRecord[] = []
+    const createPlanningRun = vi.fn(async (request: PlanningRunCreateRequest) => {
+      const run = makePlanningRun(request)
+      run.candidates[0]!.id = 701 + durableRuns.length
+      durableRuns.push(run)
+      return run
+    })
+    const transitionPlanningRun = vi.fn(async (request: PlanningRunTransitionRequest) => {
+      const run = durableRuns.find(item => item.id === request.runId)!
+      return request.kind === 'close_run'
+        ? { ...run, closedAt: '2026-06-12T00:01:00.000Z', closeReason: request.reason }
+        : run
+    })
+    window.api.planningRuns = {
+      create: createPlanningRun,
+      transition: transitionPlanningRun,
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    let chapterContextRead = 0
+    mocks.tasksGetChapterContext.mockReset().mockImplementation(async () => {
+      chapterContextRead += 1
+      return chapterContextRead <= 2
+        ? { chapterProjection: firstRefreshedProjection, currentChapterSignature: firstSignature }
+        : { chapterProjection: secondRefreshedProjection, currentChapterSignature: secondSignature }
+    })
+    let createAttempt = 0
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+      _planningCandidateId?: number,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+      createAttempt += 1
+      if (createAttempt === 1) {
+        return {
+          ok: false,
+          operationId: request.operationId,
+          code: 'INVALID_REQUEST',
+          message: 'chapter drifted again',
+        }
+      }
+      return {
+        ok: true,
+        operationId: request.operationId,
+        task: makeTask({ id: 100, title: request.payload.title, type: request.payload.type }),
+        replayed: false,
+      }
+    })
 
     renderDialog('2026-06-12', route)
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
@@ -1326,10 +1373,53 @@ describe('TodayActionSuggestionDialog', () => {
     await waitFor(() => {
       expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent('最终确认前再次变化')
     })
-    expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('已完成')
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '本次确认已因上下文再次变化而结束，请重新生成建议',
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('已完成')
+    })
+    expect(route).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksAuthorizeStaleReview).toHaveBeenCalledTimes(1)
+    const firstOperationId = route.mock.calls[0]![0].operationId
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(firstOperationId)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent('确认内容未通过校验')
+    expect(screen.queryByTestId('today-action-accept-stale-chapter-context')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })).toBeDisabled()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('重新生成一组建议')
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
     expect(route).toHaveBeenCalledTimes(1)
     expect(mocks.tasksAuthorizeStaleReview).toHaveBeenCalledTimes(1)
     expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+
+    mocks.aiChat.mockResolvedValueOnce({ content: freshCandidateResponse })
+    mocks.chaptersGetBySubject.mockResolvedValueOnce([{
+      ...chapter,
+      title: '函数连续性',
+      completed: true,
+    }])
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByDisplayValue('按最新章节复习连续性')).toBeInTheDocument()
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(2))
+    expect(createPlanningRun.mock.calls[1]![0].id).not.toBe(createPlanningRun.mock.calls[0]![0].id)
+    expect(durableRuns[1]!.candidates[0]!.id).not.toBe(durableRuns[0]!.candidates[0]!.id)
+    expect(transitionPlanningRun).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: durableRuns[0]!.id,
+      reason: 'regenerated',
+    })
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    const secondOperationId = route.mock.calls[1]![0].operationId
+    expect(secondOperationId).not.toBe(firstOperationId)
+    expect(route.mock.calls[1]![1]).toBe(durableRuns[1]!.candidates[0]!.id)
+    expect(await screen.findByText('已创建 #100')).toBeInTheDocument()
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(secondOperationId)
   })
 
   it('requires a second explicit confirmation when the planning context becomes stale', async () => {

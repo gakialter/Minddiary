@@ -242,6 +242,7 @@ export default function TodayActionSuggestionDialog({
   const [refreshedChapterProjection, setRefreshedChapterProjection] = useState<TodayActionProviderChapterProjection | null>(null)
   const [pendingChapterReviewSignature, setPendingChapterReviewSignature] = useState<string | null>(null)
   const [staleChapterNotice, setStaleChapterNotice] = useState<string | null>(null)
+  const [requiresRegenerationAfterDefinitiveStaleFailure, setRequiresRegenerationAfterDefinitiveStaleFailure] = useState(false)
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
@@ -364,6 +365,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
+    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -458,6 +460,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
+    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -700,6 +703,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
+    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -950,6 +954,7 @@ export default function TodayActionSuggestionDialog({
   const generateSuggestions = requestGeneration
 
   const acceptRefreshedChapterContext = () => {
+    if (requiresRegenerationAfterDefinitiveStaleFailure) return
     if (pendingChapterReviewSignature === null || refreshedChapterProjection === null) return
     setLatestReviewedChapterSignature(pendingChapterReviewSignature)
     setPendingChapterReviewSignature(null)
@@ -957,7 +962,7 @@ export default function TodayActionSuggestionDialog({
   }
 
   const createSelectedSuggestions = async () => {
-    if (creating || !planningContext) return
+    if (creating || !planningContext || requiresRegenerationAfterDefinitiveStaleFailure) return
     const createDate = date
     setCreating(true)
     setErrors([])
@@ -1155,7 +1160,11 @@ export default function TodayActionSuggestionDialog({
             : current)
           if (observation.status === 'failed') {
             failedCount += 1
-            if (staleContextOverride && observation.code === 'INVALID_REQUEST') {
+            const requiresRegeneration = staleContextOverride && observation.code === 'INVALID_REQUEST'
+            if (requiresRegeneration) {
+              setRequiresRegenerationAfterDefinitiveStaleFailure(true)
+              setPendingChapterReviewSignature(null)
+              setStaleChapterNotice('章节进度在最终确认前再次变化。该建议的本次确认已因上下文再次变化而结束，请重新生成建议。')
               try {
                 const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
                 const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
@@ -1164,14 +1173,13 @@ export default function TodayActionSuggestionDialog({
                   && refreshed.currentChapterSignature !== latestReviewedChapterSignature
                 ) {
                   setRefreshedChapterProjection(refreshed.chapterProjection)
-                  setPendingChapterReviewSignature(refreshed.currentChapterSignature)
-                  setStaleChapterNotice('章节进度在最终确认前再次变化。请重新查看刷新后的章节进度；本次未创建任务。')
                 }
               } catch {
                 setStaleChapterNotice('无法重新验证章节进度，本次未创建任务。请重新生成建议。')
               }
             }
             const retainForConflict = observation.code === 'IDEMPOTENCY_CONFLICT'
+            const retainOperationIdentity = retainForConflict || requiresRegeneration
             if (!retainForConflict) {
               try {
                 removePendingStudyTaskOperation(operationId)
@@ -1184,14 +1192,15 @@ export default function TodayActionSuggestionDialog({
               item.clientId === suggestion.clientId
                 ? {
                     ...item,
-                    operationId: retainForConflict ? operationId : undefined,
+                    operationId: retainOperationIdentity ? operationId : undefined,
                     creationState: 'failed',
                     creationError: observation.outcome.message,
-                    selected: retainForConflict ? false : item.selected,
+                    selected: retainOperationIdentity ? false : item.selected,
                   }
                 : item
             ))
             setSuggestions(currentSuggestions)
+            if (requiresRegeneration) break
             continue
           }
           if (observation.status === 'uncertain') {
@@ -1736,7 +1745,7 @@ export default function TodayActionSuggestionDialog({
                       ))}
                 </ul>
               )}
-              {pendingChapterReviewSignature && refreshedChapterProjection && (
+              {pendingChapterReviewSignature && refreshedChapterProjection && !requiresRegenerationAfterDefinitiveStaleFailure && (
                 <button
                   type="button"
                   className="button button-secondary mt-2"
@@ -2096,7 +2105,7 @@ export default function TodayActionSuggestionDialog({
               type="button"
               className="button button-primary"
               data-testid="ai-plan-create-selected"
-              disabled={generating || creating || contextLoading || !visiblePlanningContext || selectedValidCount === 0 || hasFatalParseErrors}
+              disabled={generating || creating || contextLoading || !visiblePlanningContext || requiresRegenerationAfterDefinitiveStaleFailure || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
               {creating ? '创建中...' : '创建选中任务'}
