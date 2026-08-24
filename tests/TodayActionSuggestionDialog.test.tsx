@@ -1220,6 +1220,164 @@ describe('TodayActionSuggestionDialog', () => {
     ))
   })
 
+  it('consumes a fresh-path candidate after definitive INVALID_REQUEST and blocks O2 dispatch', async () => {
+    const racedProjection = {
+      chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: true }],
+    }
+    const racedSignature = await computeTodayActionChapterSignature(racedProjection)
+    const durableRuns: PlanningRunRecord[] = []
+    const createPlanningRun = vi.fn(async (request: PlanningRunCreateRequest) => {
+      const run = makePlanningRun(request)
+      run.candidates[0]!.id = 701 + durableRuns.length
+      durableRuns.push(run)
+      return run
+    })
+    const transitionPlanningRun = vi.fn(async (request: PlanningRunTransitionRequest) => {
+      const run = durableRuns.find(item => item.id === request.runId)!
+      if (request.kind !== 'close_run') return run
+      const closed = { ...run, closedAt: '2026-06-12T00:01:00.000Z', closeReason: request.reason }
+      durableRuns[durableRuns.indexOf(run)] = closed
+      return closed
+    })
+    window.api.planningRuns = {
+      create: createPlanningRun,
+      transition: transitionPlanningRun,
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    let createAttempt = 0
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+      _planningCandidateId?: number,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+      createAttempt += 1
+      if (createAttempt === 1) {
+        mocks.tasksGetChapterContext.mockResolvedValue({
+          chapterProjection: racedProjection,
+          currentChapterSignature: racedSignature,
+        })
+        return {
+          ok: false,
+          operationId: request.operationId,
+          code: 'INVALID_REQUEST',
+          message: 'chapter drifted between renderer and Main',
+        }
+      }
+      return {
+        ok: true,
+        operationId: request.operationId,
+        task: makeTask({ id: 100, title: request.payload.title, type: request.payload.type }),
+        replayed: false,
+      }
+    })
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('ai-plan-generate')).toBeEnabled())
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    const firstOperationId = route.mock.calls[0]![0].operationId
+    expect(route.mock.calls[0]![1]).toBe(701)
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '当前建议已不能继续使用，请重新生成建议',
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('函数连续性')
+    })
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(firstOperationId)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent('确认内容未通过校验')
+
+    const checkbox = screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })
+    await waitFor(() => expect(checkbox).not.toBeChecked())
+    expect(checkbox).toBeDisabled()
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    expect(createButton).toBeDisabled()
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    expect(mocks.tasksAuthorizeStaleReview).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('today-action-accept-stale-chapter-context')).not.toBeInTheDocument()
+
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [{
+          title: '重新生成后的任务',
+          type: 'focus',
+          estimate_minutes: 15,
+          reason: '使用新的候选身份。',
+          priority: 'high',
+        }],
+      }),
+    })
+    mocks.chaptersGetBySubject.mockResolvedValueOnce([{
+      ...chapter,
+      title: '函数连续性',
+      completed: true,
+    }])
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByDisplayValue('重新生成后的任务')).toBeInTheDocument()
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(2))
+    expect(durableRuns[1]!.id).not.toBe(durableRuns[0]!.id)
+    expect(durableRuns[1]!.candidates[0]!.id).not.toBe(durableRuns[0]!.candidates[0]!.id)
+    expect(transitionPlanningRun).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: durableRuns[0]!.id,
+      reason: 'regenerated',
+    })
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    const secondOperationId = route.mock.calls[1]![0].operationId
+    expect(secondOperationId).not.toBe(firstOperationId)
+    expect(route.mock.calls[1]![1]).toBe(durableRuns[1]!.candidates[0]!.id)
+    expect(await screen.findByText('已创建 #100')).toBeInTheDocument()
+  })
+
+  it('stops a multi-selected fresh confirmation loop after the first definitive INVALID_REQUEST', async () => {
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [
+          { title: '任务 A', type: 'focus', estimate_minutes: 10, reason: '先做 A。', priority: 'high' },
+          { title: '任务 B', type: 'focus', estimate_minutes: 10, reason: '再做 B。', priority: 'medium' },
+          { title: '任务 C', type: 'focus', estimate_minutes: 10, reason: '最后做 C。', priority: 'low' },
+        ],
+      }),
+    })
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => ({
+      ok: false,
+      operationId: request.operationId,
+      code: 'INVALID_REQUEST',
+      message: 'chapter drifted between renderer and Main',
+    }))
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 C')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    expect(route.mock.calls[0]![0].payload.title).toBe('任务 A')
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '当前建议已不能继续使用，请重新生成建议',
+    )
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: '选择 任务 A' })).not.toBeChecked())
+    expect(screen.getByRole('checkbox', { name: '选择 任务 B' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '选择 任务 C' })).toBeDisabled()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-3')).not.toBeInTheDocument()
+  })
+
   it('clamps available time to the supported daily capacity range', async () => {
     renderDialog()
     await screen.findByTestId('planning-context-available_minutes')
@@ -1371,10 +1529,10 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent('最终确认前再次变化')
+      expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent('本次确认未通过安全校验')
     })
     expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
-      '本次确认已因上下文再次变化而结束，请重新生成建议',
+      '当前建议已不能继续使用，请重新生成建议',
     )
     await waitFor(() => {
       expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('已完成')

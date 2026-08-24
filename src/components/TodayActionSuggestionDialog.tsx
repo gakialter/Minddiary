@@ -242,7 +242,7 @@ export default function TodayActionSuggestionDialog({
   const [refreshedChapterProjection, setRefreshedChapterProjection] = useState<TodayActionProviderChapterProjection | null>(null)
   const [pendingChapterReviewSignature, setPendingChapterReviewSignature] = useState<string | null>(null)
   const [staleChapterNotice, setStaleChapterNotice] = useState<string | null>(null)
-  const [requiresRegenerationAfterDefinitiveStaleFailure, setRequiresRegenerationAfterDefinitiveStaleFailure] = useState(false)
+  const [requiresRegenerationAfterDefinitiveValidationFailure, setRequiresRegenerationAfterDefinitiveValidationFailure] = useState(false)
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
@@ -365,7 +365,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
-    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
+    setRequiresRegenerationAfterDefinitiveValidationFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -460,7 +460,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
-    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
+    setRequiresRegenerationAfterDefinitiveValidationFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -537,6 +537,7 @@ export default function TodayActionSuggestionDialog({
     updateKind: 'edit' | 'selection',
     commitImmediately = false,
   ) => {
+    if (requiresRegenerationAfterDefinitiveValidationFailure) return
     const beforeSuggestions = suggestions
     const nextSuggestions = revalidate(beforeSuggestions.map(suggestion => {
       if (suggestion.clientId !== clientId) return suggestion
@@ -703,7 +704,7 @@ export default function TodayActionSuggestionDialog({
     setRefreshedChapterProjection(null)
     setPendingChapterReviewSignature(null)
     setStaleChapterNotice(null)
-    setRequiresRegenerationAfterDefinitiveStaleFailure(false)
+    setRequiresRegenerationAfterDefinitiveValidationFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -954,7 +955,7 @@ export default function TodayActionSuggestionDialog({
   const generateSuggestions = requestGeneration
 
   const acceptRefreshedChapterContext = () => {
-    if (requiresRegenerationAfterDefinitiveStaleFailure) return
+    if (requiresRegenerationAfterDefinitiveValidationFailure) return
     if (pendingChapterReviewSignature === null || refreshedChapterProjection === null) return
     setLatestReviewedChapterSignature(pendingChapterReviewSignature)
     setPendingChapterReviewSignature(null)
@@ -962,7 +963,7 @@ export default function TodayActionSuggestionDialog({
   }
 
   const createSelectedSuggestions = async () => {
-    if (creating || !planningContext || requiresRegenerationAfterDefinitiveStaleFailure) return
+    if (creating || !planningContext || requiresRegenerationAfterDefinitiveValidationFailure) return
     const createDate = date
     setCreating(true)
     setErrors([])
@@ -1160,11 +1161,11 @@ export default function TodayActionSuggestionDialog({
             : current)
           if (observation.status === 'failed') {
             failedCount += 1
-            const requiresRegeneration = staleContextOverride && observation.code === 'INVALID_REQUEST'
+            const requiresRegeneration = observation.code === 'INVALID_REQUEST'
             if (requiresRegeneration) {
-              setRequiresRegenerationAfterDefinitiveStaleFailure(true)
+              setRequiresRegenerationAfterDefinitiveValidationFailure(true)
               setPendingChapterReviewSignature(null)
-              setStaleChapterNotice('章节进度在最终确认前再次变化。该建议的本次确认已因上下文再次变化而结束，请重新生成建议。')
+              setStaleChapterNotice('本次确认未通过安全校验。当前建议已不能继续使用，请重新生成建议。')
               try {
                 const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
                 const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
@@ -1745,7 +1746,7 @@ export default function TodayActionSuggestionDialog({
                       ))}
                 </ul>
               )}
-              {pendingChapterReviewSignature && refreshedChapterProjection && !requiresRegenerationAfterDefinitiveStaleFailure && (
+              {pendingChapterReviewSignature && refreshedChapterProjection && !requiresRegenerationAfterDefinitiveValidationFailure && (
                 <button
                   type="button"
                   className="button button-secondary mt-2"
@@ -1905,6 +1906,7 @@ export default function TodayActionSuggestionDialog({
               {suggestions.map(suggestion => {
                 const isCreated = suggestion.creationState === 'created'
                 const isLocked = creating
+                  || requiresRegenerationAfterDefinitiveValidationFailure
                   || isCreated
                   || suggestion.creationState === 'creating'
                   || suggestion.creationState === 'uncertain'
@@ -2105,7 +2107,7 @@ export default function TodayActionSuggestionDialog({
               type="button"
               className="button button-primary"
               data-testid="ai-plan-create-selected"
-              disabled={generating || creating || contextLoading || !visiblePlanningContext || requiresRegenerationAfterDefinitiveStaleFailure || selectedValidCount === 0 || hasFatalParseErrors}
+              disabled={generating || creating || contextLoading || !visiblePlanningContext || requiresRegenerationAfterDefinitiveValidationFailure || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
               {creating ? '创建中...' : '创建选中任务'}
