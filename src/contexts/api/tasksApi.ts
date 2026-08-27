@@ -11,7 +11,7 @@ import type {
     StudyTaskType,
     SubjectChapter,
 } from '../../types'
-import type { TasksContextAPI } from '../../types/api'
+import type { PrivilegedTodayActionV2CreateCommand, TasksContextAPI } from '../../types/api'
 import { getLocalDateKey } from '../../utils/dateKey'
 import { assertTaskCreationDateIsCurrent } from '../../utils/dateBoundTaskGuard'
 import type { MutableRefObject } from 'react'
@@ -185,9 +185,27 @@ export const createTasksApi = (
     },
     createIdempotentAIStudyTaskForCurrentDate: async (request, planningCandidateId) => {
         if (IS_ELECTRON) {
+            if (
+                request.operationKind === 'today_action'
+                && request.actionContractVersion === 'confirmed-study-task-action.v2'
+            ) {
+                if (planningCandidateId === undefined) {
+                    throw new Error('Today Action v2 创建缺少 Planning History 候选身份')
+                }
+                return window.api.tasks.createIdempotentAIStudyTaskForCurrentDate({
+                    planningCandidateId,
+                    request: request as PrivilegedTodayActionV2CreateCommand['request'],
+                })
+            }
             return planningCandidateId === undefined
                 ? window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
                 : window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request, planningCandidateId)
+        }
+        if (
+            request.operationKind === 'today_action'
+            && request.actionContractVersion === 'confirmed-study-task-action.v2'
+        ) {
+            throw new Error('Today Action v2 特权创建仅支持 MindDiary 桌面版')
         }
         return {
             ok: false,

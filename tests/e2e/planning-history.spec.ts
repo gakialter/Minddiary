@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { createServer, type Server } from 'node:http'
 import path from 'node:path'
 import type { TodayActionCommittedStatusRequest } from '../../src/types/api'
+import { PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY } from '../../src/utils/pendingStudyTaskOperations'
 import {
   createDisposableElectronProfile,
   removeDisposableElectronProfile,
@@ -200,6 +201,16 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await page.getByLabel('建议优先级').nth(0).selectOption('medium')
       await page.getByRole('checkbox', { name: `选择 ${todayUnselectedTitle}` }).uncheck()
 
+      await page.evaluate(storageKey => {
+        const originalSetItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function capturePendingMarker(key: string, value: string) {
+          if (this === localStorage && key === storageKey) {
+            Reflect.set(globalThis, '__minddiaryCapturedPendingMarker', value)
+          }
+          originalSetItem.call(this, key, value)
+        }
+      }, PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+
       await page.getByTestId('ai-plan-create-selected').click()
       await expect(page.getByTestId('ai-plan-creation-summary')).toHaveText(
         '本次新创建 1 项，重放确认 0 项，未新建 0 项，结果待检查 0 项。',
@@ -207,6 +218,29 @@ test.describe('Phase C2 Planning History through Electron', () => {
       const confirmedOutcome = page.getByTestId('today-action-confirmed-outcome-suggestion-1')
       await expect(confirmedOutcome).toContainText('已创建任务')
       const operationId = extractOperationId(await confirmedOutcome.innerText())
+      const capturedPendingMarker = await page.evaluate(() => (
+        Reflect.get(globalThis, '__minddiaryCapturedPendingMarker') as unknown
+      ))
+      if (typeof capturedPendingMarker !== 'string') {
+        throw new Error('Today Action pending marker was not captured before task creation')
+      }
+      const pendingEnvelope = JSON.parse(capturedPendingMarker) as {
+        operations: Array<{
+          operationId: string
+          planningCandidateId?: number
+          requestDigest?: string
+        }>
+      }
+      const confirmedMarker = pendingEnvelope.operations.find(item => item.operationId === operationId)
+      if (
+        !confirmedMarker
+        || typeof confirmedMarker.planningCandidateId !== 'number'
+        || typeof confirmedMarker.requestDigest !== 'string'
+      ) {
+        throw new Error('Today Action pending marker omitted its audit identities')
+      }
+      expect(confirmedMarker.planningCandidateId).toBeGreaterThan(0)
+      expect(confirmedMarker.requestDigest).toMatch(/^[0-9a-f]{64}$/)
 
       const tasksAfterConfirmation = await getTasksForDate(page, today)
       const confirmedTask = tasksAfterConfirmation.find(task => task.title === todayFinalTitle)
@@ -271,6 +305,8 @@ test.describe('Phase C2 Planning History through Electron', () => {
         actionContractVersion,
         expectedCurrentDate: today,
         plannedDate: today,
+        planningCandidateId: confirmedMarker.planningCandidateId,
+        requestDigest: confirmedMarker.requestDigest,
       }
       const statusAfterDelete = await page.evaluate(request => (
         window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)

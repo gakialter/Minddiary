@@ -152,12 +152,21 @@ const mockApi: ElectronAPI = {
             assertTaskCreationDateIsCurrent(expectedCurrentDate, getLocalDateKey())
             return createdTask
         },
-        createIdempotentAIStudyTaskForCurrentDate: async request => ({
-            ok: false,
-            operationId: request.operationId,
-            code: 'INVALID_REQUEST',
-            message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
-        }),
+        createIdempotentAIStudyTaskForCurrentDate: async request => {
+            const businessRequest = 'request' in request ? request.request : request
+            if (
+                businessRequest.operationKind === 'today_action'
+                && businessRequest.actionContractVersion === 'confirmed-study-task-action.v2'
+            ) {
+                throw new Error('Today Action v2 特权创建仅支持 MindDiary 桌面版')
+            }
+            return {
+                ok: false,
+                operationId: businessRequest.operationId,
+                code: 'INVALID_REQUEST' as const,
+                message: 'AI 学习任务的幂等创建仅支持 MindDiary 桌面版',
+            }
+        },
         getTodayActionAuthoritativeChapterContext: async () => {
             throw new Error('Today Action 章节权威确认仅支持 MindDiary 桌面版')
         },

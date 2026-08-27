@@ -92,8 +92,20 @@ function authorizationError(): Error {
     return new Error(TODAY_ACTION_STALE_REVIEW_AUTHORIZATION_INVALID_MESSAGE);
 }
 
-function contextError(): Error {
-    return new Error(TODAY_ACTION_CHAPTER_CONTEXT_INVALID_MESSAGE);
+export class TodayActionChapterContextValidationError extends Error {}
+export class TodayActionChapterContextOperationalError extends Error {
+    readonly cause: unknown;
+
+    constructor(cause: unknown) {
+        super(TODAY_ACTION_CHAPTER_CONTEXT_INVALID_MESSAGE);
+        this.cause = cause;
+    }
+}
+
+function contextError(): TodayActionChapterContextValidationError {
+    return new TodayActionChapterContextValidationError(
+        TODAY_ACTION_CHAPTER_CONTEXT_INVALID_MESSAGE,
+    );
 }
 
 function requireObject(value: unknown): object {
@@ -370,8 +382,7 @@ export function readAuthoritativeTodayActionChapterContext(
     database: Database.Database,
     options: TodayActionAuthoritativeChapterContextReadOptions = {},
 ): TodayActionAuthoritativeChapterContext {
-    try {
-        const readInTransaction = database.transaction(() => {
+    const readInTransaction = database.transaction(() => {
             const subjectRows = database.prepare(`
                 SELECT id
                 FROM subjects
@@ -413,10 +424,12 @@ export function readAuthoritativeTodayActionChapterContext(
                 chapterProjectionJson,
                 currentChapterSignature,
             };
-        });
+    });
+    try {
         return readInTransaction();
-    } catch {
-        throw contextError();
+    } catch (error) {
+        if (error instanceof TodayActionChapterContextValidationError) throw error;
+        throw new TodayActionChapterContextOperationalError(error);
     }
 }
 

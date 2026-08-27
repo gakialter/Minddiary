@@ -8,6 +8,7 @@ import type {
 } from '../src/types/index';
 import type {
     IdempotentAIStudyTaskCreateRequest,
+    PrivilegedTodayActionV2CreateCommand,
     TodayActionCommittedStatusRequest,
     TodayActionStaleReviewAuthorizationRequest,
 } from '../src/types/api';
@@ -159,7 +160,7 @@ contextBridge.exposeInMainWorld('api', {
             ipcRenderer.invoke('tasks:createForCurrentDate', task, expectedCurrentDate)
         ),
         createIdempotentAIStudyTaskForCurrentDate: (
-            request: IdempotentAIStudyTaskCreateRequest,
+            request: IdempotentAIStudyTaskCreateRequest | PrivilegedTodayActionV2CreateCommand,
             planningCandidateId?: number,
         ) => (
             ipcRenderer.invoke(

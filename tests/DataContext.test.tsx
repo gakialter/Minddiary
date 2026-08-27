@@ -406,6 +406,17 @@ describe('DataContext', () => {
         source: 'ai',
       },
     }
+    const todayV2Request: IdempotentAIStudyTaskCreateRequest = {
+      ...idempotentRequest,
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: '1'.repeat(64),
+      generationChapterSignature: '2'.repeat(64),
+      latestReviewedChapterSignature: '2'.repeat(64),
+      staleContextOverride: false,
+      staleReviewToken: null,
+    }
     const staleAuthorizationRequest: TodayActionStaleReviewAuthorizationRequest = {
       operationId: '22222222-2222-4222-8222-222222222222',
       operationKind: 'today_action',
@@ -465,6 +476,7 @@ describe('DataContext', () => {
         '2026-05-05',
       )
       await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(idempotentRequest, 73)
+      await result.current.tasks.createIdempotentAIStudyTaskForCurrentDate(todayV2Request, 74)
       await result.current.tasks.getTodayActionAuthoritativeChapterContext()
       await result.current.tasks.authorizeTodayActionStaleReview(staleAuthorizationRequest)
       await result.current.tasks.getCommittedAIStudyTaskOperationStatus(committedStatusRequest)
@@ -520,6 +532,17 @@ describe('DataContext', () => {
       '2026-05-05',
     )
     expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith(idempotentRequest, 73)
+    expect(window.api.tasks.createIdempotentAIStudyTaskForCurrentDate).toHaveBeenCalledWith({
+      planningCandidateId: 74,
+      request: todayV2Request,
+    })
+    const privilegedCommand = vi.mocked(
+      window.api.tasks.createIdempotentAIStudyTaskForCurrentDate,
+    ).mock.calls[1]?.[0]
+    if (!privilegedCommand || !('request' in privilegedCommand)) {
+      throw new Error('Expected the second desktop invocation to use the privileged Today v2 envelope')
+    }
+    expect(privilegedCommand.request).toBe(todayV2Request)
     expect(window.api.tasks.getTodayActionAuthoritativeChapterContext).toHaveBeenCalledTimes(1)
     expect(window.api.tasks.authorizeTodayActionStaleReview).toHaveBeenCalledWith(staleAuthorizationRequest)
     expect(window.api.tasks.getCommittedAIStudyTaskOperationStatus).toHaveBeenCalledWith(committedStatusRequest)

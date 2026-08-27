@@ -7,6 +7,9 @@ import type {
   TodayActionStaleReviewAuthorizationRequest,
 } from '../types/api'
 import {
+  CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
+  CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+  CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
   validateAIStudyTaskGenerationProvenance,
   type AIStudyTaskGenerationProvenance,
   type AIStudyTaskOperationKind,
@@ -89,6 +92,7 @@ const TITLE_MAX_LENGTH = 80
 const DESCRIPTION_MAX_LENGTH = 240
 const ESTIMATE_MINUTES_MIN = 5
 const ESTIMATE_MINUTES_MAX = 180
+const LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const MISTAKE_REF_PATTERN = /^m(?:[1-9]|1[0-2])$/
@@ -663,6 +667,106 @@ export function buildIdempotentAIStudyTaskCreateRequest(
     expectedCurrentDate: action.expectedCurrentDate,
     payload,
   }
+}
+
+export function buildIdempotentAIStudyTaskRequestDigestInput(
+  request: IdempotentAIStudyTaskCreateRequest,
+): string {
+  const payload = request.payload as Required<NewStudyTask>
+  const normalizeDigestText = (value: unknown, label: string, maxLength: number): string => {
+    if (typeof value !== 'string') throw new Error(`${label} must be a string`)
+    const normalized = value
+      .normalize('NFKC')
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\u00AD\u2060\uFEFF]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!normalized) throw new Error(`${label} is required`)
+    if (normalized.length > maxLength) throw new Error(`${label} is too long`)
+    return normalized
+  }
+  const canonicalPayload = {
+    title: normalizeDigestText(payload.title, 'request.payload.title', TITLE_MAX_LENGTH),
+    description: normalizeDigestText(
+      payload.description,
+      'request.payload.description',
+      DESCRIPTION_MAX_LENGTH,
+    ),
+    type: payload.type,
+    subject_id: payload.subject_id,
+    related_mistake_id: payload.related_mistake_id,
+    related_entry_id: payload.related_entry_id,
+    related_chapter_id: payload.related_chapter_id,
+    planned_date: payload.planned_date,
+    estimate_minutes: payload.estimate_minutes,
+    status: payload.status,
+    source: payload.source,
+  }
+  if (
+    request.operationKind === 'today_action'
+    && request.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+  ) {
+    return JSON.stringify({
+      operationId: request.operationId,
+      operationKind: request.operationKind,
+      actionContractVersion: request.actionContractVersion,
+      expectedCurrentDate: request.expectedCurrentDate,
+      contextProjectionVersion: request.contextProjectionVersion,
+      originalGenerationContextSignature: request.originalGenerationContextSignature,
+      generationChapterSignature: request.generationChapterSignature,
+      latestReviewedChapterSignature: request.latestReviewedChapterSignature,
+      staleContextOverride: request.staleContextOverride,
+      staleReviewToken: request.staleReviewToken,
+      payload: canonicalPayload,
+    })
+  }
+  if (
+    request.operationKind === 'mistake_review'
+    && request.actionContractVersion === CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+  ) {
+    return JSON.stringify({
+      operationId: request.operationId,
+      operationKind: request.operationKind,
+      actionContractVersion: request.actionContractVersion,
+      expectedCurrentDate: request.expectedCurrentDate,
+      contextProjectionVersion: request.contextProjectionVersion,
+      generationContextSignature: request.generationContextSignature,
+      generationMistakeRef: request.generationMistakeRef,
+      payload: canonicalPayload,
+    })
+  }
+  const isSupportedLegacyContract = (
+    (request.operationKind === 'today_action' || request.operationKind === 'daily_review')
+    && request.actionContractVersion === CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION
+  ) || (
+    request.operationKind === 'mistake_review'
+    && request.actionContractVersion === LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+  )
+  if (!isSupportedLegacyContract) {
+    throw new Error('Unsupported idempotent study task digest contract')
+  }
+  return JSON.stringify({
+    operationKind: request.operationKind,
+    actionContractVersion: request.actionContractVersion,
+    expectedCurrentDate: request.expectedCurrentDate,
+    plannedDate: payload.planned_date,
+    payload: canonicalPayload,
+  })
+}
+
+export async function computeIdempotentAIStudyTaskRequestDigest(
+  request: IdempotentAIStudyTaskCreateRequest,
+): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Secure request digest API is unavailable')
+  }
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(buildIdempotentAIStudyTaskRequestDigestInput(request)),
+  )
+  return Array.from(
+    new Uint8Array(digest),
+    byte => byte.toString(16).padStart(2, '0'),
+  ).join('')
 }
 
 function getResultOperationId(value: unknown): string {

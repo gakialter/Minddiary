@@ -218,6 +218,15 @@ export class PlanningHistoryValidationError extends Error {}
 export class PlanningHistoryConflictError extends Error {}
 export class PlanningHistoryUnavailableError extends Error {}
 
+export type CandidateIdentityClassification =
+    | { kind: 'EXACT_CONFIRMED_MATCH'; outcomeKind: PlanningCandidateOutcomeKind | null }
+    | { kind: 'EXACT_UNCONFIRMED' }
+    | { kind: 'EXACT_MISMATCH' }
+    | { kind: 'EXACT_CORRUPT' }
+    | { kind: 'ABSENT_NO_COMPETING_OPERATION' }
+    | { kind: 'ABSENT_COMPETING_OPERATION' }
+    | { kind: 'READ_FAILURE'; error: unknown }
+
 function requirePlainObject(value: unknown, label: string): object {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         throw new PlanningHistoryValidationError(`${label} must be a plain object`)
@@ -1028,7 +1037,10 @@ function receiptMatchesCandidate(
         return false
     }
     if (receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+        // Today v2 digests remain opaque here. A recorded conflict is the one
+        // authoritative proof that this same-operation commitment is not the candidate's.
         return run.entryPoint === 'today_action'
+            && !isOpaqueTodayV2ConflictReceipt(receipt, candidateRow, run)
     }
     try {
         const request: IdempotentAIStudyTaskCreateRequest = {
@@ -1058,11 +1070,25 @@ function receiptMatchesCandidate(
     }
 }
 
+function isOpaqueTodayV2ConflictReceipt(
+    receipt: BatchWellFormedReceiptRow,
+    candidateRow: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
+): boolean {
+    return candidateRow.outcome_kind === 'conflict'
+        && run.entryPoint === 'today_action'
+        && receipt.operation_kind === run.entryPoint
+        && receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+        && receipt.expected_current_date === run.planningDate
+        && receipt.planned_date === run.targetDate
+}
+
 function computeExecutionAttribution(
     candidateRow: PlanningCandidateRow,
     run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
     receiptMap: Map<string, BatchReceiptRow>,
     matchingReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>,
+    opaqueConflictReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>,
     taskMap: Map<number, BatchTaskLookup>,
     pomodoroMap: Map<number, BatchPomodoroRow[]>,
 ): PlanningExecutionAttribution | null {
@@ -1137,6 +1163,20 @@ function computeExecutionAttribution(
             : notApplicable('integrity_inconsistency')
     }
     if (outcomeKind === 'conflict') {
+        const opaqueConflictReceipt = opaqueConflictReceiptMap.get(candidateRow)
+        if (opaqueConflictReceipt?.taskRelation.kind === 'valid_task_id') {
+            const taskId = opaqueConflictReceipt.taskRelation.taskId
+            const taskLookup = taskMap.get(taskId)
+            if (!taskLookup || taskLookup.status !== 'found') {
+                return notApplicable('integrity_inconsistency', true)
+            }
+        }
+        if (receipt?.status === 'well_formed'
+            && receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+            && !opaqueConflictReceipt
+        ) {
+            return notApplicable('integrity_inconsistency')
+        }
         return receiptNonMatching
             ? notApplicable('known_conflict')
             : notApplicable('integrity_inconsistency')
@@ -1156,6 +1196,7 @@ type BatchMaps = {
     entryMap: BatchRelationMap
     receiptMap: Map<string, BatchReceiptRow>
     matchingReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>
+    opaqueConflictReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>
     taskMap: Map<number, BatchTaskLookup>
     pomodoroMap: Map<number, BatchPomodoroRow[]>
 }
@@ -1236,9 +1277,10 @@ function loadBatchMaps(
         }
     }
 
-    // Only a structurally valid receipt that canonically matches its candidate/run
-    // may authorize a task lookup key.
+    // Matching receipts authorize attribution lookups. An opaque v2 conflict receipt
+    // may load its task only to validate integrity; it never binds that task to the candidate.
     const matchingReceiptMap = new Map<PlanningCandidateRow, BatchWellFormedReceiptRow>()
+    const opaqueConflictReceiptMap = new Map<PlanningCandidateRow, BatchWellFormedReceiptRow>()
     const taskIds = new Set<number>()
     for (const candidateRow of candidateRows) {
         if (typeof candidateRow.operation_id !== 'string'
@@ -1246,7 +1288,16 @@ function loadBatchMaps(
         ) continue
         const receipt = receiptMap.get(candidateRow.operation_id)
         const run = runContextMap.get(candidateRow.planning_run_id)
-        if (receipt?.status !== 'well_formed' || !run || !receiptMatchesCandidate(receipt, candidateRow, run)) {
+        if (receipt?.status !== 'well_formed' || !run) {
+            continue
+        }
+        if (!receiptMatchesCandidate(receipt, candidateRow, run)) {
+            if (isOpaqueTodayV2ConflictReceipt(receipt, candidateRow, run)) {
+                opaqueConflictReceiptMap.set(candidateRow, receipt)
+                if (receipt.taskRelation.kind === 'valid_task_id') {
+                    taskIds.add(receipt.taskRelation.taskId)
+                }
+            }
             continue
         }
         matchingReceiptMap.set(candidateRow, receipt)
@@ -1258,12 +1309,23 @@ function loadBatchMaps(
 
     // Collect valid task IDs for pomodoro lookup
     const validTaskIds = new Set<number>()
-    for (const [id, lookup] of taskMap) {
-        if (lookup.status === 'found') validTaskIds.add(id)
+    for (const receipt of matchingReceiptMap.values()) {
+        if (receipt.taskRelation.kind !== 'valid_task_id') continue
+        const taskId = receipt.taskRelation.taskId
+        if (taskMap.get(taskId)?.status === 'found') validTaskIds.add(taskId)
     }
     const pomodoroMap = batchLoadPomodoro(database, validTaskIds)
 
-    return { subjectMap, mistakeMap, entryMap, receiptMap, matchingReceiptMap, taskMap, pomodoroMap }
+    return {
+        subjectMap,
+        mistakeMap,
+        entryMap,
+        receiptMap,
+        matchingReceiptMap,
+        opaqueConflictReceiptMap,
+        taskMap,
+        pomodoroMap,
+    }
 }
 
 function projectCandidateBatch(
@@ -1362,6 +1424,7 @@ function projectCandidateBatch(
             run,
             maps.receiptMap,
             maps.matchingReceiptMap,
+            maps.opaqueConflictReceiptMap,
             maps.taskMap,
             maps.pomodoroMap,
         ),
@@ -1821,6 +1884,143 @@ function readCandidateById(
     }) | undefined
 }
 
+type CandidateIdentityRow = PlanningCandidateRow & {
+    entry_point: unknown
+    planning_date: unknown
+    target_date: unknown
+    run_created_at: unknown
+    closed_at: unknown
+}
+
+function readCandidateIdentityById(
+    database: Database.Database,
+    candidateId: number,
+): CandidateIdentityRow | undefined {
+    return database.prepare(`
+        SELECT c.id, c.planning_run_id, c.ordinal, c.admission_origin, c.title,
+               c.description, c.type, c.estimate_minutes, c.priority, c.subject_id,
+               c.related_mistake_id, c.related_entry_id, c.edit_before_json,
+               c.user_disposition, c.operation_id, c.outcome_kind,
+               c.outcome_observed_at, c.admitted_at, c.updated_at,
+               r.entry_point, r.planning_date, r.target_date,
+               r.created_at AS run_created_at, r.closed_at
+        FROM planning_run_candidates c
+        LEFT JOIN planning_runs r ON r.id = c.planning_run_id
+        WHERE c.id = ?
+    `).get(candidateId) as CandidateIdentityRow | undefined
+}
+
+function hasCandidateForOperation(
+    database: Database.Database,
+    operationId: string,
+): boolean {
+    return database.prepare(`
+        SELECT id
+        FROM planning_run_candidates
+        WHERE operation_id = ?
+        LIMIT 1
+    `).get(operationId) !== undefined
+}
+
+function hasAnotherCandidateForOperation(
+    database: Database.Database,
+    operationId: string,
+    candidateId: number,
+): boolean {
+    return database.prepare(`
+        SELECT id
+        FROM planning_run_candidates
+        WHERE operation_id = ? AND id <> ?
+        LIMIT 1
+    `).get(operationId, candidateId) !== undefined
+}
+
+function isCanonicalCandidateIdentityRow(row: CandidateIdentityRow): boolean {
+    try {
+        const entryPoint = row.entry_point
+        if (entryPoint !== 'today_action' && entryPoint !== 'daily_review') return false
+        const planningDate = requireDateKey(row.planning_date, 'stored planningDate')
+        const targetDate = requireDateKey(row.target_date, 'stored targetDate')
+        if (
+            (entryPoint === 'today_action' && targetDate !== planningDate)
+            || (entryPoint === 'daily_review' && targetDate !== nextDateKey(planningDate))
+        ) return false
+        requireUuid(row.planning_run_id, 'stored planning run id')
+        const runCreatedAt = requireStoredTimestamp(row.run_created_at, 'stored planning run timestamp')
+        const admittedAt = requireStoredTimestamp(row.admitted_at, 'stored candidate admission timestamp')
+        const updatedAt = requireStoredTimestamp(row.updated_at, 'stored candidate update timestamp')
+        const outcomeObservedAt = row.outcome_observed_at === null
+            ? null
+            : requireStoredTimestamp(row.outcome_observed_at, 'stored candidate outcome timestamp')
+        const closedAt = row.closed_at === null
+            ? null
+            : requireStoredTimestamp(row.closed_at, 'stored planning run close timestamp')
+        if (
+            admittedAt < runCreatedAt
+            || updatedAt < admittedAt
+            || (outcomeObservedAt !== null && outcomeObservedAt < admittedAt)
+            || (closedAt !== null && closedAt < runCreatedAt)
+        ) return false
+        if (
+            typeof row.id !== 'number'
+            || !Number.isSafeInteger(row.id)
+            || row.id <= 0
+            || typeof row.ordinal !== 'number'
+            || !Number.isInteger(row.ordinal)
+            || row.ordinal < 0
+            || row.ordinal > 5
+            || !isValidStoredText(row.title, 80, PLANNING_HISTORY_TITLE_MAX_UTF8_BYTES)
+            || !isValidStoredText(row.description, 240, PLANNING_HISTORY_DESCRIPTION_MAX_UTF8_BYTES)
+            || typeof row.type !== 'string'
+            || !STUDY_TASK_TYPES.includes(row.type as StudyTaskType)
+            || typeof row.estimate_minutes !== 'number'
+            || !Number.isInteger(row.estimate_minutes)
+            || row.estimate_minutes < 5
+            || row.estimate_minutes > 180
+            || typeof row.priority !== 'string'
+            || !PRIORITIES.includes(row.priority as PlanningCandidatePriority)
+            || typeof row.admission_origin !== 'string'
+            || !ADMISSION_ORIGINS.includes(row.admission_origin as PlanningCandidateAdmissionOrigin)
+            || !isNullablePositiveSafeInteger(row.subject_id)
+            || !isNullablePositiveSafeInteger(row.related_mistake_id)
+            || !isNullablePositiveSafeInteger(row.related_entry_id)
+            || (row.type === 'review' ? row.related_mistake_id === null : row.related_mistake_id !== null)
+            || (entryPoint === 'daily_review' && row.related_entry_id !== null)
+            || typeof row.user_disposition !== 'string'
+            || !['selected_unconfirmed', 'unselected', 'confirmed'].includes(row.user_disposition)
+            || (row.user_disposition === 'confirmed'
+                ? typeof row.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)
+                : row.operation_id !== null)
+            || (row.user_disposition !== 'confirmed'
+                && (row.outcome_kind !== null || row.outcome_observed_at !== null))
+            || (row.outcome_kind !== null
+                && !OUTCOME_KINDS.includes(row.outcome_kind as PlanningCandidateOutcomeKind))
+            || ((row.outcome_kind === null) !== (row.outcome_observed_at === null))
+        ) return false
+        parseEditBefore(row.edit_before_json, snapshotFromRow(row), entryPoint)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function candidateSnapshotMatchesTodayRequest(
+    row: CandidateIdentityRow,
+    request: IdempotentAIStudyTaskCreateRequest,
+): boolean {
+    const payload = request.payload
+    return row.title === payload.title
+        && row.description === payload.description
+        && row.type === payload.type
+        && row.estimate_minutes === payload.estimate_minutes
+        && row.subject_id === payload.subject_id
+        && row.related_mistake_id === payload.related_mistake_id
+        && row.related_entry_id === payload.related_entry_id
+        && payload.related_chapter_id === null
+        && payload.status === 'todo'
+        && payload.source === 'ai'
+}
+
 function snapshotFromRow(row: PlanningCandidateRow): PlanningCandidateSnapshot {
     return {
         title: row.title as string,
@@ -2218,6 +2418,77 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
         return transaction()
     }
 
+    function classifyTodayActionCandidateIdentity(
+        candidateIdValue: unknown,
+        operationIdValue: unknown,
+        planningDateValue: unknown,
+        targetDateValue: unknown,
+        requestValue?: unknown,
+    ): CandidateIdentityClassification {
+        const candidateId = requirePositiveSafeInteger(candidateIdValue, 'planningCandidateId')
+        const operationId = requireUuid(operationIdValue, 'operationId')
+        const planningDate = requireDateKey(planningDateValue, 'planningDate')
+        const targetDate = requireDateKey(targetDateValue, 'targetDate')
+        let request: IdempotentAIStudyTaskCreateRequest | null = null
+        if (requestValue !== undefined) {
+            try {
+                request = validateIdempotentAIStudyTaskCreateRequest(requestValue)
+            } catch {
+                throw new PlanningHistoryValidationError('Task request is unavailable for candidate identity')
+            }
+            if (
+                request.operationKind !== 'today_action'
+                || request.actionContractVersion
+                    !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+                || request.operationId !== operationId
+                || request.expectedCurrentDate !== planningDate
+                || request.payload.planned_date !== targetDate
+            ) {
+                throw new PlanningHistoryValidationError('Task request does not match candidate identity inputs')
+            }
+        }
+
+        try {
+            const classify = database.transaction((): Exclude<
+                CandidateIdentityClassification,
+                { kind: 'READ_FAILURE' }
+            > => {
+                const candidate = readCandidateIdentityById(database, candidateId)
+                if (!candidate) {
+                    return hasCandidateForOperation(database, operationId)
+                        ? { kind: 'ABSENT_COMPETING_OPERATION' }
+                        : { kind: 'ABSENT_NO_COMPETING_OPERATION' }
+                }
+                if (!isCanonicalCandidateIdentityRow(candidate)) {
+                    return { kind: 'EXACT_CORRUPT' }
+                }
+                if (
+                    candidate.entry_point !== 'today_action'
+                    || candidate.planning_date !== planningDate
+                    || candidate.target_date !== targetDate
+                    || (request !== null && !candidateSnapshotMatchesTodayRequest(candidate, request))
+                ) {
+                    return { kind: 'EXACT_MISMATCH' }
+                }
+                if (candidate.user_disposition !== 'confirmed') {
+                    return hasAnotherCandidateForOperation(database, operationId, candidateId)
+                        ? { kind: 'EXACT_MISMATCH' }
+                        : { kind: 'EXACT_UNCONFIRMED' }
+                }
+                if (candidate.operation_id !== operationId) {
+                    return { kind: 'EXACT_MISMATCH' }
+                }
+                return {
+                    kind: 'EXACT_CONFIRMED_MATCH',
+                    outcomeKind: candidate.outcome_kind as PlanningCandidateOutcomeKind | null,
+                }
+            })
+            return classify()
+        } catch (error) {
+            return { kind: 'READ_FAILURE', error }
+        }
+    }
+
     function claimConfirmation(candidateIdValue: unknown, requestValue: unknown): { claimed: true } {
         const candidateId = requirePositiveSafeInteger(candidateIdValue, 'planningCandidateId')
         let request: IdempotentAIStudyTaskCreateRequest
@@ -2448,6 +2719,7 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
         get,
         delete: removeRun,
         clear,
+        classifyTodayActionCandidateIdentity,
         claimConfirmation,
         recordOutcome,
         closeRuns,

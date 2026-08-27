@@ -1,11 +1,19 @@
 // @vitest-environment node
 
 import BetterSqlite3 from 'better-sqlite3'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import { runDatabaseMigrations } from '../electron/databaseMigrations'
 import { createPlanningHistoryStore } from '../electron/planningHistory'
-import { buildIdempotentAIStudyTaskRequestDigest } from '../electron/idempotentStudyTaskCreation'
+import {
+  buildIdempotentAIStudyTaskRequestDigest,
+  createIdempotentAIStudyTaskForCurrentDate,
+  getCommittedAIStudyTaskOperationStatus,
+} from '../electron/idempotentStudyTaskCreation'
+import {
+  executePrivilegedTodayActionV2CommandWithPlanningAudit,
+  reconcileCommittedStudyTaskStatusWithPlanningAudit,
+} from '../electron/planningTaskCorrelation'
 import { deriveTodayActionFeedbackCandidates } from '../src/utils/planningFeedback'
 
 const databases: Database.Database[] = []
@@ -89,6 +97,354 @@ afterEach(() => {
 })
 
 describe('Planning History Execution Attribution', () => {
+  const todayV2Request = () => taskRequest({
+    actionContractVersion: 'confirmed-study-task-action.v2',
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: '1'.repeat(64),
+    generationChapterSignature: '2'.repeat(64),
+    latestReviewedChapterSignature: '2'.repeat(64),
+    staleContextOverride: false,
+    staleReviewToken: null,
+  })
+
+  it('keeps a claim-only Today candidate bound to O1 when status is NOT_COMMITTED', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    store.claimConfirmation(candidateId, request)
+    const classification = store.classifyTodayActionCandidateIdentity(
+      candidateId,
+      request.operationId,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const recordOutcome = vi.fn((id, operationId, outcome) => (
+      store.recordOutcome(id, operationId, outcome)
+    ))
+    const status = { status: 'NOT_COMMITTED' as const, operationId: request.operationId }
+
+    expect(reconcileCommittedStudyTaskStatusWithPlanningAudit(status, classification, {
+      planningCandidateId: candidateId,
+      recordOutcome,
+      warn: () => {},
+      runInTransaction: operation => database.transaction(operation)(),
+    })).toBe(status)
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'confirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: request.operationId })
+  })
+
+  it('does not turn a marker-only digest mismatch into a durable conflict outcome', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    store.claimConfirmation(candidateId, request)
+    database.prepare(
+      'INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id) VALUES (?, ?, ?, ?, ?, ?, NULL)',
+    ).run(
+      request.operationId,
+      request.operationKind,
+      request.actionContractVersion,
+      '0'.repeat(64),
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const rawStatus = getCommittedAIStudyTaskOperationStatus({
+      operationId: request.operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: request.expectedCurrentDate,
+      plannedDate: request.payload.planned_date,
+      planningCandidateId: candidateId,
+      requestDigest: buildIdempotentAIStudyTaskRequestDigest(request),
+    }, { database })
+    const classification = store.classifyTodayActionCandidateIdentity(
+      candidateId,
+      request.operationId,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const recordOutcome = vi.fn()
+
+    expect(reconcileCommittedStudyTaskStatusWithPlanningAudit(rawStatus, classification, {
+      planningCandidateId: candidateId,
+      recordOutcome,
+      warn: () => {},
+      runInTransaction: operation => database.transaction(operation)(),
+    })).toEqual({ status: 'INTEGRITY_ERROR', operationId: request.operationId })
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.outcomeKind)
+      .toBeNull()
+  })
+
+  it('fails closed when an unconfirmed exact candidate would borrow an operation owned by another candidate', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    store.create(todayRun({ id: '22222222-2222-4222-8222-222222222222' }))
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const competingCandidateId = store.get('22222222-2222-4222-8222-222222222222')!.candidates[0]!.id
+    const request = todayV2Request()
+    const requestDigest = buildIdempotentAIStudyTaskRequestDigest(request)
+    store.claimConfirmation(competingCandidateId, request)
+
+    const taskId = Number(database.prepare(`
+      INSERT INTO study_tasks (
+        title, description, type, subject_id, related_mistake_id,
+        related_entry_id, related_chapter_id, planned_date,
+        estimate_minutes, status, source
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.payload.title,
+      request.payload.description,
+      request.payload.type,
+      request.payload.subject_id,
+      request.payload.related_mistake_id,
+      request.payload.related_entry_id,
+      request.payload.related_chapter_id,
+      request.payload.planned_date,
+      request.payload.estimate_minutes,
+      request.payload.status,
+      request.payload.source,
+    ).lastInsertRowid)
+    database.prepare(`
+      INSERT INTO study_task_action_receipts (
+        operation_id, operation_kind, action_contract_version, request_digest,
+        expected_current_date, planned_date, task_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.operationId,
+      request.operationKind,
+      request.actionContractVersion,
+      requestDigest,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+      taskId,
+    )
+
+    const claim = vi.fn((id, value) => store.claimConfirmation(id, value))
+    const execute = vi.fn(() => { throw new Error('historical replay must not execute Phase 2') })
+    const recordOutcome = vi.fn((id, operationId, outcome) => (
+      store.recordOutcome(id, operationId, outcome)
+    ))
+    const result = executePrivilegedTodayActionV2CommandWithPlanningAudit(
+      { planningCandidateId: candidateId, request },
+      requestDigest,
+      {
+        preflightReceipt: value => createIdempotentAIStudyTaskForCurrentDate(value, {
+          database,
+          getCurrentDateKey: () => request.expectedCurrentDate,
+          createTask: () => { throw new Error('matching receipt must replay') },
+        }),
+        classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+          store.classifyTodayActionCandidateIdentity(
+            id,
+            operationId,
+            planningDate,
+            targetDate,
+            value,
+          )
+        ),
+        claim,
+        execute,
+        recordOutcome,
+        warn: () => {},
+        runInTransaction: operation => database.transaction(operation)(),
+      },
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      operationId: request.operationId,
+      code: 'INTEGRITY_ERROR',
+      message: 'The study task could not be created safely.',
+    })
+    expect(claim).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'selected_unconfirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: null })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(competingCandidateId)).toEqual({ operation_id: request.operationId })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get()).toEqual({ count: 1 })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get()).toEqual({ count: 1 })
+  })
+
+  it.each([null, 'uncertain'] as const)(
+    'keeps an already accepted receipt-less operation status-first when its outcome is %s',
+    outcomeKind => {
+      const { database, store } = createStore()
+      store.create(todayRun())
+      const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+      const originalRequest = todayV2Request()
+      store.claimConfirmation(candidateId, originalRequest)
+      if (outcomeKind === 'uncertain') {
+        store.recordOutcome(candidateId, originalRequest.operationId, outcomeKind)
+      }
+      const retryRequest = {
+        ...originalRequest,
+        generationChapterSignature: '9'.repeat(64),
+        latestReviewedChapterSignature: '9'.repeat(64),
+      }
+      expect(store.classifyTodayActionCandidateIdentity(
+        candidateId,
+        retryRequest.operationId,
+        retryRequest.expectedCurrentDate,
+        retryRequest.payload.planned_date,
+        retryRequest,
+      )).toEqual({ kind: 'EXACT_CONFIRMED_MATCH', outcomeKind })
+
+      const claim = vi.fn((id, value) => store.claimConfirmation(id, value))
+      const execute = vi.fn(() => ({
+        ok: true as const,
+        operationId: retryRequest.operationId,
+        task: {
+          id: 42,
+          ...retryRequest.payload,
+          created_at: '2026-08-13T12:34:56.789Z',
+          updated_at: '2026-08-13T12:34:56.789Z',
+        },
+        replayed: false as const,
+      }))
+      const recordOutcome = vi.fn((id, operationId, outcome) => (
+        store.recordOutcome(id, operationId, outcome)
+      ))
+      const phase2Transaction = vi.fn()
+      const runInTransaction = <T,>(operation: () => T): T => {
+        phase2Transaction()
+        return database.transaction(operation)()
+      }
+
+      expect(() => executePrivilegedTodayActionV2CommandWithPlanningAudit(
+        { planningCandidateId: candidateId, request: retryRequest },
+        buildIdempotentAIStudyTaskRequestDigest(retryRequest),
+        {
+          preflightReceipt: () => null,
+          classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+            store.classifyTodayActionCandidateIdentity(
+              id,
+              operationId,
+              planningDate,
+              targetDate,
+              value,
+            )
+          ),
+          claim,
+          execute,
+          recordOutcome,
+          warn: () => {},
+          runInTransaction,
+        },
+      )).toThrow('status-first recovery')
+
+      expect(claim).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+      expect(recordOutcome).not.toHaveBeenCalled()
+      expect(phase2Transaction).not.toHaveBeenCalled()
+      expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+        userDisposition: 'confirmed',
+        outcomeKind,
+      })
+      expect(database.prepare(
+        'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+      ).get(candidateId)).toEqual({ operation_id: retryRequest.operationId })
+      expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get()).toEqual({ count: 0 })
+      expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get()).toEqual({ count: 0 })
+    },
+  )
+
+  it('rolls back task, receipt, and outcome together while preserving the Phase 1 claim', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    const task = {
+      id: 1,
+      ...request.payload,
+      created_at: '2026-08-13T12:34:56.789Z',
+      updated_at: '2026-08-13T12:34:56.789Z',
+    }
+    const recordOutcome = vi.fn((id, operationId, outcome) => {
+      store.recordOutcome(id, operationId, outcome)
+      throw new Error('simulated durable acknowledgement failure')
+    })
+
+    expect(() => executePrivilegedTodayActionV2CommandWithPlanningAudit(
+      { planningCandidateId: candidateId, request },
+      buildIdempotentAIStudyTaskRequestDigest(request),
+      {
+        preflightReceipt: () => null,
+        classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+          store.classifyTodayActionCandidateIdentity(
+            id,
+            operationId,
+            planningDate,
+            targetDate,
+            value,
+          )
+        ),
+        claim: (id, value) => store.claimConfirmation(id, value),
+        execute: () => {
+          database.prepare(
+            'INSERT INTO study_tasks (title, description, type, subject_id, related_mistake_id, related_entry_id, related_chapter_id, planned_date, estimate_minutes, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          ).run(
+            request.payload.title,
+            request.payload.description,
+            request.payload.type,
+            request.payload.subject_id,
+            request.payload.related_mistake_id,
+            request.payload.related_entry_id,
+            request.payload.related_chapter_id,
+            request.payload.planned_date,
+            request.payload.estimate_minutes,
+            request.payload.status,
+            request.payload.source,
+          )
+          database.prepare(
+            'INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id) VALUES (?, ?, ?, ?, ?, ?, 1)',
+          ).run(
+            request.operationId,
+            request.operationKind,
+            request.actionContractVersion,
+            buildIdempotentAIStudyTaskRequestDigest(request),
+            request.expectedCurrentDate,
+            request.payload.planned_date,
+          )
+          return { ok: true as const, operationId: request.operationId, task, replayed: false }
+        },
+        recordOutcome,
+        warn: () => {},
+        runInTransaction: operation => database.transaction(operation)(),
+      },
+    )).toThrow('simulated durable acknowledgement failure')
+
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get())
+      .toEqual({ count: 0 })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get())
+      .toEqual({ count: 0 })
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'confirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: request.operationId })
+  })
+
   describe('Receipt authority remediation', () => {
     function setupAttributionState(options: {
       receipt?: 'valid_task' | 'explicit_null' | 'dangling_task' | 'corrupt_task' | 'absent'
@@ -521,6 +877,7 @@ describe('Planning History Execution Attribution', () => {
       plannedDate?: unknown
       taskId?: unknown
       corruptTask?: boolean
+      outcome?: 'created' | 'replayed' | 'conflict' | 'uncertain' | null
     } = {}) {
       const { database, store } = createStore()
       const created = store.create(todayRun())
@@ -560,7 +917,8 @@ describe('Planning History Execution Attribution', () => {
         options.plannedDate ?? '2026-08-13',
         Object.prototype.hasOwnProperty.call(options, 'taskId') ? options.taskId : taskId,
       )
-      store.recordOutcome(candidateId, claim.operationId, 'created')
+      const outcome = options.outcome === undefined ? 'created' : options.outcome
+      if (outcome !== null) store.recordOutcome(candidateId, claim.operationId, outcome)
       return { database, store, taskId }
     }
 
@@ -579,6 +937,76 @@ describe('Planning History Execution Attribution', () => {
         semanticDrift: { hasDrift: false, differences: {} },
       })
       expect(fromList).toEqual(fromGet)
+    })
+
+    it('treats a recorded conflict as negative commitment evidence for an otherwise valid v2 task receipt', () => {
+      const { store } = setupV2Attribution({ outcome: 'conflict' })
+
+      const candidate = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!
+      const fromGet = candidate.executionAttribution!
+      const fromList = store.listRecent().items[0]!.candidates[0]!.executionAttribution!
+
+      expect(candidate.taskRelation).toEqual({ available: false })
+      expect(fromGet).toMatchObject({
+        kind: 'known_conflict',
+        receiptValidated: false,
+        taskId: null,
+      })
+      expect(fromList).toEqual(fromGet)
+    })
+
+    it('does not mistake a conflicted v2 explicit-null receipt for candidate task deletion', () => {
+      const { store } = setupV2Attribution({ outcome: 'conflict', taskId: null })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'known_conflict',
+        receiptValidated: false,
+        taskId: null,
+      })
+    })
+
+    it.each([
+      ['replayed outcome', 'replayed'],
+      ['missing outcome', null],
+      ['uncertain outcome', 'uncertain'],
+    ] as const)('preserves opaque v2 receipt authority with %s', (_label, outcome) => {
+      const { store, taskId } = setupV2Attribution({ outcome })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'verified_linked',
+        receiptValidated: true,
+        taskId,
+      })
+    })
+
+    it('keeps a malformed v2 receipt fail-closed when the candidate outcome is conflict', () => {
+      const { store } = setupV2Attribution({
+        outcome: 'conflict',
+        requestDigest: 'not-a-digest',
+      })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'integrity_inconsistency',
+        receiptValidated: false,
+        taskId: null,
+      })
+    })
+
+    it.each([
+      ['missing task', { taskId: 999 }],
+      ['corrupt task', { corruptTask: true }],
+    ] as const)('keeps a conflicted v2 receipt with a %s fail-closed', (_label, options) => {
+      const { store } = setupV2Attribution({ outcome: 'conflict', ...options })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'integrity_inconsistency',
+        receiptValidated: true,
+        taskId: null,
+      })
     })
 
     it('preserves v2 explicit-null deletion and current-task semantic drift semantics', () => {

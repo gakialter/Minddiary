@@ -12,6 +12,7 @@ import type {
 import type {
     IdempotentAIStudyTaskCreateRequest,
     IdempotentAIStudyTaskCreateResponse,
+    PrivilegedTodayActionV2CreateCommand,
     TodayActionCommittedStatus,
     TodayActionCommittedStatusRequest,
 } from '../src/types/api';
@@ -21,11 +22,15 @@ import {
     CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
 } from '../src/utils/aiOperationContracts';
 import {
+    buildIdempotentAIStudyTaskRequestDigestInput,
+} from '../src/utils/agentStudyTaskActions';
+import {
     buildMistakeReviewContextSignatureString,
     prepareMistakeReviewSession,
 } from '../src/utils/mistakeReviewSuggestions';
 import { TODAY_ACTION_CHAPTER_CONTEXT_PROJECTION_VERSION } from '../src/utils/todayActionChapterContext';
 import {
+    TodayActionChapterContextValidationError,
     TodayActionStaleReviewTokenStore,
     readAuthoritativeTodayActionChapterContext,
     type CanonicalTodayActionStaleAuthorizationCore,
@@ -70,6 +75,15 @@ const TODAY_COMMITTED_STATUS_REQUEST_KEYS = [
     'actionContractVersion',
     'expectedCurrentDate',
     'plannedDate',
+] as const;
+const PRIVILEGED_TODAY_V2_CREATE_COMMAND_KEYS = [
+    'planningCandidateId',
+    'request',
+] as const;
+const CURRENT_TODAY_COMMITTED_STATUS_REQUEST_KEYS = [
+    ...TODAY_COMMITTED_STATUS_REQUEST_KEYS,
+    'planningCandidateId',
+    'requestDigest',
 ] as const;
 const PAYLOAD_KEYS = [
     'title',
@@ -196,6 +210,34 @@ function requireNullablePositiveId(value: unknown, label: string): number | null
     if (value === null) return null;
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
         throw new RequestValidationError(`${label} must be a positive safe integer or null`);
+    }
+    return value;
+}
+
+function requireOrdinaryObject(value: unknown, label: string): object {
+    const record = requireObjectRecord(value, label);
+    let prototype: object | null;
+    try {
+        prototype = Object.getPrototypeOf(record);
+    } catch {
+        throw new RequestValidationError(`${label} must be an ordinary object`);
+    }
+    if (prototype !== Object.prototype) {
+        throw new RequestValidationError(`${label} must be an ordinary object`);
+    }
+    return record;
+}
+
+function requirePositiveId(value: unknown, label: string): number {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        throw new RequestValidationError(`${label} must be a positive safe integer`);
+    }
+    return value;
+}
+
+function requireSha256(value: unknown, label: string): string {
+    if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+        throw new RequestValidationError(`${label} must be a lowercase SHA-256 digest`);
     }
     return value;
 }
@@ -476,61 +518,33 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     return base;
 }
 
-function buildCanonicalDigestJson(request: IdempotentAIStudyTaskCreateRequest): string {
-    const payload = request.payload as CanonicalAIStudyTaskPayload;
-    const canonicalPayload = {
-        title: payload.title,
-        description: payload.description,
-        type: payload.type,
-        subject_id: payload.subject_id,
-        related_mistake_id: payload.related_mistake_id,
-        related_entry_id: payload.related_entry_id,
-        related_chapter_id: payload.related_chapter_id,
-        planned_date: payload.planned_date,
-        estimate_minutes: payload.estimate_minutes,
-        status: payload.status,
-        source: payload.source,
+export function validatePrivilegedTodayActionV2CreateCommand(
+    value: unknown,
+): PrivilegedTodayActionV2CreateCommand {
+    const command = requireOrdinaryObject(value, 'command');
+    assertExactOwnKeys(
+        command,
+        PRIVILEGED_TODAY_V2_CREATE_COMMAND_KEYS,
+        'command',
+    );
+    const planningCandidateId = requirePositiveId(
+        readOwnDataProperty(command, 'planningCandidateId', 'command'),
+        'command.planningCandidateId',
+    );
+    const request = validateIdempotentAIStudyTaskCreateRequest(
+        readOwnDataProperty(command, 'request', 'command'),
+    );
+    if (
+        request.operationKind !== 'today_action'
+        || request.actionContractVersion
+            !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+    ) {
+        throw new RequestValidationError('command.request must be a Today Action v2 request');
+    }
+    return {
+        planningCandidateId,
+        request: request as PrivilegedTodayActionV2CreateCommand['request'],
     };
-    if (
-        request.operationKind === 'today_action'
-        && request.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
-    ) {
-        return JSON.stringify({
-            operationId: request.operationId,
-            operationKind: request.operationKind,
-            actionContractVersion: request.actionContractVersion,
-            expectedCurrentDate: request.expectedCurrentDate,
-            contextProjectionVersion: request.contextProjectionVersion,
-            originalGenerationContextSignature: request.originalGenerationContextSignature,
-            generationChapterSignature: request.generationChapterSignature,
-            latestReviewedChapterSignature: request.latestReviewedChapterSignature,
-            staleContextOverride: request.staleContextOverride,
-            staleReviewToken: request.staleReviewToken,
-            payload: canonicalPayload,
-        });
-    }
-    if (
-        request.operationKind === 'mistake_review'
-        && request.actionContractVersion === CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
-    ) {
-        return JSON.stringify({
-            operationId: request.operationId,
-            operationKind: request.operationKind,
-            actionContractVersion: request.actionContractVersion,
-            expectedCurrentDate: request.expectedCurrentDate,
-            contextProjectionVersion: request.contextProjectionVersion,
-            generationContextSignature: request.generationContextSignature,
-            generationMistakeRef: request.generationMistakeRef,
-            payload: canonicalPayload,
-        });
-    }
-    return JSON.stringify({
-        operationKind: request.operationKind,
-        actionContractVersion: request.actionContractVersion,
-        expectedCurrentDate: request.expectedCurrentDate,
-        plannedDate: payload.planned_date,
-        payload: canonicalPayload,
-    });
 }
 
 export function buildIdempotentAIStudyTaskRequestDigest(
@@ -538,7 +552,7 @@ export function buildIdempotentAIStudyTaskRequestDigest(
 ): string {
     const canonicalRequest = validateIdempotentAIStudyTaskCreateRequest(request);
     return createHash('sha256')
-        .update(buildCanonicalDigestJson(canonicalRequest), 'utf8')
+        .update(buildIdempotentAIStudyTaskRequestDigestInput(canonicalRequest), 'utf8')
         .digest('hex');
 }
 
@@ -796,6 +810,21 @@ function resolveExistingReceipt(
     };
 }
 
+/**
+ * Resolves only durable operation state. This intentionally performs no
+ * current-date, freshness, token, task-creation, or claim work.
+ */
+export function preflightCommittedAIStudyTaskReceipt(
+    request: IdempotentAIStudyTaskCreateRequest,
+    requestDigest: string,
+    dependencies: { database: Database.Database },
+): IdempotentAIStudyTaskCreateResponse | null {
+    const receipt = readReceipt(dependencies.database, request.operationId);
+    return receipt
+        ? resolveExistingReceipt(receipt, request, requestDigest, dependencies.database)
+        : null;
+}
+
 function assertCurrentDate(
     expectedCurrentDate: string,
     getCurrentDateKey: () => string,
@@ -894,8 +923,11 @@ function validateFreshTodayActionChapterContext(
         currentChapterSignature = readAuthoritativeTodayActionChapterContext(
             dependencies.database,
         ).currentChapterSignature;
-    } catch {
-        throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+    } catch (error) {
+        if (error instanceof TodayActionChapterContextValidationError) {
+            throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+        }
+        throw error;
     }
 
     const expectedChapterSignature = request.staleContextOverride === true
@@ -1051,7 +1083,6 @@ export function createIdempotentAIStudyTaskForCurrentDate(
     }
 
     try {
-        let authorizedTodayActionToken: AuthorizedTodayActionToken | null = null;
         const existingReceipt = readReceipt(dependencies.database, request.operationId);
         if (existingReceipt) {
             return resolveExistingReceipt(existingReceipt, request, requestDigest, dependencies.database);
@@ -1080,10 +1111,17 @@ export function createIdempotentAIStudyTaskForCurrentDate(
                 assertCurrentDate(request.expectedCurrentDate, dependencies.getCurrentDateKey);
 
                 if (request.operationKind === 'today_action') {
-                    authorizedTodayActionToken = validateFreshTodayActionChapterContext(
+                    const authorization = validateFreshTodayActionChapterContext(
                         request,
                         dependencies,
                     );
+                    if (authorization) {
+                        authorization.tokenStore.consume(
+                            authorization.token,
+                            authorization.trustedSession,
+                            authorization.core,
+                        );
+                    }
                 }
                 if (request.operationKind === 'mistake_review') {
                     validateFreshMistakeReviewDomain(
@@ -1157,16 +1195,7 @@ export function createIdempotentAIStudyTaskForCurrentDate(
             },
         );
 
-        const result = createInTransaction();
-        if (result.ok && !result.replayed && authorizedTodayActionToken) {
-            const authorization = authorizedTodayActionToken as AuthorizedTodayActionToken;
-            authorization.tokenStore.consume(
-                authorization.token,
-                authorization.trustedSession,
-                authorization.core,
-            );
-        }
-        return result;
+        return createInTransaction();
     } catch (error) {
         if (
             error instanceof FreshTodayActionValidationError
@@ -1186,27 +1215,69 @@ export function createIdempotentAIStudyTaskForCurrentDate(
             );
         }
         if (isReceiptOperationIdConstraint(error)) {
+            let racedReceipt: StudyTaskActionReceiptRow | undefined;
             try {
-                const racedReceipt = readReceipt(dependencies.database, request.operationId);
-                if (racedReceipt) {
-                    return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
-                }
-            } catch {
+                racedReceipt = readReceipt(dependencies.database, request.operationId);
+            } catch (readError) {
+                if (isTodayActionV2Request(request)) throw readError;
+                return errorResponse(
+                    request.operationId,
+                    'INTEGRITY_ERROR',
+                    'The study task could not be created safely.',
+                );
             }
+            if (racedReceipt) {
+                return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
+            }
+            if (isTodayActionV2Request(request)) throw error;
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
         }
-        return errorResponse(
-            request.operationId,
-            'INTEGRITY_ERROR',
-            'The study task could not be created safely.',
-        );
+        if (error instanceof PersistenceIntegrityError) {
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
+        }
+        if (!isTodayActionV2Request(request)) {
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
+        }
+        throw error;
     }
 }
 
 export function validateTodayActionCommittedStatusRequest(
     value: unknown,
 ): TodayActionCommittedStatusRequest {
-    const request = requireObjectRecord(value, 'request');
-    assertExactOwnKeys(request, TODAY_COMMITTED_STATUS_REQUEST_KEYS, 'request');
+    const request = requireOrdinaryObject(value, 'request');
+    const hasPlanningCandidateId = Object.prototype.hasOwnProperty.call(
+        request,
+        'planningCandidateId',
+    );
+    const hasRequestDigest = Object.prototype.hasOwnProperty.call(
+        request,
+        'requestDigest',
+    );
+    if (hasPlanningCandidateId !== hasRequestDigest) {
+        throw new RequestValidationError(
+            'request.planningCandidateId and request.requestDigest must be supplied together',
+        );
+    }
+    assertExactOwnKeys(
+        request,
+        hasPlanningCandidateId
+            ? CURRENT_TODAY_COMMITTED_STATUS_REQUEST_KEYS
+            : TODAY_COMMITTED_STATUS_REQUEST_KEYS,
+        'request',
+    );
     const operationId = readOwnDataProperty(request, 'operationId', 'request');
     if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
         throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
@@ -1231,12 +1302,24 @@ export function validateTodayActionCommittedStatusRequest(
     if (plannedDate !== expectedCurrentDate) {
         throw new RequestValidationError('request.plannedDate must equal request.expectedCurrentDate');
     }
-    return {
+    const baseRequest = {
         operationId,
         operationKind: 'today_action',
         actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
         expectedCurrentDate,
         plannedDate,
+    } as const;
+    if (!hasPlanningCandidateId || !hasRequestDigest) return baseRequest;
+    return {
+        ...baseRequest,
+        planningCandidateId: requirePositiveId(
+            readOwnDataProperty(request, 'planningCandidateId', 'request'),
+            'request.planningCandidateId',
+        ),
+        requestDigest: requireSha256(
+            readOwnDataProperty(request, 'requestDigest', 'request'),
+            'request.requestDigest',
+        ),
     };
 }
 
@@ -1249,48 +1332,49 @@ export function getCommittedAIStudyTaskOperationStatus(
         status: 'INTEGRITY_ERROR',
         operationId: request.operationId,
     });
-    try {
-        const receipt = readReceipt(dependencies.database, request.operationId);
-        if (!receipt) {
-            return { status: 'NOT_COMMITTED', operationId: request.operationId };
-        }
-        if (!isValidReceiptRow(receipt)) return integrityError();
-        if (
-            receipt.operation_id !== request.operationId
-            || receipt.operation_kind !== request.operationKind
-            || receipt.action_contract_version !== request.actionContractVersion
-            || receipt.expected_current_date !== request.expectedCurrentDate
-            || receipt.planned_date !== request.plannedDate
-        ) {
-            return { status: 'IDEMPOTENCY_CONFLICT', operationId: request.operationId };
-        }
-        if (receipt.task_id === null) {
-            return { status: 'RESULT_DELETED', operationId: request.operationId };
-        }
-        if (
-            typeof receipt.task_id !== 'number'
-            || !Number.isSafeInteger(receipt.task_id)
-            || receipt.task_id <= 0
-        ) {
-            return integrityError();
-        }
-        const row = readTask(dependencies.database, receipt.task_id);
-        if (!row) return integrityError();
-        const task = projectPersistedStudyTask(row);
-        if (
-            !task
-            || task.planned_date !== request.plannedDate
-            || task.related_chapter_id !== null
-            || task.source !== 'ai'
-        ) {
-            return integrityError();
-        }
-        return {
-            status: 'RECOVERED_COMMITTED',
-            operationId: request.operationId,
-            task,
-        };
-    } catch {
+    // Operational database failures must propagate so recovery stays retryable.
+    // INTEGRITY_ERROR is reserved for rows that were read and failed validation.
+    const receipt = readReceipt(dependencies.database, request.operationId);
+    if (!receipt) {
+        return { status: 'NOT_COMMITTED', operationId: request.operationId };
+    }
+    if (request.requestDigest === undefined) return integrityError();
+    if (!isValidReceiptRow(receipt)) return integrityError();
+    const metadataMatches = receipt.operation_id === request.operationId
+        && receipt.operation_kind === request.operationKind
+        && receipt.action_contract_version === request.actionContractVersion
+        && receipt.expected_current_date === request.expectedCurrentDate
+        && receipt.planned_date === request.plannedDate;
+    if (!metadataMatches) {
         return integrityError();
     }
+    if (receipt.request_digest !== request.requestDigest) {
+        return { status: 'IDEMPOTENCY_CONFLICT', operationId: request.operationId };
+    }
+    if (receipt.task_id === null) {
+        return { status: 'RESULT_DELETED', operationId: request.operationId };
+    }
+    if (
+        typeof receipt.task_id !== 'number'
+        || !Number.isSafeInteger(receipt.task_id)
+        || receipt.task_id <= 0
+    ) {
+        return integrityError();
+    }
+    const row = readTask(dependencies.database, receipt.task_id);
+    if (!row) return integrityError();
+    const task = projectPersistedStudyTask(row);
+    if (
+        !task
+        || task.planned_date !== request.plannedDate
+        || task.related_chapter_id !== null
+        || task.source !== 'ai'
+    ) {
+        return integrityError();
+    }
+    return {
+        status: 'RECOVERED_COMMITTED',
+        operationId: request.operationId,
+        task,
+    };
 }

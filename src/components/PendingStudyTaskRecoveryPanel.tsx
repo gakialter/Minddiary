@@ -22,13 +22,23 @@ interface PendingStudyTaskRecoveryPanelProps {
   tasksAPI: Pick<TasksContextAPI, 'createIdempotentAIStudyTaskForCurrentDate'>
     & Partial<Pick<TasksContextAPI, 'getCommittedAIStudyTaskOperationStatus'>>
   revision: number
-  onOutcome: (observation: PlanningStudyTaskActionExecutionObservation) => void | Promise<void>
+  canRecoverOperation?: (operationId: string) => boolean
+  onRecoveringChange?: (recovering: boolean) => void
+  onTodayActionNotCommitted?: (
+    operationId: string,
+  ) => boolean | void | Promise<boolean | void>
+  onOutcome: (
+    observation: PlanningStudyTaskActionExecutionObservation,
+  ) => boolean | void | Promise<boolean | void>
 }
 
 export default function PendingStudyTaskRecoveryPanel({
   operationKind,
   tasksAPI,
   revision,
+  canRecoverOperation,
+  onRecoveringChange,
+  onTodayActionNotCommitted,
   onOutcome,
 }: PendingStudyTaskRecoveryPanelProps) {
   const [operations, setOperations] = useState<PendingStudyTaskOperation[]>([])
@@ -69,76 +79,112 @@ export default function PendingStudyTaskRecoveryPanel({
   }
 
   const recover = async (operation: PendingStudyTaskOperation) => {
-    if (recoveringOperationId !== null) return
+    if (recoveringOperationId !== null || canRecoverOperation?.(operation.operationId) === false) return
     setRecoveringOperationId(operation.operationId)
+    onRecoveringChange?.(true)
     setOutcome(null)
-    let observation: PlanningStudyTaskActionExecutionObservation
-    let terminalTodayV2Status = false
-    if (isPendingTodayActionStudyTaskOperationV2(operation)) {
-      try {
-        const getCommittedStatus = tasksAPI.getCommittedAIStudyTaskOperationStatus
-        if (typeof getCommittedStatus !== 'function') {
-          throw new Error('Committed operation status is unsupported')
-        }
-        const status = await getCommittedStatus(
-          getPendingTodayActionCommittedStatusRequest(operation),
-        )
-        const resolution = observePendingTodayActionCommittedStatus(operation, status)
-        observation = resolution.observation
-        terminalTodayV2Status = resolution.terminal
-      } catch {
-        observation = observeStudyTaskActionExecutionResult({
-          operationId: operation.operationId,
-          status: 'uncertain',
-          error: 'Committed operation status is unavailable',
-        }, operation.operationId)
-      }
-    } else {
-      const result = await executeIdempotentAIStudyTaskCreateRequest(
-        getPendingStudyTaskCreateRequest(operation),
-        tasksAPI,
-      )
-      observation = observeStudyTaskActionExecutionResult(result, operation.operationId)
-    }
-    if (!mountedRef.current) return
-
-    if (isPendingTodayActionStudyTaskOperationV2(operation) && terminalTodayV2Status) {
-      const cleared = clearOperation(operation.operationId)
-      if (cleared) {
-        setOperations(current => current.filter(item => item.operationId !== operation.operationId))
-      }
-      const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
-      setOutcome(cleared
-        ? `${terminalMessage}；恢复记录已结束。`
-        : `${terminalMessage}；恢复记录尚未清除。`)
-    } else if (observation.status === 'succeeded') {
-      const cleared = clearOperation(operation.operationId)
-      if (cleared) {
-        setOperations(current => current.filter(item => item.operationId !== operation.operationId))
-      }
-      setOutcome(observation.outcome.message)
-    } else if (observation.status === 'uncertain') {
-      setOutcome(observation.outcome.message)
-    } else if (observation.code === 'IDEMPOTENCY_CONFLICT') {
-      setOutcome(observation.outcome.message)
-    } else {
-      const cleared = clearOperation(operation.operationId)
-      if (cleared) {
-        setOperations(current => current.filter(item => item.operationId !== operation.operationId))
-      }
-      const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
-      setOutcome(cleared
-        ? `${terminalMessage}；恢复记录已结束。`
-        : `${terminalMessage}；恢复记录尚未清除。`)
-    }
-
     try {
-      await onOutcome(observation)
-    } catch {
-      if (mountedRef.current) setWarning('检查结果已返回，但界面更新失败；重新打开页面即可查看。')
-    }
+      let observation: PlanningStudyTaskActionExecutionObservation
+      let terminalTodayV2Status = false
+      if (isPendingTodayActionStudyTaskOperationV2(operation)) {
+        try {
+          const getCommittedStatus = tasksAPI.getCommittedAIStudyTaskOperationStatus
+          if (typeof getCommittedStatus !== 'function') {
+            throw new Error('Committed operation status is unsupported')
+          }
+          const status = await getCommittedStatus(
+            getPendingTodayActionCommittedStatusRequest(operation),
+          )
+          const resolution = observePendingTodayActionCommittedStatus(operation, status)
+          if (resolution.kind === 'not_committed') {
+            if (!mountedRef.current) return
+            if (typeof onTodayActionNotCommitted !== 'function') {
+              setWarning('未证明任务已提交，但当前界面无法安全退役原候选；恢复记录仍保留。')
+              return
+            }
+            let accepted: boolean | void
+            try {
+              accepted = await onTodayActionNotCommitted(resolution.operationId)
+            } catch {
+              if (mountedRef.current) {
+                setWarning('检查结果已返回，但界面更新失败；恢复记录仍保留，可重新打开页面后检查。')
+              }
+              return
+            }
+            if (!mountedRef.current || accepted === false) return
+            const cleared = clearOperation(operation.operationId)
+            if (cleared) {
+              setOperations(current => current.filter(item => item.operationId !== operation.operationId))
+            }
+            setOutcome(cleared
+              ? '未证明任务已提交；原候选已退役，需要新候选。恢复记录已结束。'
+              : '未证明任务已提交；原候选已退役，需要新候选。恢复记录尚未清除。')
+            return
+          }
+          observation = resolution.observation
+          terminalTodayV2Status = resolution.terminal
+        } catch {
+          observation = observeStudyTaskActionExecutionResult({
+            operationId: operation.operationId,
+            status: 'uncertain',
+            error: 'Committed operation status is unavailable',
+          }, operation.operationId)
+        }
+      } else {
+        const result = await executeIdempotentAIStudyTaskCreateRequest(
+          getPendingStudyTaskCreateRequest(operation),
+          tasksAPI,
+        )
+        observation = observeStudyTaskActionExecutionResult(result, operation.operationId)
+      }
+      if (!mountedRef.current) return
 
-    if (mountedRef.current) setRecoveringOperationId(null)
+      let accepted: boolean | void
+      try {
+        accepted = await onOutcome(observation)
+      } catch {
+        if (mountedRef.current) {
+          setWarning('检查结果已返回，但界面更新失败；恢复记录仍保留，可重新打开页面后检查。')
+        }
+        return
+      }
+      if (!mountedRef.current || accepted === false) return
+
+      if (isPendingTodayActionStudyTaskOperationV2(operation) && terminalTodayV2Status) {
+        const cleared = clearOperation(operation.operationId)
+        if (cleared) {
+          setOperations(current => current.filter(item => item.operationId !== operation.operationId))
+        }
+        const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
+        setOutcome(cleared
+          ? `${terminalMessage}；恢复记录已结束。`
+          : `${terminalMessage}；恢复记录尚未清除。`)
+      } else if (observation.status === 'succeeded') {
+        const cleared = clearOperation(operation.operationId)
+        if (cleared) {
+          setOperations(current => current.filter(item => item.operationId !== operation.operationId))
+        }
+        setOutcome(observation.outcome.message)
+      } else if (observation.status === 'uncertain') {
+        setOutcome(observation.outcome.message)
+      } else if (observation.code === 'IDEMPOTENCY_CONFLICT') {
+        setOutcome(observation.outcome.message)
+      } else {
+        const cleared = clearOperation(operation.operationId)
+        if (cleared) {
+          setOperations(current => current.filter(item => item.operationId !== operation.operationId))
+        }
+        const terminalMessage = observation.outcome.message.replace(/[。；]+$/, '')
+        setOutcome(cleared
+          ? `${terminalMessage}；恢复记录已结束。`
+          : `${terminalMessage}；恢复记录尚未清除。`)
+      }
+    } finally {
+      if (mountedRef.current) {
+        onRecoveringChange?.(false)
+        setRecoveringOperationId(null)
+      }
+    }
   }
 
   if (operations.length === 0 && warning === null && outcome === null) return null
@@ -177,7 +223,10 @@ export default function PendingStudyTaskRecoveryPanel({
             type="button"
             className="button button-secondary"
             data-testid={`recover-pending-study-task-${operation.operationId}`}
-            disabled={recoveringOperationId !== null}
+            disabled={
+              recoveringOperationId !== null
+              || canRecoverOperation?.(operation.operationId) === false
+            }
             onClick={() => { void recover(operation) }}
           >
             {recoveringOperationId === operation.operationId ? '检查中...' : '检查并恢复'}

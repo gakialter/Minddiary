@@ -465,9 +465,7 @@ describe('idempotent AI study task persistence', () => {
       throw new Error('forced create failure')
     })
 
-    const result = execute(harness)
-
-    expect(result).toMatchObject({ ok: false, code: 'INTEGRITY_ERROR' })
+    expect(() => execute(harness)).toThrow('forced create failure')
     expect(countRows(harness.database, 'study_tasks')).toBe(0)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
@@ -482,9 +480,7 @@ describe('idempotent AI study task persistence', () => {
       END;
     `)
 
-    const result = execute(harness)
-
-    expect(result).toMatchObject({ ok: false, code: 'INTEGRITY_ERROR' })
+    expect(() => execute(harness)).toThrow('forced receipt failure')
     expect(countRows(harness.database, 'study_tasks')).toBe(0)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })

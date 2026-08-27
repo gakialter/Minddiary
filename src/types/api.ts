@@ -190,6 +190,13 @@ export interface IdempotentTodayActionStudyTaskCreateRequestV2
   generationMistakeRef?: never
 }
 
+// Electron orchestration only. planningCandidateId is not part of the
+// provider-visible business request and is deliberately outside request.
+export interface PrivilegedTodayActionV2CreateCommand {
+  planningCandidateId: number
+  request: IdempotentTodayActionStudyTaskCreateRequestV2
+}
+
 export interface TodayActionStaleReviewAuthorizationRequest {
   operationId: string
   operationKind: 'today_action'
@@ -208,13 +215,29 @@ export interface TodayActionAuthoritativeChapterContext {
   currentChapterSignature: string
 }
 
-export interface TodayActionCommittedStatusRequest {
+interface TodayActionCommittedStatusRequestBase {
   operationId: string
   operationKind: 'today_action'
   actionContractVersion: 'confirmed-study-task-action.v2'
   expectedCurrentDate: string
   plannedDate: string
 }
+
+export interface CurrentTodayActionCommittedStatusRequest
+  extends TodayActionCommittedStatusRequestBase {
+  planningCandidateId: number
+  requestDigest: string
+}
+
+export interface LegacyTodayActionCommittedStatusRequest
+  extends TodayActionCommittedStatusRequestBase {
+  planningCandidateId?: never
+  requestDigest?: never
+}
+
+export type TodayActionCommittedStatusRequest =
+  | CurrentTodayActionCommittedStatusRequest
+  | LegacyTodayActionCommittedStatusRequest
 
 export type TodayActionCommittedStatus =
   | { status: 'NOT_COMMITTED'; operationId: string }
@@ -268,7 +291,7 @@ export interface ElectronTasksAPI {
   create: (data: NewStudyTask) => Promise<StudyTask>
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
   createIdempotentAIStudyTaskForCurrentDate: (
-    request: IdempotentAIStudyTaskCreateRequest,
+    request: IdempotentAIStudyTaskCreateRequest | PrivilegedTodayActionV2CreateCommand,
     planningCandidateId?: number,
   ) => Promise<IdempotentAIStudyTaskCreateResponse>
   getTodayActionAuthoritativeChapterContext: () => Promise<TodayActionAuthoritativeChapterContext>

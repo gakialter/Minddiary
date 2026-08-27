@@ -107,11 +107,114 @@ function taskRequest(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function todayV2TaskRequest(overrides: Record<string, unknown> = {}) {
+  return {
+    ...taskRequest(),
+    actionContractVersion: 'confirmed-study-task-action.v2',
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: '1'.repeat(64),
+    generationChapterSignature: '2'.repeat(64),
+    latestReviewedChapterSignature: '2'.repeat(64),
+    staleContextOverride: false,
+    staleReviewToken: null,
+    ...overrides,
+  }
+}
+
 afterEach(() => {
   for (const database of databases.splice(0)) database.close()
 })
 
 describe('trusted-main planning history transition seam', () => {
+  it('classifies all seven frozen Today candidate identity states without collapsing them', () => {
+    const exactUnconfirmed = createStore()
+    const unconfirmedId = exactUnconfirmed.store.create(todayRun()).candidates[0]!.id
+    expect(exactUnconfirmed.store.classifyTodayActionCandidateIdentity(
+      unconfirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest(),
+    )).toEqual({ kind: 'EXACT_UNCONFIRMED' })
+
+    const exactConfirmed = createStore()
+    const confirmedId = exactConfirmed.store.create(todayRun()).candidates[0]!.id
+    exactConfirmed.store.claimConfirmation(confirmedId, todayV2TaskRequest())
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest(),
+    )).toEqual({ kind: 'EXACT_CONFIRMED_MATCH', outcomeKind: null })
+
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      '44444444-4444-4444-8444-444444444444',
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest({ operationId: '44444444-4444-4444-8444-444444444444' }),
+    )).toEqual({ kind: 'EXACT_MISMATCH' })
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest({
+        payload: { ...todayV2TaskRequest().payload, title: '不同候选' },
+      }),
+    )).toEqual({ kind: 'EXACT_MISMATCH' })
+
+    const corrupt = createStore()
+    const corruptId = corrupt.store.create(todayRun()).candidates[0]!.id
+    corrupt.database.pragma('ignore_check_constraints = ON')
+    corrupt.database.prepare(`
+      UPDATE planning_run_candidates
+      SET user_disposition = 'confirmed', operation_id = NULL
+      WHERE id = ?
+    `).run(corruptId)
+    corrupt.database.pragma('ignore_check_constraints = OFF')
+    expect(corrupt.store.classifyTodayActionCandidateIdentity(
+      corruptId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'EXACT_CORRUPT' })
+
+    const absent = createStore()
+    expect(absent.store.classifyTodayActionCandidateIdentity(
+      999,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'ABSENT_NO_COMPETING_OPERATION' })
+    const competingId = absent.store.create(todayRun()).candidates[0]!.id
+    absent.store.claimConfirmation(competingId, todayV2TaskRequest())
+    expect(absent.store.classifyTodayActionCandidateIdentity(
+      999,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'ABSENT_COMPETING_OPERATION' })
+
+    const readFailureStore = createPlanningHistoryStore({
+      database: {
+        transaction: <T,>(operation: () => T) => operation,
+        prepare: () => { throw new Error('candidate read unavailable') },
+      } as unknown as Database.Database,
+    })
+    const readFailure = readFailureStore.classifyTodayActionCandidateIdentity(
+      701,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )
+    expect(readFailure.kind).toBe('READ_FAILURE')
+    if (readFailure.kind === 'READ_FAILURE') {
+      expect(readFailure.error).toEqual(new Error('candidate read unavailable'))
+    }
+  })
+
   it('admits a repaired candidate at its first valid baseline and preserves ordinal gaps', () => {
     const { store } = createStore()
     store.create(todayRun({ candidates: [] }))

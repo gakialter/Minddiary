@@ -8,6 +8,7 @@ import {
   createIdempotentAIStudyTaskForCurrentDate,
   getCommittedAIStudyTaskOperationStatus,
   validateIdempotentAIStudyTaskCreateRequest,
+  validatePrivilegedTodayActionV2CreateCommand,
   validateTodayActionCommittedStatusRequest,
 } from '../electron/idempotentStudyTaskCreation'
 import { runDatabaseMigrations } from '../electron/databaseMigrations'
@@ -17,6 +18,10 @@ import {
 } from '../electron/todayActionChapterContext'
 import type { NewStudyTask, StudyTask } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api'
+import {
+  buildIdempotentAIStudyTaskRequestDigestInput,
+  computeIdempotentAIStudyTaskRequestDigest,
+} from '../src/utils/agentStudyTaskActions'
 
 const OPERATION_ID = '77777777-7777-4777-8777-777777777777'
 const EXPECTED_DATE = '2026-08-21'
@@ -128,6 +133,17 @@ function makeCommittedStatusRequest() {
   }
 }
 
+function makeCurrentCommittedStatusRequest(
+  request: IdempotentAIStudyTaskCreateRequest,
+  planningCandidateId = 701,
+) {
+  return {
+    ...makeCommittedStatusRequest(),
+    planningCandidateId,
+    requestDigest: buildIdempotentAIStudyTaskRequestDigest(request),
+  }
+}
+
 function commitFreshTodayV2(harness: ReturnType<typeof createHarness>) {
   const chapterSignature = readAuthoritativeTodayActionChapterContext(harness.database)
     .currentChapterSignature
@@ -184,6 +200,41 @@ afterEach(() => {
 })
 
 describe('Today Action v2 privileged idempotency', () => {
+  it('validates the exact Electron-only create envelope before any database access', () => {
+    const request = makeTodayV2Request()
+    const command = { planningCandidateId: 701, request }
+
+    expect(validatePrivilegedTodayActionV2CreateCommand(command)).toEqual(command)
+    expect(buildIdempotentAIStudyTaskRequestDigest(
+      validatePrivilegedTodayActionV2CreateCommand(command).request,
+    )).toBe(buildIdempotentAIStudyTaskRequestDigest(request))
+
+    for (const planningCandidateId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => validatePrivilegedTodayActionV2CreateCommand({
+        ...command,
+        planningCandidateId,
+      })).toThrow(/positive safe integer/)
+    }
+    expect(() => validatePrivilegedTodayActionV2CreateCommand({ ...command, extra: true }))
+      .toThrow(/exactly/)
+    expect(() => validatePrivilegedTodayActionV2CreateCommand(request)).toThrow(/exactly/)
+    expect(() => validatePrivilegedTodayActionV2CreateCommand({
+      ...command,
+      request: { ...request, extra: true },
+    })).toThrow(/exactly/)
+
+    const accessor = { ...command } as Record<string, unknown>
+    Object.defineProperty(accessor, 'request', { enumerable: true, get: () => request })
+    expect(() => validatePrivilegedTodayActionV2CreateCommand(accessor)).toThrow(/data property/)
+
+    const symbolCommand = { ...command } as Record<PropertyKey, unknown>
+    symbolCommand[Symbol('hidden')] = true
+    expect(() => validatePrivilegedTodayActionV2CreateCommand(symbolCommand)).toThrow(/exactly/)
+
+    const customPrototype = Object.assign(Object.create({ inherited: true }), command)
+    expect(() => validatePrivilegedTodayActionV2CreateCommand(customPrototype)).toThrow(/ordinary object/)
+  })
+
   it('validates the exact v2 envelope and locks its canonical digest order', () => {
     const canonical = validateIdempotentAIStudyTaskCreateRequest(makeTodayV2Request())
 
@@ -203,6 +254,94 @@ describe('Today Action v2 privileged idempotency', () => {
     expect(buildIdempotentAIStudyTaskRequestDigest(canonical)).toBe(
       '87c36d2fbad192db8713dd855a5828fa275e95f1a10664129843dbddd69ea875',
     )
+  })
+
+  it('uses the exact same canonical SHA-256 digest in the renderer and main process', async () => {
+    const request = makeTodayV2Request({
+      staleContextOverride: true,
+      staleReviewToken: 'a'.repeat(64),
+      latestReviewedChapterSignature: '3'.repeat(64),
+    })
+
+    await expect(computeIdempotentAIStudyTaskRequestDigest(request)).resolves.toBe(
+      buildIdempotentAIStudyTaskRequestDigest(request),
+    )
+  })
+
+  it('freezes renderer/main digest parity for every supported request contract', async () => {
+    const payload = {
+      title: 'Task',
+      description: '说明\nUnicode：é',
+      type: 'review' as const,
+      subject_id: null,
+      related_mistake_id: null,
+      related_entry_id: null,
+      related_chapter_id: null,
+      planned_date: EXPECTED_DATE,
+      estimate_minutes: 25,
+      status: 'todo' as const,
+      source: 'ai' as const,
+    }
+    const base = { operationId: OPERATION_ID, expectedCurrentDate: EXPECTED_DATE }
+    const requests: IdempotentAIStudyTaskCreateRequest[] = [
+      {
+        ...base,
+        operationKind: 'today_action',
+        actionContractVersion: 'confirmed-study-task-action.v1',
+        payload,
+      },
+      {
+        ...base,
+        operationKind: 'daily_review',
+        actionContractVersion: 'confirmed-study-task-action.v1',
+        payload: { ...payload, planned_date: '2026-08-22' },
+      },
+      {
+        ...base,
+        operationKind: 'mistake_review',
+        actionContractVersion: 'confirmed-mistake-review-task-action.v1',
+        payload,
+      },
+      {
+        ...base,
+        operationKind: 'today_action',
+        actionContractVersion: 'confirmed-study-task-action.v2',
+        contextProjectionVersion: 'today-action.context-projection.v2',
+        originalGenerationContextSignature: '1'.repeat(64),
+        generationChapterSignature: '2'.repeat(64),
+        latestReviewedChapterSignature: '2'.repeat(64),
+        staleContextOverride: false,
+        staleReviewToken: null,
+        payload,
+      },
+      {
+        ...base,
+        operationKind: 'mistake_review',
+        actionContractVersion: 'confirmed-mistake-review-task-action.v2',
+        contextProjectionVersion: 'mistake-review.context-projection.v1',
+        generationContextSignature: '3'.repeat(64),
+        generationMistakeRef: 'm1',
+        payload,
+      },
+    ]
+    const expected = [
+      'a8b867827887a5978d631736fc808e7b8be0a1404126196faec75efb99790b12',
+      '43df65a9609233333873b09923d6b5e12f15ecef0123ea88a86c575026a9be9e',
+      'b4611a8477387273b8f43471a1befabceace17cbd713d51a45111cb20102a824',
+      '6623d8c3bbd54736b2ea3c21c99ff59e9b4f52134cf716e8b0e1ddf5797a38fc',
+      '0c644187b477d7cc53033f3bdefe0f61c3d99f032ffb926c91ce4df9e9d6127a',
+    ]
+
+    for (const [index, request] of requests.entries()) {
+      expect(buildIdempotentAIStudyTaskRequestDigest(request)).toBe(expected[index])
+      await expect(computeIdempotentAIStudyTaskRequestDigest(request)).resolves.toBe(expected[index])
+    }
+  })
+
+  it('rejects an unsupported kind/version pair instead of hashing it as legacy', () => {
+    expect(() => buildIdempotentAIStudyTaskRequestDigestInput(makeTodayV2Request({
+      actionContractVersion: 'confirmed-study-task-action.future',
+    }))).toThrow(/Unsupported/)
   })
 
   it.each([
@@ -376,7 +515,7 @@ describe('Today Action v2 privileged idempotency', () => {
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
   })
 
-  it('consumes an exact stale-review token only after commit and lets receipt authority replay it', () => {
+  it('consumes an exact fresh-path stale-review token and lets receipt authority replay without it', () => {
     const harness = createHarness()
     harness.database.prepare('INSERT INTO subjects (name, color) VALUES (?, ?)').run('Math', '#2563eb')
     harness.database.prepare(`
@@ -481,7 +620,7 @@ describe('Today Action v2 privileged idempotency', () => {
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
 
-  it('retains token authorization after rollback and consumes it after the exact retry commits', () => {
+  it('does not restore a consumed token after an operational SQLite rollback', () => {
     const harness = createHarness()
     const reviewedSignature = readAuthoritativeTodayActionChapterContext(harness.database)
       .currentChapterSignature
@@ -505,12 +644,12 @@ describe('Today Action v2 privileged idempotency', () => {
       END;
     `)
 
-    expect(createIdempotentAIStudyTaskForCurrentDate(request, {
+    expect(() => createIdempotentAIStudyTaskForCurrentDate(request, {
       ...harness,
       trustedSession,
       tokenStore,
-    })).toMatchObject({ ok: false, code: 'INTEGRITY_ERROR' })
-    expect(tokenStore.check(token, trustedSession, core)).toBe(true)
+    })).toThrow('forced receipt rollback')
+    expect(tokenStore.check(token, trustedSession, core)).toBe(false)
     expect(countRows(harness.database, 'study_tasks')).toBe(0)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
 
@@ -519,7 +658,7 @@ describe('Today Action v2 privileged idempotency', () => {
       ...harness,
       trustedSession,
       tokenStore,
-    })).toMatchObject({ ok: true, replayed: false, task: { id: 1 } })
+    })).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
     expect(tokenStore.check(token, trustedSession, core)).toBe(false)
   })
 
@@ -699,9 +838,52 @@ describe('Today Action committed-operation status', () => {
       plannedDate: EXPECTED_DATE,
     }
     expect(validateTodayActionCommittedStatusRequest(request)).toEqual(request)
+    expect(validateTodayActionCommittedStatusRequest({
+      ...request,
+      planningCandidateId: 701,
+      requestDigest: 'a'.repeat(64),
+    })).toEqual({ ...request, planningCandidateId: 701, requestDigest: 'a'.repeat(64) })
+    for (const planningCandidateId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => validateTodayActionCommittedStatusRequest({
+        ...request,
+        planningCandidateId,
+        requestDigest: 'a'.repeat(64),
+      })).toThrow(/positive safe integer/)
+    }
+    for (const requestDigest of ['', 'a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64)]) {
+      expect(() => validateTodayActionCommittedStatusRequest({
+        ...request,
+        planningCandidateId: 701,
+        requestDigest,
+      })).toThrow(/requestDigest/)
+    }
+    expect(() => validateTodayActionCommittedStatusRequest({
+      ...request,
+      planningCandidateId: 701,
+    })).toThrow(/together/)
+    expect(() => validateTodayActionCommittedStatusRequest({
+      ...request,
+      requestDigest: 'a'.repeat(64),
+    })).toThrow(/together/)
     expect(() => validateTodayActionCommittedStatusRequest({ ...request, extra: true })).toThrow(/exactly/)
+    expect(() => validateTodayActionCommittedStatusRequest({ ...request, createdAt: '2026-08-21T00:00:00.000Z' }))
+      .toThrow(/exactly/)
     expect(() => validateTodayActionCommittedStatusRequest({ ...request, plannedDate: '2026-08-22' }))
       .toThrow(/plannedDate/)
+
+    const accessorRequest = { ...request } as Record<string, unknown>
+    Object.defineProperty(accessorRequest, 'plannedDate', {
+      enumerable: true,
+      get: () => EXPECTED_DATE,
+    })
+    expect(() => validateTodayActionCommittedStatusRequest(accessorRequest)).toThrow(/data property/)
+
+    const symbolRequest = { ...request } as Record<PropertyKey, unknown>
+    symbolRequest[Symbol('hidden')] = true
+    expect(() => validateTodayActionCommittedStatusRequest(symbolRequest)).toThrow(/exactly/)
+
+    const customPrototype = Object.assign(Object.create({ inherited: true }), request)
+    expect(() => validateTodayActionCommittedStatusRequest(customPrototype)).toThrow(/ordinary object/)
 
     const database = {
       prepare: vi.fn(() => { throw new Error('database must not be read') }),
@@ -713,17 +895,20 @@ describe('Today Action committed-operation status', () => {
 
   it('returns bounded NOT_COMMITTED and RECOVERED_COMMITTED outcomes without writes', () => {
     const harness = createHarness()
-    const statusRequest = makeCommittedStatusRequest()
+    const legacyStatusRequest = makeCommittedStatusRequest()
     const emptySnapshot = readStatusWriteSnapshot(harness.database)
-    expect(getCommittedAIStudyTaskOperationStatus(statusRequest, harness)).toEqual({
+    expect(getCommittedAIStudyTaskOperationStatus(legacyStatusRequest, harness)).toEqual({
       status: 'NOT_COMMITTED',
       operationId: OPERATION_ID,
     })
     expect(readStatusWriteSnapshot(harness.database)).toEqual(emptySnapshot)
 
-    commitFreshTodayV2(harness)
+    const committedRequest = commitFreshTodayV2(harness)
     const before = readStatusWriteSnapshot(harness.database)
-    const recovered = getCommittedAIStudyTaskOperationStatus(statusRequest, harness)
+    const recovered = getCommittedAIStudyTaskOperationStatus(
+      makeCurrentCommittedStatusRequest(committedRequest),
+      harness,
+    )
 
     expect(recovered).toMatchObject({
       status: 'RECOVERED_COMMITTED',
@@ -740,42 +925,82 @@ describe('Today Action committed-operation status', () => {
     expect(readStatusWriteSnapshot(harness.database)).toEqual(before)
   })
 
-  it('distinguishes metadata conflict, deleted result, and corrupt receipt/task relation', () => {
+  it('uses an exact request digest to distinguish replay from a different request receipt', () => {
+    const harness = createHarness()
+    const committedRequest = commitFreshTodayV2(harness)
+    const digest = buildIdempotentAIStudyTaskRequestDigest(committedRequest)
+
+    expect(getCommittedAIStudyTaskOperationStatus({
+      ...makeCommittedStatusRequest(),
+      planningCandidateId: 701,
+      requestDigest: digest,
+    }, harness)).toMatchObject({ status: 'RECOVERED_COMMITTED', operationId: OPERATION_ID })
+    expect(getCommittedAIStudyTaskOperationStatus({
+      ...makeCommittedStatusRequest(),
+      planningCandidateId: 701,
+      requestDigest: 'f'.repeat(64),
+    }, harness)).toEqual({ status: 'IDEMPOTENCY_CONFLICT', operationId: OPERATION_ID })
+  })
+
+  it('treats a Legacy Today v2 receipt metadata mismatch as integrity, never idempotency conflict', () => {
+    const harness = createHarness()
+    commitFreshTodayV2(harness)
+    harness.database.prepare(`
+      UPDATE study_task_action_receipts
+      SET action_contract_version = 'confirmed-study-task-action.v1'
+    `).run()
+
+    const status = getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), harness)
+
+    expect(status).toEqual({ status: 'INTEGRITY_ERROR', operationId: OPERATION_ID })
+    expect(status.status).not.toBe('IDEMPOTENCY_CONFLICT')
+  })
+
+  it('distinguishes Current metadata integrity, deleted result, and corrupt receipt/task relation', () => {
     const conflictHarness = createHarness()
-    commitFreshTodayV2(conflictHarness)
+    const conflictRequest = commitFreshTodayV2(conflictHarness)
     conflictHarness.database.prepare(`
       UPDATE study_task_action_receipts
       SET action_contract_version = 'confirmed-study-task-action.v1'
     `).run()
     const conflictBefore = readStatusWriteSnapshot(conflictHarness.database)
-    expect(getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), conflictHarness)).toEqual({
-      status: 'IDEMPOTENCY_CONFLICT',
+    expect(getCommittedAIStudyTaskOperationStatus(
+      makeCurrentCommittedStatusRequest(conflictRequest),
+      conflictHarness,
+    )).toEqual({
+      status: 'INTEGRITY_ERROR',
       operationId: OPERATION_ID,
     })
     expect(readStatusWriteSnapshot(conflictHarness.database)).toEqual(conflictBefore)
 
     const deletedHarness = createHarness()
-    commitFreshTodayV2(deletedHarness)
+    const deletedRequest = commitFreshTodayV2(deletedHarness)
     deletedHarness.database.prepare('DELETE FROM study_tasks WHERE id = 1').run()
     const deletedBefore = readStatusWriteSnapshot(deletedHarness.database)
-    expect(getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), deletedHarness)).toEqual({
+    expect(getCommittedAIStudyTaskOperationStatus(
+      makeCurrentCommittedStatusRequest(deletedRequest),
+      deletedHarness,
+    )).toEqual({
       status: 'RESULT_DELETED',
       operationId: OPERATION_ID,
     })
     expect(readStatusWriteSnapshot(deletedHarness.database)).toEqual(deletedBefore)
 
     const corruptReceiptHarness = createHarness()
-    commitFreshTodayV2(corruptReceiptHarness)
+    const corruptReceiptRequest = commitFreshTodayV2(corruptReceiptHarness)
     corruptReceiptHarness.database.prepare("UPDATE study_task_action_receipts SET request_digest = 'CORRUPT'").run()
     const corruptReceiptBefore = readStatusWriteSnapshot(corruptReceiptHarness.database)
-    expect(getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), corruptReceiptHarness)).toEqual({
+    expect(getCommittedAIStudyTaskOperationStatus(
+      makeCurrentCommittedStatusRequest(corruptReceiptRequest),
+      corruptReceiptHarness,
+    )).toEqual({
       status: 'INTEGRITY_ERROR',
       operationId: OPERATION_ID,
     })
     expect(readStatusWriteSnapshot(corruptReceiptHarness.database)).toEqual(corruptReceiptBefore)
 
     const corruptRelationHarness = createHarness()
-    commitFreshTodayV2(corruptRelationHarness)
+    const corruptRelationRequest = commitFreshTodayV2(corruptRelationHarness)
     corruptRelationHarness.database.prepare('INSERT INTO subjects (name, color) VALUES (?, ?)')
       .run('Math', '#2563eb')
     corruptRelationHarness.database.prepare(`
@@ -784,10 +1009,22 @@ describe('Today Action committed-operation status', () => {
     `).run()
     corruptRelationHarness.database.prepare('UPDATE study_tasks SET related_chapter_id = 1 WHERE id = 1').run()
     const corruptRelationBefore = readStatusWriteSnapshot(corruptRelationHarness.database)
-    expect(getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), corruptRelationHarness)).toEqual({
+    expect(getCommittedAIStudyTaskOperationStatus(
+      makeCurrentCommittedStatusRequest(corruptRelationRequest),
+      corruptRelationHarness,
+    )).toEqual({
       status: 'INTEGRITY_ERROR',
       operationId: OPERATION_ID,
     })
     expect(readStatusWriteSnapshot(corruptRelationHarness.database)).toEqual(corruptRelationBefore)
+  })
+
+  it('propagates database access failures instead of turning an operational outage into a terminal outcome', () => {
+    const database = {
+      prepare: vi.fn(() => { throw new Error('database temporarily unavailable') }),
+    } as unknown as Database.Database
+
+    expect(() => getCommittedAIStudyTaskOperationStatus(makeCommittedStatusRequest(), { database }))
+      .toThrow('database temporarily unavailable')
   })
 })

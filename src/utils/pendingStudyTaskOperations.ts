@@ -35,6 +35,7 @@ const TODAY_V2_MARKER_KEYS = [
   'plannedDate',
   'createdAt',
 ] as const
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const PAYLOAD_KEYS = [
   'title',
   'description',
@@ -61,7 +62,7 @@ export interface PendingStudyTaskOperationV1 {
   createdAt: string
 }
 
-export interface PendingTodayActionStudyTaskOperationV2 {
+interface PendingTodayActionStudyTaskOperationV2Base {
   operationId: string
   operationKind: 'today_action'
   actionContractVersion: 'confirmed-study-task-action.v2'
@@ -69,6 +70,22 @@ export interface PendingTodayActionStudyTaskOperationV2 {
   plannedDate: string
   createdAt: string
 }
+
+export interface CurrentPendingTodayActionStudyTaskOperationV2
+  extends PendingTodayActionStudyTaskOperationV2Base {
+  planningCandidateId: number
+  requestDigest: string
+}
+
+export interface LegacyPendingTodayActionStudyTaskOperationV2
+  extends PendingTodayActionStudyTaskOperationV2Base {
+  planningCandidateId?: never
+  requestDigest?: never
+}
+
+export type PendingTodayActionStudyTaskOperationV2 =
+  | CurrentPendingTodayActionStudyTaskOperationV2
+  | LegacyPendingTodayActionStudyTaskOperationV2
 
 export type PendingStudyTaskOperation =
   | PendingStudyTaskOperationV1
@@ -130,6 +147,39 @@ function requireNullableId(value: unknown, label: string): number | null {
   return value
 }
 
+function requireOrdinaryDataRecord(value: unknown, label: string): Record<string, unknown> {
+  const record = requireRecord(value, label)
+  let prototype: object | null
+  let descriptors: PropertyDescriptorMap
+  try {
+    prototype = Object.getPrototypeOf(record)
+    descriptors = Object.getOwnPropertyDescriptors(record)
+  } catch {
+    throw new Error(`${label} must be an ordinary object`)
+  }
+  if (prototype !== Object.prototype) throw new Error(`${label} must be an ordinary object`)
+  for (const descriptor of Object.values(descriptors)) {
+    if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      throw new Error(`${label} field must be an own data property`)
+    }
+  }
+  return record
+}
+
+function requirePositiveSafeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} is invalid`)
+  }
+  return value
+}
+
+function requireSha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+    throw new Error(`${label} is invalid`)
+  }
+  return value
+}
+
 function requireOperationKind(
   value: unknown,
 ): Exclude<IdempotentAIStudyTaskOperationKind, 'mistake_review'> {
@@ -173,12 +223,32 @@ function validatePayload(value: unknown): NewStudyTask {
 }
 
 export function validatePendingStudyTaskOperation(value: unknown): PendingStudyTaskOperation {
-  const operation = requireRecord(value, 'pending study task operation')
-  const isTodayV2 = operation.operationKind === 'today_action'
-    && operation.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+  let operation = requireRecord(value, 'pending study task operation')
+  const operationKindDescriptor = Object.getOwnPropertyDescriptor(operation, 'operationKind')
+  const contractVersionDescriptor = Object.getOwnPropertyDescriptor(operation, 'actionContractVersion')
+  const isTodayV2 = operationKindDescriptor !== undefined
+    && Object.prototype.hasOwnProperty.call(operationKindDescriptor, 'value')
+    && operationKindDescriptor.value === 'today_action'
+    && contractVersionDescriptor !== undefined
+    && Object.prototype.hasOwnProperty.call(contractVersionDescriptor, 'value')
+    && contractVersionDescriptor.value === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+  if (isTodayV2) {
+    operation = requireOrdinaryDataRecord(value, 'pending study task operation')
+  }
+  const hasPlanningCandidateId = isTodayV2
+    && Object.prototype.hasOwnProperty.call(operation, 'planningCandidateId')
+  const hasRequestDigest = isTodayV2
+    && Object.prototype.hasOwnProperty.call(operation, 'requestDigest')
+  if (isTodayV2 && hasPlanningCandidateId !== hasRequestDigest) {
+    throw new Error('pending planningCandidateId and requestDigest must be supplied together')
+  }
   assertExactKeys(
     operation,
-    isTodayV2 ? TODAY_V2_MARKER_KEYS : V1_OPERATION_KEYS,
+    isTodayV2
+      ? hasPlanningCandidateId
+        ? [...TODAY_V2_MARKER_KEYS, 'planningCandidateId', 'requestDigest']
+        : TODAY_V2_MARKER_KEYS
+      : V1_OPERATION_KEYS,
     'pending study task operation',
   )
   const operationKind = requireOperationKind(operation.operationKind)
@@ -192,13 +262,22 @@ export function validatePendingStudyTaskOperation(value: unknown): PendingStudyT
     if (plannedDate !== expectedCurrentDate) {
       throw new Error('pending task date invariant is invalid')
     }
-    return {
+    const baseMarker = {
       operationId,
       operationKind: 'today_action',
       actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
       expectedCurrentDate,
       plannedDate,
       createdAt,
+    } as const
+    if (!hasPlanningCandidateId || !hasRequestDigest) return baseMarker
+    return {
+      ...baseMarker,
+      planningCandidateId: requirePositiveSafeInteger(
+        operation.planningCandidateId,
+        'pending planningCandidateId',
+      ),
+      requestDigest: requireSha256(operation.requestDigest, 'pending requestDigest'),
     }
   }
 
@@ -275,19 +354,32 @@ export function getPendingTodayActionCommittedStatusRequest(
   if (!isPendingTodayActionStudyTaskOperationV2(operation)) {
     throw new Error('Only a Today Action v2 pending marker can build a committed status request')
   }
-  return {
+  const baseRequest = {
     operationId: operation.operationId,
     operationKind: 'today_action',
     actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
     expectedCurrentDate: operation.expectedCurrentDate,
     plannedDate: operation.plannedDate,
+  } as const
+  if (operation.planningCandidateId === undefined) return baseRequest
+  return {
+    ...baseRequest,
+    planningCandidateId: operation.planningCandidateId,
+    requestDigest: operation.requestDigest,
   }
 }
 
-export interface PendingTodayActionCommittedStatusResolution {
-  terminal: boolean
-  observation: PlanningStudyTaskActionExecutionObservation
-}
+export type PendingTodayActionCommittedStatusResolution =
+  | {
+      kind: 'observation'
+      terminal: boolean
+      observation: PlanningStudyTaskActionExecutionObservation
+    }
+  | {
+      kind: 'not_committed'
+      terminal: true
+      operationId: string
+    }
 
 function snapshotPlainOwnDataRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
@@ -322,6 +414,7 @@ function uncertainTodayActionStatusResolution(
   operationId: string,
 ): PendingTodayActionCommittedStatusResolution {
   return {
+    kind: 'observation',
     terminal: false,
     observation: observeStudyTaskActionExecutionResult({
       operationId,
@@ -351,17 +444,9 @@ export function observePendingTodayActionCommittedStatus(
       return uncertainTodayActionStatusResolution(operationId)
     }
     return {
+      kind: 'not_committed',
       terminal: true,
-      observation: Object.freeze({
-        status: 'failed',
-        operationId,
-        code: 'INVALID_REQUEST',
-        outcome: Object.freeze({
-          kind: 'validation_error',
-          operationId,
-          message: '未发现已提交任务；恢复记录已过期，请重新生成并确认。',
-        }),
-      }),
+      operationId,
     }
   }
 
@@ -379,7 +464,7 @@ export function observePendingTodayActionCommittedStatus(
       observation.status !== 'succeeded'
       || observation.task.related_chapter_id !== null
     ) return uncertainTodayActionStatusResolution(operationId)
-    return { terminal: true, observation }
+    return { kind: 'observation', terminal: true, observation }
   }
 
   const failureCode = snapshot.status === 'IDEMPOTENCY_CONFLICT'
@@ -402,7 +487,7 @@ export function observePendingTodayActionCommittedStatus(
   }, operationId)
   return observation.status === 'uncertain'
     ? uncertainTodayActionStatusResolution(operationId)
-    : { terminal: true, observation }
+    : { kind: 'observation', terminal: true, observation }
 }
 
 function getPendingStudyTaskOperationIdentity(operation: PendingStudyTaskOperation): string {
@@ -464,10 +549,28 @@ export function savePendingStudyTaskOperation(
   request: IdempotentAIStudyTaskCreateRequest,
   storage: PendingStudyTaskOperationStorage = getDefaultStorage(),
   now = Date.now(),
+  planningCandidateIdValue?: unknown,
+  requestDigestValue?: unknown,
 ): PendingStudyTaskOperation {
   const createdAt = new Date(now).toISOString()
-  const operation = request.operationKind === 'today_action'
+  const isTodayV2 = request.operationKind === 'today_action'
     && request.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+  if (planningCandidateIdValue !== undefined && !isTodayV2) {
+    throw new Error('pending planningCandidateId is only supported for Today Action v2')
+  }
+  if (requestDigestValue !== undefined && !isTodayV2) {
+    throw new Error('pending requestDigest is only supported for Today Action v2')
+  }
+  const planningCandidateId = planningCandidateIdValue === undefined
+    ? undefined
+    : requirePositiveSafeInteger(planningCandidateIdValue, 'pending planningCandidateId')
+  const requestDigest = requestDigestValue === undefined
+    ? undefined
+    : requireSha256(requestDigestValue, 'pending requestDigest')
+  if (isTodayV2 && (planningCandidateId === undefined || requestDigest === undefined)) {
+    throw new Error('pending planningCandidateId and requestDigest are required for Today Action v2')
+  }
+  const operation = isTodayV2
     ? (() => {
         const expectedCurrentDate = requireDateKey(
           request.expectedCurrentDate,
@@ -483,6 +586,8 @@ export function savePendingStudyTaskOperation(
           actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
           expectedCurrentDate,
           plannedDate: payload.planned_date,
+          ...(planningCandidateId === undefined ? {} : { planningCandidateId }),
+          ...(requestDigest === undefined ? {} : { requestDigest }),
           createdAt,
         })
       })()
