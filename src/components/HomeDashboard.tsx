@@ -890,6 +890,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           tasksAPI={tasksAPI}
           mistakesAPI={mistakesAPI}
           subjectsAPI={subjectsAPI}
+          subjectChaptersAPI={subjectChaptersAPI}
           entriesAPI={entriesAPI}
           onClose={() => setAiSuggestionOpen(false)}
           onCreated={async () => {

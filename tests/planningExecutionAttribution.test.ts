@@ -1,11 +1,20 @@
 // @vitest-environment node
 
 import BetterSqlite3 from 'better-sqlite3'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import { runDatabaseMigrations } from '../electron/databaseMigrations'
 import { createPlanningHistoryStore } from '../electron/planningHistory'
-import { buildIdempotentAIStudyTaskRequestDigest } from '../electron/idempotentStudyTaskCreation'
+import {
+  buildIdempotentAIStudyTaskRequestDigest,
+  createIdempotentAIStudyTaskForCurrentDate,
+  getCommittedAIStudyTaskOperationStatus,
+} from '../electron/idempotentStudyTaskCreation'
+import {
+  executePrivilegedTodayActionV2CommandWithPlanningAudit,
+  reconcileCommittedStudyTaskStatusWithPlanningAudit,
+} from '../electron/planningTaskCorrelation'
+import { deriveTodayActionFeedbackCandidates } from '../src/utils/planningFeedback'
 
 const databases: Database.Database[] = []
 
@@ -88,6 +97,997 @@ afterEach(() => {
 })
 
 describe('Planning History Execution Attribution', () => {
+  const todayV2Request = () => taskRequest({
+    actionContractVersion: 'confirmed-study-task-action.v2',
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: '1'.repeat(64),
+    generationChapterSignature: '2'.repeat(64),
+    latestReviewedChapterSignature: '2'.repeat(64),
+    staleContextOverride: false,
+    staleReviewToken: null,
+  })
+
+  it('keeps a claim-only Today candidate bound to O1 when status is NOT_COMMITTED', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    store.claimConfirmation(candidateId, request)
+    const classification = store.classifyTodayActionCandidateIdentity(
+      candidateId,
+      request.operationId,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const recordOutcome = vi.fn((id, operationId, outcome) => (
+      store.recordOutcome(id, operationId, outcome)
+    ))
+    const status = { status: 'NOT_COMMITTED' as const, operationId: request.operationId }
+
+    expect(reconcileCommittedStudyTaskStatusWithPlanningAudit(status, classification, {
+      planningCandidateId: candidateId,
+      recordOutcome,
+      warn: () => {},
+      runInTransaction: operation => database.transaction(operation)(),
+    })).toBe(status)
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'confirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: request.operationId })
+  })
+
+  it('does not turn a marker-only digest mismatch into a durable conflict outcome', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    store.claimConfirmation(candidateId, request)
+    database.prepare(
+      'INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id) VALUES (?, ?, ?, ?, ?, ?, NULL)',
+    ).run(
+      request.operationId,
+      request.operationKind,
+      request.actionContractVersion,
+      '0'.repeat(64),
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const rawStatus = getCommittedAIStudyTaskOperationStatus({
+      operationId: request.operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: request.expectedCurrentDate,
+      plannedDate: request.payload.planned_date,
+      planningCandidateId: candidateId,
+      requestDigest: buildIdempotentAIStudyTaskRequestDigest(request),
+    }, { database })
+    const classification = store.classifyTodayActionCandidateIdentity(
+      candidateId,
+      request.operationId,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+    )
+    const recordOutcome = vi.fn()
+
+    expect(reconcileCommittedStudyTaskStatusWithPlanningAudit(rawStatus, classification, {
+      planningCandidateId: candidateId,
+      recordOutcome,
+      warn: () => {},
+      runInTransaction: operation => database.transaction(operation)(),
+    })).toEqual({ status: 'INTEGRITY_ERROR', operationId: request.operationId })
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.outcomeKind)
+      .toBeNull()
+  })
+
+  it('fails closed when an unconfirmed exact candidate would borrow an operation owned by another candidate', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    store.create(todayRun({ id: '22222222-2222-4222-8222-222222222222' }))
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const competingCandidateId = store.get('22222222-2222-4222-8222-222222222222')!.candidates[0]!.id
+    const request = todayV2Request()
+    const requestDigest = buildIdempotentAIStudyTaskRequestDigest(request)
+    store.claimConfirmation(competingCandidateId, request)
+
+    const taskId = Number(database.prepare(`
+      INSERT INTO study_tasks (
+        title, description, type, subject_id, related_mistake_id,
+        related_entry_id, related_chapter_id, planned_date,
+        estimate_minutes, status, source
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.payload.title,
+      request.payload.description,
+      request.payload.type,
+      request.payload.subject_id,
+      request.payload.related_mistake_id,
+      request.payload.related_entry_id,
+      request.payload.related_chapter_id,
+      request.payload.planned_date,
+      request.payload.estimate_minutes,
+      request.payload.status,
+      request.payload.source,
+    ).lastInsertRowid)
+    database.prepare(`
+      INSERT INTO study_task_action_receipts (
+        operation_id, operation_kind, action_contract_version, request_digest,
+        expected_current_date, planned_date, task_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.operationId,
+      request.operationKind,
+      request.actionContractVersion,
+      requestDigest,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+      taskId,
+    )
+
+    const claim = vi.fn((id, value) => store.claimConfirmation(id, value))
+    const execute = vi.fn(() => { throw new Error('historical replay must not execute Phase 2') })
+    const recordOutcome = vi.fn((id, operationId, outcome) => (
+      store.recordOutcome(id, operationId, outcome)
+    ))
+    const result = executePrivilegedTodayActionV2CommandWithPlanningAudit(
+      { planningCandidateId: candidateId, request },
+      requestDigest,
+      {
+        preflightReceipt: value => createIdempotentAIStudyTaskForCurrentDate(value, {
+          database,
+          getCurrentDateKey: () => request.expectedCurrentDate,
+          createTask: () => { throw new Error('matching receipt must replay') },
+        }),
+        classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+          store.classifyTodayActionCandidateIdentity(
+            id,
+            operationId,
+            planningDate,
+            targetDate,
+            value,
+          )
+        ),
+        claim,
+        execute,
+        recordOutcome,
+        warn: () => {},
+        runInTransaction: operation => database.transaction(operation)(),
+      },
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      operationId: request.operationId,
+      code: 'INTEGRITY_ERROR',
+      message: 'The study task could not be created safely.',
+    })
+    expect(claim).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+    expect(recordOutcome).not.toHaveBeenCalled()
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'selected_unconfirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: null })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(competingCandidateId)).toEqual({ operation_id: request.operationId })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get()).toEqual({ count: 1 })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get()).toEqual({ count: 1 })
+  })
+
+  it.each([null, 'uncertain'] as const)(
+    'keeps an already accepted receipt-less operation status-first when its outcome is %s',
+    outcomeKind => {
+      const { database, store } = createStore()
+      store.create(todayRun())
+      const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+      const originalRequest = todayV2Request()
+      store.claimConfirmation(candidateId, originalRequest)
+      if (outcomeKind === 'uncertain') {
+        store.recordOutcome(candidateId, originalRequest.operationId, outcomeKind)
+      }
+      const retryRequest = {
+        ...originalRequest,
+        generationChapterSignature: '9'.repeat(64),
+        latestReviewedChapterSignature: '9'.repeat(64),
+      }
+      expect(store.classifyTodayActionCandidateIdentity(
+        candidateId,
+        retryRequest.operationId,
+        retryRequest.expectedCurrentDate,
+        retryRequest.payload.planned_date,
+        retryRequest,
+      )).toEqual({ kind: 'EXACT_CONFIRMED_MATCH', outcomeKind })
+
+      const claim = vi.fn((id, value) => store.claimConfirmation(id, value))
+      const execute = vi.fn(() => ({
+        ok: true as const,
+        operationId: retryRequest.operationId,
+        task: {
+          id: 42,
+          ...retryRequest.payload,
+          created_at: '2026-08-13T12:34:56.789Z',
+          updated_at: '2026-08-13T12:34:56.789Z',
+        },
+        replayed: false as const,
+      }))
+      const recordOutcome = vi.fn((id, operationId, outcome) => (
+        store.recordOutcome(id, operationId, outcome)
+      ))
+      const phase2Transaction = vi.fn()
+      const runInTransaction = <T,>(operation: () => T): T => {
+        phase2Transaction()
+        return database.transaction(operation)()
+      }
+
+      expect(() => executePrivilegedTodayActionV2CommandWithPlanningAudit(
+        { planningCandidateId: candidateId, request: retryRequest },
+        buildIdempotentAIStudyTaskRequestDigest(retryRequest),
+        {
+          preflightReceipt: () => null,
+          classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+            store.classifyTodayActionCandidateIdentity(
+              id,
+              operationId,
+              planningDate,
+              targetDate,
+              value,
+            )
+          ),
+          claim,
+          execute,
+          recordOutcome,
+          warn: () => {},
+          runInTransaction,
+        },
+      )).toThrow('status-first recovery')
+
+      expect(claim).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+      expect(recordOutcome).not.toHaveBeenCalled()
+      expect(phase2Transaction).not.toHaveBeenCalled()
+      expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+        userDisposition: 'confirmed',
+        outcomeKind,
+      })
+      expect(database.prepare(
+        'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+      ).get(candidateId)).toEqual({ operation_id: retryRequest.operationId })
+      expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get()).toEqual({ count: 0 })
+      expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get()).toEqual({ count: 0 })
+    },
+  )
+
+  it('rolls back task, receipt, and outcome together while preserving the Phase 1 claim', () => {
+    const { database, store } = createStore()
+    store.create(todayRun())
+    const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+    const request = todayV2Request()
+    const task = {
+      id: 1,
+      ...request.payload,
+      created_at: '2026-08-13T12:34:56.789Z',
+      updated_at: '2026-08-13T12:34:56.789Z',
+    }
+    const recordOutcome = vi.fn((id, operationId, outcome) => {
+      store.recordOutcome(id, operationId, outcome)
+      throw new Error('simulated durable acknowledgement failure')
+    })
+
+    expect(() => executePrivilegedTodayActionV2CommandWithPlanningAudit(
+      { planningCandidateId: candidateId, request },
+      buildIdempotentAIStudyTaskRequestDigest(request),
+      {
+        preflightReceipt: () => null,
+        classifyCandidate: (id, operationId, planningDate, targetDate, value) => (
+          store.classifyTodayActionCandidateIdentity(
+            id,
+            operationId,
+            planningDate,
+            targetDate,
+            value,
+          )
+        ),
+        claim: (id, value) => store.claimConfirmation(id, value),
+        execute: () => {
+          database.prepare(
+            'INSERT INTO study_tasks (title, description, type, subject_id, related_mistake_id, related_entry_id, related_chapter_id, planned_date, estimate_minutes, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          ).run(
+            request.payload.title,
+            request.payload.description,
+            request.payload.type,
+            request.payload.subject_id,
+            request.payload.related_mistake_id,
+            request.payload.related_entry_id,
+            request.payload.related_chapter_id,
+            request.payload.planned_date,
+            request.payload.estimate_minutes,
+            request.payload.status,
+            request.payload.source,
+          )
+          database.prepare(
+            'INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id) VALUES (?, ?, ?, ?, ?, ?, 1)',
+          ).run(
+            request.operationId,
+            request.operationKind,
+            request.actionContractVersion,
+            buildIdempotentAIStudyTaskRequestDigest(request),
+            request.expectedCurrentDate,
+            request.payload.planned_date,
+          )
+          return { ok: true as const, operationId: request.operationId, task, replayed: false }
+        },
+        recordOutcome,
+        warn: () => {},
+        runInTransaction: operation => database.transaction(operation)(),
+      },
+    )).toThrow('simulated durable acknowledgement failure')
+
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_tasks').get())
+      .toEqual({ count: 0 })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM study_task_action_receipts').get())
+      .toEqual({ count: 0 })
+    expect(store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]).toMatchObject({
+      userDisposition: 'confirmed',
+      outcomeKind: null,
+    })
+    expect(database.prepare(
+      'SELECT operation_id FROM planning_run_candidates WHERE id = ?',
+    ).get(candidateId)).toEqual({ operation_id: request.operationId })
+  })
+
+  describe('Receipt authority remediation', () => {
+    function setupAttributionState(options: {
+      receipt?: 'valid_task' | 'explicit_null' | 'dangling_task' | 'corrupt_task' | 'absent'
+      receiptMatches?: boolean
+      structurallyCorrupt?: boolean
+      receiptFieldOverrides?: Partial<{
+        operationKind: string
+        actionContractVersion: string
+        requestDigest: string
+        expectedCurrentDate: string
+        plannedDate: string
+      }>
+      outcome?: 'created' | 'replayed' | 'deleted' | 'conflict' | 'integrity_error' | 'date_mismatch' | 'validation_error' | 'uncertain'
+    } = {}) {
+      const { database, store } = createStore()
+      store.create(todayRun())
+      const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+      const req = taskRequest()
+      store.claimConfirmation(candidateId, req)
+
+      const receiptKind = options.receipt ?? 'valid_task'
+      let taskId: number | null = null
+      if (receiptKind === 'valid_task') {
+        taskId = Number(database.prepare(`
+          INSERT INTO study_tasks (title, description, type, subject_id, related_mistake_id, planned_date, estimate_minutes, status, source)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', 'ai')
+        `).run('复习 函数极限', '今天到期,适合先处理。', 'review', 1, 12, '2026-08-13', 25).lastInsertRowid)
+      } else if (receiptKind === 'corrupt_task') {
+        taskId = Number(database.prepare(`
+          INSERT INTO study_tasks (title, description, type, subject_id, related_mistake_id, planned_date, estimate_minutes, status, source)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'INVALID_STATUS', 'ai')
+        `).run('复习 函数极限', '今天到期,适合先处理。', 'review', 1, 12, '2026-08-13', 25).lastInsertRowid)
+      } else if (receiptKind === 'dangling_task') {
+        taskId = 999
+        database.pragma('foreign_keys = OFF')
+      }
+
+      if (receiptKind !== 'absent') {
+        const digest = options.receiptMatches === false
+          ? '0'.repeat(64)
+          : buildIdempotentAIStudyTaskRequestDigest(req)
+        database.prepare(`
+          INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          req.operationId,
+          options.receiptFieldOverrides?.operationKind ?? req.operationKind,
+          options.receiptFieldOverrides?.actionContractVersion ?? req.actionContractVersion,
+          options.receiptFieldOverrides?.requestDigest ?? digest,
+          options.receiptFieldOverrides?.expectedCurrentDate ?? req.expectedCurrentDate,
+          options.receiptFieldOverrides?.plannedDate ?? req.payload.planned_date,
+          taskId,
+        )
+        if (options.structurallyCorrupt) {
+          database.prepare('UPDATE study_task_action_receipts SET operation_kind = ? WHERE operation_id = ?')
+            .run(Buffer.from([0]), req.operationId)
+        }
+      }
+      if (options.outcome) store.recordOutcome(candidateId, req.operationId, options.outcome)
+
+      return { database, store, candidateId, req, taskId }
+    }
+
+    function captureTaskReadBindings<T>(database: Database.Database, read: () => T) {
+      const taskBindings: unknown[] = []
+      const pomodoroBindings: unknown[] = []
+      const originalPrepare = database.prepare
+      database.prepare = ((sql: string) => {
+        const statement = originalPrepare.call(database, sql)
+        const capturedBindings = sql.includes('FROM study_tasks')
+          ? taskBindings
+          : sql.includes('FROM pomodoro_sessions')
+            ? pomodoroBindings
+            : null
+        if (capturedBindings) {
+          const originalAll = statement.all.bind(statement)
+          ;(statement as any).all = (...bindings: unknown[]) => {
+            capturedBindings.push(...bindings)
+            return (originalAll as any)(...bindings)
+          }
+        }
+        return statement
+      }) as typeof database.prepare
+      try {
+        return { value: read(), taskBindings, pomodoroBindings }
+      } finally {
+        database.prepare = originalPrepare
+      }
+    }
+
+    it('uses a matching receipt and valid task when audit outcome metadata is missing', () => {
+      const { store, taskId } = setupAttributionState()
+
+      const getAttribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      const listAttribution = store.listRecent().items[0]!.candidates[0]!.executionAttribution!
+
+      expect(getAttribution.kind).toBe('verified_linked')
+      expect(getAttribution.receiptValidated).toBe(true)
+      expect(getAttribution.taskId).toBe(taskId)
+      expect(listAttribution).toEqual(getAttribution)
+    })
+
+    it.each([
+      ['zero', 0],
+      ['negative integer', -1],
+      ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+      ['string', 'corrupt-task-id'],
+    ])('fails closed for a corrupt receipt task relation: %s', (_label, corruptTaskId) => {
+      const { database, store } = createStore()
+      store.create(todayRun())
+      const candidateId = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.id
+      const req = taskRequest()
+      store.claimConfirmation(candidateId, req)
+      const digest = buildIdempotentAIStudyTaskRequestDigest(req)
+      database.prepare(`
+        INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
+      `).run(req.operationId, req.operationKind, req.actionContractVersion, digest, req.expectedCurrentDate, req.payload.planned_date)
+
+      database.pragma('foreign_keys = OFF')
+      database.prepare('UPDATE study_task_action_receipts SET task_id = ? WHERE operation_id = ?')
+        .run(corruptTaskId, req.operationId)
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+      expect(attribution.focus.state).toBe('not_applicable')
+    })
+
+    it('treats an explicit SQL NULL relation as a validated deletion tombstone without outcome metadata', () => {
+      const { store } = setupAttributionState({ receipt: 'explicit_null' })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('task_deleted')
+      expect(attribution.receiptValidated).toBe(true)
+      expect(attribution.taskId).toBeNull()
+      expect(attribution.taskCurrentTitle).toBeNull()
+      expect(attribution.taskCurrentStatus).toBeNull()
+      expect(attribution.semanticDrift).toBeNull()
+      expect(attribution.focus).toEqual({
+        state: 'unavailable',
+        totalDurationMinutes: null,
+        sessionCount: null,
+        unavailableReason: 'task_deleted',
+      })
+    })
+
+    it('preserves a dangling authoritative task ID as an integrity inconsistency', () => {
+      const { store, taskId } = setupAttributionState({ receipt: 'dangling_task' })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(true)
+      expect(attribution.taskId).toBe(taskId)
+      expect(attribution.taskCurrentTitle).toBeNull()
+      expect(attribution.taskCurrentStatus).toBeNull()
+      expect(attribution.semanticDrift).toBeNull()
+      expect(attribution.focus.state).toBe('not_applicable')
+    })
+
+    it('keeps a missing receipt with missing outcome metadata unresolved', () => {
+      const { store } = setupAttributionState({ receipt: 'absent' })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('unresolved')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.focus.state).toBe('not_applicable')
+    })
+
+    it.each(['created', 'replayed'] as const)(
+      'fails closed for outcome=%s when the receipt is absent or non-matching',
+      (outcome) => {
+        for (const options of [
+          { receipt: 'absent' as const },
+          { receipt: 'valid_task' as const, receiptMatches: false },
+        ]) {
+          const { store } = setupAttributionState({ ...options, outcome })
+          const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+          expect(attribution.kind).toBe('integrity_inconsistency')
+          expect(attribution.receiptValidated).toBe(false)
+        }
+      },
+    )
+
+    it('classifies a conflict with a well-formed non-matching digest as known_conflict', () => {
+      const { store } = setupAttributionState({ receiptMatches: false, outcome: 'conflict' })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution.kind).toBe('known_conflict')
+      expect(attribution.receiptValidated).toBe(false)
+    })
+
+    it.each([
+      ['malformed digest', { requestDigest: 'non-matching-digest' }],
+      ['uppercase digest', { requestDigest: 'A'.repeat(64) }],
+      ['unsupported operation kind', { operationKind: 'unsupported_operation' }],
+      ['unsupported action contract version', { actionContractVersion: 'unknown-action.v99' }],
+      ['malformed expected date', { expectedCurrentDate: '2026-02-30' }],
+      ['malformed planned date', { plannedDate: '2026-8-13' }],
+      ['violated planned-date invariant', { plannedDate: '2026-08-14' }],
+    ] as const)('classifies a conflict receipt with %s as an integrity inconsistency', (_label, receiptFieldOverrides) => {
+      const { store } = setupAttributionState({ receiptFieldOverrides, outcome: 'conflict' })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+    })
+
+    it('does not bind a well-formed non-matching receipt task ID to task or Pomodoro reads', () => {
+      const { database, store, taskId } = setupAttributionState({ receiptMatches: false, outcome: 'conflict' })
+      database.prepare('INSERT INTO pomodoro_sessions (task_id, duration) VALUES (?, ?)').run(taskId, 25)
+
+      const { value: attribution, taskBindings, pomodoroBindings } = captureTaskReadBindings(
+        database,
+        () => store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!,
+      )
+
+      expect(attribution.kind).toBe('known_conflict')
+      expect(taskBindings).not.toContain(taskId)
+      expect(pomodoroBindings).not.toContain(taskId)
+    })
+
+    it('does not bind a malformed receipt task ID to task or Pomodoro reads', () => {
+      const { database, store, taskId } = setupAttributionState({
+        receiptFieldOverrides: { requestDigest: 'non-matching-digest' },
+        outcome: 'conflict',
+      })
+      database.prepare('INSERT INTO pomodoro_sessions (task_id, duration) VALUES (?, ?)').run(taskId, 25)
+
+      const { value: attribution, taskBindings, pomodoroBindings } = captureTaskReadBindings(
+        database,
+        () => store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!,
+      )
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(taskBindings).not.toContain(taskId)
+      expect(pomodoroBindings).not.toContain(taskId)
+    })
+
+    it('binds a matching receipt task ID to task and Pomodoro reads after task validation', () => {
+      const { database, store, taskId } = setupAttributionState()
+      database.prepare('INSERT INTO pomodoro_sessions (task_id, duration) VALUES (?, ?)').run(taskId, 25)
+
+      const { value: attribution, taskBindings, pomodoroBindings } = captureTaskReadBindings(
+        database,
+        () => store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!,
+      )
+
+      expect(attribution.kind).toBe('verified_linked')
+      expect(taskBindings).toContain(taskId)
+      expect(pomodoroBindings).toContain(taskId)
+    })
+
+    it('does not create task or Pomodoro query keys for a matching explicit-null receipt', () => {
+      const { database, store } = setupAttributionState({ receipt: 'explicit_null' })
+
+      const { value: attribution, taskBindings, pomodoroBindings } = captureTaskReadBindings(
+        database,
+        () => store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!,
+      )
+
+      expect(attribution.kind).toBe('task_deleted')
+      expect(taskBindings).toEqual([])
+      expect(pomodoroBindings).toEqual([])
+    })
+
+    it('does not create task or Pomodoro query keys for a corrupt task relation', () => {
+      const { database, store, req } = setupAttributionState({ receipt: 'explicit_null' })
+      database.pragma('foreign_keys = OFF')
+      database.prepare('UPDATE study_task_action_receipts SET task_id = ? WHERE operation_id = ?')
+        .run('corrupt-task-id', req.operationId)
+
+      const { value: attribution, taskBindings, pomodoroBindings } = captureTaskReadBindings(
+        database,
+        () => store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!,
+      )
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(taskBindings).toEqual([])
+      expect(pomodoroBindings).toEqual([])
+    })
+
+    const canonicalOutcomes = [
+      'created',
+      'replayed',
+      'deleted',
+      'conflict',
+      'integrity_error',
+      'date_mismatch',
+      'validation_error',
+      'uncertain',
+    ] as const
+
+    it.each(canonicalOutcomes)(
+      'lets a matching receipt and valid task override outcome=%s audit metadata',
+      (outcome) => {
+        const { store } = setupAttributionState({ outcome })
+        const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+        expect(attribution.kind).toBe('verified_linked')
+        expect(attribution.receiptValidated).toBe(true)
+      },
+    )
+
+    it.each([
+      ['created', 'integrity_inconsistency'],
+      ['replayed', 'integrity_inconsistency'],
+      ['deleted', 'integrity_inconsistency'],
+      ['conflict', 'integrity_inconsistency'],
+      ['integrity_error', 'integrity_inconsistency'],
+      ['date_mismatch', 'no_execution_expected'],
+      ['validation_error', 'no_execution_expected'],
+      ['uncertain', 'unresolved'],
+    ] as const)('preserves receipt-absent fallback for outcome=%s', (outcome, expectedKind) => {
+      const { store } = setupAttributionState({ receipt: 'absent', outcome })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution.kind).toBe(expectedKind)
+      expect(attribution.receiptValidated).toBe(false)
+    })
+
+    it.each(canonicalOutcomes)(
+      'keeps explicit SQL NULL authoritative for outcome=%s',
+      (outcome) => {
+        const { store } = setupAttributionState({ receipt: 'explicit_null', outcome })
+        const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+        expect(attribution.kind).toBe('task_deleted')
+        expect(attribution.receiptValidated).toBe(true)
+      },
+    )
+
+    it.each(canonicalOutcomes)(
+      'keeps a dangling valid task ID inconsistent for outcome=%s',
+      (outcome) => {
+        const { store, taskId } = setupAttributionState({ receipt: 'dangling_task', outcome })
+        const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+        expect(attribution.kind).toBe('integrity_inconsistency')
+        expect(attribution.receiptValidated).toBe(true)
+        expect(attribution.taskId).toBe(taskId)
+      },
+    )
+
+    it.each([
+      [undefined, 'integrity_inconsistency'],
+      ['created', 'integrity_inconsistency'],
+      ['replayed', 'integrity_inconsistency'],
+      ['deleted', 'integrity_inconsistency'],
+      ['conflict', 'known_conflict'],
+      ['integrity_error', 'integrity_inconsistency'],
+      ['date_mismatch', 'integrity_inconsistency'],
+      ['validation_error', 'integrity_inconsistency'],
+      ['uncertain', 'integrity_inconsistency'],
+    ] as const)(
+      'classifies a non-matching readable receipt for outcome=%s as %s',
+      (outcome, expectedKind) => {
+        const { store } = setupAttributionState({ receiptMatches: false, outcome })
+        const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+        expect(attribution.kind).toBe(expectedKind)
+        expect(attribution.receiptValidated).toBe(false)
+      },
+    )
+
+    it.each([undefined, ...canonicalOutcomes] as const)(
+      'fails closed for a structurally corrupt receipt with outcome=%s',
+      (outcome) => {
+        const { store } = setupAttributionState({ structurallyCorrupt: true, outcome })
+        const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+        expect(attribution.kind).toBe('integrity_inconsistency')
+        expect(attribution.receiptValidated).toBe(false)
+      },
+    )
+
+    it('preserves the authoritative task ID when the current task row is corrupt', () => {
+      const { store, taskId } = setupAttributionState({ receipt: 'corrupt_task' })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(true)
+      expect(attribution.taskId).toBe(taskId)
+      expect(attribution.taskCurrentTitle).toBeNull()
+      expect(attribution.taskCurrentStatus).toBeNull()
+      expect(attribution.semanticDrift).toBeNull()
+      expect(attribution.focus.state).toBe('not_applicable')
+    })
+
+    it('feeds C4 from the dynamic listRecent attribution when audit outcome metadata is missing', () => {
+      const { database, store, taskId } = setupAttributionState()
+      const unrelatedTaskId = Number(database.prepare(`
+        INSERT INTO study_tasks (title, description, type, planned_date, estimate_minutes, status, source)
+        VALUES ('无关任务', '', 'custom', '2026-08-13', 25, 'todo', 'manual')
+      `).run().lastInsertRowid)
+      database.prepare('INSERT INTO pomodoro_sessions (task_id, duration) VALUES (?, ?)').run(taskId, 25)
+      database.prepare('INSERT INTO pomodoro_sessions (task_id, duration) VALUES (?, ?)').run(unrelatedTaskId, 100)
+      store.transition({
+        kind: 'close_run',
+        runId: '11111111-1111-4111-8111-111111111111',
+        reason: 'dialog_closed',
+      })
+
+      const runs = store.listRecent().items
+      const attribution = runs[0]!.candidates[0]!.executionAttribution!
+      const feedbackCandidates = deriveTodayActionFeedbackCandidates(runs)
+
+      expect(attribution.kind).toBe('verified_linked')
+      expect(attribution.semanticDrift).toEqual({ hasDrift: false, differences: {} })
+      expect(attribution.focus).toEqual({
+        state: 'available',
+        totalDurationMinutes: 25,
+        sessionCount: 1,
+        unavailableReason: null,
+      })
+      expect(feedbackCandidates).toHaveLength(1)
+      expect(feedbackCandidates[0]!.key).toEqual({
+        runId: '11111111-1111-4111-8111-111111111111',
+        candidateId: runs[0]!.candidates[0]!.id,
+      })
+    })
+  })
+
+  describe('Today Action v2 dynamic attribution compatibility', () => {
+    const OPAQUE_V2_REQUEST_DIGEST = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+
+    function setupV2Attribution(options: {
+      operationId?: unknown
+      operationKind?: unknown
+      actionContractVersion?: unknown
+      requestDigest?: unknown
+      expectedCurrentDate?: unknown
+      plannedDate?: unknown
+      taskId?: unknown
+      corruptTask?: boolean
+      outcome?: 'created' | 'replayed' | 'conflict' | 'uncertain' | null
+    } = {}) {
+      const { database, store } = createStore()
+      const created = store.create(todayRun())
+      const candidateId = created.candidates[0]!.id
+      const claim = taskRequest()
+      store.claimConfirmation(candidateId, claim)
+
+      const taskId = Number(database.prepare(`
+        INSERT INTO study_tasks (
+          title, description, type, subject_id, related_mistake_id,
+          planned_date, estimate_minutes, status, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        '复习 函数极限',
+        '今天到期,适合先处理。',
+        'review',
+        1,
+        12,
+        '2026-08-13',
+        25,
+        options.corruptTask ? 'INVALID_STATUS' : 'todo',
+        'ai',
+      ).lastInsertRowid)
+
+      database.pragma('foreign_keys = OFF')
+      database.prepare(`
+        INSERT INTO study_task_action_receipts (
+          operation_id, operation_kind, action_contract_version, request_digest,
+          expected_current_date, planned_date, task_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        options.operationId ?? claim.operationId,
+        options.operationKind ?? 'today_action',
+        options.actionContractVersion ?? 'confirmed-study-task-action.v2',
+        options.requestDigest ?? OPAQUE_V2_REQUEST_DIGEST,
+        options.expectedCurrentDate ?? '2026-08-13',
+        options.plannedDate ?? '2026-08-13',
+        Object.prototype.hasOwnProperty.call(options, 'taskId') ? options.taskId : taskId,
+      )
+      const outcome = options.outcome === undefined ? 'created' : options.outcome
+      if (outcome !== null) store.recordOutcome(candidateId, claim.operationId, outcome)
+      return { database, store, taskId }
+    }
+
+    it('attributes an authoritative v2 receipt while treating its digest as an opaque commitment', () => {
+      const { store, taskId } = setupV2Attribution()
+
+      const fromGet = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      const fromList = store.listRecent().items[0]!.candidates[0]!.executionAttribution!
+
+      expect(fromGet).toMatchObject({
+        kind: 'verified_linked',
+        receiptValidated: true,
+        taskId,
+        taskCurrentTitle: '复习 函数极限',
+        taskCurrentStatus: 'todo',
+        semanticDrift: { hasDrift: false, differences: {} },
+      })
+      expect(fromList).toEqual(fromGet)
+    })
+
+    it('treats a recorded conflict as negative commitment evidence for an otherwise valid v2 task receipt', () => {
+      const { store } = setupV2Attribution({ outcome: 'conflict' })
+
+      const candidate = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!
+      const fromGet = candidate.executionAttribution!
+      const fromList = store.listRecent().items[0]!.candidates[0]!.executionAttribution!
+
+      expect(candidate.taskRelation).toEqual({ available: false })
+      expect(fromGet).toMatchObject({
+        kind: 'known_conflict',
+        receiptValidated: false,
+        taskId: null,
+      })
+      expect(fromList).toEqual(fromGet)
+    })
+
+    it('does not mistake a conflicted v2 explicit-null receipt for candidate task deletion', () => {
+      const { store } = setupV2Attribution({ outcome: 'conflict', taskId: null })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'known_conflict',
+        receiptValidated: false,
+        taskId: null,
+      })
+    })
+
+    it.each([
+      ['replayed outcome', 'replayed'],
+      ['missing outcome', null],
+      ['uncertain outcome', 'uncertain'],
+    ] as const)('preserves opaque v2 receipt authority with %s', (_label, outcome) => {
+      const { store, taskId } = setupV2Attribution({ outcome })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'verified_linked',
+        receiptValidated: true,
+        taskId,
+      })
+    })
+
+    it('keeps a malformed v2 receipt fail-closed when the candidate outcome is conflict', () => {
+      const { store } = setupV2Attribution({
+        outcome: 'conflict',
+        requestDigest: 'not-a-digest',
+      })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'integrity_inconsistency',
+        receiptValidated: false,
+        taskId: null,
+      })
+    })
+
+    it.each([
+      ['missing task', { taskId: 999 }],
+      ['corrupt task', { corruptTask: true }],
+    ] as const)('keeps a conflicted v2 receipt with a %s fail-closed', (_label, options) => {
+      const { store } = setupV2Attribution({ outcome: 'conflict', ...options })
+
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(attribution).toMatchObject({
+        kind: 'integrity_inconsistency',
+        receiptValidated: true,
+        taskId: null,
+      })
+    })
+
+    it('preserves v2 explicit-null deletion and current-task semantic drift semantics', () => {
+      const deleted = setupV2Attribution({ taskId: null })
+      const deletedAttribution = deleted.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(deletedAttribution.kind).toBe('task_deleted')
+      expect(deletedAttribution.receiptValidated).toBe(true)
+      expect(deletedAttribution.taskId).toBeNull()
+
+      const drifted = setupV2Attribution()
+      drifted.database.prepare('UPDATE study_tasks SET title = ? WHERE id = ?')
+        .run('已编辑任务', drifted.taskId)
+      const driftAttribution = drifted.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(driftAttribution.kind).toBe('verified_linked')
+      expect(driftAttribution.receiptValidated).toBe(true)
+      expect(driftAttribution.semanticDrift!.differences.title).toEqual({
+        candidateValue: '复习 函数极限',
+        currentValue: '已编辑任务',
+      })
+    })
+
+    it.each([
+      ['uppercase operation UUID', { operationId: '33333333-3333-4333-8333-33333333333A' }],
+      ['wrong operation kind', { operationKind: 'daily_review' }],
+      ['wrong action contract', { actionContractVersion: 'confirmed-study-task-action.v3' }],
+      ['malformed digest', { requestDigest: 'not-a-digest' }],
+      ['uppercase digest', { requestDigest: 'A'.repeat(64) }],
+      ['non-string receipt metadata', { operationKind: Buffer.from([0]) }],
+    ] as const)('fails closed for v2 receipt metadata corruption: %s', (_label, overrides) => {
+      const { store } = setupV2Attribution(overrides)
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it.each([
+      ['invalid expected date', { expectedCurrentDate: '2026-02-30' }],
+      ['invalid planned date', { plannedDate: '2026-8-13' }],
+      ['unequal receipt dates', { plannedDate: '2026-08-14' }],
+      ['non-authoritative receipt dates', { expectedCurrentDate: '2026-08-12', plannedDate: '2026-08-12' }],
+    ] as const)('fails closed for v2 receipt date corruption: %s', (_label, overrides) => {
+      const { store } = setupV2Attribution(overrides)
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it.each([
+      ['zero', 0],
+      ['negative', -1],
+      ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+      ['non-integer', 1.5],
+      ['string', 'corrupt-task-id'],
+    ])('fails closed before task lookup for a corrupt v2 task relation: %s', (_label, taskId) => {
+      const { store } = setupV2Attribution({ taskId })
+      const attribution = store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+
+      expect(attribution.kind).toBe('integrity_inconsistency')
+      expect(attribution.receiptValidated).toBe(false)
+      expect(attribution.taskId).toBeNull()
+    })
+
+    it('fails closed when a v2 receipt points to a missing or corrupt authoritative task', () => {
+      const missing = setupV2Attribution({ taskId: 999 })
+      const missingAttribution = missing.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(missingAttribution.kind).toBe('integrity_inconsistency')
+      expect(missingAttribution.receiptValidated).toBe(true)
+      expect(missingAttribution.taskId).toBe(999)
+
+      const corrupt = setupV2Attribution({ corruptTask: true })
+      const corruptAttribution = corrupt.store.get('11111111-1111-4111-8111-111111111111')!.candidates[0]!.executionAttribution!
+      expect(corruptAttribution.kind).toBe('integrity_inconsistency')
+      expect(corruptAttribution.receiptValidated).toBe(true)
+      expect(corruptAttribution.taskId).toBe(corrupt.taskId)
+    })
+  })
+
   describe('Attribution Matrix', () => {
     it('case 1: verified_linked - confirmed candidate + outcome=created + valid receipt + existing task', () => {
       const { database, store } = createStore()
@@ -237,7 +1237,7 @@ describe('Planning History Execution Attribution', () => {
       database.prepare(`
         INSERT INTO study_task_action_receipts (operation_id, operation_kind, action_contract_version, request_digest, expected_current_date, planned_date, task_id)
         VALUES (?, ?, ?, ?, ?, ?, NULL)
-      `).run(req.operationId, req.operationKind, req.actionContractVersion, 'different-digest', req.expectedCurrentDate, req.payload.planned_date)
+      `).run(req.operationId, req.operationKind, req.actionContractVersion, '0'.repeat(64), req.expectedCurrentDate, req.payload.planned_date)
 
       store.recordOutcome(candidateId, req.operationId, 'conflict')
 

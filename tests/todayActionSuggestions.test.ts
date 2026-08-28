@@ -14,8 +14,19 @@ import {
   type TodayActionPlanningContext,
 } from '../src/utils/todayActionSuggestions'
 import type { DiaryEntry, Mistake, StudyTask, Subject } from '../src/types'
+import {
+  computeTodayActionGenerationContextSignature,
+  type TodayActionProviderChapterProjection,
+} from '../src/utils/todayActionChapterContext'
 
-const BASE_TODAY_MESSAGES_SHA256 = '01734782f25b6e10afac5473fabdecba303da47ba12c9517a35b7e4ac9f32fcb'
+const BASE_TODAY_MESSAGES_SHA256 = 'd0b068255e586458cfc3b45de7172b8346ead3f4a744cbab440a0fc6e134c21c'
+
+const chapterProjection: TodayActionProviderChapterProjection = {
+  chapter_progress: [
+    { subject_ref: 'subject:1', title: '函数极限', completed: false },
+    { subject_ref: 'subject:2', title: '长难句', completed: true },
+  ],
+}
 
 const subjects: Subject[] = [
   { id: 1, name: '数学', color: '#2563eb' },
@@ -397,15 +408,21 @@ describe('todayActionSuggestions parser and validation', () => {
       preparedCount: 2,
       includedCount: 2,
     }))
-    for (const category of ['chapters', 'focus_history']) {
-      expect(request.contextDecisions.find(decision => decision.category === category)).toEqual(expect.objectContaining({
-        preparation: 'not_integrated',
-        disposition: 'excluded',
-        reasonCode: 'not_integrated',
-        preparedCount: 0,
-        includedCount: 0,
-      }))
-    }
+    expect(request.contextDecisions.find(decision => decision.category === 'chapters')).toEqual(expect.objectContaining({
+      preparation: 'prepared_empty',
+      disposition: 'included_empty',
+      reasonCode: 'no_record',
+      preparedCount: 0,
+      includedCount: 0,
+      limit: 12,
+    }))
+    expect(request.contextDecisions.find(decision => decision.category === 'focus_history')).toEqual(expect.objectContaining({
+      preparation: 'not_integrated',
+      disposition: 'excluded',
+      reasonCode: 'not_integrated',
+      preparedCount: 0,
+      includedCount: 0,
+    }))
 
     const allowedKeys = new Set([
       'category',
@@ -448,10 +465,43 @@ describe('todayActionSuggestions parser and validation', () => {
     })
     const messagesJson = JSON.stringify(buildTodayActionSuggestionRequest(fixedInput).messages)
 
-    expect(Buffer.byteLength(messagesJson, 'utf8')).toBe(4793)
+    expect(Buffer.byteLength(messagesJson, 'utf8')).toBe(5014)
     expect(createHash('sha256').update(messagesJson, 'utf8').digest('hex')).toBe(
       BASE_TODAY_MESSAGES_SHA256,
     )
+  })
+
+  it('keeps C4/C6 permutations out of chapter allocation while changing generation signatures', async () => {
+    const base = buildTodayActionSuggestionMessages(context(), 'balanced', null, chapterProjection)
+    const deepFocus = buildTodayActionSuggestionMessages(context(), 'deep_focus', null, chapterProjection)
+    const feedback = buildTodayActionSuggestionMessages(context(), 'balanced', {
+      feedback_contract: 'planning-feedback.v1',
+      items: [{
+        target_date: '2026-06-11',
+        title: '历史任务',
+        type: 'focus',
+        estimate_minutes: 25,
+        current_status: 'done',
+        explicit_focus_minutes: 25,
+        explicit_focus_sessions: 1,
+      }],
+    }, chapterProjection)
+
+    for (const messages of [base, deepFocus, feedback]) {
+      expect(readTodayActionPromptContext(messages).chapter_progress).toEqual(chapterProjection.chapter_progress)
+      const serialized = JSON.stringify(readTodayActionPromptContext(messages).chapter_progress)
+      for (const forbidden of ['subject_id', 'chapter_id', 'chapter_ref', 'related_chapter_id', 'sort_order']) {
+        expect(serialized).not.toContain(forbidden)
+      }
+      expect(Object.keys((readTodayActionPromptContext(messages).chapter_progress as Array<object>)[0]!))
+        .toEqual(['subject_ref', 'title', 'completed'])
+    }
+    expect(Object.isFrozen(base)).toBe(true)
+    expect(base.every(Object.isFrozen)).toBe(true)
+    const signatures = await Promise.all(
+      [base, deepFocus, feedback].map(computeTodayActionGenerationContextSignature),
+    )
+    expect(new Set(signatures)).toHaveLength(3)
   })
 
   it('reports empty and request-limited Today Action projections with fixed dispositions and codes', () => {

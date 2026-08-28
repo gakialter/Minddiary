@@ -107,11 +107,114 @@ function taskRequest(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function todayV2TaskRequest(overrides: Record<string, unknown> = {}) {
+  return {
+    ...taskRequest(),
+    actionContractVersion: 'confirmed-study-task-action.v2',
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: '1'.repeat(64),
+    generationChapterSignature: '2'.repeat(64),
+    latestReviewedChapterSignature: '2'.repeat(64),
+    staleContextOverride: false,
+    staleReviewToken: null,
+    ...overrides,
+  }
+}
+
 afterEach(() => {
   for (const database of databases.splice(0)) database.close()
 })
 
 describe('trusted-main planning history transition seam', () => {
+  it('classifies all seven frozen Today candidate identity states without collapsing them', () => {
+    const exactUnconfirmed = createStore()
+    const unconfirmedId = exactUnconfirmed.store.create(todayRun()).candidates[0]!.id
+    expect(exactUnconfirmed.store.classifyTodayActionCandidateIdentity(
+      unconfirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest(),
+    )).toEqual({ kind: 'EXACT_UNCONFIRMED' })
+
+    const exactConfirmed = createStore()
+    const confirmedId = exactConfirmed.store.create(todayRun()).candidates[0]!.id
+    exactConfirmed.store.claimConfirmation(confirmedId, todayV2TaskRequest())
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest(),
+    )).toEqual({ kind: 'EXACT_CONFIRMED_MATCH', outcomeKind: null })
+
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      '44444444-4444-4444-8444-444444444444',
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest({ operationId: '44444444-4444-4444-8444-444444444444' }),
+    )).toEqual({ kind: 'EXACT_MISMATCH' })
+    expect(exactConfirmed.store.classifyTodayActionCandidateIdentity(
+      confirmedId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+      todayV2TaskRequest({
+        payload: { ...todayV2TaskRequest().payload, title: '不同候选' },
+      }),
+    )).toEqual({ kind: 'EXACT_MISMATCH' })
+
+    const corrupt = createStore()
+    const corruptId = corrupt.store.create(todayRun()).candidates[0]!.id
+    corrupt.database.pragma('ignore_check_constraints = ON')
+    corrupt.database.prepare(`
+      UPDATE planning_run_candidates
+      SET user_disposition = 'confirmed', operation_id = NULL
+      WHERE id = ?
+    `).run(corruptId)
+    corrupt.database.pragma('ignore_check_constraints = OFF')
+    expect(corrupt.store.classifyTodayActionCandidateIdentity(
+      corruptId,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'EXACT_CORRUPT' })
+
+    const absent = createStore()
+    expect(absent.store.classifyTodayActionCandidateIdentity(
+      999,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'ABSENT_NO_COMPETING_OPERATION' })
+    const competingId = absent.store.create(todayRun()).candidates[0]!.id
+    absent.store.claimConfirmation(competingId, todayV2TaskRequest())
+    expect(absent.store.classifyTodayActionCandidateIdentity(
+      999,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )).toEqual({ kind: 'ABSENT_COMPETING_OPERATION' })
+
+    const readFailureStore = createPlanningHistoryStore({
+      database: {
+        transaction: <T,>(operation: () => T) => operation,
+        prepare: () => { throw new Error('candidate read unavailable') },
+      } as unknown as Database.Database,
+    })
+    const readFailure = readFailureStore.classifyTodayActionCandidateIdentity(
+      701,
+      taskRequest().operationId,
+      '2026-08-13',
+      '2026-08-13',
+    )
+    expect(readFailure.kind).toBe('READ_FAILURE')
+    if (readFailure.kind === 'READ_FAILURE') {
+      expect(readFailure.error).toEqual(new Error('candidate read unavailable'))
+    }
+  })
+
   it('admits a repaired candidate at its first valid baseline and preserves ordinal gaps', () => {
     const { store } = createStore()
     store.create(todayRun({ candidates: [] }))
@@ -311,6 +414,7 @@ describe('trusted confirmation correlation and retention', () => {
 
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'uncertain'))
       .toEqual({ recorded: true })
+    expect(store.claimConfirmation(candidateId, taskRequest())).toEqual({ claimed: true })
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'created'))
       .toEqual({ recorded: true })
     expect(store.recordOutcome(candidateId, '33333333-3333-4333-8333-333333333333', 'created'))
@@ -320,6 +424,37 @@ describe('trusted confirmation correlation and retention', () => {
     expect(store.get('11111111-1111-4111-8111-111111111111')?.candidates[0]).toEqual(
       expect.objectContaining({ userDisposition: 'confirmed', outcomeKind: 'created' }),
     )
+  })
+
+  it('keeps a validation-failed candidate bound to O1 and accepts O2 only for a fresh generation candidate', () => {
+    const { store } = createStore('2026-08-13T14:00:00.000Z')
+    const firstRun = store.create(todayRun())
+    const firstCandidateId = firstRun.candidates[0]!.id
+    const firstRequest = taskRequest()
+    const secondRequest = taskRequest({ operationId: '44444444-4444-4444-8444-444444444444' })
+
+    expect(store.claimConfirmation(firstCandidateId, firstRequest)).toEqual({ claimed: true })
+    expect(store.recordOutcome(firstCandidateId, firstRequest.operationId, 'validation_error'))
+      .toEqual({ recorded: true })
+    expect(() => store.claimConfirmation(firstCandidateId, secondRequest)).toThrow(/operation|outcome/i)
+
+    const secondRun = store.create(todayRun({
+      id: '22222222-2222-4222-8222-222222222222',
+    }))
+    const secondCandidateId = secondRun.candidates[0]!.id
+    expect(secondCandidateId).not.toBe(firstCandidateId)
+    expect(store.claimConfirmation(secondCandidateId, secondRequest)).toEqual({ claimed: true })
+    expect(store.recordOutcome(secondCandidateId, secondRequest.operationId, 'created'))
+      .toEqual({ recorded: true })
+
+    expect(store.get(firstRun.id)?.candidates[0]).toEqual(expect.objectContaining({
+      userDisposition: 'confirmed',
+      outcomeKind: 'validation_error',
+    }))
+    expect(store.get(secondRun.id)?.candidates[0]).toEqual(expect.objectContaining({
+      userDisposition: 'confirmed',
+      outcomeKind: 'created',
+    }))
   })
 
   it('allows same-operation outcome fill after close and silently ignores deleted history', () => {

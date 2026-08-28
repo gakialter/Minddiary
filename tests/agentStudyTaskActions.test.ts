@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { StudyTask } from '../src/types'
 import {
   buildConfirmedStudyTaskPayload,
+  buildIdempotentAIStudyTaskCreateRequest,
+  buildTodayActionStaleReviewAuthorizationRequest,
   createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
   executeConfirmedStudyTaskAction,
@@ -15,10 +17,17 @@ import {
   type AIStudyTaskGenerationProvenance,
 } from '../src/utils/aiOperationContracts'
 
+const TODAY_GENERATION_CONTEXT_SIGNATURE = 'b'.repeat(64)
+const TODAY_GENERATION_CHAPTER_SIGNATURE = 'c'.repeat(64)
+
 const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'today_action',
-  generation: createAIStudyTaskGenerationProvenance('today_action', 'today-generation-context-fixture'),
+  generation: createAIStudyTaskGenerationProvenance('today_action', TODAY_GENERATION_CONTEXT_SIGNATURE),
   confirmationContextSignature: 'today-generation-context-fixture',
+  generationChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+  latestReviewedChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+  staleContextOverride: false,
+  staleReviewToken: null,
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-12',
 }
@@ -26,6 +35,7 @@ const todaySnapshot: StudyTaskActionConfirmationSnapshot = {
 const OPERATION_ID = '11111111-1111-4111-8111-111111111111'
 const DAILY_OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 const MISTAKE_OPERATION_ID = '33333333-3333-4333-8333-333333333333'
+const MISTAKE_CONTEXT_SIGNATURE = 'a'.repeat(64)
 
 const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'daily_review',
@@ -37,8 +47,9 @@ const dailySnapshot: StudyTaskActionConfirmationSnapshot = {
 
 const mistakeSnapshot: StudyTaskActionConfirmationSnapshot = {
   mode: 'mistake_review',
-  generation: createAIStudyTaskGenerationProvenance('mistake_review', 'mistake-generation-context-fixture'),
-  confirmationContextSignature: 'mistake-confirmation-context-fixture',
+  generation: createAIStudyTaskGenerationProvenance('mistake_review', MISTAKE_CONTEXT_SIGNATURE),
+  confirmationContextSignature: MISTAKE_CONTEXT_SIGNATURE,
+  generationMistakeRef: 'm1',
   expectedCurrentDate: '2026-06-12',
   plannedDate: '2026-06-12',
 }
@@ -120,6 +131,10 @@ describe('agentStudyTaskActions', () => {
       mode: 'today_action',
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-12',
+      generationChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      latestReviewedChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      staleContextOverride: false,
+      staleReviewToken: null,
       draft: todayDraft,
     })
     expect(createAction(dailySnapshot, dailyDraft, DAILY_OPERATION_ID)).toMatchObject({
@@ -130,6 +145,7 @@ describe('agentStudyTaskActions', () => {
     })
     expect(createAction(mistakeSnapshot, mistakeDraft, MISTAKE_OPERATION_ID)).toMatchObject({
       mode: 'mistake_review',
+      generationMistakeRef: 'm1',
       expectedCurrentDate: '2026-06-12',
       plannedDate: '2026-06-12',
       draft: mistakeDraft,
@@ -156,7 +172,7 @@ describe('agentStudyTaskActions', () => {
     expect(() => createAction(todaySnapshot, { ...todayDraft, estimate_minutes: estimateMinutes })).toThrow(expectedError)
   })
 
-  it.each(['subject_id', 'related_mistake_id', 'related_entry_id', 'related_chapter_id'] as const)(
+  it.each(['subject_id', 'related_mistake_id', 'related_entry_id'] as const)(
     'accepts positive number/null and rejects other %s values',
     field => {
       expect(createAction(todaySnapshot, { ...todayDraft, [field]: null }).draft[field]).toBeNull()
@@ -165,6 +181,13 @@ describe('agentStudyTaskActions', () => {
       expect(() => createAction(todaySnapshot, { ...todayDraft, [field]: '42' })).toThrow('positive integer or null')
     },
   )
+
+  it('hard-rejects a Today Action chapter relation while leaving Daily relation semantics unchanged', () => {
+    expect(() => createAction(todaySnapshot, { ...todayDraft, related_chapter_id: 42 }))
+      .toThrow('Today Action related_chapter_id must be null')
+    expect(createAction(dailySnapshot, { ...dailyDraft, related_chapter_id: 42 }, DAILY_OPERATION_ID).draft.related_chapter_id)
+      .toBe(42)
+  })
 
   it('accepts an omitted related_chapter_id and normalizes it to null', () => {
     expect(createAction(todaySnapshot, {
@@ -312,7 +335,7 @@ describe('agentStudyTaskActions', () => {
     const action = createAction()
     expect(() => validateConfirmedStudyTaskAction(action, {
       ...todaySnapshot,
-      generation: createAIStudyTaskGenerationProvenance('today_action', 'other-generation-context-fixture'),
+      generation: createAIStudyTaskGenerationProvenance('today_action', 'd'.repeat(64)),
     })).toThrow('generation provenance does not match')
     expect(() => validateConfirmedStudyTaskAction(action, {
       ...todaySnapshot,
@@ -362,6 +385,108 @@ describe('agentStudyTaskActions', () => {
       estimate_minutes: 10,
       status: 'todo',
       source: 'ai',
+    })
+  })
+
+  it('builds the frozen exact Today Action v2 privileged request', () => {
+    const action = createAction()
+    const request = buildIdempotentAIStudyTaskCreateRequest(action)
+
+    expect(request).toEqual({
+      operationId: OPERATION_ID,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: TODAY_GENERATION_CONTEXT_SIGNATURE,
+      generationChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      latestReviewedChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      staleContextOverride: false,
+      staleReviewToken: null,
+      payload: buildConfirmedStudyTaskPayload(action),
+    })
+    expect(Object.keys(request)).toEqual([
+      'operationId',
+      'operationKind',
+      'actionContractVersion',
+      'expectedCurrentDate',
+      'contextProjectionVersion',
+      'originalGenerationContextSignature',
+      'generationChapterSignature',
+      'latestReviewedChapterSignature',
+      'staleContextOverride',
+      'staleReviewToken',
+      'payload',
+    ])
+  })
+
+  it('builds an exact token-free stale-review authorization core', () => {
+    const latestReviewedChapterSignature = 'd'.repeat(64)
+    const request = buildTodayActionStaleReviewAuthorizationRequest({
+      operationId: OPERATION_ID,
+      generation: todaySnapshot.generation,
+      generationChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      latestReviewedChapterSignature,
+      expectedCurrentDate: todaySnapshot.expectedCurrentDate,
+      draft: todayDraft,
+    })
+    expect(request).toEqual({
+      operationId: OPERATION_ID,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: TODAY_GENERATION_CONTEXT_SIGNATURE,
+      generationChapterSignature: TODAY_GENERATION_CHAPTER_SIGNATURE,
+      latestReviewedChapterSignature,
+      staleContextOverride: true,
+      payload: buildConfirmedStudyTaskPayload(createAction()),
+    })
+    expect(Object.keys(request)).toEqual([
+      'operationId',
+      'operationKind',
+      'actionContractVersion',
+      'expectedCurrentDate',
+      'contextProjectionVersion',
+      'originalGenerationContextSignature',
+      'generationChapterSignature',
+      'latestReviewedChapterSignature',
+      'staleContextOverride',
+      'payload',
+    ])
+  })
+
+  it('accepts only structurally authorized stale-review state in a Today confirmation snapshot', () => {
+    const reviewedSignature = 'd'.repeat(64)
+    const token = 'e'.repeat(64)
+    const overrideSnapshot: StudyTaskActionConfirmationSnapshot = {
+      ...todaySnapshot,
+      latestReviewedChapterSignature: reviewedSignature,
+      staleContextOverride: true,
+      staleReviewToken: token,
+    }
+    expect(createAction(overrideSnapshot)).toMatchObject({
+      latestReviewedChapterSignature: reviewedSignature,
+      staleContextOverride: true,
+      staleReviewToken: token,
+    })
+    expect(() => createAction({ ...overrideSnapshot, staleReviewToken: 'E'.repeat(64) }))
+      .toThrow('staleReviewToken')
+    expect(() => createAction({ ...todaySnapshot, latestReviewedChapterSignature: reviewedSignature }))
+      .toThrow('must match generationChapterSignature')
+  })
+
+  it('builds a C5 v2 privileged request carrying the whole-context proof and candidate alias', () => {
+    const action = createAction(mistakeSnapshot, mistakeDraft, MISTAKE_OPERATION_ID)
+    expect(buildIdempotentAIStudyTaskCreateRequest(action)).toEqual({
+      operationId: MISTAKE_OPERATION_ID,
+      operationKind: 'mistake_review',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      contextProjectionVersion: 'mistake-review.context-projection.v1',
+      generationContextSignature: MISTAKE_CONTEXT_SIGNATURE,
+      generationMistakeRef: 'm1',
+      payload: buildConfirmedStudyTaskPayload(action),
     })
   })
 

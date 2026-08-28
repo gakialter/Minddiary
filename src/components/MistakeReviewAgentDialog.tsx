@@ -47,6 +47,12 @@ type CardExecutionState =
   | { state: 'failed'; operationId: string; error: string }
   | { state: 'uncertain'; operationId: string; error: string }
 
+type GenerationConfirmationLock = {
+  sessionId: number
+  candidateId: string
+  phase: 'in_flight' | 'uncertain'
+}
+
 export default function MistakeReviewAgentDialog({
   currentDate: propCurrentDate,
   onClose,
@@ -64,16 +70,20 @@ export default function MistakeReviewAgentDialog({
   const [candidates, setCandidates] = useState<MistakeReviewCandidateDraft[]>([])
   const [provenance, setProvenance] = useState<AIStudyTaskGenerationProvenance | null>(null)
   const [sessionSignature, setSessionSignature] = useState<string>('')
+  const [generationSessionId, setGenerationSessionId] = useState(0)
   const [cardStates, setCardStates] = useState<Record<string, CardExecutionState>>({})
 
   const sessionRef = useRef(0)
+  const generationConfirmationLockRef = useRef<GenerationConfirmationLock | null>(null)
 
   const loadSuggestions = useCallback(async () => {
     const activeSessionId = ++sessionRef.current
+    generationConfirmationLockRef.current = null
     setStatus('loading')
     setErrorMessage('')
     setCandidates([])
     setCardStates({})
+    setGenerationSessionId(0)
     if (!mistakesAPI || !subjectsAPI || !tasksAPI || !aiAPI) {
       setStatus('unsupported')
       return
@@ -158,6 +168,7 @@ export default function MistakeReviewAgentDialog({
           initialStates[c.clientId] = { state: 'idle' }
         })
         setCardStates(initialStates)
+        setGenerationSessionId(activeSessionId)
         setStatus('ready')
       }
     } catch (err: unknown) {
@@ -180,7 +191,27 @@ export default function MistakeReviewAgentDialog({
   }, [loadSuggestions])
 
   const handleConfirmCandidate = async (candidate: MistakeReviewCandidateDraft) => {
-    if (!provenance || !sessionSignature || !tasksAPI) return
+    if (
+      !provenance
+      || !sessionSignature
+      || !tasksAPI
+      || generationSessionId === 0
+      || generationSessionId !== sessionRef.current
+    ) return
+
+    const existingLock = generationConfirmationLockRef.current
+    if (existingLock?.sessionId === generationSessionId) {
+      if (existingLock.phase === 'in_flight' || existingLock.candidateId !== candidate.clientId) {
+        return
+      }
+    }
+
+    const confirmationLock: GenerationConfirmationLock = {
+      sessionId: generationSessionId,
+      candidateId: candidate.clientId,
+      phase: 'in_flight',
+    }
+    generationConfirmationLockRef.current = confirmationLock
 
     const currentState = cardStates[candidate.clientId]
     const operationId = (currentState && 'operationId' in currentState && currentState.operationId)
@@ -196,6 +227,7 @@ export default function MistakeReviewAgentDialog({
       mode: 'mistake_review',
       generation: provenance,
       confirmationContextSignature: sessionSignature,
+      generationMistakeRef: candidate.mistake_ref,
       expectedCurrentDate: currentDate,
       plannedDate: currentDate,
     }
@@ -220,6 +252,8 @@ export default function MistakeReviewAgentDialog({
 
       const result = await executeConfirmedStudyTaskAction(action, snapshot, tasksAPI)
 
+      if (generationSessionId !== sessionRef.current) return
+
       if (result.status === 'succeeded') {
         setCardStates(prev => ({
           ...prev,
@@ -229,25 +263,44 @@ export default function MistakeReviewAgentDialog({
         if (onTaskCreated) {
           onTaskCreated(result.task)
         }
+        await loadSuggestions()
       } else if (result.status === 'failed') {
         setCardStates(prev => ({
           ...prev,
           [candidate.clientId]: { state: 'failed', operationId, error: result.error },
         }))
+        await loadSuggestions()
       } else {
+        generationConfirmationLockRef.current = {
+          ...confirmationLock,
+          phase: 'uncertain',
+        }
         setCardStates(prev => ({
           ...prev,
           [candidate.clientId]: { state: 'uncertain', operationId, error: result.error },
         }))
       }
     } catch (err: unknown) {
+      if (generationSessionId !== sessionRef.current) return
       const msg = err instanceof Error ? err.message : String(err)
+      generationConfirmationLockRef.current = {
+        ...confirmationLock,
+        phase: 'uncertain',
+      }
       setCardStates(prev => ({
         ...prev,
         [candidate.clientId]: { state: 'uncertain', operationId, error: msg },
       }))
+    } finally {
+      if (generationConfirmationLockRef.current === confirmationLock) {
+        generationConfirmationLockRef.current = null
+      }
     }
   }
+
+  const hasBlockingGenerationConfirmation = Object.values(cardStates).some(
+    cardState => cardState.state === 'creating' || cardState.state === 'uncertain',
+  )
 
   const dialogContent = (
     <div
@@ -445,6 +498,7 @@ export default function MistakeReviewAgentDialog({
                   className="button button-secondary"
                   data-testid="mistake-review-regenerate-btn"
                   onClick={loadSuggestions}
+                  disabled={hasBlockingGenerationConfirmation}
                   style={{
                     padding: '2px 8px',
                     fontSize: '0.75rem',
@@ -556,7 +610,7 @@ export default function MistakeReviewAgentDialog({
                             type="button"
                             className="button button-primary"
                             data-testid={`mistake-review-confirm-btn-${index}`}
-                            disabled={isCreating}
+                            disabled={isCreating || (hasBlockingGenerationConfirmation && !isUncertain)}
                             onClick={() => handleConfirmCandidate(candidate)}
                             style={{
                               padding: '4px 12px',

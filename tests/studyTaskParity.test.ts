@@ -152,6 +152,44 @@ describe('study task SQLite/browser fallback parity', () => {
     expect(fallback.tasksRef.current).toEqual([])
   })
 
+  it('does not simulate C7 authoritative confirmation, token authorization, or receipt status in browser fallback', async () => {
+    const fallback = createFallbackFixture()
+
+    await expect(fallback.tasks.createIdempotentAIStudyTaskForCurrentDate({
+      operationId: '22222222-2222-4222-8222-222222222222',
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      originalGenerationContextSignature: '1'.repeat(64),
+      generationChapterSignature: '2'.repeat(64),
+      latestReviewedChapterSignature: '2'.repeat(64),
+      staleContextOverride: false,
+      staleReviewToken: null,
+      payload: {
+        title: 'Privileged browser candidate',
+        description: 'Must remain unsupported',
+        type: 'focus',
+        subject_id: null,
+        related_mistake_id: null,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: '2026-06-12',
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'ai',
+      },
+    }, 701)).rejects.toThrow('桌面版')
+
+    await expect(fallback.tasks.getTodayActionAuthoritativeChapterContext())
+      .rejects.toThrow('桌面版')
+    await expect(fallback.tasks.authorizeTodayActionStaleReview({} as never))
+      .rejects.toThrow('桌面版')
+    await expect(fallback.tasks.getCommittedAIStudyTaskOperationStatus({} as never))
+      .rejects.toThrow('桌面版')
+    expect(fallback.tasksRef.current).toEqual([])
+  })
+
   it('rolls back browser fallback creation when the date changes inside the call', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 31, 23, 59, 59))

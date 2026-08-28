@@ -1,8 +1,10 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { IdempotentAIStudyTaskCreateRequest } from '../../src/types/api'
+import { buildIdempotentAIStudyTaskRequestDigestInput } from '../../src/utils/agentStudyTaskActions'
 import { PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY } from '../../src/utils/pendingStudyTaskOperations'
 
 const projectRoot = path.resolve(__dirname, '..', '..')
@@ -10,6 +12,15 @@ const profilePrefix = 'minddiary-idempotent-study-task-e2e-'
 const profileRemovalMaxAttempts = 4
 const profileRemovalRetryDelayMs = 100
 const transientWindowsRemovalErrors = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
+const todayContextSummary = [
+  { category: 'available_minutes', preparation: 'prepared', disposition: 'included', reasonCode: 'included_required' },
+  { category: 'today_tasks', preparation: 'prepared_empty', disposition: 'included_empty', reasonCode: 'no_record' },
+  { category: 'due_mistakes', preparation: 'prepared_empty', disposition: 'included_empty', reasonCode: 'no_record' },
+  { category: 'subjects', preparation: 'prepared_empty', disposition: 'included_empty', reasonCode: 'no_record' },
+  { category: 'today_entry', preparation: 'prepared_empty', disposition: 'included_empty', reasonCode: 'no_record' },
+  { category: 'chapters', preparation: 'prepared_empty', disposition: 'included_empty', reasonCode: 'no_record' },
+  { category: 'focus_history', preparation: 'not_integrated', disposition: 'excluded', reasonCode: 'not_integrated' },
+] as const
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear()
@@ -50,12 +61,19 @@ function makeRequest(
   operationId: string,
   date: string,
   title: string,
+  chapterSignature: string,
 ): IdempotentAIStudyTaskCreateRequest {
   return {
     operationId,
     operationKind: 'today_action',
-    actionContractVersion: 'confirmed-study-task-action.v1',
+    actionContractVersion: 'confirmed-study-task-action.v2',
     expectedCurrentDate: date,
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    originalGenerationContextSignature: 'd'.repeat(64),
+    generationChapterSignature: chapterSignature,
+    latestReviewedChapterSignature: chapterSignature,
+    staleContextOverride: false,
+    staleReviewToken: null,
     payload: {
       title,
       description: '真实 preload、IPC 与 SQLite 幂等验证。',
@@ -72,10 +90,57 @@ function makeRequest(
   }
 }
 
-async function invokeCreate(page: Page, request: IdempotentAIStudyTaskCreateRequest) {
-  return page.evaluate(candidate => (
-    window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(candidate)
-  ), request)
+async function createPlanningCandidate(
+  page: Page,
+  request: IdempotentAIStudyTaskCreateRequest,
+  runId: string,
+): Promise<number> {
+  return page.evaluate(async ({ candidate, id, contextSummary }) => {
+    const planningRuns = window.api.planningRuns
+    if (!planningRuns) throw new Error('Planning History API is unavailable')
+    const candidateTitle = candidate.payload.title
+    const candidateType = candidate.payload.type
+    if (typeof candidateTitle !== 'string' || candidateType === undefined) {
+      throw new Error('Planning candidate payload is incomplete')
+    }
+    const run = await planningRuns.create({
+      id,
+      entryPoint: 'today_action',
+      planningDate: candidate.expectedCurrentDate,
+      targetDate: candidate.payload.planned_date,
+      generationResultKind: 'candidate_set',
+      contextSummary,
+      candidates: [{
+        ordinal: 0,
+        admissionOrigin: 'provider_validated',
+        title: candidateTitle,
+        description: candidate.payload.description ?? '',
+        type: candidateType,
+        estimateMinutes: candidate.payload.estimate_minutes ?? 25,
+        priority: 'high',
+        subjectId: candidate.payload.subject_id ?? null,
+        relatedMistakeId: candidate.payload.related_mistake_id ?? null,
+        relatedEntryId: candidate.payload.related_entry_id ?? null,
+        userDisposition: 'selected_unconfirmed',
+      }],
+    })
+    const planningCandidateId = run.candidates[0]?.id
+    if (!planningCandidateId) throw new Error('Planning candidate was not persisted')
+    return planningCandidateId
+  }, { candidate: request, id: runId, contextSummary: todayContextSummary })
+}
+
+async function invokeCreate(
+  page: Page,
+  request: IdempotentAIStudyTaskCreateRequest,
+  planningCandidateId: number,
+) {
+  return page.evaluate(({ candidate, candidateId }) => (
+    window.api.tasks.createIdempotentAIStudyTaskForCurrentDate({
+      planningCandidateId: candidateId,
+      request: candidate as never,
+    })
+  ), { candidate: request, candidateId: planningCandidateId })
 }
 
 async function getTasksForDate(page: Page, date: string) {
@@ -159,13 +224,21 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       await finishOnboarding(page)
       const today = localDateKey(new Date())
       const operationId = 'a1111111-1111-4111-8111-111111111111'
-      const request = makeRequest(operationId, today, 'E2E 幂等任务')
+      const chapterSignature = await page.evaluate(async () => (
+        await window.api.tasks.getTodayActionAuthoritativeChapterContext()
+      ).currentChapterSignature)
+      const request = makeRequest(operationId, today, 'E2E 幂等任务', chapterSignature)
+      const planningCandidateId = await createPlanningCandidate(
+        page,
+        request,
+        'e1111111-1111-4111-8111-111111111111',
+      )
 
-      const first = await invokeCreate(page, request)
+      const first = await invokeCreate(page, request, planningCandidateId)
       expect(first).toMatchObject({ ok: true, operationId, replayed: false })
       if (!first.ok) throw new Error(`First create failed: ${first.code}`)
 
-      const replay = await invokeCreate(page, request)
+      const replay = await invokeCreate(page, request, planningCandidateId)
       expect(replay).toMatchObject({
         ok: true,
         operationId,
@@ -177,9 +250,42 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       const conflict = await invokeCreate(page, {
         ...request,
         payload: { ...request.payload, description: '同一 ID 的不同规范请求。' },
-      })
-      expect(conflict).toMatchObject({ ok: false, operationId, code: 'IDEMPOTENCY_CONFLICT' })
+      }, planningCandidateId)
+      expect(conflict).toMatchObject({ ok: false, operationId, code: 'INTEGRITY_ERROR' })
       expect(await getTasksForDate(page, today)).toHaveLength(1)
+
+      const forgedChapterRelationRequest = makeRequest(
+        'd4444444-4444-4444-8444-444444444444',
+        today,
+        'E2E forged chapter relation',
+        chapterSignature,
+      )
+      const forgedCandidateId = await createPlanningCandidate(
+        page,
+        forgedChapterRelationRequest,
+        'e4444444-4444-4444-8444-444444444444',
+      )
+      await expect(invokeCreate(page, {
+          ...forgedChapterRelationRequest,
+          payload: {
+            ...forgedChapterRelationRequest.payload,
+            related_chapter_id: 1,
+          },
+        }, forgedCandidateId))
+        .rejects.toThrow()
+      expect(await getTasksForDate(page, today)).toHaveLength(1)
+
+      const staleRequest = makeRequest(
+        'b2222222-2222-4222-8222-222222222222',
+        today,
+        'E2E 旧日期新操作',
+        chapterSignature,
+      )
+      const staleCandidateId = await createPlanningCandidate(
+        page,
+        staleRequest,
+        'e2222222-2222-4222-8222-222222222222',
+      )
 
       const tomorrowAtNoon = new Date()
       tomorrowAtNoon.setDate(tomorrowAtNoon.getDate() + 1)
@@ -189,10 +295,11 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
 
       const staleNewOperation = await invokeCreate(
         page,
-        makeRequest('b2222222-2222-4222-8222-222222222222', today, 'E2E 旧日期新操作'),
+        staleRequest,
+        staleCandidateId,
       )
       expect(staleNewOperation).toMatchObject({ ok: false, code: 'DATE_MISMATCH' })
-      const crossDateReplay = await invokeCreate(page, request)
+      const crossDateReplay = await invokeCreate(page, request, planningCandidateId)
       expect(crossDateReplay).toMatchObject({
         ok: true,
         replayed: true,
@@ -203,21 +310,43 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
       await restoreMainProcessClock(application)
       mainClockChanged = false
       await page.evaluate(taskId => window.api.tasks.delete(taskId), first.task.id)
-      const deletedReplay = await invokeCreate(page, request)
+      const deletedReplay = await invokeCreate(page, request, planningCandidateId)
       expect(deletedReplay).toMatchObject({ ok: false, operationId, code: 'RESULT_DELETED' })
       expect(await getTasksForDate(page, today)).toEqual([])
 
       const recoveryOperationId = 'c3333333-3333-4333-8333-333333333333'
-      const recoveryRequest = makeRequest(recoveryOperationId, today, 'E2E 重启恢复任务')
-      const recoverySeed = await invokeCreate(page, recoveryRequest)
+      const recoveryRequest = makeRequest(recoveryOperationId, today, 'E2E 重启恢复任务', chapterSignature)
+      const recoveryCandidateId = await createPlanningCandidate(
+        page,
+        recoveryRequest,
+        'e3333333-3333-4333-8333-333333333333',
+      )
+      const recoverySeed = await invokeCreate(page, recoveryRequest, recoveryCandidateId)
       expect(recoverySeed).toMatchObject({ ok: true, replayed: false })
       if (!recoverySeed.ok) throw new Error(`Recovery seed failed: ${recoverySeed.code}`)
-      await page.evaluate(({ key, pendingRequest }) => {
+      const recoveryDigest = createHash('sha256')
+        .update(buildIdempotentAIStudyTaskRequestDigestInput(recoveryRequest), 'utf8')
+        .digest('hex')
+      await page.evaluate(({ key, pendingRequest, planningCandidateId, requestDigest }) => {
         localStorage.setItem(key, JSON.stringify({
           version: 1,
-          operations: [{ ...pendingRequest, createdAt: new Date().toISOString() }],
+          operations: [{
+            operationId: pendingRequest.operationId,
+            operationKind: 'today_action',
+            actionContractVersion: 'confirmed-study-task-action.v2',
+            expectedCurrentDate: pendingRequest.expectedCurrentDate,
+            plannedDate: pendingRequest.payload.planned_date,
+            planningCandidateId,
+            requestDigest,
+            createdAt: new Date().toISOString(),
+          }],
         }))
-      }, { key: PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY, pendingRequest: recoveryRequest })
+      }, {
+        key: PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY,
+        pendingRequest: recoveryRequest,
+        planningCandidateId: recoveryCandidateId,
+        requestDigest: recoveryDigest,
+      })
 
       await application.close()
       application = undefined
@@ -237,7 +366,7 @@ test.describe('idempotent confirmed study task creation through Electron', () =>
         .not.toBeNull()
 
       await page.getByTestId(`recover-pending-study-task-${recoveryOperationId}`).click()
-      await expect(page.getByTestId('pending-study-task-outcome')).toHaveText(
+      await expect(page.getByTestId('pending-study-task-outcome')).toContainText(
         '原操作此前已完成，本次未重复创建',
       )
       expect(await page.evaluate(key => localStorage.getItem(key), PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY))

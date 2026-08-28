@@ -42,15 +42,32 @@ import {
 } from './updaterState';
 import { runDateRolloverDiagnostic } from './dateRolloverDiagnostic';
 import { createStudyTaskForCurrentDate } from './dateBoundTaskCreation';
-import { createIdempotentAIStudyTaskForCurrentDate } from './idempotentStudyTaskCreation';
+import {
+    buildIdempotentAIStudyTaskRequestDigest,
+    createIdempotentAIStudyTaskForCurrentDate,
+    getCommittedAIStudyTaskOperationStatus,
+    preflightCommittedAIStudyTaskReceipt,
+    validateIdempotentAIStudyTaskCreateRequest,
+    validatePrivilegedTodayActionV2CreateCommand,
+    validateTodayActionCommittedStatusRequest,
+} from './idempotentStudyTaskCreation';
+import {
+    TodayActionStaleReviewTokenStore,
+    authorizeTodayActionStaleReview,
+    readAuthoritativeTodayActionChapterContext,
+} from './todayActionChapterContext';
+import { createTodayActionIpcHandlers } from './todayActionIpc';
 import {
     createPlanningHistoryStore,
     PlanningHistoryConflictError,
     PlanningHistoryUnavailableError,
     PlanningHistoryValidationError,
 } from './planningHistory';
-import { executeStudyTaskCommandWithPlanningAudit } from './planningTaskCorrelation';
-import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api';
+import {
+    executePrivilegedTodayActionV2CommandWithPlanningAudit,
+    executeStudyTaskCommandWithPlanningAudit,
+    reconcileCommittedStudyTaskStatusWithPlanningAudit,
+} from './planningTaskCorrelation';
 import { getLocalDateKey } from '../src/utils/dateKey';
 import {
     DEFAULT_EXAM_EVENT_ID,
@@ -106,6 +123,7 @@ import type {
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let mainWindowNavigationPolicy: NavigationPolicy | null = null;
 const planningRunIdsObservedThisProcess = new Set<string>();
+const todayActionStaleReviewTokenStore = new TodayActionStaleReviewTokenStore();
 const APP_USER_MODEL_ID = 'com.minddiary.app';
 let smokeDiagnosticRequest: SmokeDiagnosticRequest | null = null;
 let smokeDiagnosticConfigurationFailed = false;
@@ -135,6 +153,72 @@ function getMainNavigationPolicy(runtimeMode: RendererRuntimeMode): NavigationPo
 function getActiveMainNavigationPolicy(): NavigationPolicy {
     return mainWindowNavigationPolicy ?? getMainNavigationPolicy(getRendererRuntimeMode());
 }
+
+const todayActionIpcHandlers = createTodayActionIpcHandlers({
+    isTrustedSender: event => isTrustedMainWindowIpcSender(event as MainWindowIpcEvent, {
+        getMainWindow: () => mainWindow,
+        getNavigationPolicy: getActiveMainNavigationPolicy,
+    }),
+    readChapterContext: () => {
+        const context = readAuthoritativeTodayActionChapterContext(db.getDb());
+        return {
+            chapterProjection: context.chapterProjection,
+            currentChapterSignature: context.currentChapterSignature,
+        };
+    },
+    authorizeStaleReview: (request, trustedSession) => authorizeTodayActionStaleReview(request, {
+        database: db.getDb(),
+        getCurrentDateKey: getCurrentTaskCreationDateKey,
+        trustedSession,
+        tokenStore: todayActionStaleReviewTokenStore,
+    }),
+    getCommittedStatus: request => {
+        const validatedRequest = validateTodayActionCommittedStatusRequest(request);
+        const database = db.getDb();
+        const committedStatus = getCommittedAIStudyTaskOperationStatus(
+            validatedRequest,
+            { database },
+        );
+        if (validatedRequest.planningCandidateId === undefined) {
+            return reconcileCommittedStudyTaskStatusWithPlanningAudit(
+                committedStatus,
+                null,
+                {
+                    recordOutcome: () => {
+                        throw new Error('Legacy status must not write Planning History');
+                    },
+                    warn: (message, error) => logger.warn(
+                        `[planning-history] ${message}`,
+                        error instanceof Error ? error.message : 'unknown error',
+                    ),
+                    runInTransaction: operation => database.transaction(operation)(),
+                },
+            );
+        }
+        const planningHistory = createPlanningHistoryStore({ database });
+        const classification = planningHistory.classifyTodayActionCandidateIdentity(
+            validatedRequest.planningCandidateId,
+            validatedRequest.operationId,
+            validatedRequest.expectedCurrentDate,
+            validatedRequest.plannedDate,
+        );
+        return reconcileCommittedStudyTaskStatusWithPlanningAudit(
+            committedStatus,
+            classification,
+            {
+                planningCandidateId: validatedRequest.planningCandidateId,
+                recordOutcome: (candidateId, operationId, outcomeKind) => (
+                    planningHistory.recordOutcome(candidateId, operationId, outcomeKind)
+                ),
+                warn: (message, error) => logger.warn(
+                    `[planning-history] ${message}`,
+                    error instanceof Error ? error.message : 'unknown error',
+                ),
+                runInTransaction: operation => database.transaction(operation)(),
+            },
+        );
+    },
+});
 
 function configureWindowsAppUserModelId() {
     if (process.platform !== 'win32') return;
@@ -1127,9 +1211,20 @@ ipcMain.handle('tasks:createForCurrentDate', (_: unknown, task: unknown, expecte
         runInTransaction: operation => db.getDb().transaction(operation)(),
     })
 ));
-ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
+ipcMain.handle('tasks:getTodayActionAuthoritativeChapterContext', (event: MainWindowIpcEvent) => (
+    todayActionIpcHandlers.getAuthoritativeChapterContext(event)
+));
+ipcMain.handle('tasks:authorizeTodayActionStaleReview', (
     event: MainWindowIpcEvent,
     request: unknown,
+) => todayActionIpcHandlers.authorizeStaleReview(event, request));
+ipcMain.handle('tasks:getCommittedAIStudyTaskOperationStatus', (
+    event: MainWindowIpcEvent,
+    request: unknown,
+) => todayActionIpcHandlers.getCommittedStatus(event, request));
+ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
+    event: MainWindowIpcEvent,
+    commandOrRequest: unknown,
     planningCandidateId: unknown,
 ) => {
     if (!isTrustedMainWindowIpcSender(event, {
@@ -1138,16 +1233,72 @@ ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
     })) {
         throw new Error('Idempotent AI study task request rejected');
     }
-    const planningHistory = createPlanningHistoryStore({ database: db.getDb() });
-    return executeStudyTaskCommandWithPlanningAudit(
-        request as IdempotentAIStudyTaskCreateRequest,
-        planningCandidateId,
+
+    let privilegedCommand;
+    try {
+        privilegedCommand = validatePrivilegedTodayActionV2CreateCommand(commandOrRequest);
+    } catch {
+        const request = validateIdempotentAIStudyTaskCreateRequest(commandOrRequest);
+        if (
+            request.operationKind === 'today_action'
+            && request.actionContractVersion === 'confirmed-study-task-action.v2'
+        ) {
+            throw new Error('Today Action v2 requires the exact privileged create envelope');
+        }
+        const database = db.getDb();
+        const planningHistory = createPlanningHistoryStore({ database });
+        return executeStudyTaskCommandWithPlanningAudit(
+            request,
+            planningCandidateId,
+            {
+                claim: (candidateId, taskRequest) => planningHistory.claimConfirmation(candidateId, taskRequest),
+                execute: taskRequest => createIdempotentAIStudyTaskForCurrentDate(taskRequest, {
+                    database,
+                    getCurrentDateKey: getCurrentTaskCreationDateKey,
+                    createTask: db.createStudyTask,
+                    trustedSession: event.sender,
+                    tokenStore: todayActionStaleReviewTokenStore,
+                }),
+                recordOutcome: (candidateId, operationId, outcome) => (
+                    planningHistory.recordOutcome(candidateId, operationId, outcome)
+                ),
+                warn: (message, error) => logger.warn(
+                    `[planning-history] ${message}`,
+                    error instanceof Error ? error.message : 'unknown error',
+                ),
+                runInTransaction: operation => database.transaction(operation)(),
+            },
+        );
+    }
+
+    const requestDigest = buildIdempotentAIStudyTaskRequestDigest(privilegedCommand.request);
+    const database = db.getDb();
+    const planningHistory = createPlanningHistoryStore({ database });
+    return executePrivilegedTodayActionV2CommandWithPlanningAudit(
+        privilegedCommand,
+        requestDigest,
         {
+            preflightReceipt: (request, digest) => preflightCommittedAIStudyTaskReceipt(
+                request,
+                digest,
+                { database },
+            ),
+            classifyCandidate: (candidateId, operationId, planningDate, targetDate, request) => (
+                planningHistory.classifyTodayActionCandidateIdentity(
+                    candidateId,
+                    operationId,
+                    planningDate,
+                    targetDate,
+                    request,
+                )
+            ),
             claim: (candidateId, taskRequest) => planningHistory.claimConfirmation(candidateId, taskRequest),
             execute: taskRequest => createIdempotentAIStudyTaskForCurrentDate(taskRequest, {
-                database: db.getDb(),
+                database,
                 getCurrentDateKey: getCurrentTaskCreationDateKey,
                 createTask: db.createStudyTask,
+                trustedSession: event.sender,
+                tokenStore: todayActionStaleReviewTokenStore,
             }),
             recordOutcome: (candidateId, operationId, outcome) => (
                 planningHistory.recordOutcome(candidateId, operationId, outcome)
@@ -1156,6 +1307,7 @@ ipcMain.handle('tasks:createIdempotentAIStudyTaskForCurrentDate', (
                 `[planning-history] ${message}`,
                 error instanceof Error ? error.message : 'unknown error',
             ),
+            runInTransaction: operation => database.transaction(operation)(),
         },
     );
 });

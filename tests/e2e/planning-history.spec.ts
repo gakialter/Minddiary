@@ -1,7 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import path from 'node:path'
-import type { IdempotentAIStudyTaskCreateRequest } from '../../src/types/api'
+import type { TodayActionCommittedStatusRequest } from '../../src/types/api'
+import { PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY } from '../../src/utils/pendingStudyTaskOperations'
 import {
   createDisposableElectronProfile,
   removeDisposableElectronProfile,
@@ -9,7 +10,7 @@ import {
 
 const projectRoot = path.resolve(__dirname, '..', '..')
 const profilePrefix = 'minddiary-planning-history-e2e-'
-const actionContractVersion = 'confirmed-study-task-action.v1'
+const actionContractVersion = 'confirmed-study-task-action.v2'
 
 const todayOriginalTitle = 'E2E Generation A 原始任务'
 const todayFinalTitle = 'E2E Generation A 编辑后任务'
@@ -200,6 +201,16 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await page.getByLabel('建议优先级').nth(0).selectOption('medium')
       await page.getByRole('checkbox', { name: `选择 ${todayUnselectedTitle}` }).uncheck()
 
+      await page.evaluate(storageKey => {
+        const originalSetItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function capturePendingMarker(key: string, value: string) {
+          if (this === localStorage && key === storageKey) {
+            Reflect.set(globalThis, '__minddiaryCapturedPendingMarker', value)
+          }
+          originalSetItem.call(this, key, value)
+        }
+      }, PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+
       await page.getByTestId('ai-plan-create-selected').click()
       await expect(page.getByTestId('ai-plan-creation-summary')).toHaveText(
         '本次新创建 1 项，重放确认 0 项，未新建 0 项，结果待检查 0 项。',
@@ -207,6 +218,29 @@ test.describe('Phase C2 Planning History through Electron', () => {
       const confirmedOutcome = page.getByTestId('today-action-confirmed-outcome-suggestion-1')
       await expect(confirmedOutcome).toContainText('已创建任务')
       const operationId = extractOperationId(await confirmedOutcome.innerText())
+      const capturedPendingMarker = await page.evaluate(() => (
+        Reflect.get(globalThis, '__minddiaryCapturedPendingMarker') as unknown
+      ))
+      if (typeof capturedPendingMarker !== 'string') {
+        throw new Error('Today Action pending marker was not captured before task creation')
+      }
+      const pendingEnvelope = JSON.parse(capturedPendingMarker) as {
+        operations: Array<{
+          operationId: string
+          planningCandidateId?: number
+          requestDigest?: string
+        }>
+      }
+      const confirmedMarker = pendingEnvelope.operations.find(item => item.operationId === operationId)
+      if (
+        !confirmedMarker
+        || typeof confirmedMarker.planningCandidateId !== 'number'
+        || typeof confirmedMarker.requestDigest !== 'string'
+      ) {
+        throw new Error('Today Action pending marker omitted its audit identities')
+      }
+      expect(confirmedMarker.planningCandidateId).toBeGreaterThan(0)
+      expect(confirmedMarker.requestDigest).toMatch(/^[0-9a-f]{64}$/)
 
       const tasksAfterConfirmation = await getTasksForDate(page, today)
       const confirmedTask = tasksAfterConfirmation.find(task => task.title === todayFinalTitle)
@@ -265,32 +299,21 @@ test.describe('Phase C2 Planning History through Electron', () => {
       expect(await getTasksForDate(page, today)).toHaveLength(2)
 
       if (!confirmedTask) throw new Error('Confirmed task was unexpectedly unavailable')
-      const replayRequest: IdempotentAIStudyTaskCreateRequest = {
+      const statusRequest: TodayActionCommittedStatusRequest = {
         operationId,
         operationKind: 'today_action',
         actionContractVersion,
         expectedCurrentDate: today,
-        payload: {
-          title: todayFinalTitle,
-          description: todayFinalReason,
-          type: 'focus',
-          subject_id: null,
-          related_mistake_id: null,
-          related_entry_id: null,
-          related_chapter_id: null,
-          planned_date: today,
-          estimate_minutes: 25,
-          status: 'todo',
-          source: 'ai',
-        },
+        plannedDate: today,
+        planningCandidateId: confirmedMarker.planningCandidateId,
+        requestDigest: confirmedMarker.requestDigest,
       }
-      const replayAfterDelete = await page.evaluate(request => (
-        window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
-      ), replayRequest)
-      expect(replayAfterDelete).toMatchObject({
-        ok: true,
+      const statusAfterDelete = await page.evaluate(request => (
+        window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)
+      ), statusRequest)
+      expect(statusAfterDelete).toMatchObject({
+        status: 'RECOVERED_COMMITTED',
         operationId,
-        replayed: true,
         task: { id: confirmedTask.id },
       })
 
@@ -298,13 +321,12 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await expect(rows).toHaveCount(0)
       await expect(page.getByText('还没有持久化的 AI 规划记录。')).toBeVisible()
 
-      const replayAfterClear = await page.evaluate(request => (
-        window.api.tasks.createIdempotentAIStudyTaskForCurrentDate(request)
-      ), replayRequest)
-      expect(replayAfterClear).toMatchObject({
-        ok: true,
+      const statusAfterClear = await page.evaluate(request => (
+        window.api.tasks.getCommittedAIStudyTaskOperationStatus(request)
+      ), statusRequest)
+      expect(statusAfterClear).toMatchObject({
+        status: 'RECOVERED_COMMITTED',
         operationId,
-        replayed: true,
         task: { id: confirmedTask.id },
       })
       expect(await getTasksForDate(page, today)).toHaveLength(2)

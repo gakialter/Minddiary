@@ -2,7 +2,15 @@ import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId
 import { createPortal } from 'react-dom'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
-import type { AIContextAPI, EntriesContextAPI, MistakesContextAPI, SubjectsContextAPI, TasksContextAPI } from '../types/api'
+import type {
+  AIContextAPI,
+  EntriesContextAPI,
+  MistakesContextAPI,
+  SubjectChaptersContextAPI,
+  SubjectsContextAPI,
+  TasksContextAPI,
+  TodayActionAuthoritativeChapterContext,
+} from '../types/api'
 import {
   buildTodayActionPlanningContextSignature,
   buildTodayActionSuggestionRequest,
@@ -17,9 +25,11 @@ import {
 } from '../utils/todayActionSuggestions'
 import {
   buildIdempotentAIStudyTaskCreateRequest,
+  buildTodayActionStaleReviewAuthorizationRequest,
+  computeIdempotentAIStudyTaskRequestDigest,
   createConfirmedStudyTaskOperationId,
   createConfirmedStudyTaskAction,
-  executeConfirmedStudyTaskAction,
+  executeIdempotentAIStudyTaskCreateRequest,
   type StudyTaskActionConfirmationSnapshot,
 } from '../utils/agentStudyTaskActions'
 import {
@@ -30,6 +40,13 @@ import {
   removePendingStudyTaskOperation,
   savePendingStudyTaskOperation,
 } from '../utils/pendingStudyTaskOperations'
+import {
+  computeTodayActionChapterSignature,
+  computeTodayActionGenerationContextSignature,
+  createEmptyTodayActionChapterProjection,
+  loadTodayActionChapterProjectionForGeneration,
+  type TodayActionProviderChapterProjection,
+} from '../utils/todayActionChapterContext'
 import {
   addPlanningSessionCandidate,
   applyPlanningCandidateObservedOutcome,
@@ -63,7 +80,6 @@ import {
 import {
   DEFAULT_PLANNING_STRATEGY_ID,
   PLANNING_STRATEGIES,
-  buildTodayActionGenerationContextSignature,
   getPlanningStrategyMetadata,
   type PlanningStrategyId,
 } from '../utils/planningStrategies'
@@ -148,12 +164,71 @@ interface CreationSummary {
   recoveryWarning?: string
 }
 
+type DefinitiveTodayActionFailureCode = Extract<
+  PlanningStudyTaskActionExecutionObservation,
+  { status: 'failed' }
+>['code']
+
+function getDefinitiveTodayActionFailureGenerationPolicy(
+  code: DefinitiveTodayActionFailureCode,
+): { stop: boolean; notice: string | null; refreshChapterContext: boolean } {
+  switch (code) {
+    case 'INVALID_REQUEST':
+      return {
+        stop: true,
+        notice: '本次确认未通过安全校验。当前建议已不能继续使用，请重新生成建议。',
+        refreshChapterContext: true,
+      }
+    case 'DATE_MISMATCH':
+      return {
+        stop: true,
+        notice: '确认日期已失效。当前建议已不能继续使用，请在日期更新后重新生成建议。',
+        refreshChapterContext: false,
+      }
+    case 'INTEGRITY_ERROR':
+      return {
+        stop: true,
+        notice: '确认过程中发现完整性异常。当前建议已停止，请重新生成建议。',
+        refreshChapterContext: false,
+      }
+    case 'IDEMPOTENCY_CONFLICT':
+    case 'RESULT_DELETED':
+      return { stop: false, notice: null, refreshChapterContext: false }
+    default: {
+      const unhandledCode: never = code
+      return unhandledCode
+    }
+  }
+}
+
+function consumeDefinitiveTodayActionFailure(
+  suggestion: TodayActionSuggestionDraft,
+  operationId: string,
+  creationError: string,
+): TodayActionSuggestionDraft {
+  return {
+    ...suggestion,
+    operationId,
+    creationState: 'failed',
+    creationError,
+    selected: false,
+  }
+}
+
 interface TodayActionSuggestionDialogProps {
   date: string
   aiAPI: Pick<AIContextAPI, 'chat'>
-  tasksAPI: Pick<TasksContextAPI, 'getByDate' | 'createIdempotentAIStudyTaskForCurrentDate'>
+  tasksAPI: Pick<
+    TasksContextAPI,
+    | 'getByDate'
+    | 'createIdempotentAIStudyTaskForCurrentDate'
+    | 'getTodayActionAuthoritativeChapterContext'
+    | 'authorizeTodayActionStaleReview'
+    | 'getCommittedAIStudyTaskOperationStatus'
+  >
   mistakesAPI: Pick<MistakesContextAPI, 'getAll'>
   subjectsAPI: Pick<SubjectsContextAPI, 'getAll'>
+  subjectChaptersAPI: Pick<SubjectChaptersContextAPI, 'getBySubject'>
   entriesAPI: Pick<EntriesContextAPI, 'getByDate'>
   onClose: () => void
   onCreated: () => void | Promise<void>
@@ -197,6 +272,7 @@ export default function TodayActionSuggestionDialog({
   tasksAPI,
   mistakesAPI,
   subjectsAPI,
+  subjectChaptersAPI,
   entriesAPI,
   onClose,
   onCreated,
@@ -206,10 +282,26 @@ export default function TodayActionSuggestionDialog({
   const [contextLoading, setContextLoading] = useState(false)
   const [contextError, setContextError] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<TodayActionSuggestionDraft[]>([])
+  const suggestionsRef = useRef(suggestions)
+  suggestionsRef.current = suggestions
   const [errors, setErrors] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [creating, setCreating] = useState(false)
+  const creatingRef = useRef(false)
+  const [creationDispatchStarted, setCreationDispatchStarted] = useState(false)
+  const creationDispatchStartedRef = useRef(false)
+  const [recoveringPendingOperation, setRecoveringPendingOperation] = useState(false)
+  const recoveringPendingOperationRef = useRef(false)
   const [generationProvenance, setGenerationProvenance] = useState<AIStudyTaskGenerationProvenance | null>(null)
+  const [generationChapterSignature, setGenerationChapterSignature] = useState<string | null>(null)
+  const [latestReviewedChapterSignature, setLatestReviewedChapterSignature] = useState<string | null>(null)
+  const [generationChapterProjection, setGenerationChapterProjection] = useState<TodayActionProviderChapterProjection>(
+    createEmptyTodayActionChapterProjection,
+  )
+  const [refreshedChapterProjection, setRefreshedChapterProjection] = useState<TodayActionProviderChapterProjection | null>(null)
+  const [pendingChapterReviewSignature, setPendingChapterReviewSignature] = useState<string | null>(null)
+  const [staleChapterNotice, setStaleChapterNotice] = useState<string | null>(null)
+  const [requiresRegenerationAfterDefinitiveFailure, setRequiresRegenerationAfterDefinitiveFailure] = useState(false)
   const [reviewedConfirmationContextSignature, setReviewedConfirmationContextSignature] = useState<string | null>(null)
   const [staleContextNotice, setStaleContextNotice] = useState<string | null>(null)
   const [creationSummary, setCreationSummary] = useState<CreationSummary | null>(null)
@@ -229,6 +321,7 @@ export default function TodayActionSuggestionDialog({
   const durablePlanningRunRef = useRef<PlanningRunRecord | null>(null)
   const planningTransitionQueueRef = useRef<Promise<void>>(Promise.resolve())
   const pendingGenerationCloseReasonsRef = useRef(new Map<number, 'dialog_closed' | 'regenerated' | 'date_rollover'>())
+  const generationWorkflowRef = useRef<symbol | null>(null)
   const generationRef = useRef(0)
   const contextRequestRef = useRef(0)
   const currentDateRef = useRef(date)
@@ -326,6 +419,13 @@ export default function TodayActionSuggestionDialog({
     setSuggestions([])
     setErrors([])
     setGenerationProvenance(null)
+    setGenerationChapterSignature(null)
+    setLatestReviewedChapterSignature(null)
+    setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+    setRefreshedChapterProjection(null)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice(null)
+    setRequiresRegenerationAfterDefinitiveFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -335,7 +435,12 @@ export default function TodayActionSuggestionDialog({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !generating && !creating && !feedbackLoading) closeDialog()
+      if (
+        event.key === 'Escape'
+        && !generating
+        && (!creating || !creationDispatchStartedRef.current)
+        && !feedbackLoading
+      ) closeDialog()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
@@ -400,6 +505,7 @@ export default function TodayActionSuggestionDialog({
       })()
     }
     currentDateRef.current = date
+    generationWorkflowRef.current = null
     generationRef.current += 1
     contextRequestRef.current += 1
     setShowFeedbackPreview(false)
@@ -414,6 +520,13 @@ export default function TodayActionSuggestionDialog({
     setGenerating(false)
     setCreating(false)
     setGenerationProvenance(null)
+    setGenerationChapterSignature(null)
+    setLatestReviewedChapterSignature(null)
+    setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+    setRefreshedChapterProjection(null)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice(null)
+    setRequiresRegenerationAfterDefinitiveFailure(false)
     setReviewedConfirmationContextSignature(null)
     setStaleContextNotice(null)
     setCreationSummary(null)
@@ -490,6 +603,7 @@ export default function TodayActionSuggestionDialog({
     updateKind: 'edit' | 'selection',
     commitImmediately = false,
   ) => {
+    if (requiresRegenerationAfterDefinitiveFailure) return
     const beforeSuggestions = suggestions
     const nextSuggestions = revalidate(beforeSuggestions.map(suggestion => {
       if (suggestion.clientId !== clientId) return suggestion
@@ -630,43 +744,85 @@ export default function TodayActionSuggestionDialog({
     })
   }, [])
 
+  const beginGenerationWorkflow = (): symbol | null => {
+    if (generationWorkflowRef.current !== null || creatingRef.current) return null
+    const token = Symbol('today-action-generation-workflow')
+    generationWorkflowRef.current = token
+    return token
+  }
+
+  const finishGenerationWorkflow = (token: symbol) => {
+    if (generationWorkflowRef.current === token) generationWorkflowRef.current = null
+  }
+
   const startActualGeneration = async (
     feedbackPayload: PlanningFeedbackPayload | null,
     authorizedStrategy?: PlanningStrategyId,
+    existingWorkflowToken?: symbol,
   ) => {
-    if (generating || creating) return
-    if (durablePlanningRunRef.current !== null) {
-      await flushPlanningCandidates(suggestions, planningSession)
-      await closePlanningRun('regenerated')
-    }
-    const generation = ++generationRef.current
-    const generationId = `today-action${dialogInstanceId}-generation-${generation}`
-    setGenerating(true)
-    setErrors([])
-    setSuggestions([])
-    setShowFeedbackPreview(false)
-    setFeedbackPreviewCandidates([])
-    setSelectedFeedbackKeys(new Set())
-    setFeedbackWarning(null)
-    setFeedbackStaleNotice(null)
-    setGenerationProvenance(null)
-    setReviewedConfirmationContextSignature(null)
-    setStaleContextNotice(null)
-    setCreationSummary(null)
-    setGeneratedStrategy(null)
-    setPlanningSession(createPlanningSessionExplainability({
-      generationId,
-      contextDecisions: [],
-      candidates: [],
-    }))
+    const workflowToken = existingWorkflowToken ?? beginGenerationWorkflow()
+    if (workflowToken === null || generationWorkflowRef.current !== workflowToken) return
+    const workflowDate = date
+    let generation: number | null = null
     try {
+      setGenerating(true)
+      if (durablePlanningRunRef.current !== null) {
+        await flushPlanningCandidates(suggestions, planningSession)
+        await closePlanningRun('regenerated')
+      }
+      if (
+        !mountedRef.current
+        || currentDateRef.current !== workflowDate
+        || generationWorkflowRef.current !== workflowToken
+      ) return
+      generation = ++generationRef.current
+      const generationId = `today-action${dialogInstanceId}-generation-${generation}`
+      setErrors([])
+      setSuggestions([])
+      setShowFeedbackPreview(false)
+      setFeedbackPreviewCandidates([])
+      setSelectedFeedbackKeys(new Set())
+      setFeedbackWarning(null)
+      setFeedbackStaleNotice(null)
+      setGenerationProvenance(null)
+      setGenerationChapterSignature(null)
+      setLatestReviewedChapterSignature(null)
+      setGenerationChapterProjection(createEmptyTodayActionChapterProjection())
+      setRefreshedChapterProjection(null)
+      setPendingChapterReviewSignature(null)
+      setStaleChapterNotice(null)
+      setRequiresRegenerationAfterDefinitiveFailure(false)
+      setReviewedConfirmationContextSignature(null)
+      setStaleContextNotice(null)
+      setCreationSummary(null)
+      setGeneratedStrategy(null)
+      setPlanningSession(createPlanningSessionExplainability({
+        generationId,
+        contextDecisions: [],
+        candidates: [],
+      }))
       const context = await refreshPlanningContext()
       if (!context) return
       if (generationRef.current !== generation) return
       setPlanningContext(context)
 
       const strategyToUse = authorizedStrategy ?? selectedStrategyRef.current
-      const request = buildTodayActionSuggestionRequest(context, strategyToUse, feedbackPayload)
+      const chapterProjection = await loadTodayActionChapterProjectionForGeneration({
+        loadSubjects: async () => context.subjects,
+        loadChapters: subjectId => subjectChaptersAPI.getBySubject(subjectId),
+      })
+      if (generationRef.current !== generation) return
+      const request = buildTodayActionSuggestionRequest(
+        context,
+        strategyToUse,
+        feedbackPayload,
+        chapterProjection,
+      )
+      const [originalGenerationContextSignature, chapterSignature] = await Promise.all([
+        computeTodayActionGenerationContextSignature(request.messages),
+        computeTodayActionChapterSignature(chapterProjection),
+      ])
+      if (generationRef.current !== generation) return
       setPlanningSession(createPlanningSessionExplainability({
         generationId,
         contextDecisions: request.contextDecisions,
@@ -695,15 +851,16 @@ export default function TodayActionSuggestionDialog({
             })),
         }))
         const baseContextSignature = buildTodayActionPlanningContextSignature(context)
-        const generationContextSignature = buildTodayActionGenerationContextSignature({
-          baseDomainContextSignature: baseContextSignature,
-          strategyId: strategyToUse,
-          feedbackPayload,
-        })
         setGenerationProvenance(createAIStudyTaskGenerationProvenance(
           'today_action',
-          generationContextSignature,
+          originalGenerationContextSignature,
         ))
+        setGenerationChapterProjection(chapterProjection)
+        setGenerationChapterSignature(chapterSignature)
+        setLatestReviewedChapterSignature(chapterSignature)
+        setRefreshedChapterProjection(null)
+        setPendingChapterReviewSignature(null)
+        setStaleChapterNotice(null)
         setReviewedConfirmationContextSignature(baseContextSignature)
         setGeneratedStrategy(strategyToUse)
         const planningRunsAPI = getPlanningRunsAPI()
@@ -746,19 +903,32 @@ export default function TodayActionSuggestionDialog({
         }
       }
     } catch (error) {
-      if (generationRef.current === generation) {
+      if (
+        mountedRef.current
+        && currentDateRef.current === workflowDate
+        && generationWorkflowRef.current === workflowToken
+        && (generation === null || generationRef.current === generation)
+      ) {
         setErrors([error instanceof Error ? error.message : String(error)])
       }
     } finally {
-      if (generationRef.current === generation) setGenerating(false)
+      const ownsWorkflow = generationWorkflowRef.current === workflowToken
+      finishGenerationWorkflow(workflowToken)
+      if (
+        ownsWorkflow
+        && mountedRef.current
+        && currentDateRef.current === workflowDate
+        && (generation === null || generationRef.current === generation)
+      ) setGenerating(false)
     }
   }
 
   const requestGeneration = async () => {
-    if (generating || creating || feedbackLoading) return
+    const workflowToken = beginGenerationWorkflow()
+    if (workflowToken === null) return
     const planningRunsAPI = getPlanningRunsAPI()
     if (!planningRunsAPI) {
-      await startActualGeneration(null)
+      await startActualGeneration(null, undefined, workflowToken)
       return
     }
 
@@ -789,7 +959,7 @@ export default function TodayActionSuggestionDialog({
       const eligibleCandidates = deriveTodayActionFeedbackCandidates(runs)
       if (eligibleCandidates.length === 0) {
         setFeedbackLoading(false)
-        await startActualGeneration(null)
+        await startActualGeneration(null, undefined, workflowToken)
         return
       }
       setFeedbackPreviewCandidates(eligibleCandidates)
@@ -808,28 +978,30 @@ export default function TodayActionSuggestionDialog({
       setSelectedFeedbackKeys(new Set())
       setShowFeedbackPreview(true)
     } finally {
-      if (mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
+      const ownsWorkflow = generationWorkflowRef.current === workflowToken
+      finishGenerationWorkflow(workflowToken)
+      if (ownsWorkflow && mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
         setFeedbackLoading(false)
       }
     }
   }
 
   const confirmFeedbackGeneration = async () => {
-    if (generating || creating || feedbackLoading) return
     const strategyAtFinalAuthorization = selectedStrategyRef.current
+    const selectedItems = feedbackPreviewCandidates.filter(c => (
+      selectedFeedbackKeys.has(`${c.key.runId}:${c.key.candidateId}`)
+    ))
+    if (selectedItems.length === 0) return
+    const workflowToken = beginGenerationWorkflow()
+    if (workflowToken === null) return
     const planningRunsAPI = getPlanningRunsAPI()
     if (!planningRunsAPI) {
-      await startActualGeneration(null)
+      await startActualGeneration(null, undefined, workflowToken)
       return
     }
 
     const currentGeneration = generationRef.current
     const currentDate = date
-    const selectedItems = feedbackPreviewCandidates.filter(c => (
-      selectedFeedbackKeys.has(`${c.key.runId}:${c.key.candidateId}`)
-    ))
-
-    if (selectedItems.length === 0) return
 
     setFeedbackLoading(true)
     setFeedbackStaleNotice(null)
@@ -864,7 +1036,7 @@ export default function TodayActionSuggestionDialog({
 
       setShowFeedbackPreview(false)
       setFeedbackLoading(false)
-      await startActualGeneration(reval.payload, strategyAtFinalAuthorization)
+      await startActualGeneration(reval.payload, strategyAtFinalAuthorization, workflowToken)
     } catch {
       if (
         !mountedRef.current
@@ -875,7 +1047,9 @@ export default function TodayActionSuggestionDialog({
       }
       setFeedbackWarning('读取历史规划记录失败。你可以重试，或直接选择“不使用历史反馈生成”。')
     } finally {
-      if (mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
+      const ownsWorkflow = generationWorkflowRef.current === workflowToken
+      finishGenerationWorkflow(workflowToken)
+      if (ownsWorkflow && mountedRef.current && generationRef.current === currentGeneration && currentDateRef.current === currentDate) {
         setFeedbackLoading(false)
       }
     }
@@ -883,10 +1057,35 @@ export default function TodayActionSuggestionDialog({
 
   const generateSuggestions = requestGeneration
 
+  const acceptRefreshedChapterContext = () => {
+    if (requiresRegenerationAfterDefinitiveFailure) return
+    if (pendingChapterReviewSignature === null || refreshedChapterProjection === null) return
+    setLatestReviewedChapterSignature(pendingChapterReviewSignature)
+    setPendingChapterReviewSignature(null)
+    setStaleChapterNotice('你已审阅更新后的章节进度。再次确认时，MindDiary 会为每个候选请求一次会话内授权。')
+  }
+
   const createSelectedSuggestions = async () => {
-    if (creating || !planningContext) return
+    if (
+      creatingRef.current
+      || generationWorkflowRef.current !== null
+      || recoveringPendingOperationRef.current
+      || creating
+      || suggestionsRef.current.some(suggestion => suggestion.creationState === 'uncertain')
+      || !planningContext
+      || requiresRegenerationAfterDefinitiveFailure
+    ) return
     const createDate = date
+    const createGeneration = generationRef.current
+    const creationIsCurrent = () => (
+      mountedRef.current
+      && currentDateRef.current === createDate
+      && generationRef.current === createGeneration
+    )
+    creatingRef.current = true
+    creationDispatchStartedRef.current = false
     setCreating(true)
+    setCreationDispatchStarted(false)
     setErrors([])
     setCreationSummary(null)
     try {
@@ -898,12 +1097,16 @@ export default function TodayActionSuggestionDialog({
         subjectsAPI,
         entriesAPI,
       })
-      if (!mountedRef.current || currentDateRef.current !== createDate) return
+      if (!creationIsCurrent()) return
       const latestSignature = buildTodayActionPlanningContextSignature(latestContext)
       setPlanningContext(latestContext)
       let currentSuggestions = validateTodayActionDrafts(suggestions, latestContext)
       setSuggestions(currentSuggestions)
-      if (generationProvenance === null) return
+      if (
+        generationProvenance === null
+        || generationChapterSignature === null
+        || latestReviewedChapterSignature === null
+      ) return
       if (
         reviewedConfirmationContextSignature === null
         || reviewedConfirmationContextSignature !== latestSignature
@@ -914,14 +1117,47 @@ export default function TodayActionSuggestionDialog({
       }
 
       setStaleContextNotice(null)
-      await flushPlanningCandidates(currentSuggestions, planningSession)
-      const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = {
-        mode: 'today_action',
-        generation: generationProvenance,
-        confirmationContextSignature: latestSignature,
-        expectedCurrentDate: createDate,
-        plannedDate: createDate,
+      let authoritativeChapterContext: TodayActionAuthoritativeChapterContext
+      try {
+        authoritativeChapterContext = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+        if (!creationIsCurrent()) return
+        const verifiedSignature = await computeTodayActionChapterSignature(
+          authoritativeChapterContext.chapterProjection,
+        )
+        if (!creationIsCurrent()) return
+        if (verifiedSignature !== authoritativeChapterContext.currentChapterSignature) {
+          throw new Error('chapter signature mismatch')
+        }
+      } catch {
+        if (!creationIsCurrent()) return
+        setStaleChapterNotice('无法安全验证当前章节进度，本次未创建任务。请稍后重试或重新生成建议。')
+        return
       }
+      if (authoritativeChapterContext.currentChapterSignature !== latestReviewedChapterSignature) {
+        setRefreshedChapterProjection(authoritativeChapterContext.chapterProjection)
+        setPendingChapterReviewSignature(authoritativeChapterContext.currentChapterSignature)
+        setStaleChapterNotice('章节进度已变化。原建议仍基于生成时的旧上下文；请查看刷新后的章节进度，再选择重新生成或明确接受原建议。')
+        return
+      }
+
+      const staleContextOverride = latestReviewedChapterSignature !== generationChapterSignature
+      setPendingChapterReviewSignature(null)
+      setStaleChapterNotice(null)
+      await flushPlanningCandidates(currentSuggestions, planningSession)
+      if (!creationIsCurrent()) return
+      const freshConfirmationSnapshot: StudyTaskActionConfirmationSnapshot | null = staleContextOverride
+        ? null
+        : {
+            mode: 'today_action',
+            generation: generationProvenance,
+            confirmationContextSignature: latestSignature,
+            generationChapterSignature,
+            latestReviewedChapterSignature,
+            staleContextOverride: false,
+            staleReviewToken: null,
+            expectedCurrentDate: createDate,
+            plannedDate: createDate,
+          }
       let currentContext = latestContext
       let createdCount = 0
       let replayedCount = 0
@@ -929,9 +1165,10 @@ export default function TodayActionSuggestionDialog({
       let uncertainCount = 0
       let recoveryWarning: string | undefined
       const candidateIds = currentSuggestions.map(suggestion => suggestion.clientId)
+      const requiresDurablePlanningAudit = getPlanningRunsAPI() !== undefined
 
       for (const clientId of candidateIds) {
-        if (!mountedRef.current || currentDateRef.current !== createDate) return
+        if (!creationIsCurrent()) return
         currentSuggestions = validateTodayActionDrafts(currentSuggestions, currentContext)
         setSuggestions(currentSuggestions)
         const suggestion = currentSuggestions.find(item => item.clientId === clientId)
@@ -946,24 +1183,106 @@ export default function TodayActionSuggestionDialog({
           || suggestion.validationErrors.length > 0
         ) continue
         try {
+          const durablePlanningCandidateId = getDurablePlanningCandidateId(
+            durablePlanningRunRef.current,
+            'today_action',
+            suggestion.clientId,
+          )
+          if (requiresDurablePlanningAudit && durablePlanningCandidateId === undefined) {
+            const auditError = '无法建立可靠的规划审计关联，因此没有创建任务。请重新生成建议。'
+            failedCount += 1
+            setRequiresRegenerationAfterDefinitiveFailure(true)
+            setStaleChapterNotice('规划历史暂时无法用于安全确认。当前建议已停止，请重新生成建议。')
+            currentSuggestions = currentSuggestions.map(item => (
+              item.clientId === suggestion.clientId
+                ? {
+                    ...item,
+                    selected: false,
+                    creationState: 'failed',
+                    creationError: auditError,
+                  }
+                : item
+            ))
+            setSuggestions(currentSuggestions)
+            break
+          }
           const operationId = createConfirmedStudyTaskOperationId()
+          const draft = {
+            title: suggestion.title,
+            description: suggestion.reason,
+            type: suggestion.type,
+            subject_id: suggestion.subject_id,
+            related_mistake_id: suggestion.related_mistake_id,
+            related_entry_id: suggestion.related_entry_id,
+            related_chapter_id: null,
+            estimate_minutes: suggestion.estimate_minutes,
+          }
+          let staleReviewToken: string | null = null
+          if (staleContextOverride) {
+            const authorizationCore = buildTodayActionStaleReviewAuthorizationRequest({
+              operationId,
+              generation: generationProvenance,
+              generationChapterSignature,
+              latestReviewedChapterSignature,
+              expectedCurrentDate: createDate,
+              draft,
+            })
+            let authorization: { staleReviewToken: string }
+            try {
+              authorization = await tasksAPI.authorizeTodayActionStaleReview(authorizationCore)
+              if (!creationIsCurrent()) return
+            } catch {
+              if (!creationIsCurrent()) return
+              try {
+                const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+                if (!creationIsCurrent()) return
+                const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
+                if (!creationIsCurrent()) return
+                if (verifiedSignature === refreshed.currentChapterSignature) {
+                  setRefreshedChapterProjection(refreshed.chapterProjection)
+                  setPendingChapterReviewSignature(refreshed.currentChapterSignature)
+                  setStaleChapterNotice('章节进度在授权前再次变化。请重新查看刷新后的章节进度；本次未创建任务。')
+                }
+              } catch {
+                if (!creationIsCurrent()) return
+                setStaleChapterNotice('章节进度授权失败，本次未创建任务。请重新查看或重新生成建议。')
+              }
+              throw new Error('章节进度授权失败，本次未创建任务。')
+            }
+            if (!/^[0-9a-f]{64}$/.test(authorization.staleReviewToken)) {
+              throw new Error('章节进度授权响应无效，本次未创建任务。')
+            }
+            staleReviewToken = authorization.staleReviewToken
+          }
+          const confirmationSnapshot: StudyTaskActionConfirmationSnapshot = freshConfirmationSnapshot ?? {
+              mode: 'today_action',
+              generation: generationProvenance,
+              confirmationContextSignature: latestSignature,
+              generationChapterSignature,
+              latestReviewedChapterSignature,
+              staleContextOverride: true,
+              staleReviewToken: staleReviewToken!,
+              expectedCurrentDate: createDate,
+              plannedDate: createDate,
+            }
           const action = createConfirmedStudyTaskAction({
             operationId,
             confirmationSnapshot,
-            draft: {
-              title: suggestion.title,
-              description: suggestion.reason,
-              type: suggestion.type,
-              subject_id: suggestion.subject_id,
-              related_mistake_id: suggestion.related_mistake_id,
-              related_entry_id: suggestion.related_entry_id,
-              related_chapter_id: null,
-              estimate_minutes: suggestion.estimate_minutes,
-            },
+            draft,
           })
           const request = buildIdempotentAIStudyTaskCreateRequest(action)
+          const requestDigest = await computeIdempotentAIStudyTaskRequestDigest(request)
+          if (!creationIsCurrent()) return
           try {
-            savePendingStudyTaskOperation(request)
+            savePendingStudyTaskOperation(
+              request,
+              undefined,
+              undefined,
+              durablePlanningCandidateId,
+              requestDigest,
+            )
+            creationDispatchStartedRef.current = true
+            setCreationDispatchStarted(true)
             setRecoveryRevision(current => current + 1)
           } catch {
             failedCount += 1
@@ -977,7 +1296,7 @@ export default function TodayActionSuggestionDialog({
                 : item
             ))
             setSuggestions(currentSuggestions)
-            continue
+            break
           }
           setPlanningSession(current => current
             ? updatePlanningSessionCandidate(current, suggestion.clientId, record => (
@@ -990,13 +1309,12 @@ export default function TodayActionSuggestionDialog({
               : item
           ))
           setSuggestions(currentSuggestions)
-          const result = await executeConfirmedStudyTaskAction(
-            action,
-            confirmationSnapshot,
+          const result = await executeIdempotentAIStudyTaskCreateRequest(
+            request,
             tasksAPI,
-            getDurablePlanningCandidateId(durablePlanningRunRef.current, 'today_action', suggestion.clientId),
+            durablePlanningCandidateId,
           )
-          if (!mountedRef.current || currentDateRef.current !== createDate) return
+          if (!creationIsCurrent()) return
           const observation = observeStudyTaskActionExecutionResult(result, operationId)
           setPlanningSession(current => current
             ? updatePlanningSessionCandidate(current, suggestion.clientId, record => (
@@ -1005,27 +1323,41 @@ export default function TodayActionSuggestionDialog({
             : current)
           if (observation.status === 'failed') {
             failedCount += 1
-            const retainForConflict = observation.code === 'IDEMPOTENCY_CONFLICT'
-            if (!retainForConflict) {
-              try {
-                removePendingStudyTaskOperation(operationId)
-                setRecoveryRevision(current => current + 1)
-              } catch {
-                recoveryWarning = '部分已确定结果的恢复记录暂时无法清除。'
-              }
+            const generationPolicy = getDefinitiveTodayActionFailureGenerationPolicy(observation.code)
+            if (generationPolicy.stop) {
+              setRequiresRegenerationAfterDefinitiveFailure(true)
+              setPendingChapterReviewSignature(null)
+              setStaleChapterNotice(generationPolicy.notice)
+            }
+            try {
+              removePendingStudyTaskOperation(operationId)
+              setRecoveryRevision(current => current + 1)
+            } catch {
+              recoveryWarning = '部分已确定结果的恢复记录暂时无法清除。'
             }
             currentSuggestions = currentSuggestions.map(item => (
               item.clientId === suggestion.clientId
-                ? {
-                    ...item,
-                    operationId: retainForConflict ? operationId : undefined,
-                    creationState: 'failed',
-                    creationError: observation.outcome.message,
-                    selected: retainForConflict ? false : item.selected,
-                  }
+                ? consumeDefinitiveTodayActionFailure(item, operationId, observation.outcome.message)
                 : item
             ))
             setSuggestions(currentSuggestions)
+            if (generationPolicy.refreshChapterContext) {
+              try {
+                const refreshed = await tasksAPI.getTodayActionAuthoritativeChapterContext()
+                const verifiedSignature = await computeTodayActionChapterSignature(refreshed.chapterProjection)
+                if (!creationIsCurrent()) return
+                if (
+                  verifiedSignature === refreshed.currentChapterSignature
+                  && refreshed.currentChapterSignature !== latestReviewedChapterSignature
+                ) {
+                  setRefreshedChapterProjection(refreshed.chapterProjection)
+                }
+              } catch {
+                if (!creationIsCurrent()) return
+                setStaleChapterNotice('无法重新验证章节进度，本次未创建任务。请重新生成建议。')
+              }
+            }
+            if (generationPolicy.stop) break
             continue
           }
           if (observation.status === 'uncertain') {
@@ -1042,7 +1374,7 @@ export default function TodayActionSuggestionDialog({
                 : item
             ))
             setSuggestions(currentSuggestions)
-            continue
+            break
           }
           const task = observation.task
           try {
@@ -1071,6 +1403,7 @@ export default function TodayActionSuggestionDialog({
           ))
           setSuggestions(currentSuggestions)
         } catch (error) {
+          if (!creationIsCurrent()) return
           failedCount += 1
           const creationError = error instanceof Error ? error.message : String(error)
           currentSuggestions = currentSuggestions.map(item => (
@@ -1081,7 +1414,7 @@ export default function TodayActionSuggestionDialog({
           setSuggestions(currentSuggestions)
         }
       }
-      if (!mountedRef.current || currentDateRef.current !== createDate) return
+      if (!creationIsCurrent()) return
       setPlanningContext(currentContext)
       setReviewedConfirmationContextSignature(buildTodayActionPlanningContextSignature(currentContext))
       setSuggestions(currentSuggestions)
@@ -1091,9 +1424,9 @@ export default function TodayActionSuggestionDialog({
       if (createdCount > 0) {
         try {
           await onCreated()
-          if (!mountedRef.current || currentDateRef.current !== createDate) return
+          if (!creationIsCurrent()) return
         } catch (error) {
-          if (!mountedRef.current || currentDateRef.current !== createDate) return
+          if (!creationIsCurrent()) return
           setCreationSummary({
             created: createdCount,
             replayed: replayedCount,
@@ -1105,11 +1438,16 @@ export default function TodayActionSuggestionDialog({
         }
       }
     } catch (error) {
-      if (mountedRef.current && currentDateRef.current === createDate) {
+      if (creationIsCurrent()) {
         setErrors([`创建前无法刷新规划依据：${error instanceof Error ? error.message : String(error)}`])
       }
     } finally {
-      if (mountedRef.current && currentDateRef.current === createDate) setCreating(false)
+      creatingRef.current = false
+      if (creationIsCurrent()) {
+        creationDispatchStartedRef.current = false
+        setCreationDispatchStarted(false)
+        setCreating(false)
+      }
     }
   }
 
@@ -1117,7 +1455,7 @@ export default function TodayActionSuggestionDialog({
     ? planningContext
     : null
   const planningPreview = visiblePlanningContext
-    ? buildTodayActionPlanningContextPreview(visiblePlanningContext)
+    ? buildTodayActionPlanningContextPreview(visiblePlanningContext, generationChapterProjection)
     : []
   const isPlanningContextEmpty = visiblePlanningContext
     && planningPreview.find(item => item.source === 'today_tasks')?.count === 0
@@ -1130,6 +1468,9 @@ export default function TodayActionSuggestionDialog({
     planningSession?.candidates.some(candidate => candidate.clientId === suggestion.clientId) === true
   )).length
   const hasFatalParseErrors = errors.length > 0
+  const hasUnresolvedTodayActionOperation = suggestions.some(suggestion => (
+    suggestion.creationState === 'uncertain'
+  ))
   const explainabilityCandidates = planningSession?.candidates || []
   const explainabilitySummary = {
     providerValidated: explainabilityCandidates.filter(candidate => (
@@ -1153,6 +1494,7 @@ export default function TodayActionSuggestionDialog({
       candidate.decision !== 'confirmed' && candidate.outcome === null
     ))
   )
+  const recoveryGeneration = generationRef.current
 
   const modal = (
     <div
@@ -1199,7 +1541,7 @@ export default function TodayActionSuggestionDialog({
             type="button"
             aria-label="关闭 AI 今日行动建议"
             className="button button-secondary"
-            disabled={generating || creating}
+            disabled={generating || (creating && creationDispatchStarted)}
             onClick={closeDialog}
             style={{ padding: 6 }}
           >
@@ -1542,6 +1884,48 @@ export default function TodayActionSuggestionDialog({
             </p>
           )}
 
+          {staleChapterNotice && (
+            <section
+              className="mt-3"
+              role="alert"
+              data-testid="today-action-stale-chapter-context"
+              style={{
+                border: '1px solid var(--warning, var(--border))',
+                borderRadius: 'var(--radius)',
+                padding: 'var(--space-sm)',
+                color: 'var(--warning, var(--text-secondary))',
+              }}
+            >
+              <p className="text-sm" style={{ margin: 0 }}>{staleChapterNotice}</p>
+              {refreshedChapterProjection && (
+                <ul
+                  className="mt-2 text-xs"
+                  data-testid="today-action-refreshed-chapter-context"
+                  style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}
+                >
+                  {refreshedChapterProjection.chapter_progress.length === 0
+                    ? <li>当前 bounded 章节投影为空。</li>
+                    : refreshedChapterProjection.chapter_progress.map((chapter, index) => (
+                        <li key={`${chapter.subject_ref}:${index}`}>
+                          {chapter.subject_ref} · {chapter.title} · {chapter.completed ? '已完成' : '未完成'}
+                        </li>
+                      ))}
+                </ul>
+              )}
+              {pendingChapterReviewSignature && refreshedChapterProjection && !requiresRegenerationAfterDefinitiveFailure && (
+                <button
+                  type="button"
+                  className="button button-secondary mt-2"
+                  data-testid="today-action-accept-stale-chapter-context"
+                  disabled={creating || generating}
+                  onClick={acceptRefreshedChapterContext}
+                >
+                  我已查看更新，仍接受原建议
+                </button>
+              )}
+            </section>
+          )}
+
           {planningSession && (
             <details className="mt-3" open data-testid="today-action-candidate-explainability">
               <summary className="text-sm" style={{ color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
@@ -1618,19 +2002,76 @@ export default function TodayActionSuggestionDialog({
             operationKind="today_action"
             tasksAPI={tasksAPI}
             revision={recoveryRevision}
-            onOutcome={async (observation: PlanningStudyTaskActionExecutionObservation) => {
+            canRecoverOperation={() => !creatingRef.current}
+            onRecoveringChange={(recovering) => {
+              recoveringPendingOperationRef.current = recovering
+              setRecoveringPendingOperation(recovering)
+            }}
+            onTodayActionNotCommitted={(operationId) => {
+              if (
+                !mountedRef.current
+                || currentDateRef.current !== date
+                || generationRef.current !== recoveryGeneration
+              ) return false
+              const matchingSuggestion = suggestionsRef.current.find(suggestion => (
+                suggestion.operationId === operationId
+              ))
+              if (matchingSuggestion && matchingSuggestion.creationState !== 'uncertain') return false
               setCreationSummary(null)
+              setPendingChapterReviewSignature(null)
+              if (matchingSuggestion) {
+                setRequiresRegenerationAfterDefinitiveFailure(true)
+                setStaleChapterNotice(
+                  '未证明任务已提交；原候选已退役。请重新生成候选后再确认。',
+                )
+                setSuggestions(current => current.map(suggestion => (
+                  suggestion.operationId === operationId && suggestion.creationState === 'uncertain'
+                    ? {
+                        ...suggestion,
+                        operationId,
+                        creationState: 'failed',
+                        creationError: '未证明任务已提交；候选已退役，需要新候选。',
+                        selected: false,
+                      }
+                    : suggestion
+                )))
+              } else {
+                setStaleChapterNotice(
+                  '未证明旧候选任务已提交；旧候选已退役。当前新候选可继续确认。',
+                )
+              }
+              return true
+            }}
+            onOutcome={async (observation: PlanningStudyTaskActionExecutionObservation) => {
+              if (
+                !mountedRef.current
+                || currentDateRef.current !== date
+                || generationRef.current !== recoveryGeneration
+              ) return false
+              const matchingSuggestion = observation.operationId === null
+                ? undefined
+                : suggestionsRef.current.find(suggestion => suggestion.operationId === observation.operationId)
+              if (matchingSuggestion && matchingSuggestion.creationState !== 'uncertain') return false
+              setCreationSummary(null)
+              if (matchingSuggestion && observation.status === 'failed') {
+                const generationPolicy = getDefinitiveTodayActionFailureGenerationPolicy(observation.code)
+                if (generationPolicy.stop) {
+                  setRequiresRegenerationAfterDefinitiveFailure(true)
+                  setPendingChapterReviewSignature(null)
+                  setStaleChapterNotice(generationPolicy.notice)
+                }
+              }
               setPlanningSession(current => {
                 if (!current) return current
                 const candidate = current.candidates.find(item => item.operationId === observation.operationId)
-                return candidate
+                return candidate?.outcome?.kind === 'uncertain'
                   ? updatePlanningSessionCandidate(current, candidate.clientId, record => (
                       applyPlanningCandidateObservedOutcome(record, observation, candidate.operationId!)
                     ))
                   : current
               })
               setSuggestions(current => current.map(suggestion => (
-                suggestion.operationId === observation.operationId
+                suggestion.operationId === observation.operationId && suggestion.creationState === 'uncertain'
                   ? observation.status === 'succeeded'
                     ? {
                         ...suggestion,
@@ -1647,30 +2088,30 @@ export default function TodayActionSuggestionDialog({
                           creationError: observation.outcome.message,
                           selected: false,
                         }
-                      : {
-                          ...suggestion,
-                          operationId: observation.code === 'IDEMPOTENCY_CONFLICT'
-                            ? observation.operationId
-                            : undefined,
-                          creationState: 'failed',
-                          creationError: observation.outcome.message,
-                          selected: false,
-                        }
+                      : consumeDefinitiveTodayActionFailure(
+                          suggestion,
+                          observation.operationId,
+                          observation.outcome.message,
+                        )
                   : suggestion
               )))
-              if (observation.status !== 'succeeded') return
+              if (observation.status !== 'succeeded') return true
               setPlanningContext(current => {
                 if (!current || current.todayTasks.some(task => task.id === observation.task.id)) return current
                 return { ...current, todayTasks: [...current.todayTasks, observation.task] }
               })
-              await onCreated()
+              try {
+                await onCreated()
+              } catch {
+              }
+              return true
             }}
           />
 
           {creationSummary && (
             <p className="mt-3 text-sm" role="status" data-testid="ai-plan-creation-summary" style={{ color: creationSummary.failed > 0 || creationSummary.uncertain > 0 ? 'var(--warning, var(--text-secondary))' : 'var(--success)' }}>
               本次新创建 {creationSummary.created - creationSummary.replayed} 项，重放确认 {creationSummary.replayed} 项，未新建 {creationSummary.failed} 项，结果待检查 {creationSummary.uncertain} 项。
-              {creationSummary.failed > 0 ? ' 请以每项确认结果为准；可修改已解锁的候选后重试。' : ''}
+              {creationSummary.failed > 0 ? ' 请以每项确认结果为准；已锁定的候选不能直接重试。' : ''}
               {creationSummary.uncertain > 0 ? ' 结果不确定的候选已锁定，请使用恢复区检查。' : ''}
               {creationSummary.recoveryWarning ? ` ${creationSummary.recoveryWarning}` : ''}
               {creationSummary.refreshError ? ` 刷新今日任务失败：${creationSummary.refreshError}` : ''}
@@ -1688,6 +2129,8 @@ export default function TodayActionSuggestionDialog({
               {suggestions.map(suggestion => {
                 const isCreated = suggestion.creationState === 'created'
                 const isLocked = creating
+                  || hasUnresolvedTodayActionOperation
+                  || requiresRegenerationAfterDefinitiveFailure
                   || isCreated
                   || suggestion.creationState === 'creating'
                   || suggestion.creationState === 'uncertain'
@@ -1881,14 +2324,14 @@ export default function TodayActionSuggestionDialog({
             可创建 {selectedValidCount} 项
           </span>
           <div className="flex items-center gap-sm">
-            <button type="button" className="button button-secondary" disabled={generating || creating} onClick={closeDialog}>
+            <button type="button" className="button button-secondary" disabled={generating || (creating && creationDispatchStarted)} onClick={closeDialog}>
               关闭
             </button>
             <button
               type="button"
               className="button button-primary"
               data-testid="ai-plan-create-selected"
-              disabled={generating || creating || contextLoading || !visiblePlanningContext || selectedValidCount === 0 || hasFatalParseErrors}
+              disabled={generating || creating || feedbackLoading || recoveringPendingOperation || hasUnresolvedTodayActionOperation || contextLoading || !visiblePlanningContext || requiresRegenerationAfterDefinitiveFailure || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
               {creating ? '创建中...' : '创建选中任务'}

@@ -1,30 +1,89 @@
 import { createHash } from 'crypto';
 import type Database from 'better-sqlite3';
 import type {
+    Mistake,
     NewStudyTask,
     StudyTask,
     StudyTaskSource,
     StudyTaskStatus,
     StudyTaskType,
+    Subject,
 } from '../src/types';
 import type {
     IdempotentAIStudyTaskCreateRequest,
     IdempotentAIStudyTaskCreateResponse,
+    PrivilegedTodayActionV2CreateCommand,
+    TodayActionCommittedStatus,
+    TodayActionCommittedStatusRequest,
 } from '../src/types/api';
 import {
     CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+    CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
     CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
 } from '../src/utils/aiOperationContracts';
+import {
+    buildIdempotentAIStudyTaskRequestDigestInput,
+} from '../src/utils/agentStudyTaskActions';
+import {
+    buildMistakeReviewContextSignatureString,
+    prepareMistakeReviewSession,
+} from '../src/utils/mistakeReviewSuggestions';
+import { TODAY_ACTION_CHAPTER_CONTEXT_PROJECTION_VERSION } from '../src/utils/todayActionChapterContext';
+import {
+    TodayActionChapterContextValidationError,
+    TodayActionStaleReviewTokenStore,
+    readAuthoritativeTodayActionChapterContext,
+    type CanonicalTodayActionStaleAuthorizationCore,
+} from './todayActionChapterContext';
 
 export const IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION =
     CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION;
 
-const REQUEST_KEYS = [
+const BASE_REQUEST_KEYS = [
     'operationId',
     'operationKind',
     'actionContractVersion',
     'expectedCurrentDate',
     'payload',
+] as const;
+const TODAY_V2_REQUEST_KEYS = [
+    'operationId',
+    'operationKind',
+    'actionContractVersion',
+    'expectedCurrentDate',
+    'contextProjectionVersion',
+    'originalGenerationContextSignature',
+    'generationChapterSignature',
+    'latestReviewedChapterSignature',
+    'staleContextOverride',
+    'staleReviewToken',
+    'payload',
+] as const;
+const MISTAKE_V2_REQUEST_KEYS = [
+    'operationId',
+    'operationKind',
+    'actionContractVersion',
+    'expectedCurrentDate',
+    'contextProjectionVersion',
+    'generationContextSignature',
+    'generationMistakeRef',
+    'payload',
+] as const;
+const TODAY_COMMITTED_STATUS_REQUEST_KEYS = [
+    'operationId',
+    'operationKind',
+    'actionContractVersion',
+    'expectedCurrentDate',
+    'plannedDate',
+] as const;
+const PRIVILEGED_TODAY_V2_CREATE_COMMAND_KEYS = [
+    'planningCandidateId',
+    'request',
+] as const;
+const CURRENT_TODAY_COMMITTED_STATUS_REQUEST_KEYS = [
+    ...TODAY_COMMITTED_STATUS_REQUEST_KEYS,
+    'planningCandidateId',
+    'requestDigest',
 ] as const;
 const PAYLOAD_KEYS = [
     'title',
@@ -45,6 +104,11 @@ const STUDY_TASK_SOURCES: readonly StudyTaskSource[] = ['manual', 'dashboard', '
 const LOWERCASE_UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const MISTAKE_REF_PATTERN = /^m(?:[1-9]|1[0-2])$/;
+const LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1';
+const MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION = 'mistake-review.context-projection.v1';
+const STALE_MISTAKE_REVIEW_MESSAGE = '错题上下文已变化，请重新生成建议后再确认；本次未创建任务。';
+const STALE_TODAY_ACTION_MESSAGE = '章节上下文已变化，请查看最新章节进度后再次确认；本次未创建任务。';
 const TITLE_MAX_LENGTH = 80;
 const DESCRIPTION_MAX_LENGTH = 240;
 const ESTIMATE_MINUTES_MIN = 5;
@@ -56,6 +120,8 @@ type IdempotentStudyTaskCreationDependencies = {
     database: Database.Database;
     getCurrentDateKey: () => string;
     createTask: (task: NewStudyTask) => StudyTask;
+    trustedSession?: object;
+    tokenStore?: TodayActionStaleReviewTokenStore;
 };
 
 type StudyTaskActionReceiptRow = {
@@ -87,6 +153,7 @@ type StudyTaskRow = {
 };
 
 class RequestValidationError extends Error {}
+class FreshTodayActionValidationError extends Error {}
 class FreshMistakeReviewValidationError extends Error {}
 class CurrentDateMismatchError extends Error {}
 class PersistenceIntegrityError extends Error {}
@@ -143,6 +210,34 @@ function requireNullablePositiveId(value: unknown, label: string): number | null
     if (value === null) return null;
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
         throw new RequestValidationError(`${label} must be a positive safe integer or null`);
+    }
+    return value;
+}
+
+function requireOrdinaryObject(value: unknown, label: string): object {
+    const record = requireObjectRecord(value, label);
+    let prototype: object | null;
+    try {
+        prototype = Object.getPrototypeOf(record);
+    } catch {
+        throw new RequestValidationError(`${label} must be an ordinary object`);
+    }
+    if (prototype !== Object.prototype) {
+        throw new RequestValidationError(`${label} must be an ordinary object`);
+    }
+    return record;
+}
+
+function requirePositiveId(value: unknown, label: string): number {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        throw new RequestValidationError(`${label} must be a positive safe integer`);
+    }
+    return value;
+}
+
+function requireSha256(value: unknown, label: string): string {
+    if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+        throw new RequestValidationError(`${label} must be a lowercase SHA-256 digest`);
     }
     return value;
 }
@@ -266,13 +361,6 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     value: unknown,
 ): IdempotentAIStudyTaskCreateRequest {
     const request = requireObjectRecord(value, 'request');
-    assertExactOwnKeys(request, REQUEST_KEYS, 'request');
-
-    const operationId = readOwnDataProperty(request, 'operationId', 'request');
-    if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
-        throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
-    }
-
     const operationKind = readOwnDataProperty(request, 'operationKind', 'request');
     if (
         operationKind !== 'today_action'
@@ -283,12 +371,41 @@ export function validateIdempotentAIStudyTaskCreateRequest(
     }
 
     const actionContractVersion = readOwnDataProperty(request, 'actionContractVersion', 'request');
-    if (operationKind === 'today_action' || operationKind === 'daily_review') {
+    const isTodayV2 = operationKind === 'today_action'
+        && actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION;
+    const isMistakeV2 = operationKind === 'mistake_review'
+        && actionContractVersion === CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION;
+    assertExactOwnKeys(
+        request,
+        isTodayV2
+            ? TODAY_V2_REQUEST_KEYS
+            : isMistakeV2
+                ? MISTAKE_V2_REQUEST_KEYS
+                : BASE_REQUEST_KEYS,
+        'request',
+    );
+
+    const operationId = readOwnDataProperty(request, 'operationId', 'request');
+    if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
+        throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
+    }
+
+    if (operationKind === 'today_action') {
+        if (
+            actionContractVersion !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+            && actionContractVersion !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+        ) {
+            throw new RequestValidationError('request.actionContractVersion is unsupported');
+        }
+    } else if (operationKind === 'daily_review') {
         if (actionContractVersion !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
             throw new RequestValidationError('request.actionContractVersion is unsupported');
         }
     } else if (operationKind === 'mistake_review') {
-        if (actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+        if (
+            actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+            && actionContractVersion !== LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        ) {
             throw new RequestValidationError('request.actionContractVersion is unsupported');
         }
     } else {
@@ -308,37 +425,126 @@ export function validateIdempotentAIStudyTaskCreateRequest(
             `request.payload.planned_date does not satisfy the ${operationKind} date invariant`,
         );
     }
+    if (operationKind === 'today_action' && payload.related_chapter_id !== null) {
+        throw new RequestValidationError('request.payload.related_chapter_id must be null for today_action');
+    }
 
-    return {
+    const base: IdempotentAIStudyTaskCreateRequest = {
         operationId,
         operationKind,
         actionContractVersion,
         expectedCurrentDate,
         payload,
     };
+    if (isTodayV2) {
+        const contextProjectionVersion = readOwnDataProperty(request, 'contextProjectionVersion', 'request');
+        if (contextProjectionVersion !== TODAY_ACTION_CHAPTER_CONTEXT_PROJECTION_VERSION) {
+            throw new RequestValidationError('request.contextProjectionVersion is unsupported');
+        }
+        const originalGenerationContextSignature = readOwnDataProperty(
+            request,
+            'originalGenerationContextSignature',
+            'request',
+        );
+        const generationChapterSignature = readOwnDataProperty(
+            request,
+            'generationChapterSignature',
+            'request',
+        );
+        const latestReviewedChapterSignature = readOwnDataProperty(
+            request,
+            'latestReviewedChapterSignature',
+            'request',
+        );
+        for (const [label, signature] of [
+            ['originalGenerationContextSignature', originalGenerationContextSignature],
+            ['generationChapterSignature', generationChapterSignature],
+            ['latestReviewedChapterSignature', latestReviewedChapterSignature],
+        ] as const) {
+            if (typeof signature !== 'string' || !SHA256_PATTERN.test(signature)) {
+                throw new RequestValidationError(`request.${label} must be a lowercase SHA-256 digest`);
+            }
+        }
+        const staleContextOverride = readOwnDataProperty(request, 'staleContextOverride', 'request');
+        const staleReviewToken = readOwnDataProperty(request, 'staleReviewToken', 'request');
+        if (staleContextOverride === false) {
+            if (
+                staleReviewToken !== null
+                || latestReviewedChapterSignature !== generationChapterSignature
+            ) {
+                throw new RequestValidationError('request stale-review state is invalid');
+            }
+        } else if (staleContextOverride === true) {
+            if (typeof staleReviewToken !== 'string' || !SHA256_PATTERN.test(staleReviewToken)) {
+                throw new RequestValidationError('request.staleReviewToken must be a lowercase 64-hex token');
+            }
+        } else {
+            throw new RequestValidationError('request.staleContextOverride must be a boolean');
+        }
+        return {
+            operationId,
+            operationKind,
+            actionContractVersion,
+            expectedCurrentDate,
+            contextProjectionVersion,
+            originalGenerationContextSignature: originalGenerationContextSignature as string,
+            generationChapterSignature: generationChapterSignature as string,
+            latestReviewedChapterSignature: latestReviewedChapterSignature as string,
+            staleContextOverride,
+            staleReviewToken,
+            payload,
+        };
+    }
+    if (isMistakeV2) {
+        const contextProjectionVersion = readOwnDataProperty(request, 'contextProjectionVersion', 'request');
+        if (contextProjectionVersion !== MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION) {
+            throw new RequestValidationError('request.contextProjectionVersion is unsupported');
+        }
+        const generationContextSignature = readOwnDataProperty(request, 'generationContextSignature', 'request');
+        if (typeof generationContextSignature !== 'string' || !SHA256_PATTERN.test(generationContextSignature)) {
+            throw new RequestValidationError('request.generationContextSignature must be a lowercase SHA-256 digest');
+        }
+        const generationMistakeRef = readOwnDataProperty(request, 'generationMistakeRef', 'request');
+        if (typeof generationMistakeRef !== 'string' || !MISTAKE_REF_PATTERN.test(generationMistakeRef)) {
+            throw new RequestValidationError('request.generationMistakeRef must be m1 through m12');
+        }
+        return {
+            ...base,
+            contextProjectionVersion,
+            generationContextSignature,
+            generationMistakeRef,
+        };
+    }
+    return base;
 }
 
-function buildCanonicalDigestJson(request: IdempotentAIStudyTaskCreateRequest): string {
-    const payload = request.payload as CanonicalAIStudyTaskPayload;
-    return JSON.stringify({
-        operationKind: request.operationKind,
-        actionContractVersion: request.actionContractVersion,
-        expectedCurrentDate: request.expectedCurrentDate,
-        plannedDate: payload.planned_date,
-        payload: {
-            title: payload.title,
-            description: payload.description,
-            type: payload.type,
-            subject_id: payload.subject_id,
-            related_mistake_id: payload.related_mistake_id,
-            related_entry_id: payload.related_entry_id,
-            related_chapter_id: payload.related_chapter_id,
-            planned_date: payload.planned_date,
-            estimate_minutes: payload.estimate_minutes,
-            status: payload.status,
-            source: payload.source,
-        },
-    });
+export function validatePrivilegedTodayActionV2CreateCommand(
+    value: unknown,
+): PrivilegedTodayActionV2CreateCommand {
+    const command = requireOrdinaryObject(value, 'command');
+    assertExactOwnKeys(
+        command,
+        PRIVILEGED_TODAY_V2_CREATE_COMMAND_KEYS,
+        'command',
+    );
+    const planningCandidateId = requirePositiveId(
+        readOwnDataProperty(command, 'planningCandidateId', 'command'),
+        'command.planningCandidateId',
+    );
+    const request = validateIdempotentAIStudyTaskCreateRequest(
+        readOwnDataProperty(command, 'request', 'command'),
+    );
+    if (
+        request.operationKind !== 'today_action'
+        || request.actionContractVersion
+            !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+    ) {
+        throw new RequestValidationError('command.request must be a Today Action v2 request');
+    }
+    return {
+        planningCandidateId,
+        request: request as PrivilegedTodayActionV2CreateCommand['request'],
+    };
 }
 
 export function buildIdempotentAIStudyTaskRequestDigest(
@@ -346,7 +552,7 @@ export function buildIdempotentAIStudyTaskRequestDigest(
 ): string {
     const canonicalRequest = validateIdempotentAIStudyTaskCreateRequest(request);
     return createHash('sha256')
-        .update(buildCanonicalDigestJson(canonicalRequest), 'utf8')
+        .update(buildIdempotentAIStudyTaskRequestDigestInput(canonicalRequest), 'utf8')
         .digest('hex');
 }
 
@@ -425,12 +631,22 @@ function isValidReceiptRow(receipt: StudyTaskActionReceiptRow): boolean {
         return false;
     }
 
-    if (receipt.operation_kind === 'today_action' || receipt.operation_kind === 'daily_review') {
+    if (receipt.operation_kind === 'today_action') {
+        if (
+            receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+            && receipt.action_contract_version !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+        ) {
+            return false;
+        }
+    } else if (receipt.operation_kind === 'daily_review') {
         if (receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION) {
             return false;
         }
     } else if (receipt.operation_kind === 'mistake_review') {
-        if (receipt.action_contract_version !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION) {
+        if (
+            receipt.action_contract_version !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+            && receipt.action_contract_version !== LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        ) {
             return false;
         }
     } else {
@@ -579,12 +795,34 @@ function resolveExistingReceipt(
             'The saved study task result is invalid.',
         );
     }
+    if (request.operationKind === 'today_action' && task.related_chapter_id !== null) {
+        return errorResponse(
+            request.operationId,
+            'INTEGRITY_ERROR',
+            'The saved Today Action result has an invalid chapter relation.',
+        );
+    }
     return {
         ok: true,
         operationId: request.operationId,
         task,
         replayed: true,
     };
+}
+
+/**
+ * Resolves only durable operation state. This intentionally performs no
+ * current-date, freshness, token, task-creation, or claim work.
+ */
+export function preflightCommittedAIStudyTaskReceipt(
+    request: IdempotentAIStudyTaskCreateRequest,
+    requestDigest: string,
+    dependencies: { database: Database.Database },
+): IdempotentAIStudyTaskCreateResponse | null {
+    const receipt = readReceipt(dependencies.database, request.operationId);
+    return receipt
+        ? resolveExistingReceipt(receipt, request, requestDigest, dependencies.database)
+        : null;
 }
 
 function assertCurrentDate(
@@ -625,13 +863,103 @@ function extractOperationId(value: unknown): string {
         : '';
 }
 
+type AuthorizedTodayActionToken = {
+    token: string;
+    trustedSession: object;
+    tokenStore: TodayActionStaleReviewTokenStore;
+    core: CanonicalTodayActionStaleAuthorizationCore;
+};
+
+function isTodayActionV2Request(request: IdempotentAIStudyTaskCreateRequest): boolean {
+    return request.operationKind === 'today_action'
+        && request.actionContractVersion === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION;
+}
+
+function buildTodayActionAuthorizationCore(
+    request: IdempotentAIStudyTaskCreateRequest,
+): CanonicalTodayActionStaleAuthorizationCore {
+    return {
+        operationId: request.operationId,
+        operationKind: 'today_action',
+        actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+        expectedCurrentDate: request.expectedCurrentDate,
+        contextProjectionVersion: TODAY_ACTION_CHAPTER_CONTEXT_PROJECTION_VERSION,
+        originalGenerationContextSignature: request.originalGenerationContextSignature as string,
+        generationChapterSignature: request.generationChapterSignature as string,
+        latestReviewedChapterSignature: request.latestReviewedChapterSignature as string,
+        staleContextOverride: true,
+        payload: request.payload as CanonicalAIStudyTaskPayload,
+    };
+}
+
+function validateFreshTodayActionChapterContext(
+    request: IdempotentAIStudyTaskCreateRequest,
+    dependencies: IdempotentStudyTaskCreationDependencies,
+): AuthorizedTodayActionToken | null {
+    if (!isTodayActionV2Request(request)) {
+        throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+    }
+
+    let authorizedToken: AuthorizedTodayActionToken | null = null;
+    if (request.staleContextOverride === true) {
+        const trustedSession = dependencies.trustedSession;
+        const tokenStore = dependencies.tokenStore;
+        const token = request.staleReviewToken;
+        const core = buildTodayActionAuthorizationCore(request);
+        if (
+            trustedSession === null
+            || typeof trustedSession !== 'object'
+            || !tokenStore
+            || typeof token !== 'string'
+            || !tokenStore.check(token, trustedSession, core)
+        ) {
+            throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+        }
+        authorizedToken = { token, trustedSession, tokenStore, core };
+    }
+
+    let currentChapterSignature: string;
+    try {
+        currentChapterSignature = readAuthoritativeTodayActionChapterContext(
+            dependencies.database,
+        ).currentChapterSignature;
+    } catch (error) {
+        if (error instanceof TodayActionChapterContextValidationError) {
+            throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+        }
+        throw error;
+    }
+
+    const expectedChapterSignature = request.staleContextOverride === true
+        ? request.latestReviewedChapterSignature
+        : request.generationChapterSignature;
+    if (currentChapterSignature !== expectedChapterSignature) {
+        if (authorizedToken) {
+            authorizedToken.tokenStore.invalidate(
+                authorizedToken.token,
+                authorizedToken.trustedSession,
+                authorizedToken.core,
+            );
+        }
+        throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+    }
+    return authorizedToken;
+}
+
 function validateFreshMistakeReviewDomain(
-    payload: CanonicalAIStudyTaskPayload,
-    expectedCurrentDate: string,
+    request: IdempotentAIStudyTaskCreateRequest,
     database: Database.Database,
 ): void {
+    const payload = request.payload as CanonicalAIStudyTaskPayload;
+    const expectedCurrentDate = request.expectedCurrentDate;
     if (
-        payload.type !== 'review'
+        request.actionContractVersion !== CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+        || request.contextProjectionVersion !== MISTAKE_REVIEW_CONTEXT_PROJECTION_VERSION
+        || typeof request.generationContextSignature !== 'string'
+        || !SHA256_PATTERN.test(request.generationContextSignature)
+        || typeof request.generationMistakeRef !== 'string'
+        || !MISTAKE_REF_PATTERN.test(request.generationMistakeRef)
+        || payload.type !== 'review'
         || payload.related_mistake_id === null
         || payload.related_mistake_id <= 0
         || payload.subject_id === null
@@ -642,54 +970,96 @@ function validateFreshMistakeReviewDomain(
         || payload.status !== 'todo'
         || payload.source !== 'ai'
     ) {
-        throw new FreshMistakeReviewValidationError('Fresh mistake review task payload is invalid');
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
     }
 
-    const mistakeRow = database.prepare(`
-        SELECT id, subject_id, mastered, next_review_date
-        FROM mistakes
-        WHERE id = ?
-    `).get(payload.related_mistake_id) as {
+    type MistakeDomainRow = {
         id: number;
         subject_id: number | null;
+        question: string;
+        answer: string | null;
+        notes: string | null;
         mastered: number;
+        ease_factor: number;
+        review_interval: number;
         next_review_date: string | null;
-    } | undefined;
-
-    if (!mistakeRow) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake does not exist');
-    }
-
-    if (mistakeRow.mastered !== 0) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake is already mastered');
-    }
-
-    if (mistakeRow.next_review_date !== null && mistakeRow.next_review_date > expectedCurrentDate) {
-        throw new FreshMistakeReviewValidationError('Referenced mistake is not due for review');
-    }
-
-    if (mistakeRow.subject_id === null || mistakeRow.subject_id !== payload.subject_id) {
-        throw new FreshMistakeReviewValidationError('Mistake subject does not match payload subject');
-    }
-
-    const subjectRow = database.prepare(`
-        SELECT id FROM subjects WHERE id = ?
-    `).get(payload.subject_id);
-
-    if (!subjectRow) {
-        throw new FreshMistakeReviewValidationError('Referenced subject does not exist');
-    }
-
-    const collisionRow = database.prepare(`
-        SELECT id FROM study_tasks
+        review_count: number;
+        created_at: string;
+        updated_at: string | undefined;
+    };
+    const mistakeRows = database.prepare(`
+        SELECT id, subject_id, question, answer, notes, mastered, ease_factor,
+               review_interval, next_review_date, review_count, created_at, updated_at
+        FROM mistakes
+    `).all() as MistakeDomainRow[];
+    const subjectRows = database.prepare(`
+        SELECT id, name, color
+        FROM subjects
+    `).all() as Subject[];
+    const activeReviewTaskRows = database.prepare(`
+        SELECT id, type, planned_date, status, related_mistake_id
+        FROM study_tasks
         WHERE type = 'review'
           AND planned_date = ?
           AND status IN ('todo', 'doing')
-          AND related_mistake_id = ?
-    `).get(expectedCurrentDate, payload.related_mistake_id);
+    `).all(expectedCurrentDate) as Array<Pick<
+        StudyTask,
+        'id' | 'type' | 'planned_date' | 'status' | 'related_mistake_id'
+    >>;
+
+    const mistakes = mistakeRows.map(row => ({
+        ...row,
+        answer: row.answer ?? '',
+        notes: row.notes ?? '',
+        mastered: row.mastered !== 0,
+    })) as Mistake[];
+    const session = prepareMistakeReviewSession({
+        mistakes,
+        subjects: subjectRows,
+        activeReviewTasks: activeReviewTaskRows as StudyTask[],
+        currentDate: expectedCurrentDate,
+    });
+    const currentSignature = createHash('sha256')
+        .update(buildMistakeReviewContextSignatureString(session.projection), 'utf8')
+        .digest('hex');
+    if (currentSignature !== request.generationContextSignature) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+    const aliasedMistake = session.aliasMap.get(request.generationMistakeRef);
+    if (!aliasedMistake || aliasedMistake.id !== payload.related_mistake_id) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const mistakeRow = mistakeRows.find(row => row.id === payload.related_mistake_id);
+
+    if (!mistakeRow) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.mastered !== 0) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.next_review_date !== null && mistakeRow.next_review_date > expectedCurrentDate) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    if (mistakeRow.subject_id === null || mistakeRow.subject_id !== payload.subject_id) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const subjectRow = subjectRows.find(subject => subject.id === payload.subject_id);
+
+    if (!subjectRow) {
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+    }
+
+    const collisionRow = activeReviewTaskRows.find(task => (
+        task.related_mistake_id === payload.related_mistake_id
+    ));
 
     if (collisionRow) {
-        throw new FreshMistakeReviewValidationError('An active same-day review task already exists for this mistake');
+        throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
     }
 }
 
@@ -725,16 +1095,44 @@ export function createIdempotentAIStudyTaskForCurrentDate(
                     return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
                 }
 
+                if (
+                    request.operationKind === 'mistake_review'
+                    && request.actionContractVersion === LEGACY_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION
+                ) {
+                    throw new FreshMistakeReviewValidationError(STALE_MISTAKE_REVIEW_MESSAGE);
+                }
+                if (
+                    request.operationKind === 'today_action'
+                    && request.actionContractVersion === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+                ) {
+                    throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+                }
+
                 assertCurrentDate(request.expectedCurrentDate, dependencies.getCurrentDateKey);
 
+                if (request.operationKind === 'today_action') {
+                    const authorization = validateFreshTodayActionChapterContext(
+                        request,
+                        dependencies,
+                    );
+                    if (authorization) {
+                        authorization.tokenStore.consume(
+                            authorization.token,
+                            authorization.trustedSession,
+                            authorization.core,
+                        );
+                    }
+                }
                 if (request.operationKind === 'mistake_review') {
                     validateFreshMistakeReviewDomain(
-                        request.payload as CanonicalAIStudyTaskPayload,
-                        request.expectedCurrentDate,
+                        request,
                         dependencies.database,
                     );
                 }
 
+                if (request.operationKind === 'today_action' && request.payload.related_chapter_id !== null) {
+                    throw new FreshTodayActionValidationError(STALE_TODAY_ACTION_MESSAGE);
+                }
                 const createdTask = dependencies.createTask(request.payload);
                 if (
                     !createdTask
@@ -774,6 +1172,19 @@ export function createIdempotentAIStudyTaskForCurrentDate(
                     persistedTask.id,
                 );
                 assertCurrentDate(request.expectedCurrentDate, dependencies.getCurrentDateKey);
+                const persistedReceipt = readReceipt(dependencies.database, request.operationId);
+                if (!persistedReceipt) {
+                    throw new PersistenceIntegrityError('Operation receipt was not persisted');
+                }
+                const verifiedReceipt = resolveExistingReceipt(
+                    persistedReceipt,
+                    request,
+                    requestDigest,
+                    dependencies.database,
+                );
+                if (!verifiedReceipt.ok || verifiedReceipt.task.id !== persistedTask.id) {
+                    throw new PersistenceIntegrityError('Operation receipt did not preserve the confirmed result');
+                }
 
                 return {
                     ok: true,
@@ -786,7 +1197,10 @@ export function createIdempotentAIStudyTaskForCurrentDate(
 
         return createInTransaction();
     } catch (error) {
-        if (error instanceof FreshMistakeReviewValidationError) {
+        if (
+            error instanceof FreshTodayActionValidationError
+            || error instanceof FreshMistakeReviewValidationError
+        ) {
             return errorResponse(
                 request.operationId,
                 'INVALID_REQUEST',
@@ -801,18 +1215,166 @@ export function createIdempotentAIStudyTaskForCurrentDate(
             );
         }
         if (isReceiptOperationIdConstraint(error)) {
+            let racedReceipt: StudyTaskActionReceiptRow | undefined;
             try {
-                const racedReceipt = readReceipt(dependencies.database, request.operationId);
-                if (racedReceipt) {
-                    return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
-                }
-            } catch {
+                racedReceipt = readReceipt(dependencies.database, request.operationId);
+            } catch (readError) {
+                if (isTodayActionV2Request(request)) throw readError;
+                return errorResponse(
+                    request.operationId,
+                    'INTEGRITY_ERROR',
+                    'The study task could not be created safely.',
+                );
             }
+            if (racedReceipt) {
+                return resolveExistingReceipt(racedReceipt, request, requestDigest, dependencies.database);
+            }
+            if (isTodayActionV2Request(request)) throw error;
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
         }
-        return errorResponse(
-            request.operationId,
-            'INTEGRITY_ERROR',
-            'The study task could not be created safely.',
+        if (error instanceof PersistenceIntegrityError) {
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
+        }
+        if (!isTodayActionV2Request(request)) {
+            return errorResponse(
+                request.operationId,
+                'INTEGRITY_ERROR',
+                'The study task could not be created safely.',
+            );
+        }
+        throw error;
+    }
+}
+
+export function validateTodayActionCommittedStatusRequest(
+    value: unknown,
+): TodayActionCommittedStatusRequest {
+    const request = requireOrdinaryObject(value, 'request');
+    const hasPlanningCandidateId = Object.prototype.hasOwnProperty.call(
+        request,
+        'planningCandidateId',
+    );
+    const hasRequestDigest = Object.prototype.hasOwnProperty.call(
+        request,
+        'requestDigest',
+    );
+    if (hasPlanningCandidateId !== hasRequestDigest) {
+        throw new RequestValidationError(
+            'request.planningCandidateId and request.requestDigest must be supplied together',
         );
     }
+    assertExactOwnKeys(
+        request,
+        hasPlanningCandidateId
+            ? CURRENT_TODAY_COMMITTED_STATUS_REQUEST_KEYS
+            : TODAY_COMMITTED_STATUS_REQUEST_KEYS,
+        'request',
+    );
+    const operationId = readOwnDataProperty(request, 'operationId', 'request');
+    if (typeof operationId !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(operationId)) {
+        throw new RequestValidationError('request.operationId must be a lowercase UUID v4');
+    }
+    if (readOwnDataProperty(request, 'operationKind', 'request') !== 'today_action') {
+        throw new RequestValidationError('request.operationKind must be today_action');
+    }
+    if (
+        readOwnDataProperty(request, 'actionContractVersion', 'request')
+        !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+    ) {
+        throw new RequestValidationError('request.actionContractVersion is unsupported');
+    }
+    const expectedCurrentDate = requireActualDateKey(
+        readOwnDataProperty(request, 'expectedCurrentDate', 'request'),
+        'request.expectedCurrentDate',
+    );
+    const plannedDate = requireActualDateKey(
+        readOwnDataProperty(request, 'plannedDate', 'request'),
+        'request.plannedDate',
+    );
+    if (plannedDate !== expectedCurrentDate) {
+        throw new RequestValidationError('request.plannedDate must equal request.expectedCurrentDate');
+    }
+    const baseRequest = {
+        operationId,
+        operationKind: 'today_action',
+        actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
+        expectedCurrentDate,
+        plannedDate,
+    } as const;
+    if (!hasPlanningCandidateId || !hasRequestDigest) return baseRequest;
+    return {
+        ...baseRequest,
+        planningCandidateId: requirePositiveId(
+            readOwnDataProperty(request, 'planningCandidateId', 'request'),
+            'request.planningCandidateId',
+        ),
+        requestDigest: requireSha256(
+            readOwnDataProperty(request, 'requestDigest', 'request'),
+            'request.requestDigest',
+        ),
+    };
+}
+
+export function getCommittedAIStudyTaskOperationStatus(
+    value: unknown,
+    dependencies: { database: Database.Database },
+): TodayActionCommittedStatus {
+    const request = validateTodayActionCommittedStatusRequest(value);
+    const integrityError = (): TodayActionCommittedStatus => ({
+        status: 'INTEGRITY_ERROR',
+        operationId: request.operationId,
+    });
+    // Operational database failures must propagate so recovery stays retryable.
+    // INTEGRITY_ERROR is reserved for rows that were read and failed validation.
+    const receipt = readReceipt(dependencies.database, request.operationId);
+    if (!receipt) {
+        return { status: 'NOT_COMMITTED', operationId: request.operationId };
+    }
+    if (request.requestDigest === undefined) return integrityError();
+    if (!isValidReceiptRow(receipt)) return integrityError();
+    const metadataMatches = receipt.operation_id === request.operationId
+        && receipt.operation_kind === request.operationKind
+        && receipt.action_contract_version === request.actionContractVersion
+        && receipt.expected_current_date === request.expectedCurrentDate
+        && receipt.planned_date === request.plannedDate;
+    if (!metadataMatches) {
+        return integrityError();
+    }
+    if (receipt.request_digest !== request.requestDigest) {
+        return { status: 'IDEMPOTENCY_CONFLICT', operationId: request.operationId };
+    }
+    if (receipt.task_id === null) {
+        return { status: 'RESULT_DELETED', operationId: request.operationId };
+    }
+    if (
+        typeof receipt.task_id !== 'number'
+        || !Number.isSafeInteger(receipt.task_id)
+        || receipt.task_id <= 0
+    ) {
+        return integrityError();
+    }
+    const row = readTask(dependencies.database, receipt.task_id);
+    if (!row) return integrityError();
+    const task = projectPersistedStudyTask(row);
+    if (
+        !task
+        || task.planned_date !== request.plannedDate
+        || task.related_chapter_id !== null
+        || task.source !== 'ai'
+    ) {
+        return integrityError();
+    }
+    return {
+        status: 'RECOVERED_COMMITTED',
+        operationId: request.operationId,
+        task,
+    };
 }

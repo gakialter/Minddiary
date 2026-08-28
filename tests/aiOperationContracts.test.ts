@@ -5,6 +5,7 @@ import {
   AI_STUDY_TASK_OPERATION_KINDS,
   CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
   CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION,
+  CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
   createAIStudyTaskGenerationProvenance,
   getAIStudyTaskOperationContract,
   validateAIStudyTaskGenerationProvenance,
@@ -21,6 +22,7 @@ import {
   buildMistakeReviewPromptMessages,
   type MistakeReviewContextProjection,
 } from '../src/utils/mistakeReviewSuggestions'
+import type { TodayActionProviderChapterProjection } from '../src/utils/todayActionChapterContext'
 
 const TODAY_CONTEXT_FIXTURE: TodayActionPlanningContext = {
   date: '2026-06-12',
@@ -128,6 +130,14 @@ const MISTAKE_REVIEW_CONTEXT_FIXTURE: MistakeReviewContextProjection = {
   }],
 }
 
+const TODAY_CHAPTER_PROJECTION_FIXTURE: TodayActionProviderChapterProjection = {
+  chapter_progress: [{
+    subject_ref: 'subject:1',
+    title: '函数极限',
+    completed: false,
+  }],
+}
+
 function canonicalSerialize(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return JSON.stringify(value)
@@ -153,8 +163,9 @@ function digestMessages(messages: AIMessage[]): string {
 
 const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
   'today-action.prompt.v3': '8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681',
+  'today-action.prompt.v4': '76aadb0d2a458e2013858e4258229279894cd5527a5d7dd5e9f7c33472008900',
   'daily-review.prompt.v2': '582c458b685032a9aef79b5d6dba8d7dfb660644bf1201aed8f4c2fea206821f',
-  'mistake-review.prompt.v1': digestMessages(buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)),
+  'mistake-review.prompt.v1': '608e1dc0f12a36d5f0edb1801ef9e75053acfab019e46a2a8c2893cd5ea18305',
 })
 
 describe('AI study task operation contracts', () => {
@@ -162,12 +173,12 @@ describe('AI study task operation contracts', () => {
     expect(AI_STUDY_TASK_OPERATION_KINDS).toEqual(['today_action', 'daily_review', 'mistake_review'])
     expect(getAIStudyTaskOperationContract('today_action')).toEqual({
       operationKind: 'today_action',
-      promptVersion: 'today-action.prompt.v3',
+      promptVersion: 'today-action.prompt.v4',
       responseSchemaVersion: 'today-action.response-schema.v1',
       parserVersion: 'today-action.parser.v1',
-      policyVersion: 'today-action.policy.v1',
-      contextProjectionVersion: 'today-action.context-projection.v1',
-      actionContractVersion: 'confirmed-study-task-action.v1',
+      policyVersion: 'today-action.policy.v2',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      actionContractVersion: 'confirmed-study-task-action.v2',
     })
     expect(getAIStudyTaskOperationContract('daily_review')).toEqual({
       operationKind: 'daily_review',
@@ -185,10 +196,10 @@ describe('AI study task operation contracts', () => {
       parserVersion: 'mistake-review.parser.v1',
       policyVersion: 'mistake-review.policy.v1',
       contextProjectionVersion: 'mistake-review.context-projection.v1',
-      actionContractVersion: 'confirmed-mistake-review-task-action.v1',
+      actionContractVersion: 'confirmed-mistake-review-task-action.v2',
     })
     expect(getAIStudyTaskOperationContract('today_action').actionContractVersion)
-      .toBe(CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION)
+      .toBe(CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION)
     expect(getAIStudyTaskOperationContract('daily_review').actionContractVersion)
       .toBe(CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION)
     expect(getAIStudyTaskOperationContract('mistake_review').actionContractVersion)
@@ -213,7 +224,7 @@ describe('AI study task operation contracts', () => {
     expect(Reflect.set(provenance.versions, 'parserVersion', 'forged')).toBe(false)
     expect(Reflect.setPrototypeOf(contract, { promptVersion: 'forged' })).toBe(false)
     expect(Reflect.setPrototypeOf(AI_STUDY_TASK_OPERATION_KINDS, [])).toBe(false)
-    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v3')
+    expect(getAIStudyTaskOperationContract('today_action').promptVersion).toBe('today-action.prompt.v4')
     expect(createAIStudyTaskGenerationProvenance('today_action', 'second-signature').versions.parserVersion)
       .toBe('today-action.parser.v1')
   })
@@ -267,7 +278,12 @@ describe('versioned prompt drift fixtures', () => {
   it.each([
     {
       operationKind: 'today_action' as const,
-      messages: buildTodayActionSuggestionMessages(TODAY_CONTEXT_FIXTURE),
+      messages: buildTodayActionSuggestionMessages(
+        TODAY_CONTEXT_FIXTURE,
+        'balanced',
+        null,
+        TODAY_CHAPTER_PROJECTION_FIXTURE,
+      ),
     },
     {
       operationKind: 'daily_review' as const,
@@ -283,5 +299,29 @@ describe('versioned prompt drift fixtures', () => {
 
     expect(serialization).not.toContain('\r')
     expect(digestMessages(messages)).toBe(EXPECTED_PROMPT_DIGESTS[promptVersion])
+  })
+
+  it('detects a one-character Mistake Review prompt mutation against the frozen oracle', () => {
+    const messages = buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)
+      .map(message => ({ ...message }))
+    messages[1] = { ...messages[1]!, content: `${messages[1]!.content}!` }
+
+    expect(digestMessages(messages))
+      .not.toBe(EXPECTED_PROMPT_DIGESTS['mistake-review.prompt.v1'])
+  })
+
+  it('detects a one-character Today Action v4 prompt mutation against the independent frozen oracle', () => {
+    const messages = buildTodayActionSuggestionMessages(
+      TODAY_CONTEXT_FIXTURE,
+      'balanced',
+      null,
+      TODAY_CHAPTER_PROJECTION_FIXTURE,
+    ).map(message => ({ ...message }))
+    messages[1] = { ...messages[1]!, content: `${messages[1]!.content}!` }
+
+    expect(digestMessages(messages))
+      .not.toBe(EXPECTED_PROMPT_DIGESTS['today-action.prompt.v4'])
+    expect(EXPECTED_PROMPT_DIGESTS['today-action.prompt.v3'])
+      .toBe('8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681')
   })
 })

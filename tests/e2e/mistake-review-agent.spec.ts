@@ -46,26 +46,42 @@ async function configureMockAI(page: Page, endpoint: string): Promise<void> {
 test.describe('Mistake Review Agent Electron E2E', () => {
   test.describe.configure({ timeout: 120_000 })
 
-  test('generates suggestions, confirms candidate into study task, and supports manual review settlement', async () => {
+  test('regenerates authoritatively after each confirmation and supports multiple fresh candidates', async () => {
     const profilePath = createDisposableElectronProfile(profilePrefix)
     const today = localDateKey(new Date())
+    let providerCallCount = 0
 
     const mockServer = createServer((request, response) => {
       request.resume()
+      providerCallCount += 1
+      const suggestions = providerCallCount === 1
+        ? [
+            {
+              mistake_ref: 'm1',
+              title: 'E2E 复习高等数学极限',
+              reason: '已逾期且属于核心考点,建议优先复习。',
+              estimate_minutes: 25,
+            },
+            {
+              mistake_ref: 'm2',
+              title: 'P0 复习牛顿第二定律',
+              reason: '首次生成中的第二张旧卡。',
+              estimate_minutes: 30,
+            },
+          ]
+        : [
+            {
+              mistake_ref: 'm1',
+              title: 'P1 复习牛顿第二定律',
+              reason: '基于排除已创建任务后的新 projection。',
+              estimate_minutes: 30,
+            },
+          ]
       response.writeHead(200, { 'Content-Type': 'application/json' })
       response.end(JSON.stringify({
         choices: [{
           message: {
-            content: JSON.stringify({
-              suggestions: [
-                {
-                  mistake_ref: 'm1',
-                  title: 'E2E 复习高等数学极限',
-                  reason: '已逾期且属于核心考点,建议优先复习。',
-                  estimate_minutes: 25,
-                },
-              ],
-            }),
+            content: JSON.stringify({ suggestions }),
           },
         }],
       }))
@@ -88,10 +104,10 @@ test.describe('Mistake Review Agent Electron E2E', () => {
       if (await startButton.isVisible().catch(() => false)) await startButton.click()
       await configureMockAI(page, endpoint)
 
-      // 1. Create a subject and a due mistake via IPC
-      const { subjectId, mistakeId } = await page.evaluate(async (currentDateKey) => {
+      // 1. Create a subject and two due mistakes via IPC
+      const { subjectId, firstMistakeId, secondMistakeId } = await page.evaluate(async (currentDateKey) => {
         const subject = await window.api.subjects.create({ name: '高等数学', color: '#2563eb' })
-        const mistake = await window.api.mistakes.create({
+        const firstMistake = await window.api.mistakes.create({
           subject_id: subject.id,
           question: '求极限 lim (sin x)/x 当 x->0',
           answer: '1',
@@ -101,11 +117,26 @@ test.describe('Mistake Review Agent Electron E2E', () => {
           next_review_date: currentDateKey,
           review_count: 1,
         })
-        return { subjectId: subject.id, mistakeId: Number(mistake.id) }
+        const secondMistake = await window.api.mistakes.create({
+          subject_id: subject.id,
+          question: '牛顿第二定律公式及其适用条件',
+          answer: 'F=ma',
+          notes: '力学基础',
+          ease_factor: 2.5,
+          review_interval: 1,
+          next_review_date: currentDateKey,
+          review_count: 2,
+        })
+        return {
+          subjectId: subject.id,
+          firstMistakeId: Number(firstMistake.id),
+          secondMistakeId: Number(secondMistake.id),
+        }
       }, today)
 
       expect(subjectId).toBeGreaterThan(0)
-      expect(mistakeId).toBeGreaterThan(0)
+      expect(firstMistakeId).toBeGreaterThan(0)
+      expect(secondMistakeId).toBeGreaterThan(0)
 
       // 2. Navigate to 错题本 tab
       await page.getByRole('button', { name: '错题本' }).click()
@@ -118,27 +149,39 @@ test.describe('Mistake Review Agent Electron E2E', () => {
       // 4. Wait for candidate card to render
       await expect(page.getByTestId('mistake-review-candidate-card-0')).toBeVisible()
       await expect(page.getByText('E2E 复习高等数学极限')).toBeVisible()
+      await expect(page.getByText('P0 复习牛顿第二定律')).toBeVisible()
       await expect(page.getByText(/已逾期且属于核心考点/)).toBeVisible()
 
       // 5. Confirm the candidate
       await page.getByTestId('mistake-review-confirm-btn-0').click()
 
-      // 6. Verify "已添加" badge appears
-      await expect(page.getByTestId('mistake-review-created-badge-0')).toBeVisible()
-      await expect(page.getByTestId('mistake-review-created-badge-0')).toContainText('已添加')
+      // 6. The committed generation is consumed and Provider runs again from P1.
+      await expect(page.getByText('P1 复习牛顿第二定律')).toBeVisible()
+      await expect(page.getByText('P0 复习牛顿第二定律')).not.toBeVisible()
+      expect(providerCallCount).toBe(2)
 
-      // 7. Verify study task was created in database
-      const tasks = await page.evaluate(async (currentDateKey) => {
+      // 7. Verify the first task, then create the fresh P1 candidate.
+      let tasks = await page.evaluate(async (currentDateKey) => {
         return window.api.tasks.getByDate(currentDateKey)
       }, today)
 
-      const createdTask = tasks.find(t => t.related_mistake_id === mistakeId)
-      expect(createdTask).toBeDefined()
-      expect(createdTask?.title).toBe('E2E 复习高等数学极限')
-      expect(createdTask?.type).toBe('review')
-      expect(createdTask?.source).toBe('ai')
-      expect(createdTask?.planned_date).toBe(today)
-      expect(createdTask?.estimate_minutes).toBe(25)
+      const firstTask = tasks.find(t => t.related_mistake_id === firstMistakeId)
+      expect(firstTask).toBeDefined()
+      expect(firstTask?.title).toBe('E2E 复习高等数学极限')
+      expect(firstTask?.type).toBe('review')
+      expect(firstTask?.source).toBe('ai')
+      expect(firstTask?.planned_date).toBe(today)
+      expect(firstTask?.estimate_minutes).toBe(25)
+
+      await page.getByTestId('mistake-review-confirm-btn-0').click()
+      await expect(page.getByTestId('mistake-review-empty')).toBeVisible()
+      tasks = await page.evaluate(async (currentDateKey) => {
+        return window.api.tasks.getByDate(currentDateKey)
+      }, today)
+      const secondTask = tasks.find(t => t.related_mistake_id === secondMistakeId)
+      expect(secondTask).toBeDefined()
+      expect(secondTask?.title).toBe('P1 复习牛顿第二定律')
+      expect(providerCallCount).toBe(2)
 
       // 8. Close dialog
       await page.getByTestId('mistake-review-close-btn').click()
@@ -152,7 +195,7 @@ test.describe('Mistake Review Agent Electron E2E', () => {
           next_review_date: '2026-09-01',
           review_count: 2,
         })
-      }, mistakeId)
+      }, firstMistakeId)
       expect(reviewResult.success).toBe(true)
     } finally {
       if (app) await app.close()

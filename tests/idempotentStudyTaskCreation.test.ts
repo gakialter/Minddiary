@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import BetterSqlite3 from 'better-sqlite3'
+import { createHash } from 'crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import {
@@ -9,13 +10,22 @@ import {
   validateIdempotentAIStudyTaskCreateRequest,
 } from '../electron/idempotentStudyTaskCreation'
 import { runDatabaseMigrations } from '../electron/databaseMigrations'
-import type { NewStudyTask, StudyTask } from '../src/types'
+import type { Mistake, NewStudyTask, StudyTask, Subject } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api'
+import {
+  buildMistakeReviewContextSignatureString,
+  prepareMistakeReviewSession,
+} from '../src/utils/mistakeReviewSuggestions'
 
 const OPERATION_ID = '123e4567-e89b-42d3-a456-426614174000'
 const EXPECTED_DATE = '2026-07-30'
 const NEXT_DATE = '2026-07-31'
-const ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
+const ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v2'
+const LEGACY_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
+const TODAY_CONTEXT_PROJECTION_VERSION = 'today-action.context-projection.v2'
+const EMPTY_CHAPTER_SIGNATURE = createHash('sha256')
+  .update(`${TODAY_CONTEXT_PROJECTION_VERSION}\u0000{"chapter_progress":[]}`, 'utf8')
+  .digest('hex')
 
 const BASE_PAYLOAD = {
   title: 'Review calculus',
@@ -38,15 +48,42 @@ type RequestOverrides = Partial<Omit<IdempotentAIStudyTaskCreateRequest, 'payloa
 const databases: Database.Database[] = []
 
 function makeRequest(overrides: RequestOverrides = {}): IdempotentAIStudyTaskCreateRequest {
+  const operationKind = overrides.operationKind ?? 'today_action'
+  const payload = {
+    ...BASE_PAYLOAD,
+    ...overrides.payload,
+  }
+  if (operationKind === 'daily_review') {
+    return {
+      operationId: overrides.operationId ?? OPERATION_ID,
+      operationKind,
+      actionContractVersion: overrides.actionContractVersion ?? LEGACY_ACTION_CONTRACT_VERSION,
+      expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
+      payload,
+    }
+  }
   return {
     operationId: overrides.operationId ?? OPERATION_ID,
-    operationKind: overrides.operationKind ?? 'today_action',
+    operationKind,
     actionContractVersion: overrides.actionContractVersion ?? ACTION_CONTRACT_VERSION,
     expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
-    payload: {
-      ...BASE_PAYLOAD,
-      ...overrides.payload,
-    },
+    contextProjectionVersion: overrides.contextProjectionVersion ?? TODAY_CONTEXT_PROJECTION_VERSION,
+    originalGenerationContextSignature: overrides.originalGenerationContextSignature ?? '1'.repeat(64),
+    generationChapterSignature: overrides.generationChapterSignature ?? EMPTY_CHAPTER_SIGNATURE,
+    latestReviewedChapterSignature: overrides.latestReviewedChapterSignature ?? EMPTY_CHAPTER_SIGNATURE,
+    staleContextOverride: overrides.staleContextOverride ?? false,
+    staleReviewToken: overrides.staleReviewToken ?? null,
+    payload,
+  }
+}
+
+function makeLegacyTodayRequest(overrides: RequestOverrides = {}): IdempotentAIStudyTaskCreateRequest {
+  return {
+    operationId: overrides.operationId ?? OPERATION_ID,
+    operationKind: 'today_action',
+    actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
+    expectedCurrentDate: overrides.expectedCurrentDate ?? EXPECTED_DATE,
+    payload: { ...BASE_PAYLOAD, ...overrides.payload },
   }
 }
 
@@ -155,7 +192,7 @@ describe('idempotent AI study task request validation and digest', () => {
     const request = {
       payload,
       expectedCurrentDate: EXPECTED_DATE,
-      actionContractVersion: ACTION_CONTRACT_VERSION,
+      actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
       operationKind: 'today_action',
       operationId: OPERATION_ID,
     }
@@ -187,7 +224,7 @@ describe('idempotent AI study task request validation and digest', () => {
   })
 
   it('locks the manually ordered canonical UTF-8 SHA-256 fixture', () => {
-    expect(buildIdempotentAIStudyTaskRequestDigest(makeRequest())).toBe(
+    expect(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest())).toBe(
       '55952fa2d0e899a89728442042e142c4c5b04e039d1ed08b876174d12b2db070',
     )
   })
@@ -208,17 +245,17 @@ describe('idempotent AI study task request validation and digest', () => {
         title: 'Review calculus',
       },
       expectedCurrentDate: EXPECTED_DATE,
-      actionContractVersion: ACTION_CONTRACT_VERSION,
+      actionContractVersion: LEGACY_ACTION_CONTRACT_VERSION,
       operationKind: 'today_action',
       operationId: OPERATION_ID,
     }
 
     expect(buildIdempotentAIStudyTaskRequestDigest(reordered)).toBe(
-      buildIdempotentAIStudyTaskRequestDigest(makeRequest()),
+      buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest()),
     )
-    expect(buildIdempotentAIStudyTaskRequestDigest(makeRequest({
+    expect(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest({
       payload: { description: 'Focus on integral mistakes' },
-    }))).not.toBe(buildIdempotentAIStudyTaskRequestDigest(makeRequest()))
+    }))).not.toBe(buildIdempotentAIStudyTaskRequestDigest(makeLegacyTodayRequest()))
   })
 
   it('rejects non-enumerable and symbol extras at both exact-key boundaries', () => {
@@ -240,7 +277,7 @@ describe('idempotent AI study task request validation and digest', () => {
   it.each([
     ['uppercase UUID', makeRequest({ operationId: OPERATION_ID.toUpperCase() })],
     ['wrong UUID version', makeRequest({ operationId: '123e4567-e89b-12d3-a456-426614174000' })],
-    ['unsupported action contract', makeRequest({ actionContractVersion: 'confirmed-study-task-action.v2' })],
+    ['unsupported action contract', makeRequest({ actionContractVersion: 'confirmed-study-task-action.v3' })],
     ['impossible date', makeRequest({ expectedCurrentDate: '2026-02-30', payload: { planned_date: '2026-02-30' } })],
     ['today invariant mismatch', makeRequest({ payload: { planned_date: NEXT_DATE } })],
     ['non-todo status', makeRequest({ payload: { status: 'doing' } })],
@@ -428,9 +465,7 @@ describe('idempotent AI study task persistence', () => {
       throw new Error('forced create failure')
     })
 
-    const result = execute(harness)
-
-    expect(result).toMatchObject({ ok: false, code: 'INTEGRITY_ERROR' })
+    expect(() => execute(harness)).toThrow('forced create failure')
     expect(countRows(harness.database, 'study_tasks')).toBe(0)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
@@ -445,9 +480,7 @@ describe('idempotent AI study task persistence', () => {
       END;
     `)
 
-    const result = execute(harness)
-
-    expect(result).toMatchObject({ ok: false, code: 'INTEGRITY_ERROR' })
+    expect(() => execute(harness)).toThrow('forced receipt failure')
     expect(countRows(harness.database, 'study_tasks')).toBe(0)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
@@ -489,7 +522,9 @@ describe('idempotent AI study task persistence', () => {
 })
 
 describe('mistake_review idempotent AI study task persistence', () => {
-  const MISTAKE_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
+  const MISTAKE_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v2'
+  const LEGACY_MISTAKE_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
+  const CONTEXT_PROJECTION_VERSION = 'mistake-review.context-projection.v1'
   const MISTAKE_OP_ID = '33333333-3333-4333-8333-333333333333'
 
   function insertSubject(database: Database.Database, name = 'Math'): number {
@@ -503,6 +538,7 @@ describe('mistake_review idempotent AI study task persistence', () => {
       question?: string
       mastered?: number
       next_review_date?: string | null
+      review_count?: number
     } = {},
   ): number {
     const subjectId = overrides.subject_id === undefined ? insertSubject(database) : overrides.subject_id
@@ -528,8 +564,37 @@ describe('mistake_review idempotent AI study task persistence', () => {
       2.5,
       1,
       overrides.next_review_date === undefined ? EXPECTED_DATE : overrides.next_review_date,
-      1,
+      overrides.review_count ?? 1,
     ).lastInsertRowid)
+  }
+
+  function buildCurrentProof(database: Database.Database, selectedMistakeId: number) {
+    const mistakes = database.prepare(`
+      SELECT id, subject_id, question, answer, notes, mastered, ease_factor,
+             review_interval, next_review_date, review_count, created_at, updated_at
+      FROM mistakes
+    `).all() as Array<Record<string, unknown> & { mastered: number }>
+    const canonicalMistakes = mistakes.map(row => ({ ...row, mastered: Boolean(row.mastered) })) as unknown as Mistake[]
+    const subjects = database.prepare('SELECT id, name, color FROM subjects').all() as Subject[]
+    const activeReviewTasks = database.prepare(`
+      SELECT id, title, description, type, subject_id, related_mistake_id,
+             related_entry_id, related_chapter_id, planned_date, estimate_minutes,
+             status, source, created_at, updated_at
+      FROM study_tasks
+      WHERE type = 'review' AND planned_date = ? AND status IN ('todo', 'doing')
+    `).all(EXPECTED_DATE) as StudyTask[]
+    const session = prepareMistakeReviewSession({
+      mistakes: canonicalMistakes,
+      subjects,
+      activeReviewTasks,
+      currentDate: EXPECTED_DATE,
+    })
+    const generationMistakeRef = [...session.aliasMap.entries()]
+      .find(([, mistake]) => mistake.id === selectedMistakeId)?.[0] ?? 'm1'
+    const generationContextSignature = createHash('sha256')
+      .update(buildMistakeReviewContextSignatureString(session.projection), 'utf8')
+      .digest('hex')
+    return { generationContextSignature, generationMistakeRef, session }
   }
 
   function makeMistakeRequest(
@@ -549,12 +614,16 @@ describe('mistake_review idempotent AI study task persistence', () => {
   ): IdempotentAIStudyTaskCreateRequest {
     const subjectId = overrides.subject_id ?? insertSubject(harness.database)
     const mistakeId = overrides.related_mistake_id ?? insertMistake(harness.database, { subject_id: subjectId })
+    const proof = buildCurrentProof(harness.database, mistakeId)
 
     return {
       operationId: overrides.operationId ?? MISTAKE_OP_ID,
       operationKind: 'mistake_review',
       actionContractVersion: overrides.actionContractVersion ?? MISTAKE_CONTRACT_VERSION,
       expectedCurrentDate: EXPECTED_DATE,
+      contextProjectionVersion: CONTEXT_PROJECTION_VERSION,
+      generationContextSignature: proof.generationContextSignature,
+      generationMistakeRef: proof.generationMistakeRef,
       payload: {
         title: 'Review Mistake',
         description: 'Overdue mistake review',
@@ -568,12 +637,20 @@ describe('mistake_review idempotent AI study task persistence', () => {
         status: (overrides.status ?? 'todo') as any,
         source: (overrides.source ?? 'ai') as any,
       },
-    }
+    } as IdempotentAIStudyTaskCreateRequest
   }
 
   it('creates a task and receipt for a valid fresh mistake_review request', () => {
     const harness = createHarness()
     const request = makeMistakeRequest(harness)
+    const mistakeBefore = harness.database.prepare(`
+      SELECT review_count, ease_factor, review_interval, next_review_date, mastered
+      FROM mistakes WHERE id = ?
+    `).get(request.payload.related_mistake_id)
+    const planningBefore = {
+      runs: countRows(harness.database, 'planning_runs'),
+      candidates: countRows(harness.database, 'planning_run_candidates'),
+    }
 
     const result = execute(harness, request)
 
@@ -593,6 +670,222 @@ describe('mistake_review idempotent AI study task persistence', () => {
     })
     expect(countRows(harness.database, 'study_tasks')).toBe(1)
     expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
+    expect(harness.database.prepare(`
+      SELECT review_count, ease_factor, review_interval, next_review_date, mastered
+      FROM mistakes WHERE id = ?
+    `).get(request.payload.related_mistake_id)).toEqual(mistakeBefore)
+    expect(countRows(harness.database, 'planning_runs')).toBe(planningBefore.runs)
+    expect(countRows(harness.database, 'planning_run_candidates')).toBe(planningBefore.candidates)
+  })
+
+  it.each([
+    ['question excerpt', "UPDATE mistakes SET question = 'Changed canonical question' WHERE id = ?"],
+    ['review count', 'UPDATE mistakes SET review_count = review_count + 1 WHERE id = ?'],
+    ['overdue days', "UPDATE mistakes SET next_review_date = '2026-07-29' WHERE id = ?"],
+  ])('rejects a new v2 request after %s drift with zero business writes', (_label, sql) => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+    harness.database.prepare(sql).run(request.payload.related_mistake_id)
+
+    const result = execute(harness, request)
+
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+    expect(countRows(harness.database, 'planning_runs')).toBe(0)
+    expect(countRows(harness.database, 'planning_run_candidates')).toBe(0)
+  })
+
+  it('does not reject a raw question change whose canonical truncated excerpt is unchanged', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const prefix = 'Q'.repeat(120)
+    const mistakeId = insertMistake(harness.database, { subject_id: subjectId, question: `${prefix} first suffix` })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: mistakeId })
+    harness.database.prepare('UPDATE mistakes SET question = ? WHERE id = ?').run(`${prefix} second suffix`, mistakeId)
+
+    expect(execute(harness, request)).toMatchObject({ ok: true, replayed: false })
+  })
+
+  it('rejects canonical subject name drift', () => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+    harness.database.prepare("UPDATE subjects SET name = 'Changed Subject' WHERE id = ?")
+      .run(request.payload.subject_id)
+
+    expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects when another current top-12 item drifts', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const selectedId = insertMistake(harness.database, { subject_id: subjectId, question: 'Selected' })
+    const otherId = insertMistake(harness.database, { subject_id: subjectId, question: 'Other' })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: selectedId })
+    harness.database.prepare("UPDATE mistakes SET question = 'Other changed' WHERE id = ?").run(otherId)
+
+    expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('allows changes outside top-12 when canonical top-12 bytes stay unchanged', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const ids = Array.from({ length: 13 }, (_, index) => insertMistake(harness.database, {
+      subject_id: subjectId,
+      question: `Question ${index + 1}`,
+    }))
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: ids[0] })
+    harness.database.prepare("UPDATE mistakes SET question = 'Outside changed' WHERE id = ?").run(ids[12])
+
+    expect(execute(harness, request)).toMatchObject({ ok: true, replayed: false })
+  })
+
+  it('rejects top-12 membership/order drift', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database)
+    const selectedId = insertMistake(harness.database, { subject_id: subjectId, question: 'Selected' })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: selectedId })
+    insertMistake(harness.database, { subject_id: subjectId, question: 'New null-first', next_review_date: null })
+
+    expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('rejects alias-to-authoritative-ID remap even when provider-visible projection bytes are identical', () => {
+    const harness = createHarness()
+    const subjectId = insertSubject(harness.database, 'Same')
+    const id1 = insertMistake(harness.database, {
+      subject_id: subjectId,
+      question: 'Same',
+      next_review_date: EXPECTED_DATE,
+      review_count: 1,
+    })
+    const id2 = insertMistake(harness.database, {
+      subject_id: subjectId,
+      question: 'Same',
+      next_review_date: null,
+      review_count: 1,
+    })
+    const request = makeMistakeRequest(harness, { subject_id: subjectId, related_mistake_id: id2 })
+    expect(request.generationMistakeRef).toBe('m1')
+    harness.database.prepare('UPDATE mistakes SET next_review_date = ? WHERE id = ?').run(null, id1)
+    harness.database.prepare('UPDATE mistakes SET next_review_date = ? WHERE id = ?').run(EXPECTED_DATE, id2)
+    expect(buildCurrentProof(harness.database, id2).generationContextSignature)
+      .toBe(request.generationContextSignature)
+
+    expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('makes the v2 digest sensitive to operation ID, signature, alias, and payload', () => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+    const digest = buildIdempotentAIStudyTaskRequestDigest(request)
+    const variants = [
+      { ...request, operationId: '44444444-4444-4444-8444-444444444444' },
+      { ...request, generationContextSignature: 'b'.repeat(64) },
+      { ...request, generationMistakeRef: 'm2' },
+      { ...request, payload: { ...request.payload, title: 'Different title' } },
+    ]
+    for (const variant of variants) {
+      expect(buildIdempotentAIStudyTaskRequestDigest(variant)).not.toBe(digest)
+    }
+  })
+
+  it('matches an independent frozen C5 v2 digest oracle covering contextProjectionVersion', () => {
+    const request: IdempotentAIStudyTaskCreateRequest = {
+      operationId: MISTAKE_OP_ID,
+      operationKind: 'mistake_review',
+      actionContractVersion: MISTAKE_CONTRACT_VERSION,
+      expectedCurrentDate: EXPECTED_DATE,
+      contextProjectionVersion: CONTEXT_PROJECTION_VERSION,
+      generationContextSignature: 'a'.repeat(64),
+      generationMistakeRef: 'm1',
+      payload: {
+        title: 'Review Mistake',
+        description: 'Overdue mistake review',
+        type: 'review',
+        subject_id: 1,
+        related_mistake_id: 1,
+        related_entry_id: null,
+        related_chapter_id: null,
+        planned_date: EXPECTED_DATE,
+        estimate_minutes: 25,
+        status: 'todo',
+        source: 'ai',
+      },
+    }
+
+    expect(buildIdempotentAIStudyTaskRequestDigest(request))
+      .toBe('0e94beda9be7b43c72fa31fe21ee6bb6247d0c8fc92b8b95daf51279c0aa3328')
+  })
+
+  it.each(['mastered', 'not_due', 'subject_relation', 'subject_missing', 'collision'] as const)(
+    'blocks the authoritative %s hard gate after generation',
+    gate => {
+      const harness = createHarness()
+      const request = makeMistakeRequest(harness)
+      const mistakeId = request.payload.related_mistake_id as number
+      if (gate === 'mastered') {
+        harness.database.prepare('UPDATE mistakes SET mastered = 1 WHERE id = ?').run(mistakeId)
+      } else if (gate === 'not_due') {
+        harness.database.prepare("UPDATE mistakes SET next_review_date = '2026-08-01' WHERE id = ?").run(mistakeId)
+      } else if (gate === 'subject_relation') {
+        const sameProjectedNameSubject = insertSubject(harness.database, 'Math')
+        harness.database.prepare('UPDATE mistakes SET subject_id = ? WHERE id = ?')
+          .run(sameProjectedNameSubject, mistakeId)
+        expect(buildCurrentProof(harness.database, mistakeId).generationContextSignature)
+          .toBe(request.generationContextSignature)
+      } else if (gate === 'subject_missing') {
+        harness.database.pragma('foreign_keys = OFF')
+        harness.database.prepare('DELETE FROM subjects WHERE id = ?').run(request.payload.subject_id)
+        harness.database.pragma('foreign_keys = ON')
+      } else {
+        insertTask(harness.database, {
+          title: 'Existing review',
+          type: 'review',
+          planned_date: EXPECTED_DATE,
+          status: 'todo',
+          subject_id: request.payload.subject_id,
+          related_mistake_id: mistakeId,
+          estimate_minutes: 25,
+          source: 'manual',
+        })
+      }
+
+      const taskCountBefore = countRows(harness.database, 'study_tasks')
+      expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+      expect(countRows(harness.database, 'study_tasks')).toBe(taskCountBefore)
+      expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+    },
+  )
+
+  it.each([
+    ['missing signature', (request: any) => { delete request.generationContextSignature }],
+    ['short signature', (request: any) => { request.generationContextSignature = 'a'.repeat(63) }],
+    ['uppercase signature', (request: any) => { request.generationContextSignature = 'A'.repeat(64) }],
+    ['non-hex signature', (request: any) => { request.generationContextSignature = 'g'.repeat(64) }],
+    ['missing projection version', (request: any) => { delete request.contextProjectionVersion }],
+    ['wrong projection version', (request: any) => { request.contextProjectionVersion = 'mistake-review.context-projection.v2' }],
+    ['missing alias', (request: any) => { delete request.generationMistakeRef }],
+    ['alias m0', (request: any) => { request.generationMistakeRef = 'm0' }],
+    ['alias m13', (request: any) => { request.generationMistakeRef = 'm13' }],
+    ['arbitrary alias', (request: any) => { request.generationMistakeRef = 'selected' }],
+    ['extra key', (request: any) => { request.extra = true }],
+  ])('rejects malformed C5 v2 proof: %s', (_label, mutate) => {
+    const harness = createHarness()
+    const request: any = makeMistakeRequest(harness)
+    mutate(request)
+
+    expect(execute(harness, request)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
   })
 
   it('rejects mistake_review with INVALID_REQUEST when mistake is already mastered', () => {
@@ -739,9 +1032,9 @@ describe('mistake_review idempotent AI study task persistence', () => {
     const firstResult = execute(harness, request)
     expect(firstResult.ok).toBe(true)
 
-    // Now change mistake state to mastered and not due
-    harness.database.prepare('UPDATE mistakes SET mastered = 1, next_review_date = ? WHERE id = ?')
-      .run('2026-12-31', request.payload.related_mistake_id)
+    // Now change every relevant current-domain field after the operation completed.
+    harness.database.prepare('UPDATE mistakes SET question = ?, mastered = 1, next_review_date = ? WHERE id = ?')
+      .run('Changed after completion', '2026-12-31', request.payload.related_mistake_id)
 
     // Replay with exact same request
     const replayResult = execute(harness, request)
@@ -750,5 +1043,90 @@ describe('mistake_review idempotent AI study task persistence', () => {
       operationId: MISTAKE_OP_ID,
       replayed: true,
     })
+  })
+
+  function toLegacyRequest(request: IdempotentAIStudyTaskCreateRequest): IdempotentAIStudyTaskCreateRequest {
+    return {
+      operationId: request.operationId,
+      operationKind: 'mistake_review',
+      actionContractVersion: LEGACY_MISTAKE_CONTRACT_VERSION,
+      expectedCurrentDate: request.expectedCurrentDate,
+      payload: request.payload,
+    }
+  }
+
+  function seedLegacyReceipt(
+    harness: ReturnType<typeof createHarness>,
+    request: IdempotentAIStudyTaskCreateRequest,
+  ): StudyTask {
+    const task = insertTask(harness.database, request.payload)
+    const digest = buildIdempotentAIStudyTaskRequestDigest(request)
+    harness.database.prepare(`
+      INSERT INTO study_task_action_receipts (
+        operation_id, operation_kind, action_contract_version, request_digest,
+        expected_current_date, planned_date, task_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.operationId,
+      request.operationKind,
+      request.actionContractVersion,
+      digest,
+      request.expectedCurrentDate,
+      request.payload.planned_date,
+      task.id,
+    )
+    return task
+  }
+
+  it('replays an exact historical C5 v1 request from its matching receipt', () => {
+    const harness = createHarness()
+    const legacy = toLegacyRequest(makeMistakeRequest(harness))
+    const task = seedLegacyReceipt(harness, legacy)
+
+    expect(execute(harness, legacy)).toMatchObject({
+      ok: true,
+      replayed: true,
+      task: { id: task.id },
+    })
+    expect(countRows(harness.database, 'study_tasks')).toBe(1)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
+  })
+
+  it('rejects a receipt-less C5 v1 request with zero writes', () => {
+    const harness = createHarness()
+    const legacy = toLegacyRequest(makeMistakeRequest(harness))
+
+    expect(execute(harness, legacy)).toMatchObject({ ok: false, code: 'INVALID_REQUEST' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(0)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(0)
+  })
+
+  it('conflicts when a C5 v2 request hits an existing C5 v1 receipt', () => {
+    const harness = createHarness()
+    const v2 = makeMistakeRequest(harness)
+    seedLegacyReceipt(harness, toLegacyRequest(v2))
+
+    expect(execute(harness, v2)).toMatchObject({ ok: false, code: 'IDEMPOTENCY_CONFLICT' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(1)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
+  })
+
+  it.each([
+    ['signature', { generationContextSignature: 'b'.repeat(64) }],
+    ['alias', { generationMistakeRef: 'm2' }],
+    ['payload', { payload: { title: 'Conflicting title' } }],
+  ])('returns IDEMPOTENCY_CONFLICT when a replay changes v2 %s', (_label, change) => {
+    const harness = createHarness()
+    const request = makeMistakeRequest(harness)
+    expect(execute(harness, request)).toMatchObject({ ok: true })
+    const conflict = {
+      ...request,
+      ...change,
+      payload: 'payload' in change ? { ...request.payload, ...change.payload } : request.payload,
+    }
+
+    expect(execute(harness, conflict)).toMatchObject({ ok: false, code: 'IDEMPOTENCY_CONFLICT' })
+    expect(countRows(harness.database, 'study_tasks')).toBe(1)
+    expect(countRows(harness.database, 'study_task_action_receipts')).toBe(1)
   })
 })

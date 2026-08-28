@@ -30,6 +30,7 @@ import {
     IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
     validateIdempotentAIStudyTaskCreateRequest,
 } from './idempotentStudyTaskCreation'
+import { CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION } from '../src/utils/aiOperationContracts'
 
 export const PLANNING_HISTORY_CONTRACT_VERSION = 'planning-history.v1'
 export const PLANNING_HISTORY_RETENTION_DAYS = 30
@@ -103,6 +104,7 @@ const EDIT_FIELD_MAPPINGS = [
 
 const LOWERCASE_UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const STUDY_TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: readonly PlanningCandidatePriority[] = ['high', 'medium', 'low']
@@ -215,6 +217,15 @@ type PlanningCandidateRow = {
 export class PlanningHistoryValidationError extends Error {}
 export class PlanningHistoryConflictError extends Error {}
 export class PlanningHistoryUnavailableError extends Error {}
+
+export type CandidateIdentityClassification =
+    | { kind: 'EXACT_CONFIRMED_MATCH'; outcomeKind: PlanningCandidateOutcomeKind | null }
+    | { kind: 'EXACT_UNCONFIRMED' }
+    | { kind: 'EXACT_MISMATCH' }
+    | { kind: 'EXACT_CORRUPT' }
+    | { kind: 'ABSENT_NO_COMPETING_OPERATION' }
+    | { kind: 'ABSENT_COMPETING_OPERATION' }
+    | { kind: 'READ_FAILURE'; error: unknown }
 
 function requirePlainObject(value: unknown, label: string): object {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -654,15 +665,20 @@ function normalizeRelationLabel(value: unknown): string | null {
 // ─── C3: Batch Query Infrastructure ─────────────────────────────────────────
 
 type BatchRelationMap = Map<number, PlanningSourceRelation>
-type BatchReceiptRow = {
-    operation_id: string
-    operation_kind: string
+type BatchReceiptTaskRelation =
+    | { kind: 'valid_task_id'; taskId: number }
+    | { kind: 'explicit_null' }
+    | { kind: 'corrupt' }
+type BatchWellFormedReceiptRow = {
+    status: 'well_formed'
+    operation_kind: PlanningEntryPoint
     action_contract_version: string
     request_digest: string
     expected_current_date: string
     planned_date: string
-    task_id: number | null
+    taskRelation: Exclude<BatchReceiptTaskRelation, { kind: 'corrupt' }>
 }
+type BatchReceiptRow = { status: 'corrupt' } | BatchWellFormedReceiptRow
 type BatchTaskRow = {
     id: number
     title: string
@@ -736,35 +752,56 @@ function batchLoadReceipts(
     const placeholders = idArray.map(() => '?').join(',')
     const rows = database.prepare(`
         SELECT operation_id, operation_kind, action_contract_version,
-               request_digest, expected_current_date, planned_date, task_id
+               request_digest, expected_current_date, planned_date, task_id, created_at
         FROM study_task_action_receipts
         WHERE operation_id IN (${placeholders})
     `).all(...idArray) as {
         operation_id: unknown; operation_kind: unknown; action_contract_version: unknown
         request_digest: unknown; expected_current_date: unknown; planned_date: unknown
-        task_id: unknown
+        task_id: unknown; created_at: unknown
     }[]
     for (const row of rows) {
-        if (typeof row.operation_id === 'string'
-            && typeof row.operation_kind === 'string'
-            && typeof row.action_contract_version === 'string'
-            && typeof row.request_digest === 'string'
-            && typeof row.expected_current_date === 'string'
-            && typeof row.planned_date === 'string'
+        if (typeof row.operation_id !== 'string') continue
+        const taskRelation: BatchReceiptTaskRelation = row.task_id === null
+            ? { kind: 'explicit_null' }
+            : typeof row.task_id === 'number' && Number.isSafeInteger(row.task_id) && row.task_id > 0
+                ? { kind: 'valid_task_id', taskId: row.task_id }
+                : { kind: 'corrupt' }
+        const operationKind = row.operation_kind
+        const expectedCurrentDate = row.expected_current_date
+        const plannedDate = row.planned_date
+        const plannedDateInvariant = operationKind === 'today_action'
+            ? expectedCurrentDate
+            : operationKind === 'daily_review' && typeof expectedCurrentDate === 'string'
+                ? nextDateKey(expectedCurrentDate)
+                : null
+        if (!LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)
+            || !operationIds.has(row.operation_id)
+            || (operationKind !== 'today_action' && operationKind !== 'daily_review')
+            || (row.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+                && !(operationKind === 'today_action'
+                    && row.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION))
+            || typeof row.request_digest !== 'string'
+            || !SHA256_PATTERN.test(row.request_digest)
+            || !isCanonicalStoredDateKey(expectedCurrentDate)
+            || !isCanonicalStoredDateKey(plannedDate)
+            || plannedDate !== plannedDateInvariant
+            || taskRelation.kind === 'corrupt'
+            || typeof row.created_at !== 'string'
+            || row.created_at.trim().length === 0
         ) {
-            const taskId = row.task_id === null ? null
-                : (typeof row.task_id === 'number' && Number.isSafeInteger(row.task_id) && row.task_id > 0)
-                    ? row.task_id : null
-            map.set(row.operation_id, {
-                operation_id: row.operation_id,
-                operation_kind: row.operation_kind,
-                action_contract_version: row.action_contract_version,
-                request_digest: row.request_digest,
-                expected_current_date: row.expected_current_date,
-                planned_date: row.planned_date,
-                task_id: taskId,
-            })
+            map.set(row.operation_id, { status: 'corrupt' })
+            continue
         }
+        map.set(row.operation_id, {
+            status: 'well_formed',
+            operation_kind: operationKind,
+            action_contract_version: row.action_contract_version,
+            request_digest: row.request_digest,
+            expected_current_date: expectedCurrentDate,
+            planned_date: plannedDate,
+            taskRelation,
+        })
     }
     return map
 }
@@ -987,124 +1024,104 @@ function computeSemanticDrift(
     return { hasDrift, differences }
 }
 
+function receiptMatchesCandidate(
+    receipt: BatchWellFormedReceiptRow,
+    candidateRow: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
+): boolean {
+    if (typeof candidateRow.operation_id !== 'string') return false
+    if (receipt.operation_kind !== run.entryPoint
+        || receipt.expected_current_date !== run.planningDate
+        || receipt.planned_date !== run.targetDate
+    ) {
+        return false
+    }
+    if (receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION) {
+        // Today v2 digests remain opaque here. A recorded conflict is the one
+        // authoritative proof that this same-operation commitment is not the candidate's.
+        return run.entryPoint === 'today_action'
+            && !isOpaqueTodayV2ConflictReceipt(receipt, candidateRow, run)
+    }
+    try {
+        const request: IdempotentAIStudyTaskCreateRequest = {
+            operationId: candidateRow.operation_id,
+            operationKind: run.entryPoint,
+            actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
+            expectedCurrentDate: run.planningDate,
+            payload: {
+                title: candidateRow.title as string,
+                description: candidateRow.description as string,
+                type: candidateRow.type as StudyTaskType,
+                subject_id: candidateRow.subject_id as number | null,
+                related_mistake_id: candidateRow.related_mistake_id as number | null,
+                related_entry_id: candidateRow.related_entry_id as number | null,
+                related_chapter_id: null,
+                planned_date: run.targetDate,
+                estimate_minutes: candidateRow.estimate_minutes as number,
+                status: 'todo',
+                source: 'ai',
+            },
+        }
+        const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
+        return receipt.action_contract_version === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
+            && receipt.request_digest === expectedDigest
+    } catch {
+        return false
+    }
+}
+
+function isOpaqueTodayV2ConflictReceipt(
+    receipt: BatchWellFormedReceiptRow,
+    candidateRow: PlanningCandidateRow,
+    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
+): boolean {
+    return candidateRow.outcome_kind === 'conflict'
+        && run.entryPoint === 'today_action'
+        && receipt.operation_kind === run.entryPoint
+        && receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+        && receipt.expected_current_date === run.planningDate
+        && receipt.planned_date === run.targetDate
+}
+
 function computeExecutionAttribution(
     candidateRow: PlanningCandidateRow,
     run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
     receiptMap: Map<string, BatchReceiptRow>,
+    matchingReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>,
+    opaqueConflictReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>,
     taskMap: Map<number, BatchTaskLookup>,
     pomodoroMap: Map<number, BatchPomodoroRow[]>,
 ): PlanningExecutionAttribution | null {
-    // §10.1 Unconfirmed candidates get not_confirmed
+    const notApplicable = (
+        kind: PlanningExecutionAttribution['kind'],
+        receiptValidated = false,
+        taskId: number | null = null,
+        unavailableReason: PlanningExecutionAttribution['focus']['unavailableReason'] = null,
+    ): PlanningExecutionAttribution => ({
+        kind,
+        receiptValidated,
+        taskId,
+        taskCurrentTitle: null,
+        taskCurrentStatus: null,
+        semanticDrift: null,
+        focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason },
+    })
+
     if (candidateRow.user_disposition !== 'confirmed') {
-        return {
-            kind: 'not_confirmed',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
+        return notApplicable('not_confirmed')
     }
-    // Must have operation_id to proceed
     if (typeof candidateRow.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(candidateRow.operation_id)) {
         return null
     }
     const operationId = candidateRow.operation_id
     const outcomeKind = candidateRow.outcome_kind as PlanningCandidateOutcomeKind | null
-
-    // §10.9 date_mismatch + receipt absent → no_execution_expected
-    if (outcomeKind === 'date_mismatch') {
-        return {
-            kind: 'no_execution_expected',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
-    }
-    // §10.10 validation_error + receipt absent → no_execution_expected
-    if (outcomeKind === 'validation_error') {
-        return {
-            kind: 'no_execution_expected',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
-    }
-    // §10.11 integrity_error → integrity_inconsistency
-    if (outcomeKind === 'integrity_error') {
-        return {
-            kind: 'integrity_inconsistency',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
-    }
-
-    // Look up receipt
     const receipt = receiptMap.get(operationId)
+    const matchingReceipt = matchingReceiptMap.get(candidateRow)
 
-    // Validate receipt by reconstructing idempotent request and recomputing digest
-    let receiptValidated = false
-    if (receipt) {
-        try {
-            const request: IdempotentAIStudyTaskCreateRequest = {
-                operationId,
-                operationKind: run.entryPoint,
-                actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
-                expectedCurrentDate: run.planningDate,
-                payload: {
-                    title: candidateRow.title as string,
-                    description: candidateRow.description as string,
-                    type: candidateRow.type as StudyTaskType,
-                    subject_id: candidateRow.subject_id as number | null,
-                    related_mistake_id: candidateRow.related_mistake_id as number | null,
-                    related_entry_id: candidateRow.related_entry_id as number | null,
-                    related_chapter_id: null,
-                    planned_date: run.targetDate,
-                    estimate_minutes: candidateRow.estimate_minutes as number,
-                    status: 'todo',
-                    source: 'ai',
-                },
-            }
-            const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
-            receiptValidated = (
-                receipt.operation_kind === run.entryPoint
-                && receipt.action_contract_version === IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
-                && receipt.request_digest === expectedDigest
-                && receipt.expected_current_date === run.planningDate
-                && receipt.planned_date === run.targetDate
-            )
-        } catch {
-            receiptValidated = false
-        }
-    }
-
-    // §10.2 created/replayed + matching receipt + valid task → verified_linked
-    if (outcomeKind === 'created' || outcomeKind === 'replayed') {
-        if (!receipt || !receiptValidated) {
-            // §10.4 created/replayed + receipt missing → integrity_inconsistency
-            return {
-                kind: 'integrity_inconsistency',
-                receiptValidated: false,
-                taskId: null,
-                taskCurrentTitle: null,
-                taskCurrentStatus: null,
-                semanticDrift: null,
-                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-            }
-        }
-        // §10.3 created/replayed + receipt.task_id = null → task_deleted
-        if (receipt.task_id === null) {
+    // Matching receipt/task state is authoritative. Outcome is only fallback
+    // audit metadata when this proof is insufficient.
+    if (matchingReceipt) {
+        if (matchingReceipt.taskRelation.kind === 'explicit_null') {
             return {
                 kind: 'task_deleted',
                 receiptValidated: true,
@@ -1115,147 +1132,61 @@ function computeExecutionAttribution(
                 focus: computeFocusAttribution(undefined, true),
             }
         }
-        const taskLookup = taskMap.get(receipt.task_id)
-        if (!taskLookup || taskLookup.status === 'missing') {
-            return {
-                kind: 'task_deleted',
-                receiptValidated: true,
-                taskId: null,
-                taskCurrentTitle: null,
-                taskCurrentStatus: null,
-                semanticDrift: null,
-                focus: computeFocusAttribution(undefined, true),
-            }
-        }
-        if (taskLookup.status === 'corrupt') {
-            // Task row exists in study_tasks but failed validation → integrity_inconsistency
-            return {
-                kind: 'integrity_inconsistency',
-                receiptValidated: true,
-                taskId: receipt.task_id,
-                taskCurrentTitle: null,
-                taskCurrentStatus: null,
-                semanticDrift: null,
-                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-            }
+        const taskId = matchingReceipt.taskRelation.taskId
+        const taskLookup = taskMap.get(taskId)
+        if (!taskLookup || taskLookup.status !== 'found') {
+            return notApplicable('integrity_inconsistency', true, taskId)
         }
         const task = taskLookup.task
-        const title = normalizeRelationLabel(task.title)
         return {
             kind: 'verified_linked',
             receiptValidated: true,
-            taskId: receipt.task_id,
-            taskCurrentTitle: title,
+            taskId,
+            taskCurrentTitle: normalizeRelationLabel(task.title),
             taskCurrentStatus: task.status as StudyTaskStatus,
             semanticDrift: computeSemanticDrift(candidateRow, run, task),
-            focus: computeFocusAttribution(pomodoroMap.get(receipt.task_id), false),
+            focus: computeFocusAttribution(pomodoroMap.get(taskId), false),
         }
     }
 
-    // §10.5 uncertain + matching receipt + task exists → verified_linked
-    // §10.6 uncertain + no receipt → unresolved
-    if (outcomeKind === 'uncertain') {
-        if (receipt && receiptValidated && receipt.task_id !== null) {
-            const taskLookup = taskMap.get(receipt.task_id)
-            if (taskLookup && taskLookup.status === 'found') {
-                const task = taskLookup.task
-                const title = normalizeRelationLabel(task.title)
-                return {
-                    kind: 'verified_linked',
-                    receiptValidated: true,
-                    taskId: receipt.task_id,
-                    taskCurrentTitle: title,
-                    taskCurrentStatus: task.status as StudyTaskStatus,
-                    semanticDrift: computeSemanticDrift(candidateRow, run, task),
-                    focus: computeFocusAttribution(pomodoroMap.get(receipt.task_id), false),
-                }
-            }
-            if (taskLookup && taskLookup.status === 'missing') {
-                return {
-                    kind: 'task_deleted',
-                    receiptValidated: true,
-                    taskId: null,
-                    taskCurrentTitle: null,
-                    taskCurrentStatus: null,
-                    semanticDrift: null,
-                    focus: computeFocusAttribution(undefined, true),
-                }
-            }
-        }
-        if (receipt && receiptValidated && receipt.task_id === null) {
-            return {
-                kind: 'task_deleted',
-                receiptValidated: true,
-                taskId: null,
-                taskCurrentTitle: null,
-                taskCurrentStatus: null,
-                semanticDrift: null,
-                focus: computeFocusAttribution(undefined, true),
-            }
-        }
-        return {
-            kind: 'unresolved',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: 'confirmation_uncertain' },
-        }
-    }
+    const receiptAbsent = receipt === undefined
+    const receiptNonMatching = receipt?.status === 'well_formed'
 
-    // §10.7 conflict + mismatching existing receipt → known_conflict
-    // §10.8 conflict + receipt missing → integrity_inconsistency
-    if (outcomeKind === 'conflict') {
-        if (receipt) {
-            return {
-                kind: 'known_conflict',
-                receiptValidated: receiptValidated,
-                taskId: null,
-                taskCurrentTitle: null,
-                taskCurrentStatus: null,
-                semanticDrift: null,
-                focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-            }
-        }
-        return {
-            kind: 'integrity_inconsistency',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
-    }
-
-    // §10.3 deleted outcome → task_deleted
-    if (outcomeKind === 'deleted') {
-        return {
-            kind: 'task_deleted',
-            receiptValidated: receipt ? receiptValidated : false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: computeFocusAttribution(undefined, true),
-        }
-    }
-
-    // Fallback: outcome not yet recorded but confirmed
     if (outcomeKind === null) {
-        return {
-            kind: 'unresolved',
-            receiptValidated: false,
-            taskId: null,
-            taskCurrentTitle: null,
-            taskCurrentStatus: null,
-            semanticDrift: null,
-            focus: { state: 'not_applicable', totalDurationMinutes: null, sessionCount: null, unavailableReason: null },
-        }
+        return receiptAbsent
+            ? notApplicable('unresolved')
+            : notApplicable('integrity_inconsistency')
     }
-
-    return null
+    if (outcomeKind === 'uncertain') {
+        return receiptAbsent
+            ? notApplicable('unresolved', false, null, 'confirmation_uncertain')
+            : notApplicable('integrity_inconsistency')
+    }
+    if (outcomeKind === 'conflict') {
+        const opaqueConflictReceipt = opaqueConflictReceiptMap.get(candidateRow)
+        if (opaqueConflictReceipt?.taskRelation.kind === 'valid_task_id') {
+            const taskId = opaqueConflictReceipt.taskRelation.taskId
+            const taskLookup = taskMap.get(taskId)
+            if (!taskLookup || taskLookup.status !== 'found') {
+                return notApplicable('integrity_inconsistency', true)
+            }
+        }
+        if (receipt?.status === 'well_formed'
+            && receipt.action_contract_version === CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+            && !opaqueConflictReceipt
+        ) {
+            return notApplicable('integrity_inconsistency')
+        }
+        return receiptNonMatching
+            ? notApplicable('known_conflict')
+            : notApplicable('integrity_inconsistency')
+    }
+    if (outcomeKind === 'date_mismatch' || outcomeKind === 'validation_error') {
+        return receiptAbsent
+            ? notApplicable('no_execution_expected')
+            : notApplicable('integrity_inconsistency')
+    }
+    return notApplicable('integrity_inconsistency')
 }
 
 // Batch projection types for read path
@@ -1264,6 +1195,8 @@ type BatchMaps = {
     mistakeMap: BatchRelationMap
     entryMap: BatchRelationMap
     receiptMap: Map<string, BatchReceiptRow>
+    matchingReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>
+    opaqueConflictReceiptMap: Map<PlanningCandidateRow, BatchWellFormedReceiptRow>
     taskMap: Map<number, BatchTaskLookup>
     pomodoroMap: Map<number, BatchPomodoroRow[]>
 }
@@ -1317,6 +1250,7 @@ function collectBatchIds(candidateRows: PlanningCandidateRow[]): {
 function loadBatchMaps(
     database: Database.Database,
     candidateRows: PlanningCandidateRow[],
+    runRows: PlanningRunRow[],
 ): BatchMaps {
     const { subjectIds, mistakeIds, entryIds, operationIds } = collectBatchIds(candidateRows)
     const subjectMap = batchLoadRelations(database, 'subjects', subjectIds)
@@ -1324,21 +1258,74 @@ function loadBatchMaps(
     const entryMap = batchLoadRelations(database, 'entries', entryIds)
     const receiptMap = batchLoadReceipts(database, operationIds)
 
-    // Collect task IDs from receipts
+    const runContextMap = new Map<string, {
+        entryPoint: PlanningEntryPoint
+        planningDate: string
+        targetDate: string
+    }>()
+    for (const runRow of runRows) {
+        if (typeof runRow.id === 'string'
+            && (runRow.entry_point === 'today_action' || runRow.entry_point === 'daily_review')
+            && typeof runRow.planning_date === 'string'
+            && typeof runRow.target_date === 'string'
+        ) {
+            runContextMap.set(runRow.id, {
+                entryPoint: runRow.entry_point,
+                planningDate: runRow.planning_date,
+                targetDate: runRow.target_date,
+            })
+        }
+    }
+
+    // Matching receipts authorize attribution lookups. An opaque v2 conflict receipt
+    // may load its task only to validate integrity; it never binds that task to the candidate.
+    const matchingReceiptMap = new Map<PlanningCandidateRow, BatchWellFormedReceiptRow>()
+    const opaqueConflictReceiptMap = new Map<PlanningCandidateRow, BatchWellFormedReceiptRow>()
     const taskIds = new Set<number>()
-    for (const receipt of receiptMap.values()) {
-        if (receipt.task_id !== null) taskIds.add(receipt.task_id)
+    for (const candidateRow of candidateRows) {
+        if (typeof candidateRow.operation_id !== 'string'
+            || typeof candidateRow.planning_run_id !== 'string'
+        ) continue
+        const receipt = receiptMap.get(candidateRow.operation_id)
+        const run = runContextMap.get(candidateRow.planning_run_id)
+        if (receipt?.status !== 'well_formed' || !run) {
+            continue
+        }
+        if (!receiptMatchesCandidate(receipt, candidateRow, run)) {
+            if (isOpaqueTodayV2ConflictReceipt(receipt, candidateRow, run)) {
+                opaqueConflictReceiptMap.set(candidateRow, receipt)
+                if (receipt.taskRelation.kind === 'valid_task_id') {
+                    taskIds.add(receipt.taskRelation.taskId)
+                }
+            }
+            continue
+        }
+        matchingReceiptMap.set(candidateRow, receipt)
+        if (receipt.taskRelation.kind === 'valid_task_id') {
+            taskIds.add(receipt.taskRelation.taskId)
+        }
     }
     const taskMap = batchLoadTasks(database, taskIds)
 
     // Collect valid task IDs for pomodoro lookup
     const validTaskIds = new Set<number>()
-    for (const [id, lookup] of taskMap) {
-        if (lookup.status === 'found') validTaskIds.add(id)
+    for (const receipt of matchingReceiptMap.values()) {
+        if (receipt.taskRelation.kind !== 'valid_task_id') continue
+        const taskId = receipt.taskRelation.taskId
+        if (taskMap.get(taskId)?.status === 'found') validTaskIds.add(taskId)
     }
     const pomodoroMap = batchLoadPomodoro(database, validTaskIds)
 
-    return { subjectMap, mistakeMap, entryMap, receiptMap, taskMap, pomodoroMap }
+    return {
+        subjectMap,
+        mistakeMap,
+        entryMap,
+        receiptMap,
+        matchingReceiptMap,
+        opaqueConflictReceiptMap,
+        taskMap,
+        pomodoroMap,
+    }
 }
 
 function projectCandidateBatch(
@@ -1431,65 +1418,39 @@ function projectCandidateBatch(
             mistake: resolveRelationFromMap(maps.mistakeMap, row.related_mistake_id),
             entry: resolveRelationFromMap(maps.entryMap, row.related_entry_id),
         },
-        taskRelation: resolveTaskRelationFromMaps(row, run, maps),
-        executionAttribution: computeExecutionAttribution(row, run, maps.receiptMap, maps.taskMap, maps.pomodoroMap),
+        taskRelation: resolveTaskRelationFromMaps(row, maps),
+        executionAttribution: computeExecutionAttribution(
+            row,
+            run,
+            maps.receiptMap,
+            maps.matchingReceiptMap,
+            maps.opaqueConflictReceiptMap,
+            maps.taskMap,
+            maps.pomodoroMap,
+        ),
     }
 }
 
 function resolveTaskRelationFromMaps(
     row: PlanningCandidateRow,
-    run: { entryPoint: PlanningEntryPoint; planningDate: string; targetDate: string },
     maps: BatchMaps,
 ) {
     if (row.operation_id === null) return null
     if (typeof row.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)) {
         return { available: false as const }
     }
-    const receipt = maps.receiptMap.get(row.operation_id)
-    if (!receipt) return { available: false as const }
-    // Validate receipt fields match expected
-    try {
-        const request: IdempotentAIStudyTaskCreateRequest = {
-            operationId: row.operation_id,
-            operationKind: run.entryPoint,
-            actionContractVersion: IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION,
-            expectedCurrentDate: run.planningDate,
-            payload: {
-                title: row.title as string,
-                description: row.description as string,
-                type: row.type as StudyTaskType,
-                subject_id: row.subject_id as number | null,
-                related_mistake_id: row.related_mistake_id as number | null,
-                related_entry_id: row.related_entry_id as number | null,
-                related_chapter_id: null,
-                planned_date: run.targetDate,
-                estimate_minutes: row.estimate_minutes as number,
-                status: 'todo',
-                source: 'ai',
-            },
-        }
-        const expectedDigest = buildIdempotentAIStudyTaskRequestDigest(request)
-        if (
-            receipt.operation_kind !== run.entryPoint
-            || receipt.action_contract_version !== IDEMPOTENT_STUDY_TASK_ACTION_CONTRACT_VERSION
-            || receipt.request_digest !== expectedDigest
-            || receipt.expected_current_date !== run.planningDate
-            || receipt.planned_date !== run.targetDate
-            || receipt.task_id === null
-        ) {
-            return { available: false as const }
-        }
-        const taskLookup = maps.taskMap.get(receipt.task_id)
-        if (!taskLookup || taskLookup.status !== 'found') return { available: false as const }
-        const task = taskLookup.task
-        const title = normalizeRelationLabel(task.title)
-        if (!title || !STUDY_TASK_STATUSES.includes(task.status as StudyTaskStatus)) {
-            return { available: false as const }
-        }
-        return { available: true as const, title, status: task.status }
-    } catch {
+    const receipt = maps.matchingReceiptMap.get(row)
+    if (!receipt || receipt.taskRelation.kind !== 'valid_task_id') {
         return { available: false as const }
     }
+    const taskLookup = maps.taskMap.get(receipt.taskRelation.taskId)
+    if (!taskLookup || taskLookup.status !== 'found') return { available: false as const }
+    const task = taskLookup.task
+    const title = normalizeRelationLabel(task.title)
+    if (!title || !STUDY_TASK_STATUSES.includes(task.status as StudyTaskStatus)) {
+        return { available: false as const }
+    }
+    return { available: true as const, title, status: task.status }
 }
 
 function projectRunFromMaps(
@@ -1923,6 +1884,143 @@ function readCandidateById(
     }) | undefined
 }
 
+type CandidateIdentityRow = PlanningCandidateRow & {
+    entry_point: unknown
+    planning_date: unknown
+    target_date: unknown
+    run_created_at: unknown
+    closed_at: unknown
+}
+
+function readCandidateIdentityById(
+    database: Database.Database,
+    candidateId: number,
+): CandidateIdentityRow | undefined {
+    return database.prepare(`
+        SELECT c.id, c.planning_run_id, c.ordinal, c.admission_origin, c.title,
+               c.description, c.type, c.estimate_minutes, c.priority, c.subject_id,
+               c.related_mistake_id, c.related_entry_id, c.edit_before_json,
+               c.user_disposition, c.operation_id, c.outcome_kind,
+               c.outcome_observed_at, c.admitted_at, c.updated_at,
+               r.entry_point, r.planning_date, r.target_date,
+               r.created_at AS run_created_at, r.closed_at
+        FROM planning_run_candidates c
+        LEFT JOIN planning_runs r ON r.id = c.planning_run_id
+        WHERE c.id = ?
+    `).get(candidateId) as CandidateIdentityRow | undefined
+}
+
+function hasCandidateForOperation(
+    database: Database.Database,
+    operationId: string,
+): boolean {
+    return database.prepare(`
+        SELECT id
+        FROM planning_run_candidates
+        WHERE operation_id = ?
+        LIMIT 1
+    `).get(operationId) !== undefined
+}
+
+function hasAnotherCandidateForOperation(
+    database: Database.Database,
+    operationId: string,
+    candidateId: number,
+): boolean {
+    return database.prepare(`
+        SELECT id
+        FROM planning_run_candidates
+        WHERE operation_id = ? AND id <> ?
+        LIMIT 1
+    `).get(operationId, candidateId) !== undefined
+}
+
+function isCanonicalCandidateIdentityRow(row: CandidateIdentityRow): boolean {
+    try {
+        const entryPoint = row.entry_point
+        if (entryPoint !== 'today_action' && entryPoint !== 'daily_review') return false
+        const planningDate = requireDateKey(row.planning_date, 'stored planningDate')
+        const targetDate = requireDateKey(row.target_date, 'stored targetDate')
+        if (
+            (entryPoint === 'today_action' && targetDate !== planningDate)
+            || (entryPoint === 'daily_review' && targetDate !== nextDateKey(planningDate))
+        ) return false
+        requireUuid(row.planning_run_id, 'stored planning run id')
+        const runCreatedAt = requireStoredTimestamp(row.run_created_at, 'stored planning run timestamp')
+        const admittedAt = requireStoredTimestamp(row.admitted_at, 'stored candidate admission timestamp')
+        const updatedAt = requireStoredTimestamp(row.updated_at, 'stored candidate update timestamp')
+        const outcomeObservedAt = row.outcome_observed_at === null
+            ? null
+            : requireStoredTimestamp(row.outcome_observed_at, 'stored candidate outcome timestamp')
+        const closedAt = row.closed_at === null
+            ? null
+            : requireStoredTimestamp(row.closed_at, 'stored planning run close timestamp')
+        if (
+            admittedAt < runCreatedAt
+            || updatedAt < admittedAt
+            || (outcomeObservedAt !== null && outcomeObservedAt < admittedAt)
+            || (closedAt !== null && closedAt < runCreatedAt)
+        ) return false
+        if (
+            typeof row.id !== 'number'
+            || !Number.isSafeInteger(row.id)
+            || row.id <= 0
+            || typeof row.ordinal !== 'number'
+            || !Number.isInteger(row.ordinal)
+            || row.ordinal < 0
+            || row.ordinal > 5
+            || !isValidStoredText(row.title, 80, PLANNING_HISTORY_TITLE_MAX_UTF8_BYTES)
+            || !isValidStoredText(row.description, 240, PLANNING_HISTORY_DESCRIPTION_MAX_UTF8_BYTES)
+            || typeof row.type !== 'string'
+            || !STUDY_TASK_TYPES.includes(row.type as StudyTaskType)
+            || typeof row.estimate_minutes !== 'number'
+            || !Number.isInteger(row.estimate_minutes)
+            || row.estimate_minutes < 5
+            || row.estimate_minutes > 180
+            || typeof row.priority !== 'string'
+            || !PRIORITIES.includes(row.priority as PlanningCandidatePriority)
+            || typeof row.admission_origin !== 'string'
+            || !ADMISSION_ORIGINS.includes(row.admission_origin as PlanningCandidateAdmissionOrigin)
+            || !isNullablePositiveSafeInteger(row.subject_id)
+            || !isNullablePositiveSafeInteger(row.related_mistake_id)
+            || !isNullablePositiveSafeInteger(row.related_entry_id)
+            || (row.type === 'review' ? row.related_mistake_id === null : row.related_mistake_id !== null)
+            || (entryPoint === 'daily_review' && row.related_entry_id !== null)
+            || typeof row.user_disposition !== 'string'
+            || !['selected_unconfirmed', 'unselected', 'confirmed'].includes(row.user_disposition)
+            || (row.user_disposition === 'confirmed'
+                ? typeof row.operation_id !== 'string' || !LOWERCASE_UUID_V4_PATTERN.test(row.operation_id)
+                : row.operation_id !== null)
+            || (row.user_disposition !== 'confirmed'
+                && (row.outcome_kind !== null || row.outcome_observed_at !== null))
+            || (row.outcome_kind !== null
+                && !OUTCOME_KINDS.includes(row.outcome_kind as PlanningCandidateOutcomeKind))
+            || ((row.outcome_kind === null) !== (row.outcome_observed_at === null))
+        ) return false
+        parseEditBefore(row.edit_before_json, snapshotFromRow(row), entryPoint)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function candidateSnapshotMatchesTodayRequest(
+    row: CandidateIdentityRow,
+    request: IdempotentAIStudyTaskCreateRequest,
+): boolean {
+    const payload = request.payload
+    return row.title === payload.title
+        && row.description === payload.description
+        && row.type === payload.type
+        && row.estimate_minutes === payload.estimate_minutes
+        && row.subject_id === payload.subject_id
+        && row.related_mistake_id === payload.related_mistake_id
+        && row.related_entry_id === payload.related_entry_id
+        && payload.related_chapter_id === null
+        && payload.status === 'todo'
+        && payload.source === 'ai'
+}
+
 function snapshotFromRow(row: PlanningCandidateRow): PlanningCandidateSnapshot {
     return {
         title: row.title as string,
@@ -2151,7 +2249,7 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
         const row = readRunRow(database, id)
         if (!row) return null
         const candidateRows = readCandidateRows(database, id)
-        const maps = loadBatchMaps(database, candidateRows)
+        const maps = loadBatchMaps(database, candidateRows, [row])
         return projectRunFromMaps(row, candidateRows, maps)
     }
 
@@ -2318,6 +2416,77 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
             return projectRun(database, updated)
         })
         return transaction()
+    }
+
+    function classifyTodayActionCandidateIdentity(
+        candidateIdValue: unknown,
+        operationIdValue: unknown,
+        planningDateValue: unknown,
+        targetDateValue: unknown,
+        requestValue?: unknown,
+    ): CandidateIdentityClassification {
+        const candidateId = requirePositiveSafeInteger(candidateIdValue, 'planningCandidateId')
+        const operationId = requireUuid(operationIdValue, 'operationId')
+        const planningDate = requireDateKey(planningDateValue, 'planningDate')
+        const targetDate = requireDateKey(targetDateValue, 'targetDate')
+        let request: IdempotentAIStudyTaskCreateRequest | null = null
+        if (requestValue !== undefined) {
+            try {
+                request = validateIdempotentAIStudyTaskCreateRequest(requestValue)
+            } catch {
+                throw new PlanningHistoryValidationError('Task request is unavailable for candidate identity')
+            }
+            if (
+                request.operationKind !== 'today_action'
+                || request.actionContractVersion
+                    !== CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION
+                || request.operationId !== operationId
+                || request.expectedCurrentDate !== planningDate
+                || request.payload.planned_date !== targetDate
+            ) {
+                throw new PlanningHistoryValidationError('Task request does not match candidate identity inputs')
+            }
+        }
+
+        try {
+            const classify = database.transaction((): Exclude<
+                CandidateIdentityClassification,
+                { kind: 'READ_FAILURE' }
+            > => {
+                const candidate = readCandidateIdentityById(database, candidateId)
+                if (!candidate) {
+                    return hasCandidateForOperation(database, operationId)
+                        ? { kind: 'ABSENT_COMPETING_OPERATION' }
+                        : { kind: 'ABSENT_NO_COMPETING_OPERATION' }
+                }
+                if (!isCanonicalCandidateIdentityRow(candidate)) {
+                    return { kind: 'EXACT_CORRUPT' }
+                }
+                if (
+                    candidate.entry_point !== 'today_action'
+                    || candidate.planning_date !== planningDate
+                    || candidate.target_date !== targetDate
+                    || (request !== null && !candidateSnapshotMatchesTodayRequest(candidate, request))
+                ) {
+                    return { kind: 'EXACT_MISMATCH' }
+                }
+                if (candidate.user_disposition !== 'confirmed') {
+                    return hasAnotherCandidateForOperation(database, operationId, candidateId)
+                        ? { kind: 'EXACT_MISMATCH' }
+                        : { kind: 'EXACT_UNCONFIRMED' }
+                }
+                if (candidate.operation_id !== operationId) {
+                    return { kind: 'EXACT_MISMATCH' }
+                }
+                return {
+                    kind: 'EXACT_CONFIRMED_MATCH',
+                    outcomeKind: candidate.outcome_kind as PlanningCandidateOutcomeKind | null,
+                }
+            })
+            return classify()
+        } catch (error) {
+            return { kind: 'READ_FAILURE', error }
+        }
     }
 
     function claimConfirmation(candidateIdValue: unknown, requestValue: unknown): { claimed: true } {
@@ -2489,7 +2658,7 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
 
         const runIds = rows.map(r => r.id as string)
         const allCandidateRows = readCandidatesForRunIds(database, runIds)
-        const maps = loadBatchMaps(database, allCandidateRows)
+        const maps = loadBatchMaps(database, allCandidateRows, rows)
 
         const candidatesByRunId = new Map<string, PlanningCandidateRow[]>()
         for (const runId of runIds) {
@@ -2550,6 +2719,7 @@ export function createPlanningHistoryStore(dependencies: PlanningHistoryStoreDep
         get,
         delete: removeRun,
         clear,
+        classifyTodayActionCandidateIdentity,
         claimConfirmation,
         recordOutcome,
         closeRuns,

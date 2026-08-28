@@ -10,6 +10,7 @@ import type {
   FocusWhitelistItem, ActiveAppInfo,
 } from '.'
 import type { ElectronPlanningRunsAPI } from './planningHistory'
+import type { TodayActionProviderChapterProjection } from '../utils/todayActionChapterContext'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
 
@@ -150,7 +151,117 @@ export interface IdempotentAIStudyTaskCreateRequest {
   operationKind: IdempotentAIStudyTaskOperationKind
   actionContractVersion: string
   expectedCurrentDate: string
+  contextProjectionVersion?: string
+  generationContextSignature?: string
+  generationMistakeRef?: string
+  originalGenerationContextSignature?: string
+  generationChapterSignature?: string
+  latestReviewedChapterSignature?: string
+  staleContextOverride?: boolean
+  staleReviewToken?: string | null
   payload: NewStudyTask
+}
+
+export interface IdempotentTodayOrDailyStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'today_action' | 'daily_review'
+  actionContractVersion: 'confirmed-study-task-action.v1'
+  contextProjectionVersion?: never
+  generationContextSignature?: never
+  generationMistakeRef?: never
+  originalGenerationContextSignature?: never
+  generationChapterSignature?: never
+  latestReviewedChapterSignature?: never
+  staleContextOverride?: never
+  staleReviewToken?: never
+}
+
+export interface IdempotentTodayActionStudyTaskCreateRequestV2
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'today_action'
+  actionContractVersion: 'confirmed-study-task-action.v2'
+  contextProjectionVersion: 'today-action.context-projection.v2'
+  originalGenerationContextSignature: string
+  generationChapterSignature: string
+  latestReviewedChapterSignature: string
+  staleContextOverride: boolean
+  staleReviewToken: string | null
+  generationContextSignature?: never
+  generationMistakeRef?: never
+}
+
+// Electron orchestration only. planningCandidateId is not part of the
+// provider-visible business request and is deliberately outside request.
+export interface PrivilegedTodayActionV2CreateCommand {
+  planningCandidateId: number
+  request: IdempotentTodayActionStudyTaskCreateRequestV2
+}
+
+export interface TodayActionStaleReviewAuthorizationRequest {
+  operationId: string
+  operationKind: 'today_action'
+  actionContractVersion: 'confirmed-study-task-action.v2'
+  expectedCurrentDate: string
+  contextProjectionVersion: 'today-action.context-projection.v2'
+  originalGenerationContextSignature: string
+  generationChapterSignature: string
+  latestReviewedChapterSignature: string
+  staleContextOverride: true
+  payload: NewStudyTask
+}
+
+export interface TodayActionAuthoritativeChapterContext {
+  chapterProjection: TodayActionProviderChapterProjection
+  currentChapterSignature: string
+}
+
+interface TodayActionCommittedStatusRequestBase {
+  operationId: string
+  operationKind: 'today_action'
+  actionContractVersion: 'confirmed-study-task-action.v2'
+  expectedCurrentDate: string
+  plannedDate: string
+}
+
+export interface CurrentTodayActionCommittedStatusRequest
+  extends TodayActionCommittedStatusRequestBase {
+  planningCandidateId: number
+  requestDigest: string
+}
+
+export interface LegacyTodayActionCommittedStatusRequest
+  extends TodayActionCommittedStatusRequestBase {
+  planningCandidateId?: never
+  requestDigest?: never
+}
+
+export type TodayActionCommittedStatusRequest =
+  | CurrentTodayActionCommittedStatusRequest
+  | LegacyTodayActionCommittedStatusRequest
+
+export type TodayActionCommittedStatus =
+  | { status: 'NOT_COMMITTED'; operationId: string }
+  | { status: 'RECOVERED_COMMITTED'; operationId: string; task: StudyTask }
+  | { status: 'IDEMPOTENCY_CONFLICT'; operationId: string }
+  | { status: 'RESULT_DELETED'; operationId: string }
+  | { status: 'INTEGRITY_ERROR'; operationId: string }
+
+export interface LegacyIdempotentMistakeReviewStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'mistake_review'
+  actionContractVersion: 'confirmed-mistake-review-task-action.v1'
+  contextProjectionVersion?: never
+  generationContextSignature?: never
+  generationMistakeRef?: never
+}
+
+export interface IdempotentMistakeReviewStudyTaskCreateRequest
+  extends IdempotentAIStudyTaskCreateRequest {
+  operationKind: 'mistake_review'
+  actionContractVersion: 'confirmed-mistake-review-task-action.v2'
+  contextProjectionVersion: 'mistake-review.context-projection.v1'
+  generationContextSignature: string
+  generationMistakeRef: string
 }
 
 export type IdempotentAIStudyTaskCreateErrorCode =
@@ -180,9 +291,16 @@ export interface ElectronTasksAPI {
   create: (data: NewStudyTask) => Promise<StudyTask>
   createForCurrentDate: (data: NewStudyTask, expectedCurrentDate: string) => Promise<StudyTask>
   createIdempotentAIStudyTaskForCurrentDate: (
-    request: IdempotentAIStudyTaskCreateRequest,
+    request: IdempotentAIStudyTaskCreateRequest | PrivilegedTodayActionV2CreateCommand,
     planningCandidateId?: number,
   ) => Promise<IdempotentAIStudyTaskCreateResponse>
+  getTodayActionAuthoritativeChapterContext: () => Promise<TodayActionAuthoritativeChapterContext>
+  authorizeTodayActionStaleReview: (
+    request: TodayActionStaleReviewAuthorizationRequest,
+  ) => Promise<{ staleReviewToken: string }>
+  getCommittedAIStudyTaskOperationStatus: (
+    request: TodayActionCommittedStatusRequest,
+  ) => Promise<TodayActionCommittedStatus>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
   complete: (id: number) => Promise<StudyTask>
@@ -377,6 +495,13 @@ export interface TasksContextAPI {
     request: IdempotentAIStudyTaskCreateRequest,
     planningCandidateId?: number,
   ) => Promise<IdempotentAIStudyTaskCreateResponse>
+  getTodayActionAuthoritativeChapterContext: () => Promise<TodayActionAuthoritativeChapterContext>
+  authorizeTodayActionStaleReview: (
+    request: TodayActionStaleReviewAuthorizationRequest,
+  ) => Promise<{ staleReviewToken: string }>
+  getCommittedAIStudyTaskOperationStatus: (
+    request: TodayActionCommittedStatusRequest,
+  ) => Promise<TodayActionCommittedStatus>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
   complete: (id: number) => Promise<StudyTask>

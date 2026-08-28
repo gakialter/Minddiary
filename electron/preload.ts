@@ -6,7 +6,12 @@ import type {
     PomodoroSession, StudyTask, StudyTaskQuery, NewStudyTask, Mistake, MistakeFilters,
     DiaryTemplate, AIMessage, AttachmentData, CountdownEvent, FocusWhitelistItem
 } from '../src/types/index';
-import type { IdempotentAIStudyTaskCreateRequest } from '../src/types/api';
+import type {
+    IdempotentAIStudyTaskCreateRequest,
+    PrivilegedTodayActionV2CreateCommand,
+    TodayActionCommittedStatusRequest,
+    TodayActionStaleReviewAuthorizationRequest,
+} from '../src/types/api';
 import type { PlanningRunCreateRequest, PlanningRunTransitionRequest } from '../src/types/planningHistory';
 
 if (process.env.MINDDIARY_E2E_SANDBOX_PROBE === '1') {
@@ -155,7 +160,7 @@ contextBridge.exposeInMainWorld('api', {
             ipcRenderer.invoke('tasks:createForCurrentDate', task, expectedCurrentDate)
         ),
         createIdempotentAIStudyTaskForCurrentDate: (
-            request: IdempotentAIStudyTaskCreateRequest,
+            request: IdempotentAIStudyTaskCreateRequest | PrivilegedTodayActionV2CreateCommand,
             planningCandidateId?: number,
         ) => (
             ipcRenderer.invoke(
@@ -163,6 +168,15 @@ contextBridge.exposeInMainWorld('api', {
                 request,
                 planningCandidateId,
             )
+        ),
+        getTodayActionAuthoritativeChapterContext: () => (
+            ipcRenderer.invoke('tasks:getTodayActionAuthoritativeChapterContext')
+        ),
+        authorizeTodayActionStaleReview: (request: TodayActionStaleReviewAuthorizationRequest) => (
+            ipcRenderer.invoke('tasks:authorizeTodayActionStaleReview', request)
+        ),
+        getCommittedAIStudyTaskOperationStatus: (request: TodayActionCommittedStatusRequest) => (
+            ipcRenderer.invoke('tasks:getCommittedAIStudyTaskOperationStatus', request)
         ),
         update: (id: number, patch: Partial<StudyTask>) => ipcRenderer.invoke('tasks:update', id, patch),
         delete: (id: number) => ipcRenderer.invoke('tasks:delete', id),

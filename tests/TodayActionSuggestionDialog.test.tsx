@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TodayActionSuggestionDialog from '../src/components/TodayActionSuggestionDialog'
-import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject } from '../src/types'
+import type { AIResponse, DiaryEntry, Mistake, StudyTask, Subject, SubjectChapter } from '../src/types'
 import type { IdempotentAIStudyTaskCreateRequest, IdempotentAIStudyTaskCreateResponse } from '../src/types/api'
 import type {
   PlanningRunCreateRequest,
@@ -11,6 +11,10 @@ import type {
   PlanningRunTransitionRequest,
 } from '../src/types/planningHistory'
 import * as agentStudyTaskActions from '../src/utils/agentStudyTaskActions'
+import {
+  computeTodayActionChapterSignature,
+  computeTodayActionGenerationContextSignature,
+} from '../src/utils/todayActionChapterContext'
 import {
   PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY,
   savePendingStudyTaskOperation,
@@ -104,6 +108,19 @@ const makeHistoricalRun = (overrides: Partial<PlanningRunRecord> = {}): Planning
 })
 
 const subject: Subject = { id: 1, name: '数学', color: '#2563eb' }
+const chapter: SubjectChapter = {
+  id: 21,
+  subject_id: 1,
+  title: '函数极限',
+  notes: '',
+  completed: false,
+  sort_order: 0,
+  created_at: '2026-06-12T00:00:00.000Z',
+  updated_at: '2026-06-12T00:00:00.000Z',
+}
+const chapterProjection = {
+  chapter_progress: [{ subject_ref: 'subject:1', title: '函数极限', completed: false }],
+}
 
 const mistake: Mistake = {
   id: 12,
@@ -241,21 +258,76 @@ describe('TodayActionSuggestionDialog', () => {
     tasksCreateLegacy: vi.fn(),
     mistakesGetAll: vi.fn(),
     subjectsGetAll: vi.fn(),
+    chaptersGetBySubject: vi.fn(),
+    tasksGetChapterContext: vi.fn(),
+    tasksAuthorizeStaleReview: vi.fn(),
+    tasksGetCommittedStatus: vi.fn(),
     entriesGetByDate: vi.fn(),
     onClose: vi.fn(),
     onCreated: vi.fn(),
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     localStorage.clear()
-    delete window.api.planningRuns
+    const durableRuns = new Map<string, PlanningRunRecord>()
+    window.api.planningRuns = {
+      create: vi.fn(async (request: PlanningRunCreateRequest) => {
+        const durableRun = makePlanningRun(request)
+        durableRuns.set(durableRun.id, durableRun)
+        return durableRun
+      }),
+      transition: vi.fn(async (request: PlanningRunTransitionRequest) => {
+        const durableRun = durableRuns.get(request.runId)
+        if (!durableRun) throw new Error('planning run unavailable')
+        if (request.kind === 'admit_repaired_candidate') {
+          const admitted = makePlanningRun({
+            id: durableRun.id,
+            entryPoint: durableRun.entryPoint,
+            planningDate: durableRun.planningDate,
+            targetDate: durableRun.targetDate,
+            generationResultKind: durableRun.generationResultKind,
+            contextSummary: durableRun.contextSummary,
+            candidates: [{ ...request.candidate, admissionOrigin: 'provider_suggested_user_repaired' }],
+          }).candidates[0]!
+          admitted.id = 701 + request.candidate.ordinal
+          durableRun.candidates.push(admitted)
+        } else if (request.kind === 'commit_candidate') {
+          const candidate = durableRun.candidates.find(item => item.ordinal === request.ordinal)
+          if (candidate) Object.assign(candidate, request.candidate)
+        } else if (request.kind === 'set_selection') {
+          const candidate = durableRun.candidates.find(item => item.ordinal === request.ordinal)
+          if (candidate) candidate.userDisposition = request.selected
+            ? 'selected_unconfirmed'
+            : 'unselected'
+        } else if (request.kind === 'remove_candidate') {
+          durableRun.candidates = durableRun.candidates.filter(item => item.ordinal !== request.ordinal)
+        } else {
+          durableRun.closedAt = '2026-06-12T01:00:00.000Z'
+          durableRun.closeReason = request.reason
+        }
+        return durableRun
+      }),
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
     mocks.tasksCreate.mockReset()
     mocks.aiChat.mockResolvedValue({ content: validAiResponse })
     mocks.tasksGetByDate.mockResolvedValue([])
     mocks.tasksCreate.mockResolvedValue(makeTask())
     mocks.mistakesGetAll.mockResolvedValue({ data: [mistake], total: 1, masteredTotal: 0 })
     mocks.subjectsGetAll.mockResolvedValue([subject])
+    mocks.chaptersGetBySubject.mockResolvedValue([chapter])
+    mocks.tasksGetChapterContext.mockImplementation(async () => ({
+      chapterProjection,
+      currentChapterSignature: await computeTodayActionChapterSignature(chapterProjection),
+    }))
+    mocks.tasksAuthorizeStaleReview.mockResolvedValue({ staleReviewToken: 'e'.repeat(64) })
+    mocks.tasksGetCommittedStatus.mockImplementation(async request => ({
+      status: 'NOT_COMMITTED' as const,
+      operationId: request.operationId,
+    }))
     mocks.entriesGetByDate.mockResolvedValue(entry)
   })
 
@@ -275,6 +347,9 @@ describe('TodayActionSuggestionDialog', () => {
         }
         return { ok: true, operationId: request.operationId, task: result, replayed: false }
       }),
+      getTodayActionAuthoritativeChapterContext: mocks.tasksGetChapterContext,
+      authorizeTodayActionStaleReview: mocks.tasksAuthorizeStaleReview,
+      getCommittedAIStudyTaskOperationStatus: mocks.tasksGetCommittedStatus,
     }
     return (
       <TodayActionSuggestionDialog
@@ -283,6 +358,7 @@ describe('TodayActionSuggestionDialog', () => {
         tasksAPI={tasksAPI}
         mistakesAPI={{ getAll: mocks.mistakesGetAll }}
         subjectsAPI={{ getAll: mocks.subjectsGetAll }}
+        subjectChaptersAPI={{ getBySubject: mocks.chaptersGetBySubject }}
         entriesAPI={{ getByDate: mocks.entriesGetByDate }}
         onClose={mocks.onClose}
         onCreated={mocks.onCreated}
@@ -426,6 +502,7 @@ describe('TodayActionSuggestionDialog', () => {
         }),
         '2026-06-12',
         expect.objectContaining({ operationKind: 'today_action' }),
+        expect.any(Number),
       )
       expect(mocks.onCreated).toHaveBeenCalled()
     })
@@ -448,6 +525,22 @@ describe('TodayActionSuggestionDialog', () => {
       get: vi.fn(),
       delete: vi.fn(),
     }
+    mocks.tasksCreate.mockImplementationOnce(async (_payload, _expectedDate, request, planningCandidateId) => {
+      const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!
+      const envelope = JSON.parse(serialized) as { operations: Array<Record<string, unknown>> }
+      expect(envelope.operations[0]).toMatchObject({
+        planningCandidateId: 701,
+        operationKind: 'today_action',
+        actionContractVersion: 'confirmed-study-task-action.v2',
+      })
+      expect(planningCandidateId).toBe(701)
+      expect(envelope.operations[0]!.requestDigest).toBe(
+        await agentStudyTaskActions.computeIdempotentAIStudyTaskRequestDigest(request),
+      )
+      expect(serialized).not.toContain('payload')
+      expect(serialized).not.toContain('staleReviewToken')
+      return makeTask()
+    })
     renderDialog()
 
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
@@ -485,6 +578,40 @@ describe('TodayActionSuggestionDialog', () => {
       expect.objectContaining({ operationKind: 'today_action' }),
       701,
     ))
+  })
+
+  it('fails closed before marker or task dispatch when Electron Planning History cannot persist a candidate', async () => {
+    const createOperationId = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskOperationId')
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => ({
+      ok: true,
+      operationId: request.operationId,
+      task: makeTask(),
+      replayed: false,
+    }))
+    window.api.planningRuns = {
+      create: vi.fn(async () => { throw new Error('planning database unavailable') }),
+      transition: vi.fn(),
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    await waitFor(() => expect(screen.getByTestId('ai-plan-generate')).toBeEnabled())
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '规划历史暂时无法用于安全确认',
+    )
+    expect(route).not.toHaveBeenCalled()
+    expect(createOperationId).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    expect(screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })).toBeDisabled()
+    createOperationId.mockRestore()
   })
 
   it('closes a pending durable create with date_rollover when the date changes first', async () => {
@@ -1182,7 +1309,255 @@ describe('TodayActionSuggestionDialog', () => {
       }),
       '2026-06-12',
       expect.objectContaining({ operationKind: 'today_action' }),
+      expect.any(Number),
     ))
+  })
+
+  it('consumes a fresh-path candidate after definitive INVALID_REQUEST and blocks O2 dispatch', async () => {
+    const racedProjection = {
+      chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: true }],
+    }
+    const racedSignature = await computeTodayActionChapterSignature(racedProjection)
+    const durableRuns: PlanningRunRecord[] = []
+    const createPlanningRun = vi.fn(async (request: PlanningRunCreateRequest) => {
+      const run = makePlanningRun(request)
+      run.candidates[0]!.id = 701 + durableRuns.length
+      durableRuns.push(run)
+      return run
+    })
+    const transitionPlanningRun = vi.fn(async (request: PlanningRunTransitionRequest) => {
+      const run = durableRuns.find(item => item.id === request.runId)!
+      if (request.kind !== 'close_run') return run
+      const closed = { ...run, closedAt: '2026-06-12T00:01:00.000Z', closeReason: request.reason }
+      durableRuns[durableRuns.indexOf(run)] = closed
+      return closed
+    })
+    window.api.planningRuns = {
+      create: createPlanningRun,
+      transition: transitionPlanningRun,
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    let createAttempt = 0
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+      _planningCandidateId?: number,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+      createAttempt += 1
+      if (createAttempt === 1) {
+        mocks.tasksGetChapterContext.mockResolvedValue({
+          chapterProjection: racedProjection,
+          currentChapterSignature: racedSignature,
+        })
+        return {
+          ok: false,
+          operationId: request.operationId,
+          code: 'INVALID_REQUEST',
+          message: 'chapter drifted between renderer and Main',
+        }
+      }
+      return {
+        ok: true,
+        operationId: request.operationId,
+        task: makeTask({ id: 100, title: request.payload.title, type: request.payload.type }),
+        replayed: false,
+      }
+    })
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('ai-plan-generate')).toBeEnabled())
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    const firstOperationId = route.mock.calls[0]![0].operationId
+    expect(route.mock.calls[0]![1]).toBe(701)
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '当前建议已不能继续使用，请重新生成建议',
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('函数连续性')
+    })
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(firstOperationId)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent('确认内容未通过校验')
+
+    const checkbox = screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })
+    await waitFor(() => expect(checkbox).not.toBeChecked())
+    expect(checkbox).toBeDisabled()
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    expect(createButton).toBeDisabled()
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    expect(mocks.tasksAuthorizeStaleReview).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('today-action-accept-stale-chapter-context')).not.toBeInTheDocument()
+
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [{
+          title: '重新生成后的任务',
+          type: 'focus',
+          estimate_minutes: 15,
+          reason: '使用新的候选身份。',
+          priority: 'high',
+        }],
+      }),
+    })
+    mocks.chaptersGetBySubject.mockResolvedValueOnce([{
+      ...chapter,
+      title: '函数连续性',
+      completed: true,
+    }])
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByDisplayValue('重新生成后的任务')).toBeInTheDocument()
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(2))
+    expect(durableRuns[1]!.id).not.toBe(durableRuns[0]!.id)
+    expect(durableRuns[1]!.candidates[0]!.id).not.toBe(durableRuns[0]!.candidates[0]!.id)
+    expect(transitionPlanningRun).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: durableRuns[0]!.id,
+      reason: 'regenerated',
+    })
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    const secondOperationId = route.mock.calls[1]![0].operationId
+    expect(secondOperationId).not.toBe(firstOperationId)
+    expect(route.mock.calls[1]![1]).toBe(durableRuns[1]!.candidates[0]!.id)
+    expect(await screen.findByText('已创建 #100')).toBeInTheDocument()
+  })
+
+  it('stops a multi-selected fresh confirmation loop after the first definitive INVALID_REQUEST', async () => {
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [
+          { title: '任务 A', type: 'focus', estimate_minutes: 10, reason: '先做 A。', priority: 'high' },
+          { title: '任务 B', type: 'focus', estimate_minutes: 10, reason: '再做 B。', priority: 'medium' },
+          { title: '任务 C', type: 'focus', estimate_minutes: 10, reason: '最后做 C。', priority: 'low' },
+        ],
+      }),
+    })
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => ({
+      ok: false,
+      operationId: request.operationId,
+      code: 'INVALID_REQUEST',
+      message: 'chapter drifted between renderer and Main',
+    }))
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 C')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    expect(route.mock.calls[0]![0].payload.title).toBe('任务 A')
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '当前建议已不能继续使用，请重新生成建议',
+    )
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: '选择 任务 A' })).not.toBeChecked())
+    expect(screen.getByRole('checkbox', { name: '选择 任务 B' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '选择 任务 C' })).toBeDisabled()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-3')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['DATE_MISMATCH', '确认日期已失效。当前建议已不能继续使用'],
+    ['INTEGRITY_ERROR', '确认过程中发现完整性异常。当前建议已停止'],
+  ] as const)('stops and locks a multi-candidate generation after definitive %s', async (code, expectedNotice) => {
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [
+          { title: '任务 A', type: 'focus', estimate_minutes: 10, reason: '先做 A。', priority: 'high' },
+          { title: '任务 B', type: 'focus', estimate_minutes: 10, reason: '再做 B。', priority: 'medium' },
+          { title: '任务 C', type: 'focus', estimate_minutes: 10, reason: '最后做 C。', priority: 'low' },
+        ],
+      }),
+    })
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => ({
+      ok: false,
+      operationId: request.operationId,
+      code,
+      message: 'untrusted backend detail',
+    }))
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 C')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+    expect(route.mock.calls[0]![0].payload.title).toBe('任务 A')
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(expectedNotice)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: '选择 任务 A' })).not.toBeChecked())
+    expect(screen.getByRole('checkbox', { name: '选择 任务 B' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '选择 任务 C' })).toBeDisabled()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-3')).not.toBeInTheDocument()
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+  })
+
+  it.each([
+    ['IDEMPOTENCY_CONFLICT', '该操作 ID 已对应另一份确认内容，本次未新建任务'],
+    ['RESULT_DELETED', '原操作曾成功关联任务，但该任务后来已删除'],
+  ] as const)('consumes %s while allowing the next selected candidate to continue', async (code, expectedMessage) => {
+    mocks.aiChat.mockResolvedValueOnce({ content: twoCandidateResponse })
+    let attempt = 0
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+      attempt += 1
+      if (attempt === 1) {
+        return {
+          ok: false,
+          operationId: request.operationId,
+          code,
+          message: 'untrusted backend detail',
+        }
+      }
+      return {
+        ok: true,
+        operationId: request.operationId,
+        task: makeTask({ id: 202, title: request.payload.title, type: request.payload.type }),
+        replayed: false,
+      }
+    })
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 B')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    const firstOperationId = route.mock.calls[0]![0].operationId
+    const failedOutcome = screen.getByTestId('today-action-confirmed-outcome-suggestion-1')
+    expect(failedOutcome).toHaveTextContent(expectedMessage)
+    expect(failedOutcome).toHaveTextContent(firstOperationId)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-2')).toHaveTextContent('已创建任务')
+    const firstCheckbox = screen.getByRole('checkbox', { name: '选择 任务 A' })
+    expect(firstCheckbox).not.toBeChecked()
+    expect(firstCheckbox).toBeDisabled()
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
   })
 
   it('clamps available time to the supported daily capacity range', async () => {
@@ -1195,6 +1570,196 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.change(available, { target: { value: '1000' } })
     expect(available).toHaveValue(720)
     expect(await screen.findByTestId('planning-context-available_minutes')).toHaveTextContent('720 分钟')
+  })
+
+  it('blocks the first stale chapter confirmation, retains the original suggestion, and requires Main authorization for override', async () => {
+    const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
+    const refreshedProjection = {
+      chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: true }],
+    }
+    const refreshedSignature = await computeTodayActionChapterSignature(refreshedProjection)
+    mocks.tasksGetChapterContext.mockResolvedValue({
+      chapterProjection: refreshedProjection,
+      currentChapterSignature: refreshedSignature,
+    })
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+    const exactProviderMessages = mocks.aiChat.mock.calls[0]![0]
+    expect(JSON.stringify(exactProviderMessages)).toContain('函数极限')
+    expect(Object.isFrozen(exactProviderMessages)).toBe(true)
+    expect(exactProviderMessages.every(Object.isFrozen)).toBe(true)
+    const expectedOriginalGenerationContextSignature = await computeTodayActionGenerationContextSignature(
+      exactProviderMessages,
+    )
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    const staleNotice = await screen.findByTestId('today-action-stale-chapter-context')
+    expect(staleNotice).toHaveTextContent('原建议仍基于生成时的旧上下文')
+    expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('函数连续性')
+    expect(screen.getByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(mocks.tasksAuthorizeStaleReview).not.toHaveBeenCalled()
+    expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTestId('today-action-accept-stale-chapter-context'))
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    expect(mocks.tasksAuthorizeStaleReview).toHaveBeenCalledTimes(1)
+    const authorizationCore = mocks.tasksAuthorizeStaleReview.mock.calls[0]![0]
+    expect(authorizationCore).toMatchObject({
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      contextProjectionVersion: 'today-action.context-projection.v2',
+      generationChapterSignature: expect.stringMatching(/^[0-9a-f]{64}$/),
+      latestReviewedChapterSignature: refreshedSignature,
+      staleContextOverride: true,
+    })
+    expect(authorizationCore.generationChapterSignature).not.toBe(refreshedSignature)
+    expect(authorizationCore).not.toHaveProperty('staleReviewToken')
+    const snapshot = createActionSpy.mock.calls[0]![0].confirmationSnapshot
+    expect(snapshot).toMatchObject({
+      generationChapterSignature: authorizationCore.generationChapterSignature,
+      latestReviewedChapterSignature: refreshedSignature,
+      staleContextOverride: true,
+      staleReviewToken: 'e'.repeat(64),
+    })
+    expect(snapshot.generation.generationContextSignature)
+      .toBe(authorizationCore.originalGenerationContextSignature)
+    expect(snapshot.generation.generationContextSignature)
+      .toBe(expectedOriginalGenerationContextSignature)
+    expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+    createActionSpy.mockRestore()
+  })
+
+  it('requires regeneration after a definitive second chapter drift and never dispatches O2 for the old candidate', async () => {
+    const firstRefreshedProjection = {
+      chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: false }],
+    }
+    const secondRefreshedProjection = {
+      chapter_progress: [{ subject_ref: 'subject:1', title: '函数连续性', completed: true }],
+    }
+    const firstSignature = await computeTodayActionChapterSignature(firstRefreshedProjection)
+    const secondSignature = await computeTodayActionChapterSignature(secondRefreshedProjection)
+    const freshCandidateResponse = JSON.stringify({
+      suggestions: [{
+        title: '按最新章节复习连续性',
+        type: 'focus',
+        estimate_minutes: 15,
+        reason: '基于最新章节进度重新规划。',
+        priority: 'high',
+      }],
+    })
+    const durableRuns: PlanningRunRecord[] = []
+    const createPlanningRun = vi.fn(async (request: PlanningRunCreateRequest) => {
+      const run = makePlanningRun(request)
+      run.candidates[0]!.id = 701 + durableRuns.length
+      durableRuns.push(run)
+      return run
+    })
+    const transitionPlanningRun = vi.fn(async (request: PlanningRunTransitionRequest) => {
+      const run = durableRuns.find(item => item.id === request.runId)!
+      return request.kind === 'close_run'
+        ? { ...run, closedAt: '2026-06-12T00:01:00.000Z', closeReason: request.reason }
+        : run
+    })
+    window.api.planningRuns = {
+      create: createPlanningRun,
+      transition: transitionPlanningRun,
+      listRecent: vi.fn(async () => ({ items: [], nextCursor: null })),
+      get: vi.fn(),
+      delete: vi.fn(),
+    }
+    let chapterContextRead = 0
+    mocks.tasksGetChapterContext.mockReset().mockImplementation(async () => {
+      chapterContextRead += 1
+      return chapterContextRead <= 2
+        ? { chapterProjection: firstRefreshedProjection, currentChapterSignature: firstSignature }
+        : { chapterProjection: secondRefreshedProjection, currentChapterSignature: secondSignature }
+    })
+    let createAttempt = 0
+    const route = vi.fn(async (
+      request: IdempotentAIStudyTaskCreateRequest,
+      _planningCandidateId?: number,
+    ): Promise<IdempotentAIStudyTaskCreateResponse> => {
+      createAttempt += 1
+      if (createAttempt === 1) {
+        return {
+          ok: false,
+          operationId: request.operationId,
+          code: 'INVALID_REQUEST',
+          message: 'chapter drifted again',
+        }
+      }
+      return {
+        ok: true,
+        operationId: request.operationId,
+        task: makeTask({ id: 100, title: request.payload.title, type: request.payload.type }),
+        replayed: false,
+      }
+    })
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await screen.findByTestId('today-action-accept-stale-chapter-context')
+    fireEvent.click(screen.getByTestId('today-action-accept-stale-chapter-context'))
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent('本次确认未通过安全校验')
+    })
+    expect(screen.getByTestId('today-action-stale-chapter-context')).toHaveTextContent(
+      '当前建议已不能继续使用，请重新生成建议',
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('today-action-refreshed-chapter-context')).toHaveTextContent('已完成')
+    })
+    expect(route).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksAuthorizeStaleReview).toHaveBeenCalledTimes(1)
+    const firstOperationId = route.mock.calls[0]![0].operationId
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(firstOperationId)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent('确认内容未通过校验')
+    expect(screen.queryByTestId('today-action-accept-stale-chapter-context')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })).toBeDisabled()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
+    expect(screen.getByTestId('ai-plan-generate')).toHaveTextContent('重新生成一组建议')
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    expect(route).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksAuthorizeStaleReview).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+
+    mocks.aiChat.mockResolvedValueOnce({ content: freshCandidateResponse })
+    mocks.chaptersGetBySubject.mockResolvedValueOnce([{
+      ...chapter,
+      title: '函数连续性',
+      completed: true,
+    }])
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+
+    expect(await screen.findByDisplayValue('按最新章节复习连续性')).toBeInTheDocument()
+    await waitFor(() => expect(createPlanningRun).toHaveBeenCalledTimes(2))
+    expect(createPlanningRun.mock.calls[1]![0].id).not.toBe(createPlanningRun.mock.calls[0]![0].id)
+    expect(durableRuns[1]!.candidates[0]!.id).not.toBe(durableRuns[0]!.candidates[0]!.id)
+    expect(transitionPlanningRun).toHaveBeenCalledWith({
+      kind: 'close_run',
+      runId: durableRuns[0]!.id,
+      reason: 'regenerated',
+    })
+
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    const secondOperationId = route.mock.calls[1]![0].operationId
+    expect(secondOperationId).not.toBe(firstOperationId)
+    expect(route.mock.calls[1]![1]).toBe(durableRuns[1]!.candidates[0]!.id)
+    expect(await screen.findByText('已创建 #100')).toBeInTheDocument()
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(secondOperationId)
   })
 
   it('requires a second explicit confirmation when the planning context becomes stale', async () => {
@@ -1229,7 +1794,7 @@ describe('TodayActionSuggestionDialog', () => {
     expect(createActionSpy).toHaveBeenCalledTimes(1)
     const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
     expect(snapshot?.generation.operationKind).toBe('today_action')
-    expect(snapshot?.generation.versions.promptVersion).toBe('today-action.prompt.v3')
+    expect(snapshot?.generation.versions.promptVersion).toBe('today-action.prompt.v4')
     expect(snapshot?.generation.generationContextSignature)
       .not.toBe(snapshot?.confirmationContextSignature)
     expect(snapshot?.generation.generationContextSignature).not.toContain('新出现的任务')
@@ -1237,12 +1802,9 @@ describe('TodayActionSuggestionDialog', () => {
     createActionSpy.mockRestore()
   })
 
-  it('preserves partial success, reports it, and retries only failed candidates', async () => {
+  it('preserves partial success and consumes an integrity-failed candidate without O2', async () => {
     const createActionSpy = vi.spyOn(agentStudyTaskActions, 'createConfirmedStudyTaskAction')
     const createdA = makeTask({ id: 201, title: '任务 A', type: 'focus', subject_id: null, related_mistake_id: null })
-    const createdB = makeTask({ id: 202, title: '任务 B', type: 'focus', subject_id: null, related_mistake_id: null })
-    let taskRows: StudyTask[] = []
-    mocks.tasksGetByDate.mockImplementation(async () => taskRows)
     mocks.aiChat.mockResolvedValue({ content: twoCandidateResponse })
     mocks.tasksCreate.mockReset()
     mocks.tasksCreate
@@ -1252,7 +1814,6 @@ describe('TodayActionSuggestionDialog', () => {
         code: 'INTEGRITY_ERROR',
         message: 'second write failed',
       })
-      .mockResolvedValueOnce(createdB)
 
     renderDialog()
     await screen.findByTestId('planning-context-today_tasks')
@@ -1269,18 +1830,23 @@ describe('TodayActionSuggestionDialog', () => {
     expect(createActionSpy).toHaveBeenCalledTimes(2)
     const firstSnapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
     const secondSnapshot = createActionSpy.mock.calls[1]?.[0].confirmationSnapshot
+    const failedOperationId = createActionSpy.mock.calls[1]?.[0].operationId
     expect(firstSnapshot).toBeDefined()
     expect(secondSnapshot).toBe(firstSnapshot)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-2')).toHaveTextContent(failedOperationId!)
 
-    taskRows = [createdA]
-    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
-    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(3))
+    const failedCheckbox = screen.getByRole('checkbox', { name: '选择 任务 B' })
+    expect(failedCheckbox).not.toBeChecked()
+    expect(failedCheckbox).toBeDisabled()
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    expect(createButton).toBeDisabled()
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(2))
 
     const createdTitles = mocks.tasksCreate.mock.calls.map(([input]) => input.title)
     expect(createdTitles.filter(title => title === '任务 A')).toHaveLength(1)
-    expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(2)
-    expect(createActionSpy.mock.calls[2]?.[0].confirmationSnapshot.generation)
-      .toBe(firstSnapshot?.generation)
+    expect(createdTitles.filter(title => title === '任务 B')).toHaveLength(1)
     createActionSpy.mockRestore()
   })
 
@@ -1351,10 +1917,9 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
     await waitFor(() => expect(createActionSpy).toHaveBeenCalledTimes(1))
     const snapshot = createActionSpy.mock.calls[0]?.[0].confirmationSnapshot
-    const rawGenSig = snapshot?.generation.generationContextSignature || '{}'
-    const genSigObj = JSON.parse(rawGenSig) as { baseDomainContextSignature?: string; date?: string }
-    const baseObj = JSON.parse(genSigObj.baseDomainContextSignature || rawGenSig) as { date?: string }
-    expect(baseObj.date).toBe('2026-06-13')
+    expect(snapshot?.generation.generationContextSignature).toMatch(/^[0-9a-f]{64}$/)
+    expect(snapshot?.expectedCurrentDate).toBe('2026-06-13')
+    expect(JSON.stringify(mocks.aiChat.mock.calls[1]?.[0])).toContain('2026-06-13')
     createActionSpy.mockRestore()
   })
 
@@ -1442,14 +2007,28 @@ describe('TodayActionSuggestionDialog', () => {
     mocks.tasksCreate.mockImplementationOnce(async (payload, expectedDate, request) => {
       const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
       expect(serialized).not.toBeNull()
-      const envelope = JSON.parse(serialized!) as { operations: IdempotentAIStudyTaskCreateRequest[] }
+      const envelope = JSON.parse(serialized!) as { operations: Array<Record<string, unknown>> }
       expect(envelope.operations).toHaveLength(1)
       expect(envelope.operations[0]).toMatchObject({
         operationId: request.operationId,
         operationKind: 'today_action',
+        actionContractVersion: 'confirmed-study-task-action.v2',
         expectedCurrentDate: expectedDate,
-        payload,
+        plannedDate: expectedDate,
       })
+      expect(Object.keys(envelope.operations[0]!).sort()).toEqual([
+        'operationId',
+        'operationKind',
+        'actionContractVersion',
+        'expectedCurrentDate',
+        'plannedDate',
+        'planningCandidateId',
+        'requestDigest',
+        'createdAt',
+      ].sort())
+      expect(envelope.operations[0]!.requestDigest).toMatch(/^[0-9a-f]{64}$/)
+      expect(serialized).not.toContain(payload.title)
+      expect(serialized).not.toContain('staleReviewToken')
       return makeTask({
         title: payload.title,
         description: payload.description,
@@ -1463,7 +2042,58 @@ describe('TodayActionSuggestionDialog', () => {
     fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
 
     await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    })
+  })
+
+  it('keeps digest-pending confirmation cancelable and fences the late digest result', async () => {
+    const digest = createDeferred<string>()
+    const digestSpy = vi.spyOn(
+      agentStudyTaskActions,
+      'computeIdempotentAIStudyTaskRequestDigest',
+    ).mockReturnValueOnce(digest.promise)
+    const route = vi.fn()
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(digestSpy).toHaveBeenCalledTimes(1))
+
+    const close = screen.getByRole('button', { name: '关闭 AI 今日行动建议' })
+    expect(close).toBeEnabled()
+    fireEvent.click(close)
+    expect(mocks.onClose).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      digest.resolve('a'.repeat(64))
+      await digest.promise
+    })
+    expect(route).not.toHaveBeenCalled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
     expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    digestSpy.mockRestore()
+  })
+
+  it('keeps digest rejection side-effect free and leaves no recovery marker', async () => {
+    const digestSpy = vi.spyOn(
+      agentStudyTaskActions,
+      'computeIdempotentAIStudyTaskRequestDigest',
+    ).mockRejectedValueOnce(new Error('Web Crypto digest is unavailable'))
+    const route = vi.fn()
+
+    renderDialog('2026-06-12', route)
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(digestSpy).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('ai-plan-create-selected')).toBeEnabled())
+
+    expect(route).not.toHaveBeenCalled()
+    expect(mocks.tasksCreate).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    digestSpy.mockRestore()
   })
 
   it('treats a validation-then-malformed live executor response as controlled uncertain data', async () => {
@@ -1508,15 +2138,11 @@ describe('TodayActionSuggestionDialog', () => {
     }
   })
 
-  it('keeps the exact pending record when recovery receives a validation-then-malformed response', async () => {
-    let attempt = 0
-    let fixture: ReturnType<typeof createValidationThenMalformedResponse> | undefined
-    const route = vi.fn(async (request: IdempotentAIStudyTaskCreateRequest) => {
-      attempt += 1
-      if (attempt === 1) throw new Error('reply lost without raw detail')
-      fixture = createValidationThenMalformedResponse(request.operationId)
-      return fixture.response
+  it('keeps the metadata-only pending marker when read-only status is unavailable', async () => {
+    const route = vi.fn(async () => {
+      throw new Error('reply lost without raw detail')
     })
+    mocks.tasksGetCommittedStatus.mockRejectedValueOnce(new Error('status unavailable'))
     const consoleCapture = captureConsole()
 
     try {
@@ -1541,7 +2167,7 @@ describe('TodayActionSuggestionDialog', () => {
       expect(await screen.findByTestId('pending-study-task-outcome')).toHaveTextContent(
         '结果尚无法确认，需要用户手动检查',
       )
-      await waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledTimes(1))
 
       expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBe(beforeRecovery)
       expect(screen.getByTestId(`pending-study-task-operation-${operationId}`)).toBeInTheDocument()
@@ -1557,23 +2183,15 @@ describe('TodayActionSuggestionDialog', () => {
         await Promise.resolve()
         await Promise.resolve()
       })
-      expect(route).toHaveBeenCalledTimes(2)
-      expect(fixture?.getTaskReads()).toBe(2)
-      fixture?.assertDescriptorsUnchanged()
+      expect(route).toHaveBeenCalledTimes(1)
       consoleCapture.expectNoRawSecret()
     } finally {
       consoleCapture.restore()
     }
   })
 
-  it('retains an uncertain operation across restart and recovers with the same ID and payload only on click', async () => {
-    mocks.tasksCreate
-      .mockRejectedValueOnce(new Error('reply lost'))
-      .mockResolvedValueOnce({
-        ok: true,
-        task: makeTask({ id: 303 }),
-        replayed: true,
-      })
+  it('recovers a committed Today v2 operation after restart through read-only receipt status only', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
 
     const firstView = renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
@@ -1585,13 +2203,19 @@ describe('TodayActionSuggestionDialog', () => {
     )
     expect(titleInput).toBeDisabled()
     expect(mocks.onCreated).not.toHaveBeenCalled()
-    const stored = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
-      operations: Array<IdempotentAIStudyTaskCreateRequest & { createdAt: string }>
-    }
+    const serialized = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!
+    const stored = JSON.parse(serialized) as { operations: Array<Record<string, unknown>> }
     const pending = stored.operations[0]!
     const firstRequest = mocks.tasksCreate.mock.calls[0]?.[2] as IdempotentAIStudyTaskCreateRequest
     expect(pending.operationId).toBe(firstRequest.operationId)
-    expect(pending.payload).toEqual(firstRequest.payload)
+    expect(pending).not.toHaveProperty('payload')
+    expect(serialized).not.toContain(firstRequest.payload.title)
+    expect(serialized).not.toContain('staleReviewToken')
+    mocks.tasksGetCommittedStatus.mockResolvedValueOnce({
+      status: 'RECOVERED_COMMITTED',
+      operationId: firstRequest.operationId,
+      task: makeTask({ id: 303 }),
+    })
 
     firstView.unmount()
     mocks.onCreated.mockClear()
@@ -1599,24 +2223,84 @@ describe('TodayActionSuggestionDialog', () => {
     expect(await screen.findByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operationId}`))
-    expect(await screen.findByText('原操作此前已完成，本次未重复创建')).toBeInTheDocument()
-    expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
-    const retryRequest = mocks.tasksCreate.mock.calls[1]?.[2] as IdempotentAIStudyTaskCreateRequest
-    expect(retryRequest.operationId).toBe(firstRequest.operationId)
-    expect(retryRequest.payload).toEqual(firstRequest.payload)
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${String(pending.operationId)}`))
+    expect(await screen.findByTestId('pending-study-task-outcome')).toHaveTextContent(
+      '原操作此前已完成，本次未重复创建',
+    )
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledWith({
+      operationId: firstRequest.operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      plannedDate: '2026-06-12',
+      planningCandidateId: pending.planningCandidateId,
+      requestDigest: pending.requestDigest,
+    })
     expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
     expect(mocks.onCreated).toHaveBeenCalledTimes(1)
   })
 
-  it('observes an explicit live recovery without background retry and preserves replay semantics', async () => {
-    mocks.tasksCreate
-      .mockRejectedValueOnce(new Error('reply lost'))
-      .mockResolvedValueOnce({
-        ok: true,
-        task: makeTask({ id: 304 }),
-        replayed: true,
-      })
+  it('stops dispatching the remaining selected candidates after a live result becomes uncertain', async () => {
+    mocks.aiChat.mockResolvedValueOnce({ content: twoCandidateResponse })
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 B')
+
+    const firstCheckbox = screen.getByRole('checkbox', { name: '选择 任务 A' }) as HTMLInputElement
+    const secondCheckbox = screen.getByRole('checkbox', { name: '选择 任务 B' }) as HTMLInputElement
+    if (!firstCheckbox.checked) fireEvent.click(firstCheckbox)
+    if (!secondCheckbox.checked) fireEvent.click(secondCheckbox)
+    await waitFor(() => expect(screen.getByTestId('ai-plan-create-selected')).toBeEnabled())
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('today-action-confirmed-outcome-suggestion-2')).not.toBeInTheDocument()
+    expect(secondCheckbox).toBeDisabled()
+  })
+
+  it('retires a restart marker on NOT_COMMITTED without consuming the current new candidate', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+
+    const firstView = renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<{ operationId: string }>
+    }
+    const operationId = pending.operations[0]!.operationId
+
+    firstView.unmount()
+    mocks.tasksCreate.mockClear()
+    mocks.tasksCreate.mockResolvedValue(makeTask({ id: 309 }))
+    renderDialog()
+    expect(await screen.findByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+    expect(await screen.findByTestId('pending-study-task-outcome')).toHaveTextContent(
+      '未证明任务已提交；原候选已退役',
+    )
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+    await waitFor(() => expect(createButton).toBeEnabled())
+
+    fireEvent.click(createButton)
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+  })
+
+  it('uses read-only receipt status for explicit live recovery without retrying create', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
 
     renderDialog()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
@@ -1628,8 +2312,13 @@ describe('TodayActionSuggestionDialog', () => {
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
 
     const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
-      operations: Array<{ operationId: string }>
+      operations: Array<{ operationId: string; planningCandidateId: number; requestDigest: string }>
     }
+    mocks.tasksGetCommittedStatus.mockResolvedValueOnce({
+      status: 'RECOVERED_COMMITTED',
+      operationId: pending.operations[0]!.operationId,
+      task: makeTask({ id: 304 }),
+    })
     fireEvent.click(screen.getByTestId(`recover-pending-study-task-${pending.operations[0]!.operationId}`))
 
     await waitFor(() => {
@@ -1637,8 +2326,198 @@ describe('TodayActionSuggestionDialog', () => {
         '原操作此前已完成，本次未重复创建',
       )
     })
-    expect(mocks.tasksCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledTimes(1)
     expect(mocks.onCreated).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps O1 consumed when live recovery observes a definitive deleted result', async () => {
+    mocks.tasksCreate
+      .mockRejectedValueOnce(new Error('reply lost'))
+      .mockResolvedValueOnce(makeTask({ id: 306 }))
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<{ operationId: string; planningCandidateId: number; requestDigest: string }>
+    }
+    const operationId = pending.operations[0]!.operationId
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(operationId)
+    mocks.tasksGetCommittedStatus.mockResolvedValueOnce({
+      status: 'RESULT_DELETED',
+      operationId,
+    })
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+    expect(await screen.findByTestId('pending-study-task-outcome')).toHaveTextContent(
+      '原操作曾成功关联任务，但该任务后来已删除',
+    )
+    const outcome = screen.getByTestId('today-action-confirmed-outcome-suggestion-1')
+    expect(outcome).toHaveTextContent('原操作曾成功关联任务，但该任务后来已删除')
+    expect(outcome).toHaveTextContent(operationId)
+
+    const checkbox = screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })
+    expect(checkbox).not.toBeChecked()
+    expect(checkbox).toBeDisabled()
+    checkbox.removeAttribute('disabled')
+    fireEvent.click(checkbox)
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+    expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledWith({
+      operationId,
+      operationKind: 'today_action',
+      actionContractVersion: 'confirmed-study-task-action.v2',
+      expectedCurrentDate: '2026-06-12',
+      plannedDate: '2026-06-12',
+      planningCandidateId: pending.operations[0]!.planningCandidateId,
+      requestDigest: pending.operations[0]!.requestDigest,
+    })
+  })
+
+  it.each([
+    ['NOT_COMMITTED', '未证明任务已提交；原候选已退役。请重新生成候选后再确认'],
+    ['INTEGRITY_ERROR', '确认过程中发现完整性异常。当前建议已停止'],
+  ] as const)('locks the current generation after uncertain recovery reaches %s', async (status, expectedNotice) => {
+    mocks.aiChat.mockResolvedValueOnce({ content: twoCandidateResponse })
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('任务 B')
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 任务 B' }))
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<{ operationId: string }>
+    }
+    const operationId = pending.operations[0]!.operationId
+    mocks.tasksGetCommittedStatus.mockResolvedValueOnce({ status, operationId })
+
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+
+    expect(await screen.findByTestId('today-action-stale-chapter-context')).toHaveTextContent(expectedNotice)
+    expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(operationId)
+    const remainingCheckbox = screen.getByRole('checkbox', { name: '选择 任务 B' })
+    expect(remainingCheckbox).not.toBeChecked()
+    expect(remainingCheckbox).toBeDisabled()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeDisabled()
+
+    remainingCheckbox.removeAttribute('disabled')
+    fireEvent.click(remainingCheckbox)
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+  })
+
+  it('does not let a stale recovery response lock a regenerated candidate set', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<{ operationId: string }>
+    }
+    const operationId = pending.operations[0]!.operationId
+    const recoveryStatus = createDeferred<{ status: 'INTEGRITY_ERROR'; operationId: string }>()
+    mocks.tasksGetCommittedStatus.mockReturnValueOnce(recoveryStatus.promise)
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+    await waitFor(() => expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledTimes(1))
+
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [{
+          title: '新一代候选',
+          type: 'focus',
+          estimate_minutes: 15,
+          reason: '与旧 O1 无关。',
+          priority: 'high',
+        }],
+      }),
+    })
+    screen.getByTestId('ai-plan-generate').click()
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      recoveryStatus.resolve({ status: 'INTEGRITY_ERROR', operationId })
+      await recoveryStatus.promise
+    })
+    expect(screen.queryByTestId('pending-study-task-outcome')).not.toBeInTheDocument()
+    expect(screen.getByTestId(`pending-study-task-operation-${operationId}`)).toBeInTheDocument()
+
+    expect(await screen.findByDisplayValue('新一代候选')).toBeInTheDocument()
+    const nextCheckbox = screen.getByRole('checkbox', { name: '选择 新一代候选' })
+    expect(nextCheckbox).toBeChecked()
+    expect(nextCheckbox).toBeEnabled()
+    expect(screen.getByTestId('ai-plan-create-selected')).toBeEnabled()
+    expect(screen.queryByTestId('today-action-stale-chapter-context')).not.toBeInTheDocument()
+  })
+
+  it('does not start a new candidate creation while an older operation recovery is in flight', async () => {
+    mocks.tasksCreate.mockRejectedValueOnce(new Error('reply lost'))
+
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    const pending = JSON.parse(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)!) as {
+      operations: Array<{ operationId: string }>
+    }
+    const operationId = pending.operations[0]!.operationId
+    const recoveryStatus = createDeferred<{ status: 'INTEGRITY_ERROR'; operationId: string }>()
+    mocks.tasksGetCommittedStatus.mockReturnValueOnce(recoveryStatus.promise)
+    fireEvent.click(screen.getByTestId(`recover-pending-study-task-${operationId}`))
+    await waitFor(() => expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledTimes(1))
+
+    mocks.aiChat.mockResolvedValueOnce({
+      content: JSON.stringify({
+        suggestions: [{
+          title: '恢复期间的新候选',
+          type: 'focus',
+          estimate_minutes: 15,
+          reason: '必须等待旧操作检查结束。',
+          priority: 'high',
+        }],
+      }),
+    })
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('恢复期间的新候选')
+
+    const createButton = screen.getByTestId('ai-plan-create-selected')
+    expect(createButton).toBeDisabled()
+    createButton.removeAttribute('disabled')
+    fireEvent.click(createButton)
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      recoveryStatus.resolve({ status: 'INTEGRITY_ERROR', operationId })
+      await recoveryStatus.promise
+    })
+    await waitFor(() => expect(createButton).toBeEnabled())
+    expect(screen.getByTestId(`pending-study-task-operation-${operationId}`)).toBeInTheDocument()
+    expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
   })
 
   it('does not aggregate a replayed confirmation as a newly created task', async () => {
@@ -1661,7 +2540,7 @@ describe('TodayActionSuggestionDialog', () => {
     )
   })
 
-  it('retains and locks an idempotency conflict for explicit inspection', async () => {
+  it('retains and locks an idempotency conflict while ending its terminal recovery marker', async () => {
     mocks.tasksCreate.mockResolvedValueOnce({
       ok: false,
       code: 'IDEMPOTENCY_CONFLICT',
@@ -1678,13 +2557,106 @@ describe('TodayActionSuggestionDialog', () => {
     )
     expect(document.body).not.toHaveTextContent('operation ID already belongs to different content')
     expect(titleInput).toBeDisabled()
-    expect(screen.getByTestId('pending-study-task-recovery-today_action')).toBeInTheDocument()
-    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).not.toBeNull()
+    expect(screen.queryByTestId('pending-study-task-recovery-today_action')).not.toBeInTheDocument()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
       '该操作 ID 已对应另一份确认内容，本次未新建任务',
     )
   })
+
+  it('does not consume a terminal recovery result while the original O1 request is still creating', async () => {
+    let rejectOriginalCreate!: (reason?: unknown) => void
+    const originalCreate = {
+      promise: new Promise<StudyTask>((_resolve, reject) => {
+        rejectOriginalCreate = reject
+      }),
+    }
+    mocks.tasksCreate.mockReturnValueOnce(originalCreate.promise)
+    renderDialog()
+    fireEvent.click(screen.getByTestId('ai-plan-generate'))
+    await screen.findByDisplayValue('复习函数极限错题')
+    fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+    await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+
+    const request = mocks.tasksCreate.mock.calls[0]![2] as IdempotentAIStudyTaskCreateRequest
+    mocks.tasksGetCommittedStatus.mockReset()
+    mocks.tasksGetCommittedStatus.mockResolvedValueOnce({
+      status: 'RECOVERED_COMMITTED',
+      operationId: request.operationId,
+      task: makeTask({ id: 307 }),
+    })
+    const beforeRecovery = localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)
+    const recoveryButton = screen.getByTestId(`recover-pending-study-task-${request.operationId}`)
+    expect(recoveryButton).toBeDisabled()
+    fireEvent.click(recoveryButton)
+
+    expect(screen.getByTestId(`pending-study-task-operation-${request.operationId}`)).toBeInTheDocument()
+    expect(screen.queryByTestId('pending-study-task-outcome')).not.toBeInTheDocument()
+    expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBe(beforeRecovery)
+    expect(screen.queryByText('已创建 #307')).not.toBeInTheDocument()
+    expect(mocks.tasksGetCommittedStatus).not.toHaveBeenCalled()
+    expect(mocks.onCreated).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rejectOriginalCreate(new Error('original reply lost'))
+      try { await originalCreate.promise } catch {}
+    })
+    expect(await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')).toHaveTextContent(
+      '结果尚无法确认，需要用户手动检查',
+    )
+    expect(recoveryButton).toBeEnabled()
+    fireEvent.click(recoveryButton)
+    expect(await screen.findByTestId('pending-study-task-outcome')).toHaveTextContent(
+      '原操作此前已完成，本次未重复创建',
+    )
+    expect(mocks.tasksGetCommittedStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['INVALID_REQUEST', '确认内容未通过校验，本次未创建任务'],
+    ['IDEMPOTENCY_CONFLICT', '该操作 ID 已对应另一份确认内容，本次未新建任务'],
+    ['DATE_MISMATCH', '确认日期已失效，本次未创建任务'],
+    ['RESULT_DELETED', '原操作曾成功关联任务，但该任务后来已删除；本次检查没有新建任务。'],
+    ['INTEGRITY_ERROR', '完整性检查未通过，本次操作已安全终止'],
+  ] as const)(
+    'consumes a candidate after definitive %s and cannot dispatch a replacement operation',
+    async (code, expectedMessage) => {
+      const route = vi.fn(async (
+        request: IdempotentAIStudyTaskCreateRequest,
+      ): Promise<IdempotentAIStudyTaskCreateResponse> => ({
+        ok: false,
+        operationId: request.operationId,
+        code,
+        message: 'untrusted backend detail',
+      }))
+
+      renderDialog('2026-06-12', route)
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await screen.findByDisplayValue('复习函数极限错题')
+      fireEvent.click(screen.getByTestId('ai-plan-create-selected'))
+
+      await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+      const operationId = route.mock.calls[0]![0].operationId
+      const outcome = await screen.findByTestId('today-action-confirmed-outcome-suggestion-1')
+      expect(outcome).toHaveTextContent(expectedMessage)
+      expect(outcome).toHaveTextContent(operationId)
+      expect(localStorage.getItem(PENDING_STUDY_TASK_OPERATIONS_STORAGE_KEY)).toBeNull()
+      expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('当前选择 0')
+      expect(screen.getByTestId('today-action-candidate-counts')).toHaveTextContent('已确认 1')
+
+      const checkbox = screen.getByRole('checkbox', { name: '选择 复习函数极限错题' })
+      await waitFor(() => expect(checkbox).not.toBeChecked())
+      expect(checkbox).toBeDisabled()
+
+      const createButton = screen.getByTestId('ai-plan-create-selected')
+      expect(createButton).toBeDisabled()
+      createButton.removeAttribute('disabled')
+      fireEvent.click(createButton)
+      await waitFor(() => expect(route).toHaveBeenCalledTimes(1))
+      expect(route.mock.calls[0]![0].operationId).toBe(operationId)
+    },
+  )
 
   it.each([
     ['INTEGRITY_ERROR', '完整性检查未通过，本次操作已安全终止'],
@@ -2051,11 +3023,15 @@ describe('TodayActionSuggestionDialog', () => {
 
     it('DLG-C4-10: still allows candidate creation when historical feedback is deleted after Provider success', async () => {
       let historicalRuns: PlanningRunRecord[] = [makeHistoricalRun()]
+      let createdRun: PlanningRunRecord | null = null
       const listRecent = vi.fn(async () => ({ items: historicalRuns, nextCursor: null }))
-      const create = vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req))
+      const create = vi.fn(async (req: PlanningRunCreateRequest) => {
+        createdRun = makePlanningRun(req)
+        return createdRun
+      })
       window.api.planningRuns = {
         create,
-        transition: vi.fn(),
+        transition: vi.fn(async () => createdRun!),
         listRecent,
         get: vi.fn(),
         delete: vi.fn(),
@@ -2119,6 +3095,99 @@ describe('TodayActionSuggestionDialog', () => {
 
       expect(await screen.findByTestId('today-action-feedback-preview')).toBeInTheDocument()
       expect(mocks.aiChat).not.toHaveBeenCalled()
+    })
+
+    it('does not start candidate creation while regeneration history discovery is pending', async () => {
+      const regenerationDiscovery = createDeferred<{ items: PlanningRunRecord[]; nextCursor: null }>()
+      let listCallCount = 0
+      const listRecent = vi.fn(() => {
+        listCallCount += 1
+        return listCallCount === 1
+          ? Promise.resolve({ items: [], nextCursor: null })
+          : regenerationDiscovery.promise
+      })
+      const transition = vi.fn(async (request: PlanningRunTransitionRequest) => makePlanningRun({
+        id: request.runId,
+        entryPoint: 'today_action',
+        planningDate: '2026-06-12',
+        targetDate: '2026-06-12',
+        generationResultKind: 'candidate_set',
+        contextSummary: [],
+        candidates: [],
+      }))
+      window.api.planningRuns = {
+        create: vi.fn(async (req: PlanningRunCreateRequest) => makePlanningRun(req)),
+        transition,
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await screen.findByDisplayValue('复习函数极限错题')
+      expect(listRecent).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await waitFor(() => expect(listRecent).toHaveBeenCalledTimes(2))
+      const createButton = screen.getByTestId('ai-plan-create-selected')
+      expect(createButton).toBeDisabled()
+
+      createButton.removeAttribute('disabled')
+      fireEvent.click(createButton)
+      await act(async () => { await Promise.resolve() })
+      expect(mocks.tasksCreate).not.toHaveBeenCalled()
+
+      await act(async () => {
+        regenerationDiscovery.resolve({ items: [], nextCursor: null })
+        await regenerationDiscovery.promise
+      })
+      await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(2))
+      expect(mocks.tasksCreate).not.toHaveBeenCalled()
+      expect(transition.mock.calls.filter(([request]) => (
+        (request as PlanningRunTransitionRequest).kind === 'close_run'
+      ))).toHaveLength(1)
+    })
+
+    it('does not start regeneration when candidate creation wins the same-turn race', async () => {
+      const pendingCreate = createDeferred<StudyTask>()
+      mocks.tasksCreate.mockReturnValueOnce(pendingCreate.promise)
+      const listRecent = vi.fn(async () => ({ items: [], nextCursor: null }))
+      let durableRun: PlanningRunRecord | null = null
+      window.api.planningRuns = {
+        create: vi.fn(async (req: PlanningRunCreateRequest) => {
+          durableRun = makePlanningRun(req)
+          return durableRun
+        }),
+        transition: vi.fn(async () => durableRun!),
+        listRecent,
+        get: vi.fn(),
+        delete: vi.fn(),
+      }
+      renderDialog()
+
+      fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await screen.findByDisplayValue('复习函数极限错题')
+      expect(listRecent).toHaveBeenCalledTimes(1)
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+
+      const createButton = screen.getByTestId('ai-plan-create-selected')
+      const generateButton = screen.getByTestId('ai-plan-generate')
+      await act(async () => {
+        createButton.click()
+        generateButton.click()
+        await Promise.resolve()
+      })
+      await waitFor(() => expect(mocks.tasksCreate).toHaveBeenCalledTimes(1))
+      expect(listRecent).toHaveBeenCalledTimes(1)
+      expect(mocks.aiChat).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        pendingCreate.resolve(makeTask({ id: 308 }))
+        await pendingCreate.promise
+      })
+      expect(await screen.findByText('已创建 #308')).toBeInTheDocument()
+      expect(listRecent).toHaveBeenCalledTimes(1)
     })
 
     it('C4-H1-01: releases feedback loading on base generation transition so subsequent generation can be started', async () => {
@@ -2308,9 +3377,9 @@ describe('TodayActionSuggestionDialog', () => {
 
       // Regenerate
       fireEvent.click(screen.getByTestId('ai-plan-generate'))
+      await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(2))
       expect(await screen.findByLabelText('建议标题')).toBeInTheDocument()
 
-      expect(mocks.aiChat).toHaveBeenCalledTimes(2)
       const secondPromptMessages = mocks.aiChat.mock.calls[1]![0]
       expect(secondPromptMessages[1]!.content).toContain(
         '规划策略：轻量推进（light_load）。倾向于建议启动门槛低、单项时长适中偏短、易于执行的行动，优先消化到期错题或完成小颗粒度目标，避免安排高负荷长时任务。',
@@ -2402,9 +3471,8 @@ describe('TodayActionSuggestionDialog', () => {
       const callArg = createActionSpy.mock.calls[0]![0]
       const snapshot = callArg.confirmationSnapshot
       expect(snapshot.generation.operationKind).toBe('today_action')
-      const parsedGenSig = JSON.parse(snapshot.generation.generationContextSignature)
-      expect(parsedGenSig.strategyId).toBe('light_load')
-      expect(parsedGenSig.feedback).toBeNull()
+      expect(snapshot.generation.generationContextSignature).toMatch(/^[0-9a-f]{64}$/)
+      expect(JSON.stringify(mocks.aiChat.mock.calls[0]?.[0])).toContain('轻量推进（light_load）')
 
       // Confirmation context signature strictly matches base signature without strategy
       const parsedConfSig = JSON.parse(snapshot.confirmationContextSignature)

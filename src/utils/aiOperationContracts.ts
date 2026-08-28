@@ -24,7 +24,8 @@ export interface AIStudyTaskGenerationProvenance {
 }
 
 export const CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v1'
-export const CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v1'
+export const CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION = 'confirmed-study-task-action.v2'
+export const CONFIRMED_MISTAKE_REVIEW_TASK_ACTION_CONTRACT_VERSION = 'confirmed-mistake-review-task-action.v2'
 
 export const AI_STUDY_TASK_OPERATION_KINDS = Object.freeze([
   'today_action',
@@ -59,12 +60,12 @@ const OPERATION_CONTRACTS: Readonly<Record<
 >> = Object.freeze({
   today_action: freezeContract({
     operationKind: 'today_action',
-    promptVersion: 'today-action.prompt.v3',
+    promptVersion: 'today-action.prompt.v4',
     responseSchemaVersion: 'today-action.response-schema.v1',
     parserVersion: 'today-action.parser.v1',
-    policyVersion: 'today-action.policy.v1',
-    contextProjectionVersion: 'today-action.context-projection.v1',
-    actionContractVersion: CONFIRMED_STUDY_TASK_ACTION_CONTRACT_VERSION,
+    policyVersion: 'today-action.policy.v2',
+    contextProjectionVersion: 'today-action.context-projection.v2',
+    actionContractVersion: CONFIRMED_TODAY_ACTION_STUDY_TASK_ACTION_CONTRACT_VERSION,
   }),
   daily_review: freezeContract({
     operationKind: 'daily_review',
