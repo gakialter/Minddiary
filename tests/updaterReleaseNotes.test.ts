@@ -4,16 +4,15 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.17.1 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.17.1')
+  it('bundles the current v1.18.0 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.18.0')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('今日任务')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Windows 自动更新完整 E2E 仍待后续验收')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 6')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('study_task_action_receipts')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('idempotency receipts')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).not.toContain('schema 5')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Planning History')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 7')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Schema 6 → 7')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('5 → 6 → 7')
   })
 
   it('normalizes a remote string release note', () => {

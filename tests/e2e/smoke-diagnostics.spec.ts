@@ -27,7 +27,7 @@ test('runs the source-tree diagnostic harness against a disposable profile', asy
     expect(run.result).toMatchObject({
       schemaVersion: 1,
       scenario: 'sqlite-read-write',
-      applicationVersion: '1.17.1',
+      applicationVersion: '1.18.0',
       electronVersion: '42.6.1',
       isPackaged: false,
       sandbox: true,
