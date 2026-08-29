@@ -303,5 +303,3 @@ export function createStudyTasksRepository(db: Database.Database) {
         startStudyTaskFocus,
     };
 }
-
-export type StudyTasksRepository = ReturnType<typeof createStudyTasksRepository>;

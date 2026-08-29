@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDelayUntilNextLocalDate, getLocalDateKey, getUtcDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey'
+import { getDelayUntilNextLocalDate, getLocalDateKey, isDateKey, toLocalDateTimeString } from '../src/utils/dateKey'
 
 describe('dateKey utilities', () => {
   it('formats date keys from local calendar fields', () => {
@@ -19,11 +19,8 @@ describe('dateKey utilities', () => {
     expect(toLocalDateTimeString(date)).toBe('2026-05-18 08:05:06')
   })
 
-  it('exposes UTC key separately so callers do not accidentally use it for today totals', () => {
-    const date = new Date(2026, 4, 18, 0, 30, 0)
-
-    expect(getUtcDateKey(date)).toBe(date.toISOString().slice(0, 10))
-    expect(isDateKey(getLocalDateKey(date))).toBe(true)
+  it('validates local date keys', () => {
+    expect(isDateKey(getLocalDateKey(new Date(2026, 4, 18, 0, 30, 0)))).toBe(true)
     expect(isDateKey('2026-5-18')).toBe(false)
   })
 

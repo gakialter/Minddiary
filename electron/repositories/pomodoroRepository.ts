@@ -75,5 +75,3 @@ export function createPomodoroRepository(db: Database.Database) {
         },
     };
 }
-
-export type PomodoroRepository = ReturnType<typeof createPomodoroRepository>;

@@ -1692,15 +1692,3 @@ export function usePomodoroActions() {
   if (!ctx) throw new Error('usePomodoroActions must be used within PomodoroProvider')
   return ctx
 }
-
-/**
- * @deprecated Use `usePomodoroTimer`, `usePomodoroData`, and `usePomodoroActions` instead.
- * This combined hook re-renders on ANY context change and defeats the split optimization.
- */
-// Legacy combined hook (re-renders on any change)
-export function usePomodoroContext() {
-  const timer = usePomodoroTimer()
-  const data = usePomodoroData()
-  const actions = usePomodoroActions()
-  return useMemo(() => ({ ...timer, ...data, ...actions }), [timer, data, actions])
-}

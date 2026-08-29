@@ -174,11 +174,6 @@ function validateMood(value: unknown): MoodId | null {
     return requireEnum(value, MOOD_IDS, 'entry mood');
 }
 
-function validateOptionalMood(record: Record<string, unknown>): void {
-    if (!hasOwn(record, 'mood') || record.mood === undefined) return;
-    validateMood(record.mood);
-}
-
 function validateOptionalPositiveIntegerArray(record: Record<string, unknown>, key: string, label: string): void {
     if (!hasOwn(record, key) || record[key] === undefined) return;
     const value = record[key];

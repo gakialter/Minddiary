@@ -6,7 +6,7 @@ import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
 import TagBadge from './TagBadge'
-import { ImagePlus, Save, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
+import { ImagePlus, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
 import FormatToolbar from './common/FormatToolbar'
 import { useTextFormat } from '../hooks/useTextFormat'
@@ -16,18 +16,6 @@ import type { DiaryEntry, AIMessage, DiaryTemplate, Tag } from '../types'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
-
-const defaultTemplate = `## 今日学了什么
--
-
-## 薄弱点 / 疑问
--
-
-## 明日计划
--
-
-## 感悟 / 碎碎念
-`
 
 interface PomodoroRecord {
   duration: number

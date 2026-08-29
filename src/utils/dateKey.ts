@@ -8,10 +8,6 @@ export function getLocalDateKey(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
-export function getUtcDateKey(date: Date = new Date()): string {
-  return date.toISOString().slice(0, 10)
-}
-
 export function getNextLocalDateKey(dateKey: string): string {
   const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!match) throw new Error('dateKey must be a YYYY-MM-DD local date key')

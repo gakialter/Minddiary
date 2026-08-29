@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import type { SubjectChapter } from '../src/types'
 import {
   calculateChapterStats,
-  clampCompletedCount,
   filterChapters,
   normalizeChapterDrafts,
   normalizeChapterNotes,
@@ -67,7 +66,7 @@ describe('subject chapter utilities', () => {
     expect(() => normalizeChapterDrafts(new Array(SUBJECT_CHAPTER_LIMITS.batch + 1).fill({ title: 'x' }))).toThrow('Cannot add more than')
   })
 
-  it('calculates stats, next unfinished chapter, filters, and safe completed counts', () => {
+  it('calculates stats, next unfinished chapter, and filters', () => {
     const chapters = [
       makeChapter({ id: 2, title: 'Second', completed: false, sort_order: 2 }),
       makeChapter({ id: 1, title: 'First', completed: true, sort_order: 1 }),
@@ -84,7 +83,5 @@ describe('subject chapter utilities', () => {
     expect(filterChapters(chapters, 'all').map(chapter => chapter.title)).toEqual(['First', 'Second', 'Third'])
     expect(filterChapters(chapters, 'open').map(chapter => chapter.title)).toEqual(['Second', 'Third'])
     expect(filterChapters(chapters, 'done').map(chapter => chapter.title)).toEqual(['First'])
-    expect(clampCompletedCount(5, 3)).toBe(3)
-    expect(clampCompletedCount(-1, 3)).toBe(0)
   })
 })

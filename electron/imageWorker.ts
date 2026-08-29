@@ -42,10 +42,6 @@ function detectFormat(buffer: Buffer): string | null {
     return null;
 }
 
-function allowedExtension(ext: string): boolean {
-    return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'].includes(ext.toLowerCase());
-}
-
 // ── Task handlers ───────────────────────────────────────────────────────────
 
 interface Task {

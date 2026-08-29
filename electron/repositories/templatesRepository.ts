@@ -45,5 +45,3 @@ export function createTemplatesRepository(db: Database.Database) {
         },
     };
 }
-
-export type TemplatesRepository = ReturnType<typeof createTemplatesRepository>;

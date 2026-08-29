@@ -1,7 +1,7 @@
 /**
  * exportUtils.ts — Markdown, JSON, and PDF export for MindDiary
  */
-import type { DiaryEntry, MoodId, SubjectChapter } from '../types'
+import type { DiaryEntry, SubjectChapter } from '../types'
 import { normalizeChapterNotes, normalizeChapterTitle } from './subjectChapters'
 
 // App version — read from package.json so exports always reflect the current version

@@ -22,5 +22,3 @@ export function createSettingsRepository(db: Database.Database) {
         },
     };
 }
-
-export type SettingsRepository = ReturnType<typeof createSettingsRepository>;

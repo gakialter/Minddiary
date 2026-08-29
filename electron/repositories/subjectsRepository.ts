@@ -49,5 +49,3 @@ export function createSubjectsRepository(db: Database.Database) {
         },
     };
 }
-
-export type SubjectsRepository = ReturnType<typeof createSubjectsRepository>;

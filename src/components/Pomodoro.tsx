@@ -106,7 +106,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     todayStats, todayTotal,
     customMinutes,
     isSavingInterruptedFocus,
-    todayTasks, selectedTaskId, selectedTask, taskError,
+    todayTasks, selectedTask, taskError,
   } = usePomodoroData()
 
   const {

@@ -4,7 +4,7 @@ import { getLocalDateKey } from '../utils/dateKey';
 import { useDiary } from '../contexts/DiaryContext';
 import { logger } from '../utils/logger';
 import { normalizeCountdownEvents } from '../utils/countdown';
-import { BarChart2, Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
+import { Flame, Clock3, Target, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
 import type { PomodoroRangeEntry, Mistake } from '../types';
 import CountdownEventsPanel from './CountdownEventsPanel';
 import FocusDistributionChart from './FocusDistributionChart';
