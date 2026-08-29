@@ -131,7 +131,7 @@ MindDiary 定位为面向长周期考试备考的本地优先 AI 学习规划 Ag
 - 顶部「导出」支持 PDF、Markdown 和 JSON 文件；其中 JSON 面向日记、科目、错题数据快照，不等同于自动备份 ZIP。
 - 设置页「导出为 JSON / 从 JSON 导入」用于手动备份和合并导入，敏感字段会在导出前剔除。
 - 静默自动备份生成 MindDiary 专用 ZIP 灾备包，包含数据库快照和托管媒体目录；设置页可从该 ZIP 恢复并覆盖当前数据库、附件和错题图片。
-- 当前待发布应用版本为 MindDiary v1.17.1，SQLite schema version 为 6；Schema 6 新增 `study_task_action_receipts`，用于保存 confirmed AI study task 的 idempotency receipts。数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。最新已发布版本仍为 v1.16.0。
+- 当前待发布应用版本为 MindDiary v1.18.0，SQLite schema version 为 7；Schema 7 新增本地持久化 Planning History。数据库使用显式 schema version 和安全 migration，并继续兼容受支持的旧数据库升级路径。最新已发布版本为 v1.17.1。
 - 导出路径、自动备份 ZIP 选择和恢复路径由主进程授权校验。
 
 ## 技术栈
@@ -180,7 +180,7 @@ npm run build:mac    # macOS
 ### 自动备份与恢复范围
 
 - 静默自动备份是 zip 格式的灾难恢复包，包含 `manifest.json`、`database.json` 以及托管的媒体目录，如 `attachments/` 和 `mistake_images/`。
-- 当前 schema 6 自动备份包含详细章节、`study_tasks.related_chapter_id` 和 `study_task_action_receipts`；恢复旧 schema 4 备份时，缺失的章节任务归因安全恢复为 `null`，旧 schema 3 备份没有章节表时仍恢复为原有汇总模式。
+- 当前 schema 7 自动备份包含详细章节、`study_tasks.related_chapter_id`、`study_task_action_receipts` 和 Planning History；恢复 schema 6 备份时，缺失的规划历史安全恢复为空，其他受支持的旧备份继续使用现有兼容路径。
 - 可在桌面设置界面执行自动备份 ZIP 的恢复操作，该操作会覆盖当前的数据库、附件和错题图片。
 - 在恢复之前，如果需要内置恢复事务之外的额外回滚点，请手动备份当前的 app data 目录。
 - 恢复操作仅接受由 MindDiary 生成的、具有受支持的 `backupFormatVersion` 且非未来 `schemaVersion` 的自动备份 ZIP 文件。

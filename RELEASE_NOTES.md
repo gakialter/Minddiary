@@ -1,70 +1,61 @@
-# MindDiary v1.17.1
+# MindDiary v1.18.0
 
-MindDiary v1.17.1 是从 v1.16.0 累积而来的用户体验、安全性和桌面运行时升级版本。SQLite schema 为 **6**；Schema 6 新增 `study_task_action_receipts`，用于保存 confirmed AI study task 的 idempotency receipts。受支持的旧数据库会通过现有有序 migration 路径升级。
+MindDiary v1.18.0 重点升级了本地优先的 AI 学习规划：Today Action、Daily Review 和错题复习现在共享更清晰、可追溯且可恢复的任务确认流程，并加入本地 Planning History。SQLite schema 升级到 **7**；本次新增的 Schema 7 migration 在 Schema 6 上增加持久化规划历史，现有有序 migration 也会把正式发布的 v1.17.1 Schema 5 数据依次升级到 Schema 6 和 Schema 7。
 
-v1.17.1 是 v1.17 功能系列首个正式发布版本。此前创建的 v1.17.0 tag 因 macOS 正式发布验证中的测试路径判断错误而停止，未生成 GitHub Release，也未发布任何安装资产。v1.17.1 修复了该发布验证问题，产品功能范围与原 v1.17.0 候选保持一致。
+## AI 学习规划更可控
 
-## 今日计划更容易调整
+- Today Action 和 Daily Review 会展示本次规划所使用的受控上下文及其纳入或排除原因、候选保留或移除状态，以及确认后的结果，便于在创建任务前核对。
+- 两个入口都可选择「均衡规划」「深度专注」或「轻量推进」策略；策略只影响候选任务的规划偏好，不会改变 Daily Review 对事实的复盘判断。
+- Today Action 可在生成前预览并选择近期已确认任务的完成、跳过和专注结果作为历史参考，也可以明确选择不使用历史反馈。
+- 候选任务仍由用户选择、编辑和确认；AI 建议不会自动创建学习任务。
 
-- 今日任务现在支持直接修改标题和预计时长。
-- 章节任务可从默认 25 分钟调整为实际所需时长，允许范围为 1–240 分钟。
-- 保存后任务行和今日总预计时长会即时更新。
-- 编辑只改变标题和预计时长，不改变任务身份、来源、计划日期、科目或章节关联；保存失败时可保留输入后重试。
+## Planning History
 
-## 主目标不再固定为“考研初试”
+- 新增本地 Planning History，可回看 Today Action 与 Daily Review 的规划时间、受控上下文摘要、最终候选和已观察到的确认结果。
+- 历史记录仅保留最近 30 天且最多 100 次规划，并可由用户清空；清空历史不会删除学习任务、日记、错题、科目或专注记录。
+- Planning History 是审计与回看界面，不是工作流恢复点；重启应用后不会从历史记录继续生成、编辑、选择或确认。
+- 历史记录只保存受限摘要和最终候选，不保存 Provider prompt、原始响应、推理内容、完整日记或错题正文、附件、凭据、原始错误或堆栈。
 
-- 用户可以在设置中修改主目标名称和日期，用于考公、论文、考证、毕业设计等不同长期计划。
-- 旧 `examDate` 数据继续作为主目标日期镜像兼容，无需 migration。
-- 普通关键日期的新增、置顶、归档和删除行为保持不变。
-- 缺失、重复或旧格式的主目标数据会在现有设置归一化流程中处理，同时保留用户自定义标题。
+## Today Action 与章节上下文
 
-## 错题本稳定性改进
+- Today Action 现在可以使用经过数量和长度限制的只读章节进度，帮助建议贴近当前科目进展。
+- 章节上下文不会自动创建章节关联、修改章节、完成章节或改变章节顺序。
+- 在生成到确认之间如果章节状态发生变化，界面会重新校验；无法安全确认时会要求重新生成，避免用过期章节信息创建任务。
 
-- 修复浮动 Pomodoro 控件在受限窗口高度下遮挡错题输入区域的问题。
-- 改进连续创建、编辑、输入法组合输入和保存失败后的安全重试，避免重复或状态不同步。
-- 错题创建和更新在浏览器 fallback 与 Electron/SQLite 路径使用一致的运行时校验。
-- 手动 JSON 备份导入会先校验整个错题批次，再原子写入；跨 profile 科目引用会映射并校验。
-- 失败批次保持零写入；修正问题后重试不会遗留部分记录或额外重复记录。
+## Daily Review 与错题复习
 
-## Electron 与安全性升级
+- Daily Review 的次日候选与任务创建使用统一的确认契约，并记录每个候选的确定结果。
+- 错题本新增「AI 错题复习规划」，可从到期且尚无今日活跃任务的错题中生成最多 4 条复习建议；用户确认后才创建任务。
+- 错题建议在确认后会刷新，避免继续展示已经处理的旧候选。
 
-- Electron 升级到 **42.6.1**，`better-sqlite3` 升级到 **12.11.1**。
-- 主窗口显式启用 renderer sandbox，并保持 context isolation、Node integration 禁用等边界。
-- 导航、重定向、子窗口、权限、外部链接、剪贴板 IPC 和 PDF helper 使用更严格的主进程校验。
-- 启用 ASAR integrity、Electron fuse hardening 和最小 native module unpack allowlist。
-- 构建流程会验证 Electron ABI、打包后的 native SQLite 加载和关键 package security 配置。
+## 任务创建可靠性与恢复
 
-这些改进是具体的运行时与打包边界增强，不代表不存在漏洞，也不构成第三方安全审计结论。
+- Today Action、Daily Review 和错题复习的已确认任务创建使用稳定的 operation ID 与幂等 receipt，重复确认或不确定响应不会静默创建重复任务。
+- Today Action 与 Daily Review 对结果不确定的操作提供本地恢复区，MindDiary 不会自动重试：Daily Review 可复用原确认请求核对结果，Today Action 重启后只读检查已提交状态。错题复习在当前对话框中保留 operation ID，供用户点击重试以核对结果，但不提供跨重启恢复。
+- 规划候选与最终任务结果使用确定性归因；失败、冲突和过期状态会保留可见提示，而不是把不确定结果显示为成功。
 
-## 本地日期可靠性
+## 桌面与更新可靠性
 
-- Daily Review 在任务持久化前后都会重新校验本地日期。
-- 跨过本地午夜后，旧日期 dialog 和候选会失效，旧候选不能写入新日期或错误日期。
-- Electron/SQLite 与 browser fallback 都会保持零写入或回滚，不会留下跨日的部分任务。
-
-## 安装和打包可靠性
-
-- 增加 Windows Setup 安装、覆盖重装、卸载和应用数据保留 smoke。
-- 增加 Windows Portable wrapper 启动 smoke。
-- 增加 packaged local-date rollover、packaged security 和 ASAR integrity 验证。
-- 发布流水线会在 Windows 和 Apple silicon ARM64 runner 上验证打包结果、native dependency、package security、架构和代码完整性。
-- Windows 候选已覆盖 Setup、Portable、数据保留、packaged security 和 ASAR integrity smoke。
+- Windows 已增加真实安装版 NSIS 更新链路的 CI 覆盖，包括检查、下载、校验、安装、自动重启和用户数据保留，以及无更新、损坏 metadata 和校验失败路径。
+- 标题栏移除了旧的「考研日记」标签与重复日期，保留 MindDiary 品牌和窗口拖动区域。
+- Tag-triggered Release workflow 仍会分别构建并验证 Windows 与 Apple silicon macOS 资产，两个平台构建成功后才创建 GitHub Release。
 
 ## Compatibility
 
-- SQLite schema 为 **6**；`CURRENT_SCHEMA_VERSION` 为 `6`。
-- Schema 6 migration 新增 `study_task_action_receipts`，用于 confirmed AI study task idempotency receipts。
+- 本版本 `CURRENT_SCHEMA_VERSION` 为 **7**。Schema 7 migration `add-persistent-planning-history` 新增 `planning_runs` 和 `planning_run_candidates`，不会重建或清空已有业务数据。
+- 当前仓库中的 Schema 6 数据会通过现有 `6 → 7` migration 升级；正式发布的 v1.17.1 使用 Schema 5，会沿连续 registry 按 `5 → 6 → 7` 升级，先建立 Schema 6 的 `study_task_action_receipts`，再进入 Schema 7。
+- Migration 按版本分别在 transaction 中执行；失败时该次 migration 的 schema 与数据修改会回滚，已有任务和 action receipts 保持不变。
+- Schema 6 备份没有 Planning History 区段时会恢复为空历史；Schema 7 备份包含规划历史，并继续在恢复前校验、在单个 restore transaction 中导入。
 - 现有用户数据目录继续使用；Windows Setup 覆盖安装预期保留应用数据。
-- 旧 `examDate`、普通关键日期、错题和手动备份数据继续使用现有兼容路径。
 - macOS target 仍为 Apple silicon ARM64，最低系统版本为 macOS 12.0。
 
 ## Known limitations
 
-1. Windows 自动更新的完整下载、安装、重启端到端链路尚未完成最终验收。
-2. PR #144（Windows NSIS updater E2E）不包含在 v1.17.1；遇到自动更新问题时，建议从 GitHub Release 手动下载安装包。
-3. 如果未配置 Windows 代码签名，安装包可能显示 Unknown Publisher，并可能触发 Windows SmartScreen。
-4. macOS 资产仅面向 Apple silicon ARM64，使用 ad-hoc signing，未进行 Apple notarization。
-5. 本版本不支持 Intel macOS；当前 workflow 不生成 x64 或 universal 资产。
+1. Planning History 不能恢复未完成的生成、编辑、选择、确认或任务执行流程。
+2. Today Action 的章节进度仅是有界、只读辅助上下文，不建立任务与章节关系。
+3. Windows 安装版 updater 已有 CI 端到端覆盖，但这不等于已证明生产签名、SmartScreen reputation 或所有真实用户环境中的 GitHub-hosted 更新场景。
+4. 如果未配置 Windows 代码签名，安装包可能显示 Unknown Publisher，并可能触发 Windows SmartScreen。
+5. macOS 资产仅面向 Apple silicon ARM64，使用 ad-hoc signing，未进行 Apple notarization；不支持 Intel macOS 或 universal 资产。
 6. CI 的 macOS 构建和代码完整性验证不等于已在另一台 Mac 上通过所有 Gatekeeper 场景。
 
 ## Windows 安装包说明
@@ -83,8 +74,7 @@ v1.17.1 是 v1.17 功能系列首个正式发布版本。此前创建的 v1.17.0
 
 ## Verification
 
-- v1.17.1 发布验证必须通过 typecheck、单元测试、Electron E2E、Windows build verification 和 macOS ARM64 build verification。
-- Windows 候选已验证 Setup、Portable、数据保留、packaged security、native dependency 和 ASAR integrity。
-- macOS CI 验证 ARM64 package、native dependency、架构和 ad-hoc code integrity。
-- Tag-triggered Release workflow 在创建 Release 前对正式发布资产执行 manifest 校验。
-- 不声称 Windows 自动更新完整 E2E、Windows 签名、macOS notarization 或完整 Gatekeeper 验收已经完成。
+- 发布前验证覆盖 package/lock/内置 notes/发布说明版本一致性、TypeScript typecheck、完整 Vitest、Electron 主进程构建、Vite renderer 构建和 diff whitespace 检查。
+- 数据库验证覆盖连续 migration registry、Schema 6 到 7 的原位升级、已有任务与 action receipts 保留、migration 失败回滚，以及 Schema 6/7 备份恢复。
+- Windows installed updater E2E 位于 CI；正式 tag workflow 会在 Windows 和 macOS 构建均成功后才发布资产。
+- 不声称 Windows 生产签名、SmartScreen reputation、macOS notarization 或完整 Gatekeeper 验收已经完成。
