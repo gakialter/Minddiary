@@ -209,22 +209,6 @@ async function saveMistakeImage({ data, ext = '.png', mimetype }: { data: string
     return publicUrl;
 }
 
-async function deleteMistakeImage(urlPathname: string): Promise<void> {
-    const refs = urlPathname.startsWith('[')
-        ? (() => { try { return JSON.parse(urlPathname) as string[] } catch { return [urlPathname] } })()
-        : [urlPathname];
-
-    await Promise.all(refs.map(async ref => deleteSingleMistakeImage(ref)));
-}
-
-async function deleteSingleMistakeImage(urlPathname: string): Promise<void> {
-    try {
-        await deleteManagedMistakeImage(urlPathname);
-    } catch (e) {
-        logger.error('[fileManager] deleteMistakeImage: invalid path', urlPathname, e);
-    }
-}
-
 function getMistakeImagePath(filename: string): string {
     const baseDir = getMistakeImagesDir();
     const resolved = path.resolve(baseDir, filename);
@@ -237,6 +221,6 @@ function getMistakeImagePath(filename: string): string {
 
 module.exports = {
     initialize, saveAttachment, deleteAttachment, deleteAttachmentsForEntry, getAttachmentPath,
-    saveMistakeImage, deleteMistakeImage, deleteManagedMistakeImage,
+    saveMistakeImage, deleteManagedMistakeImage,
     getMistakeImageReferenceKey, getMistakeImagePath
 };

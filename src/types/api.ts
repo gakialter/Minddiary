@@ -5,7 +5,7 @@ import type {
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
   StudyTask, NewStudyTask, StudyTaskQuery,
-  AppSettings, AIMessage, AISettings, AIResponse,
+  AppSettings, AIMessage, AIResponse,
   TodayDashboardData, DiaryTemplate, ReviewData, MistakeReviewResult, CountdownEvent,
   FocusWhitelistItem, ActiveAppInfo,
 } from '.'
@@ -162,20 +162,6 @@ export interface IdempotentAIStudyTaskCreateRequest {
   payload: NewStudyTask
 }
 
-export interface IdempotentTodayOrDailyStudyTaskCreateRequest
-  extends IdempotentAIStudyTaskCreateRequest {
-  operationKind: 'today_action' | 'daily_review'
-  actionContractVersion: 'confirmed-study-task-action.v1'
-  contextProjectionVersion?: never
-  generationContextSignature?: never
-  generationMistakeRef?: never
-  originalGenerationContextSignature?: never
-  generationChapterSignature?: never
-  latestReviewedChapterSignature?: never
-  staleContextOverride?: never
-  staleReviewToken?: never
-}
-
 export interface IdempotentTodayActionStudyTaskCreateRequestV2
   extends IdempotentAIStudyTaskCreateRequest {
   operationKind: 'today_action'
@@ -245,24 +231,6 @@ export type TodayActionCommittedStatus =
   | { status: 'IDEMPOTENCY_CONFLICT'; operationId: string }
   | { status: 'RESULT_DELETED'; operationId: string }
   | { status: 'INTEGRITY_ERROR'; operationId: string }
-
-export interface LegacyIdempotentMistakeReviewStudyTaskCreateRequest
-  extends IdempotentAIStudyTaskCreateRequest {
-  operationKind: 'mistake_review'
-  actionContractVersion: 'confirmed-mistake-review-task-action.v1'
-  contextProjectionVersion?: never
-  generationContextSignature?: never
-  generationMistakeRef?: never
-}
-
-export interface IdempotentMistakeReviewStudyTaskCreateRequest
-  extends IdempotentAIStudyTaskCreateRequest {
-  operationKind: 'mistake_review'
-  actionContractVersion: 'confirmed-mistake-review-task-action.v2'
-  contextProjectionVersion: 'mistake-review.context-projection.v1'
-  generationContextSignature: string
-  generationMistakeRef: string
-}
 
 export type IdempotentAIStudyTaskCreateErrorCode =
   | 'INVALID_REQUEST'

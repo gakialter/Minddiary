@@ -1,6 +1,6 @@
 // Shared constants and helper functions for MindDiary
 import { getLocalDateKey } from './dateKey'
-import type { MoodId, MoodOption } from '../types'
+import type { MoodOption } from '../types'
 
 // ==================== Mood Constants ====================
 export const MOODS: MoodOption[] = [
@@ -11,12 +11,6 @@ export const MOODS: MoodOption[] = [
   { id: 'anxious', label: '焦虑' },
   { id: 'sad', label: '低落' },
 ]
-
-export function getMoodLabel(mood: MoodId | string | null | undefined): string {
-  if (!mood) return ''
-  const found = MOODS.find(m => m.id === mood)
-  return found ? found.label : ''
-}
 
 // ==================== Date Helpers ====================
 export function formatShortDate(dateStr: string): string {

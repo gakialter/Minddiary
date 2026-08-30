@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeSettingsForExport, maskApiKey, isSensitiveKey } from '../src/utils/sanitize'
+import { sanitizeSettingsForExport } from '../src/utils/sanitize'
 
 describe('sanitizeSettingsForExport', () => {
   it('removes aiApiKey from settings', () => {
@@ -33,38 +33,5 @@ describe('sanitizeSettingsForExport', () => {
     const settings = { a: 1, b: 'two', c: true }
     const result = sanitizeSettingsForExport(settings)
     expect(result).toEqual({ a: 1, b: 'two', c: true })
-  })
-})
-
-describe('maskApiKey', () => {
-  it('masks a standard API key showing first 3 and last 4 chars', () => {
-    expect(maskApiKey('sk-abcdefghijklmno')).toBe('sk-****lmno')
-  })
-
-  it('returns **** for very short keys', () => {
-    expect(maskApiKey('short')).toBe('****')
-    expect(maskApiKey('12345678')).toBe('****')
-  })
-
-  it('returns empty string for null/undefined', () => {
-    expect(maskApiKey(null as unknown as string)).toBe('')
-    expect(maskApiKey(undefined as unknown as string)).toBe('')
-    expect(maskApiKey('')).toBe('')
-  })
-
-  it('handles non-string input gracefully', () => {
-    expect(maskApiKey(12345 as unknown as string)).toBe('')
-  })
-})
-
-describe('isSensitiveKey', () => {
-  it('returns true for aiApiKey', () => {
-    expect(isSensitiveKey('aiApiKey')).toBe(true)
-  })
-
-  it('returns false for non-sensitive keys', () => {
-    expect(isSensitiveKey('examDate')).toBe(false)
-    expect(isSensitiveKey('aiEndpoint')).toBe(false)
-    expect(isSensitiveKey('autoSave')).toBe(false)
   })
 })

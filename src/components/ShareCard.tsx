@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import MarkdownRenderer from './common/MarkdownRenderer';
 import { Timer } from 'lucide-react';
 import type { DiaryEntry } from '../types';

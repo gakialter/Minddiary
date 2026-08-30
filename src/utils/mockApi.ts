@@ -8,9 +8,6 @@ import { assertTaskCreationDateIsCurrent } from './dateBoundTaskGuard'
 
 const mockEntries: Record<string, unknown> = {}
 
-const noop = async (): Promise<Record<string, never>> => ({})
-const noopArr = async (): Promise<never[]> => ([])
-
 const mockApi: ElectronAPI = {
     window: {
         platform: navigator.userAgent.includes('Mac') ? 'darwin' : 'browser',

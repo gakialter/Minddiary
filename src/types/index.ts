@@ -283,12 +283,6 @@ export interface AIMessage {
   content: string | AIContentPart[]
 }
 
-export interface AISettings {
-  endpoint?: string
-  apiKey?: string
-  model?: string
-}
-
 export interface AIResponse {
   content?: string
   error?: string

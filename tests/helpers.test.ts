@@ -4,11 +4,10 @@ import {
   calculateWordCount,
   coerceBoolean,
   formatShortDate,
-  getMoodLabel,
   getTodayStr,
 } from '../src/utils/helpers'
 
-describe('MOODS and getMoodLabel', () => {
+describe('MOODS', () => {
   it('exports six mood options with id and label fields', () => {
     expect(MOODS).toHaveLength(6)
     expect(MOODS.map(mood => mood.id)).toEqual([
@@ -28,17 +27,6 @@ describe('MOODS and getMoodLabel', () => {
       expect(mood.id).not.toBe('')
       expect(mood.label).not.toBe('')
     }
-  })
-
-  it('returns the Chinese label for a valid mood id', () => {
-    expect(getMoodLabel('happy')).toBe('开心')
-  })
-
-  it('returns an empty string for invalid or empty mood values', () => {
-    expect(getMoodLabel('unknown')).toBe('')
-    expect(getMoodLabel(null)).toBe('')
-    expect(getMoodLabel(undefined)).toBe('')
-    expect(getMoodLabel('')).toBe('')
   })
 })
 

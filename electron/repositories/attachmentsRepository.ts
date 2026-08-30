@@ -53,5 +53,3 @@ export function createAttachmentsRepository(db: Database.Database) {
         },
     };
 }
-
-export type AttachmentsRepository = ReturnType<typeof createAttachmentsRepository>;

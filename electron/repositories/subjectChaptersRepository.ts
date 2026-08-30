@@ -259,5 +259,3 @@ export function createSubjectChaptersRepository(db: Database.Database) {
         clearDetailedChapters: clearTransaction,
     };
 }
-
-export type SubjectChaptersRepository = ReturnType<typeof createSubjectChaptersRepository>;

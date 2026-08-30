@@ -132,8 +132,3 @@ export function filterChapters(chapters: SubjectChapter[], filter: ChapterFilter
   if (filter === 'done') return ordered.filter(chapter => chapter.completed)
   return ordered
 }
-
-export function clampCompletedCount(completedCount: number, chapterCount: number): number {
-  if (!Number.isInteger(completedCount) || completedCount < 0) return 0
-  return Math.min(completedCount, chapterCount)
-}

@@ -1,4 +1,3 @@
-import { getLocalDateKey, isDateKey } from './dateKey'
 import type { PomodoroStat } from '../types'
 
 export interface AggregatedPomodoroStat {
@@ -12,28 +11,6 @@ export interface PomodoroStatsSummary {
   totalMinutes: number
   totalSessions: number
   averageMinutes: number
-}
-
-function parseDateKey(value: string): Date | null {
-  if (!isDateKey(value)) return null
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  const date = new Date(year, month - 1, day)
-  return getLocalDateKey(date) === value ? date : null
-}
-
-export function getDateKeysBetween(startDate: string, endDate: string): string[] {
-  const start = parseDateKey(startDate)
-  const end = parseDateKey(endDate)
-  if (!start || !end || start.getTime() > end.getTime()) return []
-
-  const dates: string[] = []
-  const cursor = new Date(start)
-  while (cursor.getTime() <= end.getTime()) {
-    dates.push(getLocalDateKey(cursor))
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return dates
 }
 
 export function aggregatePomodoroStats(allDayStats: PomodoroStat[][]): AggregatedPomodoroStat[] {

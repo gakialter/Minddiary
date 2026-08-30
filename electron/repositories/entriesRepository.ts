@@ -99,5 +99,3 @@ export function createEntriesRepository(db: Database.Database) {
         },
     };
 }
-
-export type EntriesRepository = ReturnType<typeof createEntriesRepository>;

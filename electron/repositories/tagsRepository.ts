@@ -104,5 +104,3 @@ export function createTagsRepository(db: Database.Database) {
         },
     };
 }
-
-export type TagsRepository = ReturnType<typeof createTagsRepository>;

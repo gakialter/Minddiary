@@ -51,7 +51,6 @@
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.12);
 
   /* Z-index scale */
-  --z-base: 0;
   --z-dropdown: 1000;
   --z-floating: 2000;
   --z-focus-notice: 7000;
@@ -190,16 +189,8 @@ body {
   color: var(--text-secondary);
 }
 
-.text-accent {
-  color: var(--accent);
-}
-
 .text-success {
   color: var(--success);
-}
-
-.text-warning {
-  color: var(--warning);
 }
 
 .text-danger {
@@ -210,10 +201,6 @@ body {
   background: var(--bg-secondary);
 }
 
-.bg-tertiary {
-  background: var(--bg-tertiary);
-}
-
 .border {
   border: 1px solid var(--border);
 }
@@ -222,16 +209,8 @@ body {
   border: 1px solid var(--border-light);
 }
 
-.shadow-sm {
-  box-shadow: var(--shadow-sm);
-}
-
 .shadow {
   box-shadow: var(--shadow);
-}
-
-.shadow-lg {
-  box-shadow: var(--shadow-lg);
 }
 
 /* Common UI components */
@@ -289,13 +268,6 @@ body {
 .button-secondary:hover {
   background: rgba(142, 142, 147, 0.15);
   border-color: var(--border);
-}
-
-.glass-panel {
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-light);
 }
 
 .input {
@@ -400,23 +372,6 @@ body {
   height: 100%;
   color: var(--text-muted);
   text-align: center;
-}
-
-.empty-state > .hero-svg {
-  width: 80px;
-  height: 80px;
-  margin-bottom: var(--space-md);
-  opacity: 0.5;
-}
-
-/* Loading spinner */
-.spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {

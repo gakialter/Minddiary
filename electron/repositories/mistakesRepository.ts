@@ -237,5 +237,3 @@ export function createMistakesRepository(db: Database.Database) {
         getRandomDueMistake,
     };
 }
-
-export type MistakesRepository = ReturnType<typeof createMistakesRepository>;
