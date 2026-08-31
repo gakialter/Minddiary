@@ -150,11 +150,11 @@ export default function Dashboard() {
         return Math.ceil(mx / 30) * 30; // Round up to nearest half-hour
     }, [weeklyData]);
 
-    const formatHours = (mins: number): string => {
-        if (mins < 60) return `${mins}m`;
+    const formatDuration = (mins: number): string => {
+        if (mins < 60) return `${mins} 分钟`;
         const h = Math.floor(mins / 60);
         const m = mins % 60;
-        return m > 0 ? `${h}h${m}m` : `${h}h`;
+        return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
     };
 
     const countdownEvents = useMemo(
@@ -162,180 +162,189 @@ export default function Dashboard() {
         [settingsData?.countdownEvents, settingsData?.examDate]
     );
 
+    const hasWeeklyData = weeklyData.some(day => day.value > 0);
+    const hasHeatmapData = heatmapData.some(day => day.hasEntry);
+    const masteryRate = stats.totalMistakes > 0
+        ? Math.round((stats.masteredMistakes / stats.totalMistakes) * 100)
+        : 0;
+    const firstWeeklyDate = weeklyData[0]?.date;
+    const lastWeeklyDate = weeklyData[weeklyData.length - 1]?.date;
+    const weeklyPeriod = firstWeeklyDate && lastWeeklyDate
+        ? `${firstWeeklyDate} — ${lastWeeklyDate}`
+        : '最近 7 日';
+
     if (loading) {
-        return <div className="p-8 text-center text-muted">正在聚合并分析学习图谱...</div>;
+        return (
+            <div className="statistics-dashboard statistics-dashboard--state" role="status" aria-live="polite">
+                <div className="statistics-dashboard__state-copy">
+                    <span className="statistics-dashboard__eyebrow">学习数据</span>
+                    <h2>正在整理统计信息</h2>
+                    <p>正在聚合并分析学习图谱...</p>
+                </div>
+                <div className="statistics-dashboard__loading-bars" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                </div>
+            </div>
+        );
     }
 
     if (error) {
         return (
-            <div className="empty-state p-8" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingUp size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2 }} />
-                <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>数据聚合失败</h3>
-                <p className="text-muted mb-6">{error}</p>
-                <button className="button button-primary" onClick={loadDashboardData}>
-                    <RefreshCw size={15} /> 重新聚合
+            <div className="statistics-dashboard statistics-dashboard--state" role="alert">
+                <div className="statistics-dashboard__state-icon" aria-hidden="true">
+                    <TrendingUp size={24} />
+                </div>
+                <div className="statistics-dashboard__state-copy">
+                    <span className="statistics-dashboard__eyebrow">数据状态</span>
+                    <h2>统计信息暂时无法加载</h2>
+                    <p>{error}</p>
+                </div>
+                <button type="button" className="button button-primary" onClick={loadDashboardData}>
+                    <RefreshCw size={15} aria-hidden="true" /> 重新加载
                 </button>
             </div>
         );
     }
 
     return (
-        <div style={{ maxWidth: 1000, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-            <div style={{ marginBottom: 'var(--space-md)' }}>
-                <p className="text-muted text-sm">洞察你的努力轨迹，看到每一滴汗水。</p>
-            </div>
-
-            {/* Top Cards Grid */}
-            <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: 'var(--space-md)', marginBottom: 'var(--space-2xl)'
-            }}>
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--accent)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <Flame size={14} style={{ color: 'var(--warning)' }} /> 连续专注
-                    </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" style={{ color: 'var(--accent)' }}>
-                        {stats.streakDays} <span className="text-sm font-normal text-muted">天</span>
-                    </div>
+        <div className="statistics-dashboard">
+            <header className="statistics-dashboard__intro" aria-labelledby="dashboard-insight">
+                <div>
+                    <span className="statistics-dashboard__eyebrow">学习概览 · 数据截至今天</span>
+                    <p id="dashboard-insight" className="statistics-dashboard__insight">
+                        连续专注 <strong>{stats.streakDays}</strong> 天，今日待复习 <strong>{stats.dueMistakes}</strong> 题。
+                    </p>
                 </div>
+                <p className="statistics-dashboard__context">趋势范围为最近 7 日，日记轨迹范围为最近 90 日。</p>
+            </header>
 
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--color-state-success)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <Clock3 size={14} style={{ color: 'var(--color-state-success)' }} /> 历史总专注时间
-                    </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs">
-                        {Math.floor(stats.totalPomodoroMinutes / 60)} <span className="text-sm font-normal text-muted">h</span>
-                        {stats.totalPomodoroMinutes % 60} <span className="text-sm font-normal text-muted">m</span>
-                    </div>
+            <dl className="statistics-dashboard__metrics" aria-label="学习数据摘要">
+                <div className="statistics-dashboard__metric">
+                    <dt><Flame size={15} aria-hidden="true" />连续专注</dt>
+                    <dd><strong>{stats.streakDays}</strong><span>天</span></dd>
+                    <dd className="statistics-dashboard__metric-note">当前连续学习记录</dd>
                 </div>
-
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--warning)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <Target size={14} style={{ color: 'var(--warning)' }} /> 错题消灭率
-                    </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs">
-                        {stats.totalMistakes > 0 ? Math.round((stats.masteredMistakes / stats.totalMistakes) * 100) : 0}
-                        <span className="text-lg">%</span>
-                    </div>
-                    <div className="text-sm text-muted mt-1">
-                        已掌握 {stats.masteredMistakes} / 共 {stats.totalMistakes}
-                    </div>
+                <div className="statistics-dashboard__metric">
+                    <dt><Clock3 size={15} aria-hidden="true" />历史总专注</dt>
+                    <dd>
+                        <strong>{Math.floor(stats.totalPomodoroMinutes / 60)}</strong><span>小时</span>
+                        <strong>{stats.totalPomodoroMinutes % 60}</strong><span>分钟</span>
+                    </dd>
+                    <dd className="statistics-dashboard__metric-note">累计完成的番茄专注</dd>
                 </div>
-
-                <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--color-state-danger)' }}>
-                    <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-                        <RefreshCw size={14} style={{ color: 'var(--color-state-danger)' }} /> 今日待复习错题
-                    </div>
-                    <div className="text-3xl font-extrabold flex items-baseline gap-xs" data-testid="dashboard-due-mistakes" style={{ color: stats.dueMistakes > 0 ? 'var(--color-state-danger)' : 'var(--color-state-success)' }}>
-                        {stats.dueMistakes} <span className="text-sm font-normal text-muted">题</span>
-                    </div>
-                    <div className="text-sm text-muted mt-1">
-                        {stats.dueMistakes > 0 ? '赶紧去错题本消灭它们吧！' : '太棒了，今天没有欠债！'}
-                    </div>
+                <div className="statistics-dashboard__metric">
+                    <dt><Target size={15} aria-hidden="true" />错题掌握</dt>
+                    <dd><strong>{masteryRate}</strong><span>%</span></dd>
+                    <dd className="statistics-dashboard__metric-note">已掌握 {stats.masteredMistakes} / 共 {stats.totalMistakes} 题</dd>
                 </div>
+                <div className="statistics-dashboard__metric">
+                    <dt><RefreshCw size={15} aria-hidden="true" />今日待复习</dt>
+                    <dd data-testid="dashboard-due-mistakes"><strong>{stats.dueMistakes}</strong><span>题</span></dd>
+                    <dd className="statistics-dashboard__metric-note">来自今日风险池</dd>
+                </div>
+            </dl>
 
-                <CountdownEventsPanel events={countdownEvents} />
-            </div>
+            <div className="statistics-dashboard__main-grid">
+                <section className="statistics-dashboard__section statistics-dashboard__trend" aria-labelledby="weekly-trend-title">
+                    <div className="statistics-dashboard__section-header">
+                        <div>
+                            <span className="statistics-dashboard__section-kicker">专注节奏</span>
+                            <h2 id="weekly-trend-title"><TrendingUp size={18} aria-hidden="true" />近 7 日专注趋势</h2>
+                        </div>
+                        <div className="statistics-dashboard__period">
+                            <span>{weeklyPeriod}</span>
+                            <span>单位：分钟</span>
+                        </div>
+                    </div>
 
-            {/* Main Layout: 2 Columns */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-xl)', alignItems: 'start' }}>
+                    <figure className="statistics-dashboard__trend-figure" aria-describedby="weekly-trend-description weekly-trend-data">
+                        <figcaption id="weekly-trend-description" className="statistics-dashboard__chart-caption">
+                            每日柱高表示已记录的专注分钟数，今天以实心描边标识。
+                        </figcaption>
 
-                {/* Left Col: Trend Chart */}
-                <div className="card" style={{ padding: 'var(--space-xl)' }}>
-                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-xl)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <TrendingUp size={18} style={{ color: 'var(--accent)' }} /> 近 7 日专注趋势
-                    </h3>
+                        <div className="statistics-dashboard__trend-plot" aria-hidden="true">
+                            <div className="statistics-dashboard__trend-grid">
+                                {[4, 3, 2, 1, 0].map(i => (
+                                    <div key={i}>
+                                        <span>{Math.round((maxWeeklyValue / 4) * i)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="statistics-dashboard__trend-bars">
+                                {weeklyData.map(d => {
+                                    const isToday = d.date === getTodayStr();
+                                    const heightPct = maxWeeklyValue > 0 ? (d.value / maxWeeklyValue) * 100 : 0;
+                                    return (
+                                        <div
+                                            key={d.date}
+                                            className="statistics-dashboard__bar-column"
+                                            data-today={isToday || undefined}
+                                            data-empty={d.value === 0 || undefined}
+                                        >
+                                            <span className="statistics-dashboard__bar-value">{d.value}</span>
+                                            <div className="statistics-dashboard__bar-track">
+                                                <span
+                                                    className="statistics-dashboard__bar-fill"
+                                                    style={{ height: `${heightPct}%`, minHeight: d.value > 0 ? 2 : 0 }}
+                                                />
+                                            </div>
+                                            <span className="statistics-dashboard__bar-label">{isToday ? '今日' : d.label}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
 
-                    <div style={{ height: 260, position: 'relative', marginTop: 'var(--space-xl)' }}>
-                        {/* Y-Axis Guidelines */}
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            {[4, 3, 2, 1, 0].map(i => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', width: '100%', borderBottom: i !== 0 ? '1px dashed var(--border-light)' : '1px solid var(--border)' }}>
-                                    <span className="text-xs text-muted" style={{ transform: 'translateY(12px)', width: 40 }}>
-                                        {formatHours((maxWeeklyValue / 4) * i)}
-                                    </span>
-                                </div>
+                        {!hasWeeklyData && (
+                            <p className="statistics-dashboard__empty-note">当前 7 日范围暂无可显示的专注时长。</p>
+                        )}
+                        <ul id="weekly-trend-data" className="statistics-dashboard__sr-only">
+                            {weeklyData.map(day => (
+                                <li key={day.date}>{day.date}，{day.label}，{formatDuration(day.value)}</li>
+                            ))}
+                        </ul>
+                    </figure>
+                </section>
+
+                <aside className="statistics-dashboard__support-stack" aria-label="学习轨迹与关键日期">
+                    <section className="statistics-dashboard__section statistics-dashboard__heatmap" aria-labelledby="learning-trail-title">
+                        <div className="statistics-dashboard__section-header">
+                            <div>
+                                <span className="statistics-dashboard__section-kicker">日记证据</span>
+                                <h2 id="learning-trail-title"><CalendarDays size={18} aria-hidden="true" />近 90 日日记记录</h2>
+                            </div>
+                        </div>
+                        <p className="statistics-dashboard__chart-caption">
+                            每个方格仅表示当天有无日记记录，不代表时长或强度。
+                        </p>
+
+                        {!hasHeatmapData && (
+                            <p className="statistics-dashboard__empty-note">当前范围暂无可显示的日记记录。</p>
+                        )}
+
+                        <div className="statistics-dashboard__heatmap-grid" aria-hidden="true">
+                            {heatmapData.map(d => (
+                                <span key={d.date} data-recorded={d.hasEntry || undefined} title={`${d.date} · ${d.hasEntry ? '有记录' : '无记录'}`} />
                             ))}
                         </div>
-
-                        {/* X-Axis Labels & Bars */}
-                        <div style={{ position: 'absolute', left: 45, right: 0, bottom: 0, top: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', paddingBottom: 1 }}>
-                            {weeklyData.map((d, i) => {
-                                const isToday = d.date === getTodayStr();
-                                const heightPct = maxWeeklyValue > 0 ? (d.value / maxWeeklyValue) * 100 : 0;
-
-                                return (
-                                    <div key={i} className="group" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '10%', height: '100%', position: 'relative', justifyContent: 'flex-end' }}>
-                                        {/* Tooltip on Hover */}
-                                        <div className="chart-tooltip" style={{ opacity: 0, position: 'absolute', top: `calc(100% - ${heightPct}% - 35px)`, background: 'var(--text-primary)', color: 'var(--bg-primary)', padding: '4px 8px', borderRadius: 4, fontSize: 11, fontWeight: 'bold', pointerEvents: 'none', transition: 'all 0.2s', whiteSpace: 'nowrap', zIndex: 10 }}>
-                                            {formatHours(d.value)}
-                                        </div>
-
-                                        {/* Pure CSS Bar */}
-                                        <div style={{
-                                            width: '100%', maxWidth: 36, height: `${Math.max(heightPct, 1)}%`,
-                                            background: isToday ? 'var(--accent)' : 'var(--bg-tertiary)',
-                                            borderRadius: '6px 6px 0 0',
-                                            transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                                            cursor: 'pointer',
-                                            boxShadow: isToday ? '0 -2px 10px rgba(15, 118, 110, 0.3)' : 'none'
-                                        }}
-                                            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; (e.currentTarget.previousSibling as HTMLElement).style.opacity = '1'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; (e.currentTarget.previousSibling as HTMLElement).style.opacity = '0'; }}
-                                        />
-
-                                        <div className="text-xs text-muted" style={{ position: 'absolute', bottom: -24, fontWeight: isToday ? 'bold' : 'normal', color: isToday ? 'var(--accent)' : 'inherit' }}>
-                                            {isToday ? '今日' : d.label}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                        <div className="statistics-dashboard__heatmap-legend" aria-hidden="true">
+                            <span className="statistics-dashboard__legend-cell" />无记录
+                            <span className="statistics-dashboard__legend-cell" data-recorded="true" />有记录
                         </div>
-                    </div>
-                </div>
+                        <ul className="statistics-dashboard__sr-only">
+                            {heatmapData.map(day => (
+                                <li key={day.date}>{day.date}，{day.hasEntry ? '有日记记录' : '无日记记录'}</li>
+                            ))}
+                        </ul>
+                    </section>
 
-                {/* Right Col: 90-Day Contribution Heatmap */}
-                <div className="card" style={{ padding: 'var(--space-lg)' }}>
-                    <h3 className="font-semibold text-lg" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CalendarDays size={18} style={{ color: 'var(--accent)' }} /> 学习轨迹（近 90 天）
-                    </h3>
-                    <p className="text-xs text-muted mb-4">有写日记的日子会点亮板块。</p>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, transform: 'rotate(90deg) scaleY(-1)', transformOrigin: 'center', margin: '20px auto 0', width: 140 }}>
-                        {heatmapData.map((d, i) => (
-                            <div
-                                key={i}
-                                title={`${d.date} ${d.hasEntry ? '· 有记录' : '· 无记录'}`}
-                                style={{
-                                    width: 14, height: 14, borderRadius: 3,
-                                    background: d.hasEntry ? 'var(--accent)' : 'var(--bg-tertiary)',
-                                    opacity: d.hasEntry ? 0.7 + ((d.date.charCodeAt(d.date.length - 1) % 4) * 0.1) : 1, // Deterministic variance
-                                    transform: 'rotate(-90deg) scaleX(-1)', // Counter-rotate element
-                                }}
-                            />
-                        ))}
-                    </div>
-
-                    <div className="flex items-center justify-center gap-sm mt-6 mb-2">
-                        <span className="text-xs text-muted">少</span>
-                        <div style={{ width: 12, height: 12, background: 'var(--bg-tertiary)', borderRadius: 2 }} />
-                        <div style={{ width: 12, height: 12, background: 'var(--accent)', opacity: 0.4, borderRadius: 2 }} />
-                        <div style={{ width: 12, height: 12, background: 'var(--accent)', opacity: 0.7, borderRadius: 2 }} />
-                        <div style={{ width: 12, height: 12, background: 'var(--accent)', opacity: 1, borderRadius: 2 }} />
-                        <span className="text-xs text-muted">多</span>
-                    </div>
-                </div>
+                    <CountdownEventsPanel events={countdownEvents} />
+                </aside>
             </div>
 
-            {/* Focus Distribution Chart */}
             <FocusDistributionChart pomodoro={pomodoro} dataRefreshVersion={dataRefreshVersion} />
-
-            <style>{`
-                .chart-tooltip::after {
-                    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-                    border-width: 4px; border-style: solid; border-color: var(--text-primary) transparent transparent transparent;
-                }
-            `}</style>
-        </div >
+        </div>
     );
 }

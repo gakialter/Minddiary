@@ -30,7 +30,7 @@ interface ChartSegment extends AggregatedPomodoroStat {
 
 const RADIUS = 80
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-const FALLBACK_COLOR = 'var(--border)'
+const FALLBACK_COLOR = 'var(--color-border-strong)'
 
 const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: 'today', label: '今日' },
@@ -144,7 +144,7 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
   const renderDateControls = () => {
     if (rangeKey === 'single') {
       return (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
+        <label className="focus-distribution__date-control">
           日期
           <input
             className="input"
@@ -152,7 +152,6 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
             type="date"
             value={singleDate}
             onChange={event => setSingleDate(event.target.value)}
-            style={{ padding: '5px 10px', fontSize: 13 }}
           />
         </label>
       )
@@ -161,8 +160,8 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
     if (rangeKey !== 'custom') return null
 
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: 13 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="focus-distribution__date-range">
+        <label className="focus-distribution__date-control">
           开始
           <input
             className="input"
@@ -170,10 +169,9 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
             type="date"
             value={rangeStart}
             onChange={event => setRangeStart(event.target.value)}
-            style={{ padding: '5px 10px', fontSize: 13 }}
           />
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label className="focus-distribution__date-control">
           结束
           <input
             className="input"
@@ -181,7 +179,6 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
             type="date"
             value={rangeEnd}
             onChange={event => setRangeEnd(event.target.value)}
-            style={{ padding: '5px 10px', fontSize: 13 }}
           />
         </label>
       </div>
@@ -189,38 +186,27 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
   }
 
   return (
-    <div className="card" style={{ padding: 'var(--space-xl)', marginTop: 'var(--space-xl)' }}>
-      <div style={{
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-        marginBottom: 'var(--space-lg)', flexWrap: 'wrap', gap: 'var(--space-md)',
-      }}>
+    <section className="statistics-dashboard__section focus-distribution" aria-labelledby="focus-distribution-title">
+      <div className="focus-distribution__header">
         <div>
-          <h3 className="font-semibold text-lg" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <PieChart size={18} style={{ color: 'var(--accent)' }} /> 专注分布
-          </h3>
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          <span className="statistics-dashboard__section-kicker">科目证据</span>
+          <h2 id="focus-distribution-title">
+            <PieChart size={18} aria-hidden="true" />专注分布
+          </h2>
+          <p>
             按科目汇总选定日期内的专注投入
           </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-          <div style={{
-            display: 'flex', gap: 4, flexWrap: 'wrap',
-            background: 'var(--bg-tertiary)', padding: 3, borderRadius: 20,
-          }}>
+        <div className="focus-distribution__controls">
+          <div className="focus-distribution__range-options" role="group" aria-label="专注分布时间范围">
             {RANGE_OPTIONS.map(opt => (
               <button
+                type="button"
                 key={opt.key}
                 data-testid={`focus-range-${opt.key}`}
+                aria-pressed={rangeKey === opt.key}
                 onClick={() => setRangeKey(opt.key)}
-                style={{
-                  padding: '4px 14px', borderRadius: 16, fontSize: 13, fontWeight: 500,
-                  border: 'none', cursor: 'pointer',
-                  background: rangeKey === opt.key ? 'var(--bg-primary)' : 'transparent',
-                  color: rangeKey === opt.key ? 'var(--accent)' : 'var(--text-muted)',
-                  boxShadow: rangeKey === opt.key ? 'var(--shadow-sm)' : 'none',
-                  transition: 'all 0.3s',
-                }}
               >
                 {opt.label}
               </button>
@@ -233,83 +219,61 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
       {validationError && (
         <div
           data-testid="focus-range-error"
-          className="text-sm"
-          style={{
-            color: 'var(--color-state-danger)',
-            background: 'color-mix(in srgb, var(--color-state-danger) 10%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--color-state-danger) 25%, transparent)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '8px 12px',
-            marginBottom: 'var(--space-lg)',
-          }}
+          className="focus-distribution__validation"
+          role="alert"
         >
           {validationError}
         </div>
       )}
 
       {!validationError && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 'var(--space-sm)',
-          marginBottom: 'var(--space-xl)',
-        }}>
-          <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)' }}>
-            <div className="text-xs text-muted">总专注</div>
-            <div className="font-semibold" style={{ color: 'var(--text-primary)', marginTop: 4 }}>
-              总 {formatPomodoroMinutes(summary.totalMinutes)}
-            </div>
+        <dl className="focus-distribution__summary" aria-label="所选范围专注摘要">
+          <div>
+            <dt>总专注</dt>
+            <dd>总 {formatPomodoroMinutes(summary.totalMinutes)}</dd>
           </div>
-          <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)' }}>
-            <div className="text-xs text-muted">次数</div>
-            <div className="font-semibold" style={{ color: 'var(--text-primary)', marginTop: 4 }}>
-              共 {summary.totalSessions} 次
-            </div>
+          <div>
+            <dt>次数</dt>
+            <dd>共 {summary.totalSessions} 次</dd>
           </div>
-          <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)' }}>
-            <div className="text-xs text-muted">平均每次</div>
-            <div className="font-semibold" style={{ color: 'var(--text-primary)', marginTop: 4 }}>
-              约 {formatPomodoroMinutes(summary.averageMinutes)}
-            </div>
+          <div>
+            <dt>平均每次</dt>
+            <dd>约 {formatPomodoroMinutes(summary.averageMinutes)}</dd>
           </div>
-        </div>
+        </dl>
       )}
 
       {loading ? (
-        <div data-testid="focus-distribution-loading" style={{
-          textAlign: 'center', padding: 'var(--space-xl)',
-          color: 'var(--text-muted)',
-        }}>
-          加载中...
+        <div data-testid="focus-distribution-loading" className="focus-distribution__state" role="status">
+          正在加载专注分布...
         </div>
       ) : data.length === 0 || summary.totalMinutes === 0 ? (
-        <div data-testid="focus-distribution-empty" style={{
-          textAlign: 'center', padding: 'var(--space-2xl) var(--space-xl)',
-        }}>
-          <PieChart size={48} style={{ color: 'var(--text-muted)', opacity: 0.2, marginBottom: 'var(--space-md)' }} />
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 4, fontSize: 15 }}>
+        <div data-testid="focus-distribution-empty" className="focus-distribution__state">
+          <span className="focus-distribution__state-icon" aria-hidden="true"><PieChart size={22} /></span>
+          <p>
             选定时间范围内暂无专注记录
           </p>
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          <p>
             完成一次番茄或正计时后，这里会显示你的专注分布
           </p>
         </div>
       ) : (
         <div
           data-testid="focus-distribution-chart"
-          className="focus-distribution-layout"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '200px 1fr',
-            gap: 'var(--space-xl)',
-            alignItems: 'center',
-          }}
+          className="focus-distribution__chart-layout"
         >
-          <div style={{ justifySelf: 'center' }}>
-            <svg viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="专注分布环形图">
+          <div className="focus-distribution__donut">
+            <svg
+              viewBox="0 0 200 200"
+              width="200"
+              height="200"
+              role="img"
+              aria-label={`专注分布环形图，总专注 ${formatPomodoroMinutes(summary.totalMinutes)}，共 ${summary.totalSessions} 次`}
+              aria-describedby="focus-distribution-legend"
+            >
               <circle
                 cx="100" cy="100" r={RADIUS}
-                fill="none" stroke="var(--border-light)" strokeWidth="28" opacity="0.3"
+                fill="none" stroke="var(--color-surface-subtle)" strokeWidth="24"
               />
 
               {segments.map((seg, i) => (
@@ -318,68 +282,47 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
                   cx="100" cy="100" r={RADIUS}
                   fill="none"
                   stroke={seg.displayColor}
-                  strokeWidth="28"
+                  strokeWidth="24"
                   strokeLinecap={segments.length === 1 ? 'round' : undefined}
                   strokeDasharray={`${seg.arcLength} ${CIRCUMFERENCE - seg.arcLength}`}
                   transform={`rotate(${seg.rotation} 100 100)`}
-                  style={{ transition: 'stroke-dasharray 0.6s ease, transform 0.6s ease' }}
                 />
               ))}
 
-              <text x="100" y="92" textAnchor="middle" fill="var(--text-primary)" fontSize="22" fontWeight="700">
+              <text x="100" y="92" textAnchor="middle" fill="var(--color-text-primary)" fontSize="20" fontWeight="600">
                 {formatPomodoroMinutes(summary.totalMinutes)}
               </text>
-              <text x="100" y="112" textAnchor="middle" fill="var(--text-muted)" fontSize="11">
+              <text x="100" y="114" textAnchor="middle" fill="var(--color-text-muted)" fontSize="12">
                 共 {summary.totalSessions} 番茄
               </text>
             </svg>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+          <div className="focus-distribution__legend-wrap">
+            <div className="focus-distribution__legend-head" aria-hidden="true">
+              <span>科目</span><span>时长</span><span>占比</span><span>次数</span>
+            </div>
+            <ul id="focus-distribution-legend" className="focus-distribution__legend">
             {segments.map((seg, i) => (
-              <div
+              <li
                 key={i}
                 data-testid="focus-legend-item"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 12px', borderRadius: 'var(--radius-sm)',
-                  background: 'var(--bg-tertiary)', fontSize: 14,
-                  gap: 'var(--space-sm)',
-                }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <span style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: seg.displayColor, flexShrink: 0,
-                  }} />
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span className="focus-distribution__subject">
+                  <span className="focus-distribution__swatch" style={{ background: seg.displayColor }} aria-hidden="true" />
+                  <span>
                     {seg.subject_name}
                   </span>
                 </span>
-                <span style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  color: 'var(--text-muted)', fontSize: 13, flexShrink: 0,
-                }}>
-                  <span>{formatPomodoroMinutes(seg.total_minutes)}</span>
-                  <span style={{ minWidth: 36, textAlign: 'right' }}>{Math.round(seg.percent)}%</span>
-                  <span style={{ minWidth: 40, textAlign: 'right' }}>{seg.session_count} 🍅</span>
-                </span>
-              </div>
+                <span>{formatPomodoroMinutes(seg.total_minutes)}</span>
+                <span>{Math.round(seg.percent)}%</span>
+                <span>{seg.session_count} 次</span>
+              </li>
             ))}
+            </ul>
           </div>
         </div>
       )}
-
-      <style>{`
-        @media (max-width: 640px) {
-          .focus-distribution-layout {
-            grid-template-columns: 1fr !important;
-          }
-          .focus-distribution-layout > div:first-child {
-            justify-self: center;
-          }
-        }
-      `}</style>
-    </div>
+    </section>
   )
 }
