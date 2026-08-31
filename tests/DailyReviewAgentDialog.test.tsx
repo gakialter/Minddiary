@@ -324,6 +324,92 @@ describe('DailyReviewAgentDialog', () => {
     }
   })
 
+  it('contains modal focus, locks page scroll, and restores focus after an allowed Escape close', async () => {
+    const originalBodyOverflow = document.body.style.overflow
+
+    function DialogHarness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>打开每日复盘</button>
+          <button type="button">背景操作</button>
+          {open && (
+            <DailyReviewAgentDialog
+              {...dialogProps()}
+              onClose={() => {
+                mocks.onClose()
+                setOpen(false)
+              }}
+            />
+          )}
+        </>
+      )
+    }
+
+    render(<DialogHarness />)
+    const opener = screen.getByRole('button', { name: '打开每日复盘' })
+    const backgroundAction = screen.getByRole('button', { name: '背景操作' })
+    opener.focus()
+    fireEvent.click(opener)
+    await waitForInitialContext()
+
+    const dialog = screen.getByRole('dialog', { name: '每日复盘' })
+    const closeButton = screen.getByRole('button', { name: '关闭每日复盘' })
+    const footerCloseButton = screen.getByRole('button', { name: '关闭' })
+
+    await waitFor(() => expect(closeButton).toHaveFocus())
+    expect(dialog).toContainElement(document.activeElement as HTMLElement)
+    expect(document.body.style.overflow).toBe('hidden')
+
+    fireEvent.keyDown(closeButton, { key: 'Tab', shiftKey: true })
+    expect(footerCloseButton).toHaveFocus()
+    expect(backgroundAction).not.toHaveFocus()
+
+    fireEvent.keyDown(footerCloseButton, { key: 'Tab' })
+    expect(closeButton).toHaveFocus()
+    expect(backgroundAction).not.toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '每日复盘' })).not.toBeInTheDocument())
+    expect(mocks.onClose).toHaveBeenCalledTimes(1)
+    expect(opener).toHaveFocus()
+    expect(document.body.style.overflow).toBe(originalBodyOverflow)
+  })
+
+  it('keeps disclosure controls inside the modal focus loop while generation disables boundary buttons', async () => {
+    const deferred = createDeferred<AIResponse>()
+    mocks.aiChat.mockReturnValueOnce(deferred.promise)
+
+    render(
+      <>
+        <button type="button">背景操作</button>
+        <DailyReviewAgentDialog {...dialogProps()} />
+      </>,
+    )
+    await waitForInitialContext()
+    fireEvent.click(screen.getByTestId('daily-review-generate'))
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(1))
+
+    const backgroundAction = screen.getByRole('button', { name: '背景操作' })
+    const firstSummary = screen.getByText('本次请求依据')
+    const finalSummary = screen.getByText('确认结果')
+
+    finalSummary.focus()
+    fireEvent.keyDown(finalSummary, { key: 'Tab' })
+    expect(firstSummary).toHaveFocus()
+    expect(backgroundAction).not.toHaveFocus()
+
+    fireEvent.keyDown(firstSummary, { key: 'Tab', shiftKey: true })
+    expect(finalSummary).toHaveFocus()
+    expect(backgroundAction).not.toHaveFocus()
+
+    await act(async () => {
+      deferred.resolve({ content: validAiResponse })
+      await deferred.promise
+    })
+    expect(await screen.findByDisplayValue('复习函数极限错题')).toBeInTheDocument()
+  })
+
   it('shows an empty-day message with no AI or task mutation', async () => {
     mocks.mistakesGetAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
     mocks.mistakesGetDueCount.mockResolvedValue(0)
@@ -343,13 +429,16 @@ describe('DailyReviewAgentDialog', () => {
     renderDialog()
 
     expect(screen.getByTestId('daily-review-generation-request-snapshot')).toHaveTextContent('尚未生成请求')
-    await generateCandidates()
+    const candidateTitle = await generateCandidates()
 
     expect(mocks.aiChat).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('daily-review-observations')).toHaveTextContent('AI 复盘建议')
     expect(await screen.findByTestId('daily-review-generation-request-context-subjects')).toHaveTextContent('请求处置：已加入本次请求')
     expect(screen.getByTestId('daily-review-provider-usage-disclaimer')).toHaveTextContent('无法证明模型内部是否实际使用了某项内容')
     expect(screen.getByTestId('daily-review-candidate-decision-counts')).toHaveTextContent('初始通过验证 1 项')
+    expect(candidateTitle.closest('article')).toHaveAttribute('data-selected', 'true')
+    expect(candidateTitle.closest('article')).toHaveTextContent('已选择 · 可编辑')
+    expect(screen.getByText('只有点击“创建选中任务”后才会发起创建。')).toBeInTheDocument()
     expect(screen.getByRole('dialog')).not.toHaveTextContent('AI 已使用')
     expect(localStorage.length).toBe(0)
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
