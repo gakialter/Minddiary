@@ -1,5 +1,5 @@
-import React from 'react';
-import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react'
+import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
   activeView: string
@@ -11,89 +11,87 @@ interface SidebarProps {
 
 interface NavItem {
   id: string
-  icon: React.ReactElement
+  icon: LucideIcon
   label: string
 }
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
   const navItems: NavItem[] = [
-    { id: 'home', icon: <Home size={20} />, label: '今日执行' },
-    { id: 'editor', icon: <PenLine size={20} />, label: '写日记' },
-    { id: 'calendar', icon: <Calendar size={20} />, label: '日历' },
-    { id: 'dashboard', icon: <BarChart2 size={20} />, label: '数据统计' },
-    { id: 'tags', icon: <Tags size={20} />, label: '标签管理' },
-    { id: 'search', icon: <Search size={20} />, label: '搜索' },
-    { id: 'pomodoro', icon: <Timer size={20} />, label: '番茄钟' },
-    { id: 'progress', icon: <BookOpen size={20} />, label: '科目进度' },
-    { id: 'mistakes', icon: <BookX size={20} />, label: '错题本' },
-    { id: 'ai', icon: <Bot size={20} />, label: 'AI 助手' },
-    { id: 'settings', icon: <Settings size={20} />, label: '设置' },
+    { id: 'home', icon: Home, label: '今日执行' },
+    { id: 'editor', icon: PenLine, label: '写日记' },
+    { id: 'calendar', icon: Calendar, label: '日历' },
+    { id: 'dashboard', icon: BarChart2, label: '数据统计' },
+    { id: 'tags', icon: Tags, label: '标签管理' },
+    { id: 'search', icon: Search, label: '搜索' },
+    { id: 'pomodoro', icon: Timer, label: '番茄钟' },
+    { id: 'progress', icon: BookOpen, label: '科目进度' },
+    { id: 'mistakes', icon: BookX, label: '错题本' },
+    { id: 'ai', icon: Bot, label: 'AI 助手' },
+    { id: 'settings', icon: Settings, label: '设置' },
   ]
+  const toggleLabel = isCollapsed ? '展开侧边栏' : '收起侧边栏'
 
   return (
-    <div className="sidebar" style={{ backgroundColor: 'var(--bg-primary)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-      {/* Top spacing to replace the removed brand logo area */}
-      <div className="pt-2"></div>
-
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-1">
+    <aside className="sidebar" data-collapsed={isCollapsed}>
+      <nav id="primary-navigation" className="sidebar-nav" aria-label="主要导航">
         {navItems.map(item => {
-          const isActive = activeView === item.id;
+          const isActive = activeView === item.id
+          const Icon = item.icon
+
           return (
-          <button
-            key={item.id}
-            onClick={() => onViewChange(item.id)}
-            className={`flex h-11 items-center transition-colors border-0 outline-none appearance-none ${
-              isCollapsed 
-                ? 'w-11 justify-center mx-auto rounded-lg' 
-                : 'w-full gap-2.5 px-3 rounded-lg text-[14px] font-medium'
-            } ${
-              isActive
-                ? 'text-[var(--accent)]'
-                : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-            style={isActive ? { background: 'rgba(15,118,110,0.08)' } : undefined}
-          >
-            <span className={`shrink-0 flex items-center justify-center ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}>
-              {React.cloneElement(item.icon, { size: 18 })}
-            </span>
-            {!isCollapsed && <span className="truncate">{item.label}</span>}
-          </button>
-        )})}
+            <button
+              key={item.id}
+              type="button"
+              className="sidebar-nav-item"
+              data-current={isActive}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
+              onClick={() => onViewChange(item.id)}
+            >
+              <span className="sidebar-nav-icon">
+                <Icon size={18} aria-hidden="true" focusable="false" />
+              </span>
+              {!isCollapsed && <span className="sidebar-nav-label">{item.label}</span>}
+              {isCollapsed && (
+                <span className="sidebar-tooltip" aria-hidden="true">
+                  {item.label}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </nav>
 
-      <div className="mt-auto px-4 py-4" style={{ borderTop: '1px solid var(--border)' }}>
+      <div className="sidebar-footer">
         {!isCollapsed && (
-          <div className="mb-4">
-            <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>今日</div>
-            <div className="mt-1 text-[20px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>{selectedDate}</div>
-            <div className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <div className="sidebar-today">
+            <div className="sidebar-today-label">今日</div>
+            <div className="sidebar-today-date">{selectedDate}</div>
+            <div className="sidebar-today-weekday">
               {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
             </div>
           </div>
         )}
         <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={toggleLabel}
+          aria-expanded={!isCollapsed}
+          aria-controls="primary-navigation"
+          title={toggleLabel}
           onClick={onToggle}
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium transition-colors border-0 outline-none appearance-none"
-          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.background = 'var(--border)';
-            (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.background = 'var(--bg-tertiary)';
-            (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
-          }}
-          title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
-          {isCollapsed ? <PanelLeftOpen size={18} /> : (
-            <>
-              <PanelLeftClose size={18} />
-              <span>收起侧边栏</span>
-            </>
+          {isCollapsed
+            ? <PanelLeftOpen size={18} aria-hidden="true" focusable="false" />
+            : <PanelLeftClose size={18} aria-hidden="true" focusable="false" />}
+          {!isCollapsed && <span>收起侧边栏</span>}
+          {isCollapsed && (
+            <span className="sidebar-tooltip" aria-hidden="true">
+              展开侧边栏
+            </span>
           )}
         </button>
       </div>
-    </div>
+    </aside>
   )
 }
