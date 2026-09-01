@@ -6,7 +6,7 @@ import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
 import TagBadge from './TagBadge'
-import { ImagePlus, Sparkles, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
+import { Bot, ImagePlus, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
 import FormatToolbar from './common/FormatToolbar'
 import { useTextFormat } from '../hooks/useTextFormat'
@@ -328,253 +328,225 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
     setDirtyState(true)
   }
 
+  const saveState = saving ? 'saving' : loading ? 'loading' : isDirty.current ? 'dirty' : entry ? 'saved' : 'idle'
+  const saveStateLabel = saving
+    ? '保存中…'
+    : loading
+      ? '加载中…'
+      : isDirty.current
+        ? '未保存'
+        : entry
+          ? '已保存'
+          : '等待输入'
+
   return (
-    <div className="flex flex-col gap-md" style={{ height: '100%' }}>
-      {/* Title input */}
-      <div>
-        <input
-          type="text"
-          className="w-full"
-          style={{
-            fontSize: 28,
-            fontWeight: 700,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text-primary)',
-            padding: '4px 0',
-            letterSpacing: '-0.5px'
-          }}
-          placeholder="日记标题（可选）"
-          value={title}
-          onChange={handleTitleChange}
-        />
-      </div>
-
-      {/* Unified Toolbar & Templates */}
-      <div className="flex flex-wrap items-center justify-between" style={{ paddingBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-light)' }}>
-        {/* Left: Format Toolbar + Templates */}
-        <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
-          <FormatToolbar
-            onBold={formatActions.bold}
-            onHighlight={formatActions.highlight}
-            onUnderline={formatActions.underline}
-            onColor={formatActions.color}
+    <div className="editor-workspace content-selectable">
+      <section className="editor-document" aria-label="日记编辑区" aria-busy={saving || loading}>
+        <header className="editor-document__header">
+          <p className="editor-document__date">
+            {entry?.date ? <time dateTime={entry.date}>{entry.date}</time> : '新日记'}
+          </p>
+          <label className="editor-visually-hidden" htmlFor="editor-diary-title">日记标题</label>
+          <input
+            id="editor-diary-title"
+            type="text"
+            className="editor-document__title"
+            placeholder="日记标题（可选）"
+            value={title}
+            onChange={handleTitleChange}
           />
-          <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
-          {quickTemplates.map(tpl => (
-            <button
-              key={tpl.id}
-              className="button button-secondary text-sm"
-              onClick={() => handleTemplateInsert(tpl.content)}
-              title={`插入「${tpl.name}」模板`}
-              style={{ padding: '4px 12px', background: 'transparent', border: '1px dashed var(--border)' }}
+        </header>
+
+        <section className="editor-commandbar" aria-label="编辑工具与状态">
+          <div className="editor-commandbar__primary">
+            <FormatToolbar
+              onBold={formatActions.bold}
+              onHighlight={formatActions.highlight}
+              onUnderline={formatActions.underline}
+              onColor={formatActions.color}
+            />
+            <span className="editor-commandbar__separator" aria-hidden="true" />
+            <div
+              className="editor-save-state"
+              data-state={saveState}
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
             >
-              {tpl.name}
-            </button>
-          ))}
-          <button
-            className="button button-secondary text-sm"
-            onClick={() => setShowTemplateManager(true)}
-            title="管理自定义模板"
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px', background: 'transparent' }}
-          >
-            <LayoutTemplate size={13} /> 管理模板
-          </button>
-        </div>
-
-        {/* Right: Actions & Status */}
-        <div className="flex items-center gap-sm">
-          {saving && <span className="text-xs text-muted">保存中...</span>}
-          {loading && <span className="text-xs text-muted">加载中...</span>}
-          {isDirty.current && !saving && <span className="text-xs" style={{ color: 'var(--warning)' }}>● 未保存</span>}
-          
-          <div className="text-sm text-muted" style={{ margin: '0 var(--space-sm)' }}>
-            字数: <span className="font-medium">{wordCount}</span>
+              <span className="editor-save-state__dot" aria-hidden="true" />
+              {saveStateLabel}
+            </div>
+            <div className="editor-word-count" aria-label={`日记字数 ${wordCount}`}>
+              <span>{wordCount}</span> 字
+            </div>
           </div>
 
-          <button
-            className="button button-secondary text-sm"
-            onClick={handleAiSummary}
-            disabled={summaryLoading || !content.trim()}
-            title="AI 分析并汇总今日日记"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, color: summaryLoading ? 'var(--text-muted)' : 'var(--accent)', padding: '4px 12px', background: 'transparent' }}
-          >
-            <Sparkles size={14} style={{ flexShrink: 0 }} />
-            {summaryLoading ? '汇总中...' : 'AI 汇总'}
-          </button>
-          <button
-            className="button button-secondary text-sm"
-            onClick={handleShare}
-            disabled={sharing}
-            style={{ padding: '4px 12px', background: 'transparent' }}
-          >
-            <ImagePlus size={14} /> 分享
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="flex flex-col gap-xs"
-        style={{
-          padding: 'var(--space-sm) 0',
-          borderBottom: '1px solid var(--border-light)'
-        }}
-      >
-        <div className="flex items-center justify-between gap-sm">
-          <div className="flex items-center gap-xs text-xs text-muted">
-            <TagsIcon size={14} style={{ color: 'var(--accent)' }} />
-            <span>先在“标签管理”创建标签，再在这里选择标签，之后可在“搜索”中按标签回顾。</span>
-          </div>
-          {selectedTagIds.length > 0 && (
+          <div className="editor-commandbar__secondary" aria-label="编辑器辅助操作">
+            {quickTemplates.map(tpl => (
+              <button
+                key={tpl.id}
+                type="button"
+                className="editor-utility-button editor-utility-button--template"
+                onClick={() => handleTemplateInsert(tpl.content)}
+                title={`插入「${tpl.name}」模板`}
+              >
+                {tpl.name}
+              </button>
+            ))}
             <button
               type="button"
-              className="button button-secondary text-xs"
-              onClick={handleClearTags}
-              style={{ padding: '3px 8px', background: 'transparent', flexShrink: 0 }}
+              className="editor-utility-button"
+              onClick={() => setShowTemplateManager(true)}
+              title="管理自定义模板"
             >
-              <X size={12} /> 清空
+              <LayoutTemplate size={14} aria-hidden="true" />
+              管理模板
             </button>
-          )}
-        </div>
-        {availableTags.length > 0 ? (
-          <div className="flex flex-wrap gap-xs">
-            {availableTags.map(tag => {
-              const selected = selectedTagIds.includes(tag.id)
-              return (
-                <button
-                  key={tag.id}
-                  type="button"
-                  className="text-xs rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  aria-pressed={selected}
-                  onClick={() => handleTagToggle(tag.id)}
-                  style={{
-                    display: 'inline-flex',
-                    padding: 0,
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <TagBadge tag={tag} selected={selected} interactive size="md" />
-                </button>
-              )
-            })}
+            <span className="editor-commandbar__separator" aria-hidden="true" />
+            <button
+              type="button"
+              className="editor-utility-button editor-utility-button--ai"
+              onClick={handleAiSummary}
+              disabled={summaryLoading || !content.trim()}
+              title="AI 分析并汇总今日日记"
+            >
+              <Bot size={14} aria-hidden="true" />
+              {summaryLoading ? '汇总中…' : 'AI 汇总'}
+            </button>
+            <button
+              type="button"
+              className="editor-utility-button"
+              onClick={handleShare}
+              disabled={sharing}
+            >
+              <ImagePlus size={14} aria-hidden="true" />
+              {sharing ? '生成中…' : '分享'}
+            </button>
           </div>
-        ) : (
-          <div className="text-xs text-muted">还没有可选标签，请先到“标签管理”创建。</div>
+        </section>
+
+        <div className="editor-writing-canvas" data-empty={!content.trim() ? 'true' : 'false'}>
+          <label className="editor-visually-hidden" htmlFor="editor-diary-content">日记正文</label>
+          {!content.trim() && (
+            <div className="editor-writing-canvas__empty" aria-hidden="true">
+              <strong>今天最值得记住的是什么？</strong>
+              <span>从一件具体的小事开始写。</span>
+            </div>
+          )}
+          <textarea
+            id="editor-diary-content"
+            ref={textareaRef}
+            className="editor-writing-canvas__input"
+            data-testid="diary-content-input"
+            placeholder="写下今天的考研日记…"
+            value={content}
+            onChange={handleContentChange}
+            spellCheck={false}
+          />
+        </div>
+
+        <section className="editor-metadata" aria-labelledby="editor-tags-heading">
+          <div className="editor-metadata__header">
+            <div>
+              <h2 id="editor-tags-heading" className="editor-metadata__title">
+                <TagsIcon size={14} aria-hidden="true" />
+                标签
+              </h2>
+              <p>用于稍后在“搜索”中按主题回顾。</p>
+            </div>
+            {selectedTagIds.length > 0 && (
+              <button type="button" className="editor-metadata__clear" onClick={handleClearTags}>
+                <X size={12} aria-hidden="true" />
+                清空
+              </button>
+            )}
+          </div>
+          {availableTags.length > 0 ? (
+            <div className="editor-metadata__tags">
+              {availableTags.map(tag => {
+                const selected = selectedTagIds.includes(tag.id)
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    className="editor-tag-toggle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    aria-pressed={selected}
+                    onClick={() => handleTagToggle(tag.id)}
+                  >
+                    <TagBadge tag={tag} selected={selected} interactive size="md" />
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="editor-metadata__empty">还没有可选标签，请先到“标签管理”创建。</p>
+          )}
+        </section>
+
+        {(aiSummary || summaryLoading) && (
+          <section className="editor-ai-summary" aria-label="AI 辅助摘要">
+            <div className="editor-ai-summary__header">
+              <button
+                type="button"
+                className="editor-ai-summary__disclosure"
+                aria-label="AI 辅助摘要"
+                aria-describedby="editor-ai-summary-provenance"
+                aria-expanded={summaryExpanded}
+                aria-controls="editor-ai-summary-content"
+                onClick={() => setSummaryExpanded(expanded => !expanded)}
+              >
+                <span className="editor-ai-summary__identifier" aria-hidden="true">AI</span>
+                <span className="editor-ai-summary__label">
+                  <strong>AI 辅助摘要</strong>
+                  <small id="editor-ai-summary-provenance">
+                    {summaryLoading ? '正在分析 · 仅供参考' : '由模型生成 · 仅供参考'}
+                  </small>
+                </span>
+                {summaryExpanded
+                  ? <ChevronUp size={15} aria-hidden="true" />
+                  : <ChevronDown size={15} aria-hidden="true" />}
+              </button>
+              <button
+                type="button"
+                className="editor-ai-summary__close"
+                onClick={clearAiSummary}
+                aria-label="关闭 AI 摘要"
+                title="关闭 AI 摘要"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+            {summaryExpanded && (
+              <div id="editor-ai-summary-content" className="editor-ai-summary__content">
+                {summaryLoading && !aiSummary && (
+                  <div className="editor-ai-summary__loading" role="status" aria-live="polite">
+                    <span className="editor-ai-summary__spinner" aria-hidden="true" />
+                    小研正在分析你的日记…
+                  </div>
+                )}
+                {aiSummary && <MarkdownRenderer>{aiSummary}</MarkdownRenderer>}
+              </div>
+            )}
+          </section>
         )}
-      </div>
+
+        <footer className="editor-document__footer">
+          <div>
+            <strong>Markdown</strong>
+            <span>**粗体** · ==高亮== · ++下划线++ · {'{'}color:red{'}'}颜色{'{'}/color{'}'} · - 列表</span>
+          </div>
+          <div className="editor-document__shortcuts">
+            <span>保存 <kbd>Ctrl/⌘ S</kbd></span>
+            <span>命令面板 <kbd>Ctrl/⌘ K</kbd></span>
+          </div>
+        </footer>
+      </section>
 
       <TemplateManager
         visible={showTemplateManager}
         onClose={() => setShowTemplateManager(false)}
         onInsert={handleTemplateInsert}
       />
-
-      {/* AI Summary Card */}
-      {(aiSummary || summaryLoading) && (
-        <div style={{
-          borderRadius: 'var(--radius)',
-          border: '1px solid',
-          borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)',
-          background: 'color-mix(in srgb, var(--accent) 5%, var(--bg-secondary))',
-          overflow: 'hidden',
-          transition: 'all 0.3s ease',
-          marginBottom: 'var(--space-md)'
-        }}>
-          <div
-            className="flex items-center justify-between"
-            style={{ padding: 'var(--space-sm) var(--space-md)', cursor: 'pointer', borderBottom: summaryExpanded ? '1px solid color-mix(in srgb, var(--accent) 20%, transparent)' : 'none' }}
-            onClick={() => setSummaryExpanded(e => !e)}
-          >
-            <div className="flex items-center gap-sm" style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 14 }}>
-              <Sparkles size={15} />
-              <span>AI 智能汇总</span>
-              {summaryLoading && <span className="text-muted" style={{ fontSize: 12, fontWeight: 400 }}>分析中...</span>}
-            </div>
-            <div className="flex items-center gap-xs">
-              <button
-                onClick={e => { e.stopPropagation(); clearAiSummary() }}
-                aria-label="Close AI summary"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: 2 }}
-                title="关闭"
-              >
-                <X size={14} />
-              </button>
-              {summaryExpanded ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />}
-            </div>
-          </div>
-          {summaryExpanded && (
-            <div style={{ padding: 'var(--space-md)' }}>
-              {summaryLoading && !aiSummary && (
-                <div className="flex items-center gap-sm text-muted" style={{ fontSize: 14 }}>
-                  <div style={{ width: 16, height: 16, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  小研正在分析你的日记...
-                </div>
-              )}
-              {aiSummary && (
-                <MarkdownRenderer className="text-sm">{aiSummary}</MarkdownRenderer>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Editor */}
-      <div className="flex-1 min-h-0" style={{ position: 'relative' }}>
-        {!content.trim() && (
-          <div style={{
-            position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center',
-            opacity: 0.05, filter: 'grayscale(1)', transition: 'opacity 0.3s'
-          }}>
-            <svg viewBox="0 0 24 24" width="160" height="160" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-            </svg>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 'var(--space-lg)' }}>
-              开始你的一天
-            </div>
-          </div>
-        )}
-        <textarea
-          ref={textareaRef}
-          className="w-full h-full font-mono resize-none"
-          data-testid="diary-content-input"
-          style={{
-            fontSize: 15,
-            lineHeight: 1.8,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text-primary)',
-            padding: '4px 0'
-          }}
-          placeholder="写下今天的考研日记..."
-          value={content}
-          onChange={handleContentChange}
-          spellCheck={false}
-        />
-      </div>
-
-      {/* Help text */}
-      <div className="text-xs text-muted flex items-center justify-between" style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-md)' }}>
-        <div className="flex gap-lg">
-          <div className="flex items-center gap-xs">
-            <span className="font-medium text-secondary">Markdown 支持</span>
-            <span style={{ opacity: 0.7 }}>**粗体** · ==高亮== · ++下划线++ · {'{'}color:red{'}'}颜色{'{'}/color{'}'} · - 列表</span>
-          </div>
-          <div className="flex items-center gap-xs">
-            <span className="font-medium text-secondary">快捷保存</span>
-            <span style={{ opacity: 0.7 }}><kbd style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-tertiary)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--border)' }}>⌘/Ctrl + S</kbd></span>
-          </div>
-        </div>
-        <div className="flex items-center gap-xs" title="全局搜索与导航">
-          <span className="font-medium text-secondary">命令面板</span>
-          <span style={{ opacity: 0.7 }}><kbd style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-tertiary)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--border)' }}>⌘/Ctrl + K</kbd></span>
-        </div>
-      </div>
       <ShareCard ref={shareCardRef} diary={entry} pomodoros={pomodoros} />
     </div>
   )

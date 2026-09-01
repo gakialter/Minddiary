@@ -3,7 +3,7 @@ import { compressImages } from '../utils/imageCompressor'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { logger } from '../utils/logger'
-import { Image as ImageIcon, Camera } from 'lucide-react'
+import { Image as ImageIcon, Camera, Plus, Trash2 } from 'lucide-react'
 import type { Attachment } from '../types'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import ClickableImage from './ClickableImage'
@@ -145,137 +145,119 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
 
     if (!entryId && !ensureEntryId) {
         return (
-            <div style={{ padding: 'var(--space-lg)' }}>
-                <p className="text-muted text-sm">请先保存日记后再添加图片</p>
-            </div>
+            <section className="editor-attachment-gallery" aria-labelledby="editor-attachments-title">
+                <div className="editor-attachment-gallery__header">
+                    <h2 id="editor-attachments-title" className="editor-attachment-gallery__title">
+                        <ImageIcon size={16} aria-hidden="true" />
+                        图片附件
+                    </h2>
+                </div>
+                <p className="editor-attachment-gallery__unavailable">请先保存日记后再添加图片</p>
+            </section>
         )
     }
 
     return (
-        <div style={{ padding: 'var(--space-lg)' }}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
-                <h3 className="text-sm font-medium flex items-center gap-2">
-                    <ImageIcon size={16} className="text-muted" /> 图片附件
-                </h3>
+        <section className="editor-attachment-gallery" aria-labelledby="editor-attachments-title">
+            <div className="editor-attachment-gallery__header">
+                <div>
+                    <h2 id="editor-attachments-title" className="editor-attachment-gallery__title">
+                        <ImageIcon size={16} aria-hidden="true" />
+                        图片附件
+                    </h2>
+                    <p className="editor-attachment-gallery__count">
+                        {attachments.length > 0 ? `${attachments.length} 张图片` : '为这篇日记补充图像记录'}
+                    </p>
+                </div>
                 <button
-                    className="button button-secondary"
-                    style={{ fontSize: 12, padding: '2px 10px' }}
+                    type="button"
+                    className="button button-secondary editor-attachment-gallery__upload"
                     onClick={() => fileInputRef.current?.click()}
                 >
-                    + 上传
+                    <Plus size={14} aria-hidden="true" />
+                    上传
                 </button>
                 <input
                     ref={fileInputRef} type="file" accept="image/*" multiple
+                    aria-label="选择日记图片"
                     onChange={handleFileSelect} style={{ display: 'none' }}
                 />
             </div>
 
             {/* Drop Zone (only if no images) */}
             {attachments.length === 0 && !loading && (
-                <div
-                    className="card empty-state-upload"
+                <button
+                    type="button"
+                    className="editor-attachment-gallery__dropzone"
+                    data-dragging={isDragging ? 'true' : 'false'}
+                    aria-describedby="editor-attachment-upload-hint"
                     onDrop={handleDrop} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}
-                    style={{
-                        padding: 'var(--space-2xl)', textAlign: 'center',
-                        border: `2px dashed ${isDragging ? 'var(--accent)' : 'var(--border)'}`,
-                        background: isDragging ? 'var(--bg-tertiary)' : 'transparent',
-                        cursor: 'pointer', transition: 'all 0.3s', borderRadius: 'var(--radius-lg)'
-                    }}
                     onClick={() => fileInputRef.current?.click()}
                 >
-                    <div style={{
-                        width: 64, height: 64, margin: '0 auto var(--space)', borderRadius: 20,
-                        background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: 'var(--text-muted)', boxShadow: 'var(--shadow-sm)'
-                    }}><Camera size={28} /></div>
-                    <p className="font-medium" style={{ marginBottom: 4 }}>点击或拖拽上传图片</p>
-                    <p className="text-xs text-muted">支持 JPG, PNG, WebP (每个最大 10MB)</p>
-                </div>
+                    <span className="editor-attachment-gallery__dropzone-icon">
+                        <Camera size={24} aria-hidden="true" />
+                    </span>
+                    <span className="editor-attachment-gallery__dropzone-title">点击或拖拽上传图片</span>
+                    <span id="editor-attachment-upload-hint" className="editor-attachment-gallery__dropzone-hint">
+                        支持 JPG、PNG、WebP，每个最大 10MB
+                    </span>
+                </button>
             )}
 
             {/* Thumbnail Grid */}
             {(attachments.length > 0 || loading) && (
-                <div style={{
-                    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-                    gap: 'var(--space-md)'
-                }}
+                <div className="editor-attachment-gallery__grid"
                     onDrop={handleDrop} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}
                 >
                     {attachments.map(att => (
-                        <div key={att.id} className="gallery-item group" style={{
-                            position: 'relative', aspectRatio: '1',
-                            borderRadius: 'var(--radius)', overflow: 'hidden',
-                            border: '1px solid var(--border-light)',
-                            background: 'var(--bg-tertiary)'
-                        }}>
+                        <div key={att.id} className="editor-attachment-gallery__item gallery-item">
                             <ClickableImage
                                 src={safeFileUrl(att.filepath)}
                                 alt={att.filename}
                                 onPreview={setPreview}
                                 ariaLabel={`放大查看日记图片 ${att.filename}`}
                                 title={`放大查看 ${att.filename}`}
-                                buttonStyle={{
-                                    width: '100%',
-                                    height: '100%',
-                                    padding: 0,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    cursor: 'zoom-in',
-                                    display: 'block',
-                                }}
-                                imageStyle={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
+                                className="editor-attachment-gallery__preview"
+                                imageStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 onImageError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                                 imageClassName="gallery-img"
                             />
-                            <div className="gallery-overlay flex items-start justify-end" style={{
-                                position: 'absolute', inset: 0, padding: 'var(--space-xs)',
-                                background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 40%)',
-                                opacity: 0, transition: 'opacity 0.2s',
-                                pointerEvents: 'none'
-                            }}>
+                            <div className="editor-attachment-gallery__overlay gallery-overlay" style={{ pointerEvents: 'none' }}>
                                 <button
+                                    type="button"
+                                    className="editor-attachment-gallery__delete"
                                     onClick={(e) => { e.stopPropagation(); handleDelete(att.id) }}
-                                    style={{
-                                        width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.6)',
-                                        color: 'white', border: 'none', cursor: 'pointer', fontSize: 14,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        backdropFilter: 'blur(4px)',
-                                        pointerEvents: 'auto'
-                                    }}
-                                    title="删除图片"
-                                    aria-label="删除图片"
-                                >×</button>
+                                    style={{ pointerEvents: 'auto' }}
+                                    title={`删除 ${att.filename}`}
+                                    aria-label={`删除日记图片 ${att.filename}`}
+                                >
+                                    <Trash2 size={14} aria-hidden="true" />
+                                </button>
                             </div>
                         </div>
                     ))}
 
                     {/* Add more button or drop target */}
                     {loading ? (
-                        <div style={{ aspectRatio: '1', borderRadius: 'var(--radius)', background: 'var(--bg-tertiary)', animation: 'pulse 1.5s infinite' }} />
+                        <div className="editor-attachment-gallery__loading" role="status" aria-live="polite">
+                            <span>图片上传中…</span>
+                        </div>
                     ) : (
-                        <div
+                        <button
+                            type="button"
+                            className="editor-attachment-gallery__add-more"
+                            data-dragging={isDragging ? 'true' : 'false'}
                             onClick={() => fileInputRef.current?.click()}
-                            style={{
-                                aspectRatio: '1', borderRadius: 'var(--radius)',
-                                border: `2px dashed ${isDragging ? 'var(--accent)' : 'var(--border)'}`,
-                                background: isDragging ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: isDragging ? 'var(--accent)' : 'var(--text-muted)', fontSize: 28, transition: 'all 0.2s',
-
-                            }}
                             title="上传更多"
                             aria-label="上传更多图片"
-                        >+</div>
+                        >
+                            <Plus size={20} aria-hidden="true" />
+                        </button>
                     )}
                 </div>
             )}
 
-            <style>{`
-                .gallery-item:hover .gallery-overlay { opacity: 1 !important; }
-                .gallery-item:hover .gallery-img { transform: scale(1.05); }
-            `}</style>
-
             <ImagePreviewModal image={preview} onClose={() => setPreview(null)} />
-        </div>
+        </section>
     )
 }

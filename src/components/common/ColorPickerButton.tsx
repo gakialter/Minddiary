@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useId } from 'react'
 import { Palette } from 'lucide-react'
 import { COLOR_KEYS, type MarkdownColorKey } from '../../utils/remarkColor'
 
@@ -17,48 +17,6 @@ const COLOR_LABELS: Record<MarkdownColorKey, string> = {
   gray: '灰色',
 }
 
-const triggerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 30,
-  height: 30,
-  padding: 0,
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  cursor: 'pointer',
-  transition: 'all 0.15s',
-  flexShrink: 0,
-}
-
-const popoverStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: '100%',
-  left: 0,
-  marginTop: 4,
-  display: 'flex',
-  gap: 4,
-  padding: 6,
-  background: 'var(--bg-secondary)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius)',
-  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-  zIndex: 10,
-}
-
-const swatchStyle: React.CSSProperties = {
-  width: 22,
-  height: 22,
-  borderRadius: '50%',
-  border: '2px solid transparent',
-  cursor: 'pointer',
-  transition: 'transform 0.12s, border-color 0.12s',
-  padding: 0,
-  flexShrink: 0,
-}
-
 /**
  * A dropdown color picker restricted to 7 preset colors.
  *
@@ -68,7 +26,12 @@ const swatchStyle: React.CSSProperties = {
  */
 export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonProps) {
   const [open, setOpen] = useState(false)
+  const popoverId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const firstSwatchRef = useRef<HTMLButtonElement>(null)
+  const focusFirstSwatchRef = useRef(false)
+  const restoreTriggerIfFocusIsLostRef = useRef(false)
 
   // Close popover on outside click
   useEffect(() => {
@@ -82,63 +45,86 @@ export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonPr
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const handleTrigger = (e: React.MouseEvent) => {
+  useEffect(() => {
+    if (open && focusFirstSwatchRef.current) {
+      focusFirstSwatchRef.current = false
+      firstSwatchRef.current?.focus()
+    }
+
+    if (!open && restoreTriggerIfFocusIsLostRef.current) {
+      restoreTriggerIfFocusIsLostRef.current = false
+      if (document.activeElement === document.body) triggerRef.current?.focus()
+    }
+  }, [open])
+
+  const handleTriggerMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
     e.preventDefault()
+    focusFirstSwatchRef.current = false
     setOpen(prev => !prev)
   }
 
-  const handleSelect = (e: React.MouseEvent, color: MarkdownColorKey) => {
-    e.preventDefault()
-    onSelectColor(color)
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    if (e.detail !== 0) return
+    if (!open) focusFirstSwatchRef.current = true
+    setOpen(prev => !prev)
+  }
+
+  const selectColor = (color: MarkdownColorKey, restoreTriggerIfFocusIsLost = false) => {
+    restoreTriggerIfFocusIsLostRef.current = restoreTriggerIfFocusIsLost
     setOpen(false)
+    onSelectColor(color)
+  }
+
+  const handleSelectMouseDown = (e: React.MouseEvent, color: MarkdownColorKey) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    selectColor(color)
+  }
+
+  const handleSelectClick = (e: React.MouseEvent, color: MarkdownColorKey) => {
+    if (e.detail === 0) selectColor(color, true)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape' || !open) return
+    e.preventDefault()
+    e.stopPropagation()
+    setOpen(false)
+    triggerRef.current?.focus()
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
+    <div ref={containerRef} className="color-picker" onKeyDown={handleKeyDown}>
       <button
+        ref={triggerRef}
         type="button"
-        style={triggerStyle}
+        className="format-toolbar__button color-picker__trigger"
         title="文字颜色"
         aria-label="文字颜色"
         aria-expanded={open}
+        aria-controls={popoverId}
         data-testid="format-color"
-        onMouseDown={handleTrigger}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-tertiary)'
-          e.currentTarget.style.color = 'var(--text-primary)'
-          e.currentTarget.style.borderColor = 'var(--accent)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--text-secondary)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
+        onMouseDown={handleTriggerMouseDown}
+        onClick={handleTriggerClick}
       >
-        <Palette size={14} />
+        <Palette size={15} aria-hidden="true" />
       </button>
 
       {open && (
-        <div style={popoverStyle} data-testid="color-picker-popover" role="group" aria-label="选择颜色">
-          {COLOR_KEYS.map((color) => (
+        <div id={popoverId} className="color-picker__popover" data-testid="color-picker-popover" role="group" aria-label="选择颜色">
+          {COLOR_KEYS.map((color, index) => (
             <button
+              ref={index === 0 ? firstSwatchRef : undefined}
               key={color}
               type="button"
-              style={{
-                ...swatchStyle,
-                background: `var(--md-color-${color})`,
-              }}
+              className="color-picker__swatch"
+              style={{ backgroundColor: `var(--md-color-${color})` }}
               title={COLOR_LABELS[color]}
               aria-label={COLOR_LABELS[color]}
               data-testid={`color-swatch-${color}`}
-              onMouseDown={(e) => handleSelect(e, color)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.2)'
-                e.currentTarget.style.borderColor = 'var(--text-primary)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)'
-                e.currentTarget.style.borderColor = 'transparent'
-              }}
+              onMouseDown={(e) => handleSelectMouseDown(e, color)}
+              onClick={(e) => handleSelectClick(e, color)}
             />
           ))}
         </div>
