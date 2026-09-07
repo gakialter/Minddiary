@@ -430,23 +430,17 @@ function Settings() {
 
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <h2 className="text-xl font-semibold" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <SettingsIcon size={22} style={{ color: 'var(--accent)' }} /> 设置
-      </h2>
+    <div className="workspace-page workspace-page--medium settings-page" aria-busy={saving}>
+      <header className="settings-page__intro">
+        <div className="settings-page__title-line">
+          <SettingsIcon size={20} aria-hidden="true" />
+          <h1>设置</h1>
+        </div>
+        <p>管理外观、学习偏好、AI 连接与本地数据。</p>
+      </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 'var(--space-md)' }}>
-        <SettingsAI
-            aiEndpoint={aiEndpoint} setAiEndpoint={setAiEndpoint}
-            aiApiKeyPresent={aiApiKeyPresent}
-            aiApiKeyMasked={aiApiKeyMasked}
-            aiApiKeyInput={aiApiKeyInput} setAiApiKeyInput={setAiApiKeyInput}
-            aiKeyDirty={aiKeyDirty} setAiKeyDirty={setAiKeyDirty}
-            clearKeyRequested={clearKeyRequested} setClearKeyRequested={setClearKeyRequested}
-            aiModel={aiModel} setAiModel={setAiModel}
-            aiVisionEnabled={aiVisionEnabled} setAiVisionEnabled={setAiVisionEnabled}
-        />
-        <SettingsGeneral 
+      <div className="settings-page__sections">
+        <SettingsGeneral
             examDate={examDate} setExamDate={setExamDate}
             countdownEvents={countdownEvents} setCountdownEvents={setCountdownEvents}
             onCountdownValidityChange={setCountdownFieldsValid}
@@ -457,18 +451,28 @@ function Settings() {
             pomodoroAlert={pomodoroAlert} setPomodoroAlert={setPomodoroAlert}
             autoSave={autoSave} setAutoSave={setAutoSave}
         />
-        <SettingsBackup 
-            autoBackup={autoBackup} setAutoBackup={setAutoBackup}
-            backupPath={backupPath} setBackupPath={setBackupPath}
-            exportData={exportData} importData={importData} restoreAutomaticBackupZip={restoreAutomaticBackupZip}
-            showToast={showToast}
+        <SettingsAI
+            aiEndpoint={aiEndpoint} setAiEndpoint={setAiEndpoint}
+            aiApiKeyPresent={aiApiKeyPresent}
+            aiApiKeyMasked={aiApiKeyMasked}
+            aiApiKeyInput={aiApiKeyInput} setAiApiKeyInput={setAiApiKeyInput}
+            aiKeyDirty={aiKeyDirty} setAiKeyDirty={setAiKeyDirty}
+            clearKeyRequested={clearKeyRequested} setClearKeyRequested={setClearKeyRequested}
+            aiModel={aiModel} setAiModel={setAiModel}
+            aiVisionEnabled={aiVisionEnabled} setAiVisionEnabled={setAiVisionEnabled}
         />
         <SettingsFocus
             focusGuardEnabled={focusGuardEnabled} setFocusGuardEnabled={setFocusGuardEnabled}
             focusGuardIntervalSec={focusGuardIntervalSec} setFocusGuardIntervalSec={setFocusGuardIntervalSec}
             focusWhitelist={focusWhitelist} setFocusWhitelist={setFocusWhitelist}
         />
-        <SettingsAbout 
+        <SettingsBackup
+            autoBackup={autoBackup} setAutoBackup={setAutoBackup}
+            backupPath={backupPath} setBackupPath={setBackupPath}
+            exportData={exportData} importData={importData} restoreAutomaticBackupZip={restoreAutomaticBackupZip}
+            showToast={showToast}
+        />
+        <SettingsAbout
             checkForUpdates={checkForUpdates}
             installUpdate={installUpdate}
             updateStatus={updateStatus}
@@ -476,13 +480,13 @@ function Settings() {
         />
       </div>
 
-      {/* Save button */}
-      <div className="flex justify-end gap-sm" style={{ marginTop: 'var(--space-lg)' }}>
-        <button className="button button-secondary" onClick={loadSettings}>
+      <div className="settings-page__actions">
+        <p>更改会自动保存，也可点击“保存设置”立即保存。</p>
+        <button type="button" className="button button-secondary" onClick={loadSettings}>
           重置
         </button>
-        <button className="button button-primary" onClick={saveSettings} disabled={saving || !countdownFieldsValid}>
-           {saving ? '保存中...' : <><Check size={15} /> 保存设置</>}
+        <button type="button" className="button button-primary" onClick={saveSettings} disabled={saving || !countdownFieldsValid}>
+           {saving ? '保存中...' : <><Check size={15} aria-hidden="true" /> 保存设置</>}
         </button>
       </div>
     </div>

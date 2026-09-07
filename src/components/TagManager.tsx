@@ -4,7 +4,7 @@ import { showToast } from './Toast'
 import { logger } from '../utils/logger'
 import Skeleton from './Skeleton'
 import TagBadge from './TagBadge'
-import { Check, Edit3, Palette, RotateCcw, Tags, X } from 'lucide-react'
+import { Check, Edit3, Palette, RotateCcw, Tags, Trash2, X } from 'lucide-react'
 import {
   DEFAULT_TAG_COLOR,
   DEFAULT_TAG_PATTERN,
@@ -149,31 +149,32 @@ function TagManager() {
     }
   }
 
-  const renderColorPicker = (value: string, onChange: (color: string) => void) => (
-    <div className="flex flex-wrap gap-2">
-      {presetColors.map(color => (
-        <button
-          key={color}
-          type="button"
-          className="color-picker-btn"
-          aria-label={`选择颜色 ${color}`}
-          onClick={() => onChange(color)}
-          style={{
-            background: color,
-            outline: value === color ? '2px solid var(--accent)' : 'none',
-            outlineOffset: 2,
-            transform: value === color ? 'scale(1.1)' : 'scale(1)',
-          }}
-        />
-      ))}
-    </div>
+  const renderColorPicker = (value: string, onChange: (color: string) => void, legend: string) => (
+    <fieldset className="workspace-tags__color-fieldset">
+      <legend>{legend}</legend>
+      <div className="workspace-tags__color-options">
+        {presetColors.map(color => (
+          <button
+            key={color}
+            type="button"
+            className="workspace-tags__color-option"
+            data-selected={value === color ? 'true' : 'false'}
+            aria-label={`${legend}：${color}`}
+            aria-pressed={value === color}
+            onClick={() => onChange(color)}
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
+    </fieldset>
   )
 
   const renderStyleControls = (draft: TagDraft, onChange: (updates: Partial<TagDraft>) => void, prefix: string) => (
-    <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 'var(--space-md)' }}>
-      <div>
-        <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>图标 / emoji</label>
+    <div className="workspace-tags__style-grid">
+      <div className="workspace-field">
+        <label htmlFor={`${prefix}-icon`}>图标 / emoji</label>
         <input
+          id={`${prefix}-icon`}
           data-testid={`${prefix}-icon-input`}
           type="text"
           className="input w-full"
@@ -183,9 +184,10 @@ function TagManager() {
           onChange={(event) => onChange({ icon: event.target.value })}
         />
       </div>
-      <div>
-        <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>展示样式</label>
+      <div className="workspace-field">
+        <label htmlFor={`${prefix}-variant`}>展示样式</label>
         <select
+          id={`${prefix}-variant`}
           data-testid={`${prefix}-variant-select`}
           className="input w-full"
           value={draft.variant}
@@ -196,9 +198,10 @@ function TagManager() {
           ))}
         </select>
       </div>
-      <div>
-        <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>纹理</label>
+      <div className="workspace-field">
+        <label htmlFor={`${prefix}-pattern`}>纹理</label>
         <select
+          id={`${prefix}-pattern`}
           data-testid={`${prefix}-pattern-select`}
           className="input w-full"
           value={draft.pattern}
@@ -209,9 +212,9 @@ function TagManager() {
           ))}
         </select>
       </div>
-      <div>
-        <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>预览</label>
-        <div className="flex items-center" style={{ minHeight: 40 }}>
+      <div className="workspace-field">
+        <span className="workspace-tags__preview-label">预览</span>
+        <div className="workspace-tags__preview workspace-tag-preview" data-variant={draft.variant} role="group" aria-label="标签预览">
           <TagBadge
             tag={{
               id: 0,
@@ -229,14 +232,20 @@ function TagManager() {
   )
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'var(--space-xl)', width: '100%' }}>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] items-start" style={{ gap: 'var(--space-xl)' }}>
-        <div className="card" style={{ padding: 'var(--space-lg)' }}>
-          <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>新建标签</h3>
-          <div className="flex flex-col" style={{ gap: 'var(--space-lg)' }}>
+    <div className="workspace-page workspace-page--wide workspace-tags" aria-busy={loading}>
+      <div className="workspace-tags__layout">
+        <section className="workspace-section workspace-tags__create" aria-labelledby="tag-create-title">
+          <div className="workspace-section__heading">
             <div>
-              <label className="text-sm font-medium block mb-2" style={{ color: 'var(--text-secondary)' }}>标签名称</label>
+              <h2 id="tag-create-title">新建标签</h2>
+              <p className="workspace-help">用简短名称和克制的识别色整理日记主题。</p>
+            </div>
+          </div>
+          <div className="workspace-tags__form">
+            <div className="workspace-field">
+              <label htmlFor="tag-name">标签名称</label>
               <input
+                id="tag-name"
                 data-testid="tag-name-input"
                 type="text"
                 className="input w-full"
@@ -246,135 +255,152 @@ function TagManager() {
                 onKeyDown={(event) => event.key === 'Enter' && handleCreateTag()}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium block mb-3" style={{ color: 'var(--text-secondary)' }}>专属识别色</label>
-              {renderColorPicker(newTag.color, color => setNewTag(current => ({ ...current, color })))}
-            </div>
+            {renderColorPicker(newTag.color, color => setNewTag(current => ({ ...current, color })), '专属识别色')}
             {renderStyleControls(newTag, updates => setNewTag(current => ({ ...current, ...updates })), 'tag')}
             <button
+              type="button"
               data-testid="tag-create-button"
-              className="button button-primary w-full mt-2"
+              className="button button-primary workspace-tags__create-button"
               onClick={handleCreateTag}
               disabled={loading || !newTag.name.trim()}
-              style={{ justifyContent: 'center', padding: '10px 0' }}
             >
               + 创建标签
             </button>
           </div>
-        </div>
+        </section>
 
-        <div className="card" style={{ padding: 'var(--space-lg)', minHeight: 400 }}>
-          <h3 className="font-semibold text-base mb-5" style={{ color: 'var(--text-primary)' }}>
-            现有标签 ({tags.length})
-          </h3>
+        <section className="workspace-section workspace-tags__collection" aria-labelledby="tag-collection-title">
+          <div className="workspace-section__heading">
+            <div>
+              <h2 id="tag-collection-title">现有标签 <span className="workspace-tags__count">{tags.length}</span></h2>
+              <p className="workspace-help">编辑识别方式不会改变标签的已有归属。</p>
+            </div>
+          </div>
           {loading ? (
-            <div className="tag-grid">
+            <div className="workspace-tags__loading" role="status" aria-live="polite">
+              <span className="sr-only">正在加载标签</span>
               {Array.from({ length: 4 }).map((_, index) => (
                 <Skeleton key={index} height={60} />
               ))}
             </div>
           ) : tags.length === 0 ? (
-            <div className="empty-state" style={{ padding: 'var(--space-3xl)' }}>
-              <Tags size={56} style={{ marginBottom: 'var(--space)', opacity: 0.2, color: 'var(--text-secondary)' }} />
-              <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>还没有任何标签</h3>
-              <p className="text-muted" style={{ maxWidth: 400, margin: '0 auto', lineHeight: 1.6 }}>
+            <div className="workspace-empty workspace-tags__empty" role="status">
+              <div className="workspace-empty__icon" aria-hidden="true"><Tags size={36} /></div>
+              <h3>还没有任何标签</h3>
+              <p>
                 使用标签为日记内容建立有意义的分类系统，让回顾和复盘更加高效。
               </p>
             </div>
           ) : (
-            <div className="tag-grid">
+            <ul className="workspace-tags__list">
               {tags.map(tag => {
                 const normalized = normalizeTag(tag)
                 const isEditing = editingTagId === normalized.id
                 return (
-                  <div
+                  <li
                     key={normalized.id}
-                    className="tag-item"
-                    style={{
-                      borderLeft: `3px solid ${normalized.color}`,
-                      alignItems: isEditing ? 'stretch' : 'center',
-                      flexDirection: 'column',
-                      gap: 'var(--space-sm)',
-                    }}
+                    className="workspace-tags__item"
+                    data-editing={isEditing ? 'true' : 'false'}
+                    style={{ borderLeftColor: normalized.color }}
                   >
                     {isEditing ? (
                       <>
-                        <input
-                          data-testid={`tag-edit-name-${normalized.id}`}
-                          className="input w-full"
-                          value={editDraft.name}
-                          onChange={(event) => setEditDraft(current => ({ ...current, name: event.target.value }))}
-                        />
-                        {renderColorPicker(editDraft.color, color => setEditDraft(current => ({ ...current, color })))}
+                        <div className="workspace-field">
+                          <label htmlFor={`tag-edit-${normalized.id}-name`}>标签名称</label>
+                          <input
+                            id={`tag-edit-${normalized.id}-name`}
+                            data-testid={`tag-edit-name-${normalized.id}`}
+                            className="input w-full"
+                            value={editDraft.name}
+                            onChange={(event) => setEditDraft(current => ({ ...current, name: event.target.value }))}
+                          />
+                        </div>
+                        {renderColorPicker(
+                          editDraft.color,
+                          color => setEditDraft(current => ({ ...current, color })),
+                          `标签「${normalized.name}」的识别色`,
+                        )}
                         {renderStyleControls(editDraft, updates => setEditDraft(current => ({ ...current, ...updates })), `tag-edit-${normalized.id}`)}
-                        <div className="flex items-center justify-end" style={{ gap: 'var(--space-xs)' }}>
+                        <div className="workspace-action-row workspace-tags__edit-actions">
                           <button
-                            className="tag-action-btn flex items-center justify-center"
+                            type="button"
+                            className="workspace-tags__icon-action"
                             onClick={() => handleSaveEdit(normalized.id)}
+                            aria-label={`保存标签 ${normalized.name}`}
                             title="保存"
                           >
-                            <Check size={16} />
+                            <Check size={16} aria-hidden="true" />
                           </button>
                           <button
-                            className="tag-action-btn flex items-center justify-center"
+                            type="button"
+                            className="workspace-tags__icon-action"
                             onClick={() => {
                               setEditingTagId(null)
                               setEditDraft(emptyDraft)
                             }}
+                            aria-label={`取消编辑标签 ${normalized.name}`}
                             title="取消"
                           >
-                            <X size={16} />
+                            <X size={16} aria-hidden="true" />
                           </button>
                         </div>
                       </>
                     ) : (
                       <>
-                        <div className="flex items-center justify-between w-full" style={{ gap: 'var(--space-sm)' }}>
-                          <TagBadge tag={normalized} size="md" />
-                          <div className="flex items-center" style={{ gap: 'var(--space-xs)' }}>
+                        <div className="workspace-tags__item-header">
+                          <span className="workspace-tag-preview" data-variant={normalized.variant}>
+                            <TagBadge tag={normalized} size="md" />
+                          </span>
+                          <div className="workspace-tags__item-actions">
                             <button
-                              className="tag-action-btn flex items-center justify-center"
+                              type="button"
+                              className="workspace-tags__icon-action"
                               onClick={() => handleStartEdit(normalized)}
+                              aria-label={`编辑标签 ${normalized.name}`}
                               title="编辑"
                             >
-                              <Edit3 size={14} />
+                              <Edit3 size={14} aria-hidden="true" />
                             </button>
                             <button
-                              className="tag-action-btn flex items-center justify-center"
+                              type="button"
+                              className="workspace-tags__icon-action"
                               onClick={() => {
                                 const newColor = presetColors[Math.floor(Math.random() * presetColors.length)]!
                                 handleUpdateTag(normalized.id, { color: newColor })
                               }}
+                              aria-label={`随机更换标签 ${normalized.name} 的颜色`}
                               title="随机换色"
                             >
-                              <Palette size={14} />
+                              <Palette size={14} aria-hidden="true" />
                             </button>
                             <button
-                              className="tag-action-btn delete flex items-center justify-center"
+                              type="button"
+                              className="workspace-tags__icon-action workspace-tags__icon-action--danger"
                               onClick={() => handleDeleteTag(normalized.id)}
+                              aria-label={`删除标签 ${normalized.name}`}
                               title="删除"
                             >
-                              <X size={16} />
+                              <Trash2 size={16} aria-hidden="true" />
                             </button>
                           </div>
                         </div>
-                        <div className="text-xs text-muted flex items-center" style={{ gap: 'var(--space-xs)' }}>
-                          <RotateCcw size={12} />
+                        <div className="workspace-tags__metadata">
+                          <RotateCcw size={12} aria-hidden="true" />
                           <span>{variantLabels[normalized.variant || DEFAULT_TAG_VARIANT]} / {patternLabels[normalized.pattern || DEFAULT_TAG_PATTERN]}</span>
                         </div>
                       </>
                     )}
-                  </div>
+                  </li>
                 )
               })}
-            </div>
+            </ul>
           )}
-        </div>
+        </section>
       </div>
 
-      <div className="text-sm text-center" style={{ marginTop: 'var(--space-xl)', color: 'var(--text-muted)' }}>
+      <p className="workspace-help workspace-tags__footer-note">
         标签可用于分类日记内容；现在可以组合颜色、emoji / 简短符号、展示样式和预设纹理。
-      </div>
+      </p>
     </div>
   )
 }

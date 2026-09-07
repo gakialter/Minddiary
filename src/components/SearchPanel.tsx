@@ -202,14 +202,20 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   }
 
   return (
-    <div className="flex flex-col gap-md" style={{ height: '100%' }}>
-      {/* Search box */}
+    <div className="workspace-page workspace-page--wide workspace-search" aria-busy={loading}>
+      <section className="workspace-section workspace-search__controls" aria-labelledby="search-controls-title">
+        <div className="workspace-section__heading">
+          <div>
+            <h2 id="search-controls-title">检索条件</h2>
+            <p className="workspace-help">通过关键词、心情、日期或标签找回过往记录。</p>
+          </div>
+        </div>
 
-      {/* Search box */}
-      <div className="card" style={{ padding: 'var(--space-md)' }}>
-        <div className="flex gap-md" style={{ marginBottom: 16 }}>
-          <div className="flex-1">
+        <div className="workspace-search__query-row">
+          <div className="workspace-field workspace-search__query">
+            <label htmlFor="diary-search-query">关键词</label>
             <input
+              id="diary-search-query"
               type="text"
               className="input w-full"
               placeholder="搜索日记内容或标题..."
@@ -218,19 +224,19 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
           </div>
-          <button className="button button-primary" onClick={handleSearch} disabled={loading}>
+          <button type="button" className="button button-primary" onClick={handleSearch} disabled={loading}>
             {loading ? '搜索中...' : '搜索'}
           </button>
-          <button className="button button-secondary" onClick={clearFilters}>
+          <button type="button" className="button button-secondary" onClick={clearFilters}>
             清空
           </button>
         </div>
 
-        {/* Filters */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-md)' }}>
-          <div>
-            <label className="text-sm text-muted" style={{ display: 'block', marginBottom: 'var(--space-sm)' }}>心情</label>
+        <div className="workspace-search__filters">
+          <div className="workspace-field">
+            <label htmlFor="diary-search-mood">心情</label>
             <select
+              id="diary-search-mood"
               className="input w-full"
               value={filters.mood}
               onChange={(e) => setFilters({ ...filters, mood: e.target.value })}
@@ -244,27 +250,30 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
               <option value="sad">低落</option>
             </select>
           </div>
-          <div>
-            <label className="text-sm text-muted" style={{ display: 'block', marginBottom: 'var(--space-sm)' }}>开始日期</label>
+          <div className="workspace-field">
+            <label htmlFor="diary-search-start-date">开始日期</label>
             <input
+              id="diary-search-start-date"
               type="date"
               className="input w-full"
               value={filters.startDate}
               onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
             />
           </div>
-          <div>
-            <label className="text-sm text-muted" style={{ display: 'block', marginBottom: 'var(--space-sm)' }}>结束日期</label>
+          <div className="workspace-field">
+            <label htmlFor="diary-search-end-date">结束日期</label>
             <input
+              id="diary-search-end-date"
               type="date"
               className="input w-full"
               value={filters.endDate}
               onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
             />
           </div>
-          <div>
-            <label className="text-sm text-muted" style={{ display: 'block', marginBottom: 'var(--space-sm)' }}>标签</label>
+          <div className="workspace-field">
+            <label htmlFor="diary-search-tag">标签</label>
             <select
+              id="diary-search-tag"
               className="input w-full"
               value={filters.tagId || ''}
               onChange={(e) => setFilters({ ...filters, tagId: e.target.value ? Number(e.target.value) : null })}
@@ -276,84 +285,84 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
             </select>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Results */}
-      <div className="card" style={{ padding: 'var(--space-md)', flex: 1, overflow: 'auto' }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
-          <h3 className="text-lg font-medium">搜索结果 ({results.length})</h3>
+      <section
+        className="workspace-section workspace-search__results"
+        aria-labelledby="search-results-title"
+        aria-busy={loading}
+      >
+        <div className="workspace-section__heading workspace-search__results-heading">
+          <h2 id="search-results-title">搜索结果 <span className="workspace-search__result-count">{results.length}</span></h2>
           {results.length > 0 && (
-            <div className="text-sm text-muted">点击条目可跳转到该日期</div>
+            <p className="workspace-help">选择日记标题可跳转到对应日期。</p>
           )}
         </div>
 
         {loading ? (
-          <div style={{ padding: 'var(--space-md)' }}>
+          <div className="workspace-status workspace-search__loading" role="status" aria-live="polite">
+            <span className="sr-only">正在加载搜索结果</span>
             <SkeletonText lines={10} gap={32} />
           </div>
         ) : results.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 300, gap: 'var(--space-md)' }}>
-            <div style={{ fontSize: 56, opacity: 0.6 }}>
-              {query || Object.values(filters).some(f => f) ? <Search size={48} /> : <FileText size={48} />}
+          <div className="workspace-empty workspace-search__empty" role="status">
+            <div className="workspace-empty__icon" aria-hidden="true">
+              {query || Object.values(filters).some(f => f) ? <Search size={36} /> : <FileText size={36} />}
             </div>
-            <h3 className="text-base font-medium">
+            <h3>
               {query || Object.values(filters).some(f => f) ? '没有找到匹配的日记' : '开始搜索你的记忆'}
             </h3>
             {query || Object.values(filters).some(f => f) ? (
-              <div className="text-muted text-sm" style={{ maxWidth: 320, lineHeight: 1.6 }}>
-                尝试减少一些筛选条件，或者使用不同关键词。<br />
-                <span style={{ fontSize: 13, display: 'inline-block', marginTop: 'var(--space-md)', padding: 'var(--space-sm) var(--space-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius)' }}>
-                  快捷键提示：随时按下 <b>Cmd/Ctrl + K</b> 也可以发起搜索导航哦
-                </span>
-              </div>
+              <p>尝试减少筛选条件，或者使用不同关键词。</p>
             ) : (
-              <p className="text-muted text-sm" style={{ maxWidth: 280, lineHeight: 1.6 }}>
+              <p>
                 支持通过包含的单词、特定的心情、日期范围或者是设定的标签来精确查找过往日记。
               </p>
             )}
+            <p className="workspace-search__shortcut-hint">
+              快捷键提示：随时按下 <kbd>Cmd/Ctrl + K</kbd> 也可以发起搜索导航
+            </p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+          <div className="workspace-search__result-list" role="list">
             {results.map(entry => (
-              <div
+              <article
                 key={entry.id}
                 data-testid={`search-result-${entry.id}`}
-                className="card"
+                className="workspace-search__result"
+                role="listitem"
                 onClick={() => handleEntryClick(entry)}
-                style={{
-                  padding: 'var(--space-md)', cursor: 'pointer',
-                  transition: 'background 0.15s',
-                  borderLeft: '3px solid var(--accent)'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = ''}
               >
-                <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
-                  <div className="font-medium">{entry.title || '无标题'}</div>
-                  <div className="flex items-center gap-sm">
-                    <div className="text-sm text-muted">{formatShortDate(entry.date)}</div>
+                <div className="workspace-search__result-header">
+                  <button
+                    type="button"
+                    className="workspace-search__open-result"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleEntryClick(entry)
+                    }}
+                    aria-label={`打开日记 ${entry.title || formatShortDate(entry.date)}`}
+                  >
+                    {entry.title || '无标题'}
+                  </button>
+                  <div className="workspace-search__result-actions">
+                    <time className="workspace-search__date" dateTime={entry.date}>{formatShortDate(entry.date)}</time>
                     <button
                       type="button"
-                      className="button button-secondary"
+                      className="workspace-search__delete-result"
                       onClick={(event) => handleDeleteEntry(event, entry)}
-                      onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
-                      onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
                       aria-label={`删除日记 ${entry.title || formatShortDate(entry.date)}`}
                       title="删除日记"
-                      style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >
-                      <Trash2 size={13} aria-hidden />
+                      <Trash2 size={15} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
-                <div className="text-sm text-secondary" style={{
-                  marginBottom: 4, overflow: 'hidden',
-                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical'
-                }}>
+                <p className="workspace-search__snippet">
                   {(entry as DiaryEntry & { content_snippet?: string }).content_snippet || entry.content?.substring(0, 200)}
-                </div>
+                </p>
                 {entry.previewImages.length > 0 && (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
+                  <div className="workspace-search__images">
                     {entry.previewImages.map((image, index) => (
                       <ClickableImage
                         key={`${image.src}-${index}`}
@@ -370,27 +379,29 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
                           cursor: 'zoom-in',
                           display: 'block',
                         }}
-                        imageStyle={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'block' }}
+                        imageStyle={{ height: 64, width: 64, objectFit: 'cover', borderRadius: 'var(--radius-control)', border: '1px solid var(--color-border-default)', display: 'block' }}
                       />
                     ))}
                   </div>
                 )}
                 {entry.displayTags.length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: 'var(--space-xs) 0' }}>
+                  <div className="workspace-search__tags">
                     {entry.displayTags.map(tag => (
-                      <TagBadge key={tag.id} tag={tag} size="sm" />
+                      <span key={tag.id} className="workspace-tag-preview" data-variant={tag.variant}>
+                        <TagBadge tag={tag} size="sm" />
+                      </span>
                     ))}
                   </div>
                 )}
-                <div className="flex items-center gap-sm">
+                <div className="workspace-search__metadata">
                   {entry.mood && <MoodIcon mood={entry.mood} size={20} />}
-                  <span className="text-xs text-muted">{entry.word_count || 0} 字</span>
+                  <span>{entry.word_count || 0} 字</span>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         )}
-      </div>
+      </section>
       <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
     </div>
   )

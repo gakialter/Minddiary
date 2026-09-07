@@ -175,6 +175,37 @@ describe('SearchPanel diary results', () => {
     expect(onSelectEntry).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }))
   })
 
+  it('exposes persistently labelled search controls', async () => {
+    mocks.entriesGetAll.mockResolvedValue([])
+
+    render(<SearchPanel />)
+
+    expect(screen.getByLabelText('关键词')).toHaveAttribute('id', 'diary-search-query')
+    expect(screen.getByLabelText('心情')).toHaveAttribute('id', 'diary-search-mood')
+    expect(screen.getByLabelText('开始日期')).toHaveAttribute('id', 'diary-search-start-date')
+    expect(screen.getByLabelText('结束日期')).toHaveAttribute('id', 'diary-search-end-date')
+    expect(screen.getByLabelText('标签')).toHaveAttribute('id', 'diary-search-tag')
+    expect(await screen.findByText('开始搜索你的记忆')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('开始搜索你的记忆')
+  })
+
+  it('provides a native keyboard-reachable open action using the existing navigation callback', async () => {
+    mocks.entriesGetAll.mockResolvedValue([
+      makeEntry({ id: 4, date: '2026-05-15', title: '线性代数复盘', content: '矩阵秩与线性相关' }),
+    ])
+
+    const onSelectEntry = vi.fn()
+    render(<SearchPanel onSelectEntry={onSelectEntry} />)
+
+    const openButton = await screen.findByRole('button', { name: '打开日记 线性代数复盘' })
+    openButton.focus()
+    expect(openButton).toHaveFocus()
+    fireEvent.click(openButton)
+
+    expect(onSelectEntry).toHaveBeenCalledTimes(1)
+    expect(onSelectEntry).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }))
+  })
+
   it('does not delete a diary result when confirmation is cancelled', async () => {
     vi.mocked(window.confirm).mockReturnValue(false)
     mocks.entriesGetAll.mockResolvedValue([

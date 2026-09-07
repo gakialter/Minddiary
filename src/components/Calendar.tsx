@@ -129,35 +129,36 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
 
   return (
-    <div className="flex flex-col gap-md">
+    <section className="workspace-page workspace-page--wide workspace-calendar" aria-labelledby="calendar-month-heading">
       {/* Month navigation */}
-      <div className="flex items-center justify-between" style={{
-        background: 'transparent',
-        paddingBottom: 'var(--space-sm)'
-      }}>
-        <div className="flex items-center gap-md">
-           <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px' }}>{formatMonthYear(currentMonth)}</span>
-           <button className="button button-secondary text-sm" onClick={goToToday} style={{ padding: '4px 12px', background: 'transparent' }}>回到今天</button>
+      <header className="workspace-calendar__header">
+        <div className="workspace-calendar__heading-group">
+           <h2 id="calendar-month-heading" className="workspace-calendar__month" aria-live="polite">
+             {formatMonthYear(currentMonth)}
+           </h2>
+           <button type="button" className="button button-secondary workspace-calendar__today" onClick={goToToday}>
+             回到今天
+           </button>
         </div>
-        <div className="flex gap-sm">
-           <button className="button button-secondary text-sm" onClick={prevMonth} style={{ padding: '4px 12px', background: 'transparent' }}>← 上个月</button>
-           <button className="button button-secondary text-sm" onClick={nextMonth} style={{ padding: '4px 12px', background: 'transparent' }}>下个月 →</button>
-        </div>
-      </div>
+        <nav className="workspace-calendar__month-nav" aria-label="月份切换">
+           <button type="button" className="button button-secondary" onClick={prevMonth}>← 上个月</button>
+           <button type="button" className="button button-secondary" onClick={nextMonth}>下个月 →</button>
+        </nav>
+      </header>
 
       {/* Calendar grid */}
-      <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <div className="workspace-calendar__grid" role="group" aria-label={`${formatMonthYear(currentMonth)}学习记录`}>
         {/* Weekday headers */}
-        <div className="grid grid-cols-7" style={{ background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border)' }}>
+        <div className="workspace-calendar__weekdays" aria-hidden="true">
           {weekdays.map(day => (
-            <div key={day} style={{ padding: 'var(--space-sm)', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>
+            <div key={day} className="workspace-calendar__weekday">
               {day}
             </div>
           ))}
         </div>
 
         {/* Days grid */}
-        <div className="grid grid-cols-7">
+        <div className="workspace-calendar__days">
           {days.map((date, index) => {
             const dateStr = date ? toDateStr(date) : ''
             const isSelected = dateStr === selectedDate
@@ -171,62 +172,42 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
             return (
               <button
                 key={index}
+                type="button"
+                className="workspace-calendar__day"
                 title={buttonTitle}
+                aria-label={buttonTitle || undefined}
+                aria-pressed={date ? isSelected : undefined}
+                aria-current={isToday ? 'date' : undefined}
+                data-selected={isSelected || undefined}
+                data-today={isToday || undefined}
+                data-has-diary={hasDiary || undefined}
+                data-focus-level={focusLevel}
                 onClick={() => date && onSelectDate(dateStr)}
                 disabled={!date}
-                style={{
-                  minHeight: 80, padding: 'var(--space-sm)',
-                  border: '1px solid rgba(58,58,77,0.3)',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'flex-start',
-                  transition: 'background 0.15s', cursor: date ? 'pointer' : 'default',
-                  background: isSelected ? 'rgba(139,92,246,0.15)' : (date ? '' : 'transparent'),
-                  fontFamily: 'inherit',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => { if (date && !isSelected) e.currentTarget.style.background = 'var(--bg-tertiary)' }}
-                onMouseLeave={(e) => { if (date && !isSelected) e.currentTarget.style.background = '' }}
               >
                 {date && (
                   <>
-                    <span style={{
-                      fontSize: 13, fontWeight: 500, marginBottom: 4,
-                      ...(isToday ? {
-                        background: 'var(--accent)', color: 'white',
-                        borderRadius: '50%', width: 28, height: 28,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      } : {})
-                    }}>
+                    <span className="workspace-calendar__day-number">
                       {date.getDate()}
                     </span>
                     {hasDiary && (
-                      <div style={{ marginBottom: 2, position: 'relative' }}>
+                      <div className="workspace-calendar__mood" aria-hidden="true">
                         <MoodIcon mood={data?.mood || null} size={20} />
                         {focusLevel > 0 && (
-                          <div style={{ 
-                            position: 'absolute', bottom: -2, right: -4, 
-                            width: 10, height: 10, borderRadius: '50%',
-                            background: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)',
-                            border: '2px solid var(--bg-primary)'
-                          }} />
+                          <span className="workspace-calendar__focus-dot" data-level={focusLevel} />
                         )}
                       </div>
                     )}
-                    {hasDiary && <div className="text-xs text-muted">已记录</div>}
+                    {hasDiary && <span className="workspace-calendar__recorded">已记录</span>}
                     {!hasDiary && focusLevel > 0 && (
-                      <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                         <div style={{ 
-                            padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500,
-                            background: `color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)'} 15%, transparent)`,
-                            color: focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)',
-                            border: `1px solid color-mix(in srgb, ${focusLevel === 1 ? 'var(--success)' : focusLevel === 2 ? 'var(--warning)' : 'var(--accent-dark)'} 30%, transparent)`
-                          }}>
+                      <div className="workspace-calendar__focus-summary">
+                         <span className="workspace-calendar__focus-badge" data-level={focusLevel}>
                            {pomodoro?.totalMinutes || 0}m
-                         </div>
+                         </span>
                       </div>
                     )}
                     {!hasDiary && focusLevel === 0 && date.getDay() !== 0 && date.getDay() !== 6 && (
-                      <div className="text-xs text-muted" style={{ marginTop: 8 }}>点击添加</div>
+                      <span className="workspace-calendar__add-hint">点击添加</span>
                     )}
                   </>
                 )}
@@ -237,35 +218,32 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-md" style={{
-        padding: 'var(--space-md)', background: 'var(--bg-tertiary)',
-        borderRadius: 'var(--radius-lg)'
-      }}>
-        <div className="text-sm font-medium" style={{ marginBottom: 4 }}>图例</div>
-        <div className="flex items-center gap-sm">
-          <MoodIcon mood="default" size={24} />
-          <span className="text-sm text-secondary">有日记</span>
+      <aside className="workspace-calendar__legend" aria-label="日历图例">
+        <h3 className="workspace-calendar__legend-title">图例</h3>
+        <div className="workspace-calendar__legend-item">
+          <span aria-hidden="true"><MoodIcon mood="default" size={24} /></span>
+          <span>有日记</span>
         </div>
         {MOODS.map(m => (
-          <div key={m.id} className="flex items-center gap-sm">
-            <MoodIcon mood={m.id} size={24} />
-            <span className="text-sm text-secondary">{m.label}</span>
+          <div key={m.id} className="workspace-calendar__legend-item">
+            <span aria-hidden="true"><MoodIcon mood={m.id} size={24} /></span>
+            <span>{m.label}</span>
           </div>
         ))}
-        <div className="flex items-center gap-sm ml-4">
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--success)' }} />
-          <span className="text-sm text-secondary">专注 30m+</span>
+        <div className="workspace-calendar__legend-item workspace-calendar__legend-item--focus">
+          <span className="workspace-calendar__focus-dot" data-level="1" aria-hidden="true" />
+          <span>专注 30m+</span>
         </div>
-        <div className="flex items-center gap-sm">
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--warning)' }} />
-          <span className="text-sm text-secondary">专注 60m+</span>
+        <div className="workspace-calendar__legend-item">
+          <span className="workspace-calendar__focus-dot" data-level="2" aria-hidden="true" />
+          <span>专注 60m+</span>
         </div>
-        <div className="flex items-center gap-sm">
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent-dark)' }} />
-          <span className="text-sm text-secondary">专注 120m+</span>
+        <div className="workspace-calendar__legend-item">
+          <span className="workspace-calendar__focus-dot" data-level="3" aria-hidden="true" />
+          <span>专注 120m+</span>
         </div>
-      </div>
-    </div>
+      </aside>
+    </section>
   )
 }
 

@@ -360,6 +360,11 @@ describe('StudyProgress detailed subject chapters', () => {
 
     await screen.findByTestId('subject-card-7')
     expect(screen.getByText('Math')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '总体章节进度' })).toHaveAttribute('aria-valuenow', '40')
+    expect(screen.getByRole('progressbar', { name: 'Math章节进度' })).toHaveAttribute('aria-valuetext', '已完成 2 / 5 章节')
+    expect(screen.getByRole('button', { name: 'Math汇总进度加一' })).toBeInTheDocument()
+    expect(screen.getByTestId('manage-chapters-7')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByTestId('manage-chapters-7')).toHaveAttribute('aria-controls', 'study-progress-chapters-7')
     expect(screen.getByTitle('汇总进度加一')).toBeInTheDocument()
 
     vi.mocked(window.confirm).mockReturnValue(false)
@@ -367,6 +372,17 @@ describe('StudyProgress detailed subject chapters', () => {
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('详细章节'))
     expect(mocks.subjectsDelete).not.toHaveBeenCalled()
+  })
+
+  it('keeps the subject form persistently labelled and exposes color selection', async () => {
+    setupStudyProgress([])
+
+    fireEvent.click(await screen.findByRole('button', { name: '新增科目' }))
+
+    expect(screen.getByLabelText('科目名称')).toHaveAttribute('id', 'study-progress-subject-name')
+    expect(screen.getByLabelText('汇总章节数')).toHaveAttribute('id', 'study-progress-subject-total')
+    expect(screen.getByRole('button', { name: '选择颜色 #0F766E' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '选择颜色 #2F8F6B' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('converts legacy summary progress from a pasted chapter list', async () => {

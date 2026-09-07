@@ -94,11 +94,56 @@ describe('Settings Component', () => {
     expect(screen.getByDisplayValue('30')).toBeInTheDocument()
     expect(screen.getByDisplayValue('C:\\Backups')).toBeInTheDocument()
 
-    const checkboxes = screen.getAllByRole('checkbox')
-    expect(checkboxes[0]).toBeChecked()      // pomodoroSound = default true
-    expect(checkboxes[1]).toBeChecked()      // pomodoroAlert = default true
-    expect(checkboxes[2]).not.toBeChecked()  // autoSave = false per mock
-    expect(checkboxes[3]).toBeChecked()      // autoBackup = true per mock
+    expect(screen.getByLabelText('计时结束音效提示')).toBeChecked()
+    expect(screen.getByLabelText('计时结束弹窗提示（适合看网课时使用）')).toBeChecked()
+    expect(screen.getByLabelText('启用自动保存')).not.toBeChecked()
+    expect(screen.getByLabelText('开启静默自动备份')).toBeChecked()
+    expect(screen.getByLabelText('主题')).toHaveValue('system')
+    expect(screen.getByLabelText('番茄钟时长（分钟）')).toHaveValue(30)
+    expect(screen.getByLabelText('API 请求地址')).toHaveValue('https://api.mock.com')
+    expect(screen.getByLabelText('自动备份目录')).toHaveValue('C:\\Backups')
+  })
+
+  it('disables backup directory controls when automatic backup is off', async () => {
+    await act(async () => { render(<Settings />) })
+    const directory = screen.getByLabelText('自动备份目录')
+    const chooseDirectory = screen.getByRole('button', { name: '选择' })
+    expect(chooseDirectory).toBeEnabled()
+    fireEvent.click(screen.getByLabelText('开启静默自动备份'))
+    expect(directory).toBeDisabled()
+    expect(chooseDirectory).toBeDisabled()
+    expect(screen.getByRole('button', { name: '导出为 JSON' })).toBeEnabled()
+    fireEvent.click(screen.getByLabelText('开启静默自动备份'))
+    expect(directory).toBeEnabled()
+    expect(chooseDirectory).toBeEnabled()
+  })
+
+  it('keeps a visible associated model search label after typing', async () => {
+    await act(async () => {
+      render(<Settings />)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '模型名称' }))
+
+    const search = screen.getByLabelText('搜索模型')
+    fireEvent.change(search, { target: { value: 'Flash' } })
+
+    expect(search).toHaveValue('Flash')
+    expect(screen.getByText('搜索模型', { selector: 'label' })).toBeVisible()
+  })
+
+  it('closes the model picker on Escape and restores focus without selecting a model', async () => {
+    await act(async () => { render(<Settings />) })
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    const trigger = screen.getByRole('button', { name: '模型名称' })
+    fireEvent.click(trigger)
+    const search = screen.getByLabelText('搜索模型')
+    const selection = trigger.textContent
+    fireEvent.keyDown(search, { key: 'Escape' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).toHaveFocus()
+    expect(trigger.textContent).toBe(selection)
+    expect(screen.queryByLabelText('搜索模型')).not.toBeInTheDocument()
   })
 
   it('debounces auto-saving via patch APIs', async () => {

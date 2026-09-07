@@ -37,11 +37,15 @@ const patternBackgrounds: Record<TagPattern, (color: string) => Pick<CSSProperti
 }
 
 function getSolidTextColor(hexColor: string): string {
-  const red = Number.parseInt(hexColor.slice(1, 3), 16)
-  const green = Number.parseInt(hexColor.slice(3, 5), 16)
-  const blue = Number.parseInt(hexColor.slice(5, 7), 16)
-  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
-  return luminance > 0.62 ? '#1F2937' : '#FFFFFF'
+  const linearChannel = (offset: number) => {
+    const channel = Number.parseInt(hexColor.slice(offset, offset + 2), 16) / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = 0.2126 * linearChannel(1) + 0.7152 * linearChannel(3) + 0.0722 * linearChannel(5)
+  // Pick the stronger WCAG contrast pair for this user-owned content color.
+  const blackContrast = (luminance + 0.05) / 0.05
+  const whiteContrast = 1.05 / (luminance + 0.05)
+  return blackContrast >= whiteContrast ? '#000000' : '#FFFFFF'
 }
 
 function getVariantStyle(variant: TagVariant, color: string): Pick<CSSProperties, 'backgroundColor' | 'borderColor' | 'color'> {
