@@ -18,36 +18,19 @@ export default function AIQuickPromptMenu({ prompts, onSelect, compact = false }
             {prompts.map(prompt => (
                 <button
                     key={prompt.id}
-                    className="flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                    type="button"
+                    className="button button-secondary ai-quick-prompt"
                     style={{
                         padding: compact ? '5px 10px' : '8px 16px',
-                        borderRadius: 9999,
+                        borderRadius: 'var(--radius-control)',
                         border: '1px solid var(--border)',
                         background: 'transparent',
-                        color: prompt.disabledReason ? 'var(--text-muted)' : 'var(--text-secondary)',
-                        transition: 'all 0.2s',
+                        color: 'var(--color-text-secondary)',
                         opacity: prompt.disabledReason ? 0.55 : 1,
                     }}
                     disabled={Boolean(prompt.disabledReason)}
                     title={prompt.disabledReason || prompt.label}
                     onClick={() => onSelect(prompt)}
-                    onMouseEnter={event => {
-                        if (prompt.disabledReason) return
-                        Object.assign(event.currentTarget.style, {
-                            background: 'var(--bg-tertiary)',
-                            color: 'var(--text-primary)',
-                            borderColor: 'transparent',
-                            transform: 'translateY(-1px)',
-                        })
-                    }}
-                    onMouseLeave={event => {
-                        Object.assign(event.currentTarget.style, {
-                            background: 'transparent',
-                            color: prompt.disabledReason ? 'var(--text-muted)' : 'var(--text-secondary)',
-                            borderColor: 'var(--border)',
-                            transform: 'translateY(0)',
-                        })
-                    }}
                 >
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.8 }}>{prompt.icon}</span>
                     <span style={{ fontSize: compact ? 12 : 13, fontWeight: 500 }}>{prompt.label}</span>

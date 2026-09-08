@@ -27,21 +27,17 @@ export default function AIMessageBubble({
     const isUser = message.role === 'user'
 
     return (
-        <div style={{
+        <div className="ai-message" style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: isUser ? 'flex-end' : 'flex-start',
-            animation: 'page-fade-in 0.3s cubic-bezier(0.2, 0, 0, 1)',
         }}>
-            <div style={{
-                maxWidth: '85%',
+            <div className="ai-message__body" style={{
+                maxWidth: '92%',
                 padding: '12px 16px',
-                borderRadius: 16,
-                borderTopRightRadius: isUser ? 4 : 16,
-                borderTopLeftRadius: !isUser ? 4 : 16,
-                background: isUser ? 'var(--accent)' : 'var(--bg-tertiary)',
-                color: isUser ? 'white' : 'var(--text-primary)',
-                boxShadow: isUser ? '0 4px 12px rgba(15, 118, 110, 0.2)' : 'none',
+                borderRadius: 'var(--radius-object)',
+                background: isUser ? 'var(--color-control-selected-bg)' : 'var(--color-surface-subtle)',
+                color: isUser ? 'var(--color-control-selected-fg)' : 'var(--color-text-primary)',
                 fontSize: 15,
                 lineHeight: 1.6,
             }}>
@@ -54,10 +50,10 @@ export default function AIMessageBubble({
                     <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {message.contextLabels.map(label => (
                             <span key={label} style={{
-                                fontSize: 11,
+                                fontSize: 12,
                                 padding: '2px 6px',
-                                borderRadius: 999,
-                                background: isUser ? 'rgba(255,255,255,0.18)' : 'var(--bg-secondary)',
+                                borderRadius: 'var(--radius-control)',
+                                background: 'var(--color-surface-base)',
                             }}>
                                 {label}
                             </span>
@@ -67,7 +63,7 @@ export default function AIMessageBubble({
                 {message.attachments && message.attachments.length > 0 && (
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {message.attachments.map(attachment => (
-                            <span key={`${attachment.kind}-${attachment.name}`} style={{ fontSize: 11, opacity: 0.85 }}>
+                            <span key={`${attachment.kind}-${attachment.name}`} style={{ fontSize: 12 }}>
                                 附件：{attachment.name}（{attachment.kind}，内容未持久化）
                             </span>
                         ))}
@@ -79,22 +75,24 @@ export default function AIMessageBubble({
                 alignItems: 'center',
                 gap: 6,
                 margin: '4px 8px 0 8px',
-                color: 'var(--text-muted)',
-                fontSize: 11,
+                color: 'var(--color-text-secondary)',
+                fontSize: 12,
             }}>
                 <span>{isUser ? '我' : '小研 AI'}</span>
                 <button
                     type="button"
+                    className="ai-local-action"
                     aria-label={isUser ? '复制用户消息' : '复制 AI 回复'}
                     title="复制"
                     onClick={() => onCopy(message.content)}
                     style={{ border: 'none', background: 'transparent', padding: 0, color: 'inherit', cursor: 'pointer', display: 'flex' }}
                 >
-                    <Copy size={12} aria-hidden />
+                    <Copy size={16} aria-hidden />
                 </button>
                 {!isUser && onRegenerate && (
                     <button
                         type="button"
+                        className="ai-local-action"
                         aria-label="重新生成 AI 回复"
                         title={regenerateDisabledReason || '重新生成'}
                         disabled={Boolean(regenerateDisabledReason)}
@@ -109,7 +107,7 @@ export default function AIMessageBubble({
                             opacity: regenerateDisabledReason ? 0.5 : 1,
                         }}
                     >
-                        <RotateCcw size={12} aria-hidden />
+                        <RotateCcw size={16} aria-hidden />
                     </button>
                 )}
             </div>

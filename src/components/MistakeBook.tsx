@@ -661,7 +661,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     background: isRoleDragging ? 'color-mix(in srgb, var(--accent) 6%, var(--bg-secondary))' : 'var(--bg-secondary)',
                 }}
             >
-                <div className="flex items-center justify-between" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
+                <div className="mistake-book__toolbar" style={{ gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)' }}>
                     <div>
                         <div className="text-sm font-medium">{title}</div>
                         <div className="text-xs text-muted">{description}</div>
@@ -721,7 +721,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                         type="button"
                                         onClick={() => removeImagePath(role, idx)}
                                         disabled={cleaningImageCount > 0 || isSaving}
-                                        style={{ background: 'var(--color-state-danger)', color: 'white', borderRadius: '50%', width: 22, height: 22, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                        style={{ background: 'var(--color-danger-bg-subtle)', color: 'var(--color-danger-fg)', borderRadius: 'var(--radius-control)', width: 32, height: 32, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         title={`删除${previewLabel} ${idx + 1}`}
                                         aria-label={`删除${previewLabel} ${idx + 1}`}
                                     >
@@ -738,7 +738,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     <div
                         key={failure.id}
                         className="text-xs"
-                        style={{ marginTop: 'var(--space-xs)', color: 'var(--color-state-danger)', display: 'flex', alignItems: 'center', gap: 8 }}
+                        style={{ marginTop: 'var(--space-xs)', color: 'var(--color-danger-fg)', display: 'flex', alignItems: 'center', gap: 8 }}
                     >
                         <span>{failure.filename}：{failure.message}</span>
                         <button
@@ -762,11 +762,11 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     return (
         <div
             data-mistake-form-open={showForm ? 'true' : 'false'}
-            style={{ padding: 'var(--space-xl)' }}
+            className="workspace-page workspace-page--wide mistake-book"
         >
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-lg)' }}>
+            <div className="mistake-book__toolbar" style={{ marginBottom: 'var(--space-lg)' }}>
                 <div className="text-sm text-muted">
-                    共 <strong style={{ color: 'var(--text-primary)' }}>{totalCount}</strong> 条记录，已吃透 <strong style={{ color: 'var(--success)' }}>{masteredCount}</strong> 条
+                    共 <strong style={{ color: 'var(--text-primary)' }}>{totalCount}</strong> 条记录，已掌握 <strong style={{ color: 'var(--color-success-fg)' }}>{masteredCount}</strong> 条
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
@@ -780,7 +780,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     </button>
                     <button
                         type="button"
-                        className="button button-primary"
+                        className="button button-secondary"
                         data-testid="mistake-start-review-btn"
                         onClick={() => setShowManualReview(true)}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
@@ -788,36 +788,43 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         <BookOpen size={16} /> 开始复习
                     </button>
                     <button
-                        className="button button-primary"
+                        className={showForm ? 'button button-secondary' : 'button button-primary'}
                         onClick={handleToggleForm}
                         disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || isSaving}
                         data-testid="mistake-add-btn"
+                        aria-expanded={showForm}
                     >
-                        + 添加
+                        {showForm ? '收起表单' : '+ 添加错题'}
                     </button>
                 </div>
             </div>
 
             {/* Filters */}
-            <div className="flex gap-sm" style={{ marginBottom: 'var(--space-md)' }}>
-                <input
-                    className="input" placeholder="搜索..." style={{ flex: 1, paddingLeft: 12 }}
-                    value={searchInput} onChange={handleSearchChange}
-                    data-testid="mistake-search-input"
-                />
-                <select className="input" value={filter.subject_id}
-                    onChange={e => { setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}
-                    data-testid="mistake-subject-filter">
-                    <option value="">全部科目</option>
-                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <select className="input" value={filter.mastered}
-                    onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
-                    data-testid="mistake-status-filter">
-                    <option value="">全部状态</option>
-                    <option value="false">未掌握</option>
-                    <option value="true">已掌握</option>
-                </select>
+            <div className="mistake-book__filters">
+                <label className="workspace-field">搜索错题
+                    <input
+                        className="input" placeholder="搜索..." style={{ flex: 1, paddingLeft: 12 }}
+                        value={searchInput} onChange={handleSearchChange}
+                        data-testid="mistake-search-input"
+                    />
+                </label>
+                <label className="workspace-field">科目
+                    <select className="input" value={filter.subject_id}
+                        onChange={e => { setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}
+                        data-testid="mistake-subject-filter">
+                        <option value="">全部科目</option>
+                        {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </label>
+                <label className="workspace-field">掌握状态
+                    <select className="input" value={filter.mastered}
+                        onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
+                        data-testid="mistake-status-filter">
+                        <option value="">全部状态</option>
+                        <option value="false">未掌握</option>
+                        <option value="true">已掌握</option>
+                    </select>
+                </label>
             </div>
 
             {dueOnly && (
@@ -830,10 +837,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         className="text-xs font-medium"
                         style={{
                             padding: '4px 10px',
-                            borderRadius: 999,
-                            color: 'var(--accent)',
-                            background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))',
-                            border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+                            borderRadius: 'var(--radius-control)',
+                            color: 'var(--color-control-selected-fg)',
+                            background: 'var(--color-control-selected-bg)',
+                            border: '1px solid var(--color-control-selected-border)',
                         }}
                     >
                         今日待复习
@@ -852,7 +859,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
 
             {/* Add/Edit Form */}
             {showForm && (
-                <form className="card"
+                <form className="mistake-book__form"
                      ref={formRef}
                      data-testid="mistake-form"
                      data-image-form-state={imageFormState}
@@ -865,37 +872,41 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                          border: draggingRole ? '2px dashed var(--accent)' : '1px solid var(--border)'
                      }}
                 >
-                    <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space)' }}>
+                    <div className="mistake-book__toolbar" style={{ marginBottom: 'var(--space)' }}>
                         <h3>{editingId ? '编辑' : '添加错题/知识点'}</h3>
                         <span className="text-xs text-muted">提示：支持 Ctrl/Cmd+V 粘贴或拖拽图片</span>
                     </div>
                     <div className="flex flex-col gap-sm">
-                        <select className="input" value={form.subject_id}
+                        <label htmlFor="mistake-form-subject">科目</label>
+                        <select id="mistake-form-subject" className="input" value={form.subject_id}
                             onChange={e => setForm({ ...form, subject_id: e.target.value })}>
                             <option value="">选择科目</option>
                             {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
-                        <textarea
+                        <label htmlFor="mistake-form-question">问题 / 知识点</label>
+                        <textarea id="mistake-form-question"
                             ref={questionTextareaRef}
                             className="input" placeholder="问题 / 知识点" rows={3}
                             value={form.question} onChange={e => setForm({ ...form, question: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('question', '题目图片', '在查看答案前显示', form.question_image_paths)}
-                        <textarea
+                        <label htmlFor="mistake-form-answer">答案 / 解析</label>
+                        <textarea id="mistake-form-answer"
                             className="input" placeholder="答案 / 解析" rows={3}
                             value={form.answer} onChange={e => setForm({ ...form, answer: e.target.value })}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('answer', '答案图片', '查看答案后显示', form.answer_image_paths)}
-                        <div>
+                        <div className="workspace-field">
+                            <label htmlFor="mistake-form-notes">备注（可选）</label>
                             <FormatToolbar
                                 onBold={notesFormat.bold}
                                 onHighlight={notesFormat.highlight}
                                 onUnderline={notesFormat.underline}
                                 onColor={notesFormat.color}
                             />
-                            <textarea
+                            <textarea id="mistake-form-notes"
                                 ref={notesTextareaRef}
                                 className="input" placeholder="备注（可选）" rows={2}
                                 value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
@@ -942,17 +953,21 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     />
                 ))}
                 {mistakes.length === 0 && (
-                    <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 400, gap: 'var(--space-md)' }} data-testid="mistake-empty-state">
-                        <div style={{ width: 100, height: 100, borderRadius: '50%', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-sm)', border: '2px solid var(--bg-secondary)', boxShadow: 'var(--shadow-sm)' }}>
-                            <BookX size={48} style={{ color: 'var(--accent)', opacity: 0.9 }} />
+                    <div className="workspace-empty" data-testid="mistake-empty-state">
+                        <div className="workspace-empty__icon">
+                            <BookX size={28} style={{ color: 'var(--accent)', opacity: 0.9 }} />
                         </div>
-                        <h3 className="text-lg font-medium">还没有错题记录</h3>
+                        <h3 className="text-lg font-medium">
+                            {filter.search || filter.subject_id || filter.mastered || dueOnly ? '没有符合筛选条件的错题' : '还没有错题记录'}
+                        </h3>
                         <p className="text-muted" style={{ maxWidth: 300 }}>
-                            你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。
+                            {filter.search || filter.subject_id || filter.mastered || dueOnly
+                                ? '试试调整搜索词、科目或掌握状态。'
+                                : '你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。'}
                         </p>
                         {!showForm && (
-                            <button className="button button-primary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)} data-testid="mistake-add-first-btn">
-                                + 添加第一条记录
+                            <button className="button button-secondary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)} data-testid="mistake-add-first-btn">
+                                + 添加错题
                             </button>
                         )}
                     </div>
@@ -961,7 +976,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
 
             {/* Pagination */}
             {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-sm" style={{ marginTop: 'var(--space-lg)' }}>
+                <div className="mistake-book__pagination" role="navigation" aria-label="错题分页">
                     <button className="button button-secondary" style={{ padding: '4px 12px' }}
                         disabled={page <= 1} onClick={() => setPage(p => p - 1)}>‹ 上一页</button>
                     <span className="text-sm text-muted">{page} / {totalPages}</span>

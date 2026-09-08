@@ -19,16 +19,17 @@ export default function AIContextChips({ contextKinds, onRemove }: AIContextChip
                         alignItems: 'center',
                         gap: 4,
                         padding: '4px 8px',
-                        borderRadius: 999,
-                        background: 'var(--bg-tertiary)',
-                        color: 'var(--text-secondary)',
-                        border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-control)',
+                        background: 'var(--color-surface-subtle)',
+                        color: 'var(--color-text-secondary)',
+                        border: '1px solid var(--color-border-subtle)',
                         fontSize: 12,
                     }}
                 >
                     {AI_CONTEXT_LABELS[kind]}
                     <button
                         type="button"
+                        className="ai-local-action"
                         aria-label={`移除上下文 ${AI_CONTEXT_LABELS[kind]}`}
                         title={`移除 ${AI_CONTEXT_LABELS[kind]}`}
                         onClick={() => onRemove(kind)}
@@ -36,7 +37,7 @@ export default function AIContextChips({ contextKinds, onRemove }: AIContextChip
                             border: 'none',
                             background: 'transparent',
                             padding: 0,
-                            color: 'var(--text-muted)',
+                            color: 'var(--color-text-secondary)',
                             cursor: 'pointer',
                             display: 'flex',
                         }}

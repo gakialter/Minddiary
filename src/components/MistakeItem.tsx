@@ -40,29 +40,29 @@ export function MistakeItem({
     const showReviewControls = answerVisible && !m.mastered && dueForReview
 
     return (
-        <div className="card" style={{
+        <div className="mistake-item" style={{
             padding: 'var(--space-md)',
             borderLeft: `3px solid ${m.subject_color || 'var(--border)'}`,
-            opacity: m.mastered ? 0.6 : 1
+            color: 'var(--color-text-primary)'
         }}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-xs)' }}>
-                <div className="flex items-center gap-sm">
+            <div className="mistake-item__header" style={{ marginBottom: 'var(--space-xs)' }}>
+                <div className="mistake-item__metadata">
                     {m.subject_name && (
                         <span className="text-sm" style={{
-                            background: m.subject_color + '22', color: m.subject_color,
+                            background: 'var(--color-surface-subtle)', color: 'var(--color-text-primary)',
                             padding: '1px 8px', borderRadius: 'var(--radius-sm)', fontWeight: 500
                         }}>
                             {m.subject_name}
                         </span>
                     )}
                     {m.mastered
-                        ? <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 斩首成功 (已掌握)</span>
+                        ? <span style={{ fontSize: 12, color: 'var(--color-success-fg)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 已掌握</span>
                         : dueForReview
-                            ? <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
+                            ? <span style={{ fontSize: 12, color: 'var(--color-warning-fg)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
                             : <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 下次复习: {m.next_review_date}</span>
                     }
                 </div>
-                <div className="flex gap-xs">
+                <div className="workspace-action-row">
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
                         onClick={() => toggleMastered(m.id)}
                         aria-label={m.mastered ? "撤销掌握，重新加入计划" : "标记为已彻底掌握"}
@@ -76,8 +76,8 @@ export function MistakeItem({
                     ><Pencil size={13} aria-hidden /></button>
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         onClick={() => handleDelete(m.id)}
-                        onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
-                        onMouseLeave={e => e.currentTarget.style.color = 'inherit'}
+                        data-destructive="true"
+
                         aria-label="删除错题"
                         title="删除错题"
                     ><Trash2 size={13} aria-hidden /></button>
@@ -119,6 +119,7 @@ export function MistakeItem({
                         type="button"
                         className="button button-secondary"
                         data-testid={`mistake-toggle-answer-${m.id}`}
+                        aria-expanded={answerVisible}
                         onClick={() => setAnswerVisible(visible => !visible)}
                         style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
                     >
@@ -173,13 +174,13 @@ export function MistakeItem({
             
             {/* Spaced Repetition Review Buttons */}
             {showReviewControls && (
-                <div className="flex gap-sm" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)' }}>
+                <div className="mistake-item__review" style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)' }}>
                     {REVIEW_QUALITIES.map(rq => (
                         <button 
                             key={rq.quality}
                             className="button button-secondary"
                             disabled={reviewing}
-                            style={{ flex: 1, color: rq.color, borderColor: rq.color + '44' }}
+                            data-quality={rq.quality}
                             onClick={() => handleReview(m, rq.quality)}
                         >
                             {rq.label}

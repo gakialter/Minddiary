@@ -115,7 +115,7 @@ describe('MistakeBook Component', () => {
     })
 
     // Should display stats
-    expect(screen.getByText(/条记录，已吃透/)).toBeInTheDocument()
+    expect(screen.getByText(/条记录，已掌握/)).toBeInTheDocument()
 
     // Should render the questions
     expect(screen.getByText('1+1=?')).toBeInTheDocument()
@@ -1214,7 +1214,7 @@ describe('MistakeBook Component', () => {
       ['第三题', '答案三', '笔记三'],
     ])
 
-    const secondCard = screen.getByText('第二题').closest('.card')
+    const secondCard = screen.getByText('第二题').closest('.mistake-item')
     expect(secondCard).not.toBeNull()
     await act(async () => {
       fireEvent.click(within(secondCard as HTMLElement).getByRole('button', { name: '编辑错题' }))
@@ -1227,7 +1227,7 @@ describe('MistakeBook Component', () => {
     })
     await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
 
-    const firstCard = screen.getByText('第一题').closest('.card')
+    const firstCard = screen.getByText('第一题').closest('.mistake-item')
     expect(firstCard).not.toBeNull()
     await act(async () => {
       fireEvent.click(within(firstCard as HTMLElement).getByRole('button', { name: '编辑错题' }))
