@@ -91,6 +91,76 @@ describe('Pomodoro Component', () => {
     })
   }
 
+  it.each([
+    ['{"x":100,"y":100}', 'bottom-left'],
+    ['{"x":800,"y":100}', 'bottom-right'],
+    ['broken', 'bottom-left'],
+    ['{"x":99999,"y":100}', 'bottom-left'],
+    ['{"x":100,"y":-20}', 'bottom-left'],
+    ['{"x":"800","y":100}', 'bottom-left'],
+  ])('migrates legacy placement %s to a legal dock', async (legacy, dock) => {
+    localStorage.setItem('pomodoro-widget-position', legacy)
+    await renderPomodoro(true)
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dock', dock)
+    expect(localStorage.getItem('pomodoro-widget-dock')).toBe(dock)
+    expect(localStorage.getItem('pomodoro-widget-position')).toBeNull()
+  })
+
+  it('persists both dock buttons and retains dock intent after remount/sidebar/resize', async () => {
+    const tree = (collapsed: boolean) => <PomodoroProvider><Pomodoro isWidget onExpand={vi.fn()} isCollapsed={collapsed} /></PomodoroProvider>
+    const view = render(tree(false))
+    await flushAsyncWork()
+    fireEvent.click(screen.getByRole('button', { name: '停靠右下角' }))
+    expect(localStorage.getItem('pomodoro-widget-dock')).toBe('bottom-right')
+    view.rerender(tree(true))
+    fireEvent(window, new Event('resize'))
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dock', 'bottom-right')
+    view.unmount()
+    await renderPomodoro(true)
+    expect(screen.getByRole('button', { name: '停靠右下角' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '停靠左下角' }))
+    expect(localStorage.getItem('pomodoro-widget-dock')).toBe('bottom-left')
+  })
+
+  it('settles drag release, cancels pointer capture, and keeps timer/navigation separate', async () => {
+    const onExpand = vi.fn()
+    render(<PomodoroProvider><Pomodoro isWidget onExpand={onExpand} isCollapsed={false} /></PomodoroProvider>)
+    await flushAsyncWork()
+    const handle = screen.getByTitle('拖拽选择左侧或右侧停靠')
+    handle.setPointerCapture = vi.fn()
+    handle.hasPointerCapture = vi.fn(() => true)
+    handle.releasePointerCapture = vi.fn()
+    const pointer = (type: string, x: number) => {
+      const event = new Event(type, { bubbles: true })
+      Object.assign(event, { pointerId: 1, button: 0, clientX: x, clientY: 100 })
+      fireEvent(handle, event)
+    }
+    pointer('pointerdown', 100)
+    pointer('pointerup', 900)
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dock', 'bottom-right')
+    pointer('pointerdown', 900)
+    pointer('pointercancel', 100)
+    pointer('pointerup', 100)
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dock', 'bottom-right')
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dragging', 'false')
+    expect(handle.releasePointerCapture).toHaveBeenCalledWith(1)
+    pointer('pointerdown', 900)
+    pointer('lostpointercapture', 100)
+    pointer('pointerup', 100)
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dock', 'bottom-right')
+    expect(screen.getByTestId('pomodoro-widget')).toHaveAttribute('data-dragging', 'false')
+    pointer('pointerdown', 100)
+    pointer('pointerup', 102)
+    expect(onExpand).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '开始计时' }))
+    await flushAsyncWork()
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByText('24:59')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '暂停计时' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开番茄钟' }))
+    expect(onExpand).toHaveBeenCalledTimes(1)
+  })
+
   it('renders the core pomodoro UI in full page view', async () => {
     await renderPomodoro()
     
@@ -116,7 +186,7 @@ describe('Pomodoro Component', () => {
     expect(screen.getByText('25:00')).toBeInTheDocument()
     
     // Should have draggable title
-    expect(screen.getByTitle('拖拽移动 · 点击打开番茄钟')).toBeInTheDocument()
+    expect(screen.getByTitle('拖拽选择左侧或右侧停靠')).toBeInTheDocument()
     expect(screen.queryByTestId('pomodoro-enter-zen-btn')).not.toBeInTheDocument()
   })
 

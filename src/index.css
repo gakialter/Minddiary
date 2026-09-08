@@ -946,11 +946,6 @@ body {
   }
 }
 
-.app-container:has([data-mistake-form-open="true"]) .pomodoro-mini {
-  visibility: hidden;
-  pointer-events: none;
-}
-
 /* Empty state */
 .empty-state {
   display: flex;
@@ -6285,4 +6280,65 @@ textarea.input {
 .ai-workspace__empty p { max-width: 440px; margin-bottom: var(--space-2); }
 @media (max-height: 650px) {
   .ai-attachments { max-height: 68px; }
+}
+
+/* C8.6: shell-owned dock space, shared review surface, local state feedback. */
+.main[data-pomodoro-docked="true"] {
+  position: relative;
+  padding-bottom: 76px;
+}
+.pomodoro-mini {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  height: 52px;
+  max-width: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  z-index: var(--z-floating);
+}
+.pomodoro-mini[data-dock="bottom-right"] { left: auto; right: 12px; }
+.pomodoro-mini__handle { display: flex; touch-action: none; cursor: grab; color: var(--color-text-secondary); user-select: none; }
+.pomodoro-mini[data-dragging="true"] .pomodoro-mini__handle { cursor: grabbing; }
+.pomodoro-mini[data-dragging="true"] { border-color: var(--color-accent); }
+.pomodoro-mini__docks { display: flex; gap: var(--space-1); }
+.pomodoro-mini .button-icon { width: 32px; height: 32px; padding: 0; }
+.pomodoro-mini__open { min-height: 32px; padding: 0 var(--space-2); }
+.pomodoro-mini [aria-pressed="true"] { color: var(--color-accent); background: var(--color-accent-subtle); border: 1px solid var(--color-accent); }
+.c8-review-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--color-overlay-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+.c8-review-dialog {
+  width: 100%;
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.c8-review-dialog--manual { max-width: 520px; }
+.c8-review-close { width: 32px; height: 32px; padding: 0; flex-shrink: 0; background: transparent; border-color: transparent; color: var(--color-text-secondary); }
+.c8-review-dialog > :first-child { flex-shrink: 0; }
+.c8-review-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-5); overflow-wrap: anywhere; }
+.focus-zen-controls:focus-within { opacity: 1 !important; pointer-events: auto !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-zen-controls { transition: none !important; }
+  .c8-review-dialog [style*="animation"], .c8-review-dialog .animate-spin { animation: none !important; }
 }

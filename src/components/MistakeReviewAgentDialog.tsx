@@ -1,3 +1,4 @@
+import { useModalFocus } from '../hooks/useModalFocus'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertCircle, BookOpen, CheckCircle2, Clock, Loader2, RefreshCw, Sparkles, X } from 'lucide-react'
@@ -63,6 +64,7 @@ export default function MistakeReviewAgentDialog({
   aiAPI,
 }: MistakeReviewAgentDialogProps) {
 
+  const modalRef = useModalFocus(onClose)
   const currentDate = propCurrentDate || getLocalDateKey(new Date())
 
   const [status, setStatus] = useState<DialogStatus>('loading')
@@ -304,33 +306,10 @@ export default function MistakeReviewAgentDialog({
 
   const dialogContent = (
     <div
-      className="modal-overlay"
+      className="c8-review-overlay"
       data-testid="mistake-review-agent-dialog"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: 'var(--space-md)',
-      }}
     >
-      <div
-        className="modal-container"
-        style={{
-          background: 'var(--bg-primary, #ffffff)',
-          borderRadius: 12,
-          maxWidth: 680,
-          width: '100%',
-          maxHeight: '90vh',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: 'var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))',
-          overflow: 'hidden',
-        }}
-      >
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="AI 错题复习规划" tabIndex={-1} className="c8-review-dialog" style={{ maxWidth: 680, maxHeight: '90vh' }}>
         {/* Header */}
         <div
           style={{
@@ -360,10 +339,10 @@ export default function MistakeReviewAgentDialog({
           </div>
           <button
             type="button"
-            className="button-icon"
+            className="button c8-review-close"
             data-testid="mistake-review-close-btn"
+            aria-label="关闭 AI 错题复习规划"
             onClick={onClose}
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4 }}
           >
             <X size={20} />
           </button>
@@ -374,6 +353,8 @@ export default function MistakeReviewAgentDialog({
           style={{
             padding: 'var(--space-lg, 16px)',
             overflowY: 'auto',
+            minHeight: 0,
+            overscrollBehavior: 'contain',
             flex: 1,
           }}
         >
@@ -556,7 +537,7 @@ export default function MistakeReviewAgentDialog({
                               fontSize: '0.75rem',
                               padding: '1px 6px',
                               borderRadius: 4,
-                              background: candidate.overdue_days > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                              background: candidate.overdue_days > 0 ? 'var(--color-danger-bg-subtle)' : 'var(--color-accent-subtle)',
                               color: candidate.overdue_days > 0 ? 'var(--danger, #ef4444)' : 'var(--accent, #3b82f6)',
                               fontWeight: 500,
                             }}

@@ -328,7 +328,7 @@ function AppContent() {
         isCollapsed={isSidebarCollapsed}
         onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
       />
-      <div className="main" data-active-view={activeView}>
+      <div className="main" data-pomodoro-docked={activeView !== 'pomodoro'} data-active-view={activeView}>
         {activeView !== 'settings' && (
           <header className="shell-page-header">
             <div className="shell-page-heading">
@@ -369,19 +369,19 @@ function AppContent() {
             </ErrorBoundary>
           </div>
         </main>
+        {activeView !== 'pomodoro' && (
+          <Pomodoro
+            isWidget={true}
+            onExpand={() => navigateToView('pomodoro')}
+            isCollapsed={isSidebarCollapsed}
+          />
+        )}
       </div>
       <CommandPalette
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
         onNavigate={navigateToView}
       />
-      {activeView !== 'pomodoro' && (
-        <Pomodoro
-          isWidget={true}
-          onExpand={() => navigateToView('pomodoro')}
-          isCollapsed={isSidebarCollapsed}
-        />
-      )}
       <ToastContainer />
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
       {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}

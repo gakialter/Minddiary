@@ -7,33 +7,9 @@ import { IS_ELECTRON } from '../utils/apiAdapter'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
 import FocusZenMode from './FocusZenMode'
-import { Play, Pause, RotateCcw, Maximize2, Square } from 'lucide-react'
+import { usePomodoroWidgetPlacement } from '../hooks/usePomodoroWidgetPlacement'
+import { Play, Pause, RotateCcw, Maximize2, Square, GripVertical, PanelLeft, PanelRight } from 'lucide-react'
 import type { ActiveAppInfo, FocusWhitelistItem } from '../types'
-
-const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
-const STORAGE_KEY = 'pomodoro-widget-position'
-
-interface Position {
-  x: number
-  y: number
-}
-
-function getInitialPosition(isCollapsed: boolean): Position {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch { /* ignore */ }
-  return { x: isCollapsed ? 90 : 260, y: window.innerHeight - 80 }
-}
-
-function clampPosition(x: number, y: number, elWidth = 160, elHeight = 56): Position {
-  const maxX = window.innerWidth - elWidth
-  const maxY = window.innerHeight - elHeight
-  return {
-    x: Math.max(0, Math.min(x, maxX)),
-    y: Math.max(0, Math.min(y, maxY)),
-  }
-}
 
 function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
   return Array.isArray(value) ? value.filter((item): item is FocusWhitelistItem => (
@@ -93,11 +69,11 @@ interface PomodoroProps {
   onFullscreenChange?: (isActive: boolean) => void
 }
 
-export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreenChange }: PomodoroProps) {
+export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: PomodoroProps) {
   const { settingsData, settings, notification } = useDiary()
   const {
     mode, timeLeft, isRunning,
-    progress, circleCircumference, miniCircumference,
+    progress, circleCircumference,
     dynamicModes, hasActiveTimerSession, countdownElapsedSeconds,
   } = usePomodoroTimer()
 
@@ -162,62 +138,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
     : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
 
-  // ─── Drag state (widget only) ───
-  const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))
-  const [isDragging, setIsDragging] = useState(false)
-  const dragRef = useRef({ startX: 0, startY: 0, startPosX: 0, startPosY: 0, moved: false })
-  const widgetRef = useRef<HTMLDivElement>(null)
-
-  // Update default position when sidebar collapses (only if user hasn't dragged)
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem(STORAGE_KEY)) {
-        setPos(prev => ({ ...prev, x: isCollapsed ? 90 : 260 }))
-      }
-    } catch { /* ignore */ }
-  }, [isCollapsed])
-
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    // Don't initiate drag on the play/pause button area
-    if ((e.target as HTMLElement).closest('[data-no-drag]')) return
-    e.preventDefault()
-    const ref = dragRef.current
-    ref.startX = e.clientX
-    ref.startY = e.clientY
-    ref.startPosX = pos.x
-    ref.startPosY = pos.y
-    ref.moved = false
-    setIsDragging(true)
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }, [pos])
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return
-    const ref = dragRef.current
-    const dx = e.clientX - ref.startX
-    const dy = e.clientY - ref.startY
-    if (!ref.moved && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return
-    ref.moved = true
-    const el = widgetRef.current
-    const w = el ? el.offsetWidth : 160
-    const h = el ? el.offsetHeight : 56
-    const clamped = clampPosition(ref.startPosX + dx, ref.startPosY + dy, w, h)
-    setPos(clamped)
-  }, [isDragging])
-
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return
-    setIsDragging(false)
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    const ref = dragRef.current
-    if (!ref.moved) {
-      // It was a click — navigate to Pomodoro page
-      onExpand?.()
-    } else {
-      // Save position
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pos)) } catch { /* ignore */ }
-    }
-  }, [isDragging, onExpand, pos])
+  const placement = usePomodoroWidgetPlacement()
 
   const addViolationToWhitelist = useCallback(async (app: ActiveAppInfo) => {
     const item = activeAppToWhitelistItem(app)
@@ -368,56 +289,18 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   if (isWidget) {
     return (
       <>
-      <div
-        ref={widgetRef}
-        className="pomodoro-mini card"
-        data-testid="pomodoro-widget"
-        style={{
-          position: 'fixed',
-          left: pos.x,
-          top: pos.y,
-          padding: '6px 14px 6px 6px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          border: `1px solid ${mode.color}20`,
-          background: 'var(--bg-secondary)',
-          backdropFilter: 'blur(16px)',
-          zIndex: 'var(--z-floating)',
-          transition: isDragging ? 'none' : 'box-shadow 0.3s, border-color 0.3s',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          boxShadow: isDragging ? '0 12px 24px rgba(0,0,0,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
-          borderRadius: 30,
-          userSelect: 'none',
-          touchAction: 'none',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        title="拖拽移动 · 点击打开番茄钟"
-        aria-label="番茄钟"
-      >
-        <div
-          data-no-drag
-          aria-disabled={timerControlsDisabled}
-          style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: timerControlsDisabled ? 'not-allowed' : 'pointer', opacity: timerControlsDisabled ? 0.6 : 1 }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!timerControlsDisabled) void toggleTimer()
-          }}
-        >
-          <svg viewBox="0 0 40 40" width="32" height="32" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
-            <circle cx="20" cy="20" r="18" fill="none" stroke="var(--border)" strokeWidth="3" />
-            <circle cx="20" cy="20" r="18" fill="none" stroke={mode.color} strokeWidth="3" strokeLinecap="round"
-              strokeDasharray={miniCircumference} strokeDashoffset={miniCircumference * (1 - progress)}
-              style={{ transition: 'stroke-dashoffset 1s linear' }} />
-          </svg>
-          <div style={{ fontSize: 13, opacity: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {isRunning ? <Pause size={14} /> : <Play size={14} />}
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: mode.color, opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
-            {formatTime(timeLeft)}
-          </div>
+      <div className="pomodoro-mini" data-testid="pomodoro-widget" data-dock={placement.dock} data-dragging={placement.isDragging} aria-label="番茄钟">
+        <span className="pomodoro-mini__handle" aria-hidden="true" title="拖拽选择左侧或右侧停靠" {...placement.handleProps}><GripVertical size={16} /></span>
+        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : '开始计时'} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
+          {isRunning ? <Pause size={16} /> : <Play size={16} />}
+        </button>
+        <button type="button" className="button button-secondary pomodoro-mini__open" aria-label="打开番茄钟" onClick={onExpand}>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatTime(timeLeft)}</span>
+          <Maximize2 size={14} aria-hidden="true" />
+        </button>
+        <div role="group" aria-label="番茄钟停靠位置" className="pomodoro-mini__docks">
+          <button type="button" className="button button-secondary button-icon" aria-label="停靠左下角" aria-pressed={placement.dock === 'bottom-left'} onClick={() => placement.setDock('bottom-left')}><PanelLeft size={14} /></button>
+          <button type="button" className="button button-secondary button-icon" aria-label="停靠右下角" aria-pressed={placement.dock === 'bottom-right'} onClick={() => placement.setDock('bottom-right')}><PanelRight size={14} /></button>
         </div>
       </div>
       {focusNotice}
