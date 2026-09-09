@@ -97,21 +97,25 @@ export default function AIComposer({
                     border: `1px solid ${dragging ? 'var(--accent)' : 'var(--color-border-subtle)'}`,
                 }}
             >
-                <AIContextChips contextKinds={contextKinds} onRemove={onRemoveContext} />
-                <AIAttachmentList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
-                {dragging && (
-                    <div className="text-xs text-muted" style={{
-                        padding: 8,
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--color-surface-subtle)',
-                        textAlign: 'center',
-                    }}>
-                        松开后添加到本次 AI 请求，不会自动发送。
-                    </div>
-                )}
-                {error && (
-                    <div role="alert" style={{ fontSize: 12, color: 'var(--color-danger-fg)' }}>
-                        {error}
+                {(contextKinds.length > 0 || attachments.length > 0 || dragging || error) && (
+                    <div className="ai-composer__auxiliary">
+                        <AIContextChips contextKinds={contextKinds} onRemove={onRemoveContext} />
+                        <AIAttachmentList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
+                        {dragging && (
+                            <div className="text-xs text-muted" style={{
+                                padding: 8,
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'var(--color-surface-subtle)',
+                                textAlign: 'center',
+                            }}>
+                                松开后添加到本次 AI 请求，不会自动发送。
+                            </div>
+                        )}
+                        {error && (
+                            <div role="alert" style={{ fontSize: 12, color: 'var(--color-danger-fg)' }}>
+                                {error}
+                            </div>
+                        )}
                     </div>
                 )}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--space-sm)' }}>

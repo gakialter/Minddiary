@@ -6257,6 +6257,8 @@ textarea.input {
 }
 .ai-composer__label { display: block; margin-bottom: var(--space-2); }
 .ai-composer textarea { min-width: 0; }
+.ai-composer__auxiliary { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ai-composer__auxiliary > * { flex-shrink: 0; }
 .ai-composer__help { margin-top: var(--space-2); font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); }
 .ai-attachments { max-height: 140px; overflow-y: auto; }
 .ai-workspace__loading { color: var(--color-text-secondary); font-size: var(--font-size-body-compact); }
@@ -6279,7 +6281,13 @@ textarea.input {
 .ai-workspace__empty h3 { margin: 0; }
 .ai-workspace__empty p { max-width: 440px; margin-bottom: var(--space-2); }
 @media (max-height: 650px) {
-  .ai-attachments { max-height: 68px; }
+  .ai-workspace__header { padding-bottom: var(--space-1); }
+  .ai-workspace__messages { min-height: 140px; padding-block: var(--space-2); }
+  .ai-composer { padding-top: var(--space-1); }
+  .ai-composer__label { margin-bottom: var(--space-1); }
+  .ai-composer__help { margin-top: var(--space-1); line-height: 1.4; }
+  .ai-composer__auxiliary { max-height: 48px; overflow-y: auto; }
+  .ai-composer__auxiliary .ai-attachments { max-height: none; overflow: visible; }
 }
 
 /* C8.6: shell-owned dock space, shared review surface, local state feedback. */

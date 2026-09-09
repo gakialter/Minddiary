@@ -74,6 +74,11 @@ function AppContent() {
     changeDate, viewTitle,
   } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
+  const mainRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [activeView])
+
   // ─── Local UI state ───
   const [entry, setEntry] = useState<DiaryEntry | null>(null)
   const [loading, setLoading] = useState(false)
@@ -358,6 +363,7 @@ function AppContent() {
           </header>
         )}
         <main
+          ref={mainRef}
           className={`shell-content ${activeView === 'editor' ? 'shell-content--editor' : 'shell-content--standard'}`}
           aria-labelledby={activeView === 'settings' ? undefined : 'shell-page-title'}
           aria-label={activeView === 'settings' ? '设置' : undefined}
