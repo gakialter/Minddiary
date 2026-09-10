@@ -23,6 +23,7 @@ vi.mock('../src/utils/apiAdapter', () => ({
 import { DataProvider, useData } from '../src/contexts/DataContext'
 
 const createWindowApiMock = (): ElectronAPI => ({
+  dailyReview: { execute: vi.fn() },
   window: {
     platform: 'win32',
     titlebarMode: 'custom',

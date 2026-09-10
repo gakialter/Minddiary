@@ -261,7 +261,7 @@ function expectFixtureProvenance(): void {
 }
 
 function expectCurrentSchema(database: Database.Database): void {
-  expect(getUserVersion(database)).toBe(7)
+  expect(getUserVersion(database)).toBe(8)
   expect(getIntegrityCheck(database)).toBe('ok')
   expect(getForeignKeyViolations(database)).toEqual([])
 
@@ -595,7 +595,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const { database, expected } = prepareFixtureDatabase(fixture)
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(8)
 
     expectCurrentSchema(database)
     expectLegacyDataPreserved(database, expected)
@@ -640,16 +640,16 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
     const fixture = legacyDatabaseFixtures[0]
     expect(fixture).toBeDefined()
     const { database: seedDatabase, expected, filepath, root } = prepareFixtureDatabase(fixture!)
-    seedDatabase.pragma('user_version = 8')
+    seedDatabase.pragma('user_version = 9')
     closeTrackedDatabase(seedDatabase)
 
     const databaseModule = await loadRealDatabaseModule(root)
     databaseModule.setCustomDbPath(filepath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 8.*supported version 7/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 9.*supported version 8/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = trackDatabase(new BetterSqlite3(filepath))
-    expect(getUserVersion(reopened)).toBe(8)
+    expect(getUserVersion(reopened)).toBe(9)
     expect(tableExists(reopened, 'study_tasks')).toBe(false)
     expect(reopened.prepare('SELECT title FROM entries WHERE id = ?').get(expected.entry.id)).toEqual({ title: expected.entry.title })
     expect(fs.existsSync(`${filepath}-wal`)).toBe(false)
@@ -672,7 +672,7 @@ describe('version 1 adoption migration for real historical SQLite schemas', () =
   })
 
   it('keeps schema and backup format constants aligned with the current schema', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(7)
+    expect(CURRENT_SCHEMA_VERSION).toBe(8)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
   })
 })

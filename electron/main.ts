@@ -1436,6 +1436,7 @@ ipcMain.handle('todayDashboard:getData', (_: unknown, date: string) => {
 });
 
 // ==================== Mistakes ====================
+ipcMain.handle('dailyReview:execute', (_: unknown, input: unknown) => db.executeDailyReview(input));
 ipcMain.handle('mistakes:getAll', (_: unknown, filters: MistakeFilters) => db.getAllMistakes(filters));
 ipcMain.handle('mistakes:create', (_: unknown, mistake: unknown) => db.createMistake(validateMistakeWritePayload(mistake)));
 ipcMain.handle('mistakes:createBatch', (_: unknown, mistakes: unknown) => ({

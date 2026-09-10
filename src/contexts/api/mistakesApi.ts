@@ -1,4 +1,5 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
+import { dailyReviewMistakeHighWater } from './dailyReviewApi'
 import { STORAGE_KEYS } from '../../data/mockData'
 import { getLocalDateKey } from '../../utils/dateKey'
 import type { Mistake, MistakeFilters, Subject, SaveToLocalFn, ReviewData, StudyTask } from '../../types'
@@ -77,7 +78,7 @@ export const createMistakesApi = (
         const newMistake: Mistake = {
             question: '', answer: '', notes: '', subject_id: null,
             image_path: null, answer_image_path: null,
-            id: Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1,
+            id: Math.max(dailyReviewMistakeHighWater(), ...mistakesRef.current.map(m => m.id)) + 1,
             created_at: new Date().toISOString(),
             ...validated,
             mastered: validated.mastered ?? false,
@@ -137,7 +138,7 @@ export const createMistakesApi = (
             throw new Error('Mistake subject not found')
         }
 
-        const firstId = Math.max(0, ...mistakesRef.current.map(m => m.id)) + 1
+        const firstId = Math.max(dailyReviewMistakeHighWater(), ...mistakesRef.current.map(m => m.id)) + 1
         const newMistakes = validatedBatch.map((validated, index) => (
             materializeMistake(validated, firstId + index)
         ))

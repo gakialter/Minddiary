@@ -13,6 +13,8 @@ import type {
 import { createEntriesApi } from './api/entriesApi'
 import { createTagsApi } from './api/tagsApi'
 import { createMistakesApi } from './api/mistakesApi'
+import { createDailyReviewApi } from './api/dailyReviewApi'
+import type { DailyReviewAPI } from '../types/dailyReview'
 import { createSubjectsApi } from './api/subjectsApi'
 import { createSubjectChaptersApi } from './api/subjectChaptersApi'
 import { createPomodoroApi } from './api/pomodoroApi'
@@ -33,6 +35,7 @@ interface DataContextValue {
     entries: EntriesContextAPI
     tags: TagsContextAPI
     mistakes: MistakesContextAPI
+    dailyReview: DailyReviewAPI
     subjects: SubjectsContextAPI
     subjectChapters: SubjectChaptersContextAPI
     pomodoro: PomodoroContextAPI
@@ -122,6 +125,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         entries: createEntriesApi(entriesRef, saveToLocal, tasksRef),
         tags: createTagsApi(tagsRef, entriesRef, saveToLocal),
         mistakes: createMistakesApi(mistakesRef, subjectsRef, tasksRef, saveToLocal),
+        dailyReview: createDailyReviewApi(mistakesRef, subjectsRef),
         subjects: createSubjectsApi(subjectsRef, saveToLocal, {
             mistakesRef,
             tasksRef,

@@ -6,7 +6,7 @@ import {
     TAG_VARIANTS,
 } from '../src/utils/tagStyle';
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export type DatabaseMigration = {
     version: number;
@@ -532,6 +532,24 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
         version: 7,
         name: 'add-persistent-planning-history',
         up: migrateToSchemaVersion7,
+    },
+    {
+        version: 8,
+        name: 'add-subject-daily-review-state',
+        up: database => database.exec(`
+            CREATE TABLE subject_daily_review_state (
+                subject_id INTEGER PRIMARY KEY REFERENCES subjects(id) ON DELETE CASCADE,
+                daily_quota INTEGER NOT NULL CHECK (typeof(daily_quota) = 'integer' AND daily_quota > 0),
+                queue TEXT NOT NULL CHECK (json_valid(queue) AND json_type(queue) = 'array'),
+                cursor INTEGER NOT NULL CHECK (typeof(cursor) = 'integer' AND cursor >= 0 AND cursor <= json_array_length(queue)),
+                daily_date TEXT NOT NULL,
+                daily_completed INTEGER NOT NULL CHECK (typeof(daily_completed) = 'integer' AND daily_completed >= 0),
+                round_id TEXT,
+                round_started_date TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        `),
     },
 ] as const;
 

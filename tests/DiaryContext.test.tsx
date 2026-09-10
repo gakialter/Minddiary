@@ -60,6 +60,7 @@ const makeSettingsValue = (overrides: Partial<SettingsValue> = {}): SettingsValu
 })
 
 const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
+  dailyReview: { execute: vi.fn() },
   dataReady: true,
   initErrors: ['mock warning'],
   dataRefreshVersion: 0,

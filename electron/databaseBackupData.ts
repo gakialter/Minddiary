@@ -1,5 +1,7 @@
 import path from 'path';
 import { SENSITIVE_SETTINGS_KEYS } from './settingsSecurity';
+import { validateDailyReviewState } from '../src/utils/dailyReview';
+import type { DailyReviewState } from '../src/types/dailyReview';
 
 export type DatabaseBackupValue = string | number | null;
 export type DatabaseBackupRow = Record<string, DatabaseBackupValue>;
@@ -125,6 +127,7 @@ export interface NormalizedBackupDatabaseData {
     attachments: DatabaseBackupRow[];
     pomodoro_sessions: DatabaseBackupRow[];
     mistakes: DatabaseBackupRow[];
+    subject_daily_review_state: DatabaseBackupRow[];
     study_tasks: DatabaseBackupRow[];
     study_task_action_receipts: DatabaseBackupRow[];
     planning_runs: DatabaseBackupRow[];
@@ -148,6 +151,11 @@ export const DATABASE_BACKUP_TABLES = [
         key: 'subject_chapters',
         table: 'subject_chapters',
         columns: ['id', 'subject_id', 'title', 'notes', 'completed', 'sort_order', 'created_at', 'updated_at'],
+    },
+    {
+        key: 'subject_daily_review_state',
+        table: 'subject_daily_review_state',
+        columns: ['subject_id', 'daily_quota', 'queue', 'cursor', 'daily_date', 'daily_completed', 'round_id', 'round_started_date', 'created_at', 'updated_at'],
     },
     {
         key: 'tags',
@@ -858,7 +866,7 @@ export function normalizeBackupDatabaseData(
     if (
         !Number.isInteger(manifestSchemaVersion)
         || manifestSchemaVersion < 1
-        || manifestSchemaVersion > PLANNING_HISTORY_SCHEMA_VERSION
+        || manifestSchemaVersion > 8
     ) {
         throw new Error(`Invalid database backup schema version: ${String(manifestSchemaVersion)}`);
     }
@@ -877,6 +885,20 @@ export function normalizeBackupDatabaseData(
         ? normalizePlanningCandidates(raw.planning_run_candidates, planningRuns)
         : [];
 
+    if (manifestSchemaVersion >= 8 && raw.subject_daily_review_state === undefined) {
+        throw new Error('Invalid schema 8 database backup: subject_daily_review_state is required');
+    }
+    const dailyStates = manifestSchemaVersion >= 8
+        ? normalizeTableRows(raw.subject_daily_review_state, 'subject_daily_review_state') : [];
+    const subjectIds = new Set(normalizeTableRows(raw.subjects, 'subjects').map(row => row.id));
+    const dailySubjectIds = new Set<number>();
+    for (const row of dailyStates) {
+        if (typeof row.queue !== 'string') throw new Error('Invalid daily review queue');
+        const state = validateDailyReviewState({ ...row, queue: JSON.parse(row.queue) } as unknown as DailyReviewState);
+        if (!subjectIds.has(state.subject_id) || dailySubjectIds.has(state.subject_id)) throw new Error('Invalid daily review subject');
+        dailySubjectIds.add(state.subject_id);
+    }
+
     return {
         settings: normalizeSettings(raw.settings),
         subjects: normalizeTableRows(raw.subjects, 'subjects'),
@@ -887,6 +909,7 @@ export function normalizeBackupDatabaseData(
         attachments: normalizeAttachments(raw.attachments),
         pomodoro_sessions: normalizePomodoroSessions(raw),
         mistakes: normalizeMistakes(raw.mistakes),
+        subject_daily_review_state: dailyStates,
         study_tasks: normalizeTableRows(raw.study_tasks, 'study_tasks'),
         study_task_action_receipts: normalizeTableRows(
             raw.study_task_action_receipts,

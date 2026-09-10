@@ -10,6 +10,7 @@ import type {
   FocusWhitelistItem, ActiveAppInfo,
 } from '.'
 import type { ElectronPlanningRunsAPI } from './planningHistory'
+import type { DailyReviewAPI } from './dailyReview'
 import type { TodayActionProviderChapterProjection } from '../utils/todayActionChapterContext'
 
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
@@ -381,6 +382,7 @@ export interface ElectronAPI {
   dashboard: ElectronDashboardAPI
   todayDashboard: ElectronTodayDashboardAPI
   mistakes: ElectronMistakesAPI
+  dailyReview: DailyReviewAPI
   ai: ElectronAIAPI
   notification: ElectronNotificationAPI
   export: ElectronExportAPI
@@ -541,6 +543,7 @@ export interface DiaryContextValue {
   entries: EntriesContextAPI
   tags: TagsContextAPI
   mistakes: MistakesContextAPI
+  dailyReview: DailyReviewAPI
   subjects: SubjectsContextAPI
   subjectChapters: SubjectChaptersContextAPI
   pomodoro: PomodoroContextAPI

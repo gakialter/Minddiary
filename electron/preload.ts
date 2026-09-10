@@ -207,6 +207,9 @@ contextBridge.exposeInMainWorld('api', {
         getData: (date: string) => ipcRenderer.invoke('todayDashboard:getData', date),
     },
 
+    dailyReview: {
+        execute: (command: import('../src/types/dailyReview').DailyReviewCommand) => ipcRenderer.invoke('dailyReview:execute', command),
+    },
     // Mistakes
     mistakes: {
         getAll: (filters: MistakeFilters) => ipcRenderer.invoke('mistakes:getAll', filters),

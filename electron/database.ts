@@ -794,6 +794,13 @@ function restoreBackupData(data: Record<string, unknown>, manifestSchemaVersion 
         }
         applyPlanningHistoryRetention();
         repairPlanningLogicalReferenceSequences();
+        // Frozen queues may reference deleted IDs. Keep restored AUTOINCREMENT above them.
+        const dailyQueues = db.prepare('SELECT queue FROM subject_daily_review_state').all() as { queue: string }[];
+        let dailyMistakeHighWater = 0;
+        for (const row of dailyQueues) {
+            for (const id of JSON.parse(row.queue) as number[]) dailyMistakeHighWater = Math.max(dailyMistakeHighWater, id);
+        }
+        raiseAutoincrementHighWater('mistakes', dailyMistakeHighWater);
         const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
         if (foreignKeyViolations.length > 0) {
             throw new Error(`Backup restore failed foreign_key_check with ${foreignKeyViolations.length} violation(s)`);
@@ -810,6 +817,7 @@ function restoreBackupData(data: Record<string, unknown>, manifestSchemaVersion 
 }
 
 module.exports = {
+    executeDailyReview: (input: unknown) => getRepositories().dailyReview.execute(input),
     CURRENT_SCHEMA_VERSION,
     initialize,
     createEntry, updateEntry, deleteEntry, getEntryById, getEntryByDate,

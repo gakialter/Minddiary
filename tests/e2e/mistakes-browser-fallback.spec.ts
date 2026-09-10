@@ -102,6 +102,67 @@ test.describe('browser fallback repeated mistakes', () => {
     }
   })
 
+  test('daily review keeps quota and round progress across reload with unchanged SM-2 fields', async ({ page }) => {
+    await openMistakes(page)
+    await page.evaluate(() => {
+      localStorage.setItem('mindiary_subjects', JSON.stringify([{ id: 1, name: '数学', color: '#0F766E', total_chapters: 0, completed_chapters: 0 }]))
+      localStorage.setItem('mindiary_mistakes', JSON.stringify([1, 2, 3].map(id => ({
+        id, subject_id: 1, question: `第 ${id} 题：求函数的极限。`, answer: '先化简，再应用极限运算法则。',
+        notes: '保留关键步骤，注意分母不为零。\n\n' + '复盘笔记。\n\n'.repeat(30),
+        mastered: true, ease_factor: 2.7, review_interval: 60, next_review_date: '2027-01-01', review_count: 5,
+        created_at: '2026-09-10T00:00:00.000Z',
+      }))))
+    })
+    await page.reload()
+    await page.getByRole('button', { name: '错题本' }).click()
+    await expect(page.getByTestId('mistake-start-review-btn')).toHaveText('到期复习')
+    const before = await page.evaluate(() => localStorage.getItem('mindiary_mistakes'))
+    await page.getByRole('button', { name: '日常复盘', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '日常复盘', exact: true })
+    await expect(dialog.getByText('本科目共 3 题')).toBeVisible()
+    await dialog.getByLabel('每日题量').fill('1')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await dialog.getByRole('button', { name: '开始本轮' }).click()
+    await dialog.getByRole('button', { name: '查看答案' }).click()
+    await expect(dialog.getByText(/掌握|较难|较易|下次复习|评分/)).toHaveCount(0)
+
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme)
+      for (const viewport of [{ width: 1280, height: 720 }, { width: 960, height: 600 }]) {
+        await page.setViewportSize(viewport)
+        const metrics = await dialog.evaluate(element => {
+          const rect = element.getBoundingClientRect()
+          const footer = element.querySelector('.daily-review-footer')!.getBoundingClientRect()
+          const body = element.querySelector('.c8-review-body')!
+          return { top: rect.top, bottom: rect.bottom, right: rect.right, footerBottom: footer.bottom, scrollable: body.scrollHeight > body.clientHeight, overflow: element.scrollWidth > element.clientWidth }
+        })
+        expect(metrics.top).toBeGreaterThanOrEqual(0)
+        expect(metrics.bottom).toBeLessThanOrEqual(viewport.height)
+        expect(metrics.right).toBeLessThanOrEqual(viewport.width)
+        expect(metrics.footerBottom).toBeLessThanOrEqual(viewport.height)
+        expect(metrics.scrollable).toBe(true)
+        expect(metrics.overflow).toBe(false)
+        await expect(dialog.getByRole('button', { name: '完成本题 / 下一题' })).toBeInViewport()
+        await page.screenshot({ path: `output/playwright/issue167-${theme}-${viewport.width}x${viewport.height}.png` })
+      }
+    }
+
+    await dialog.getByRole('button', { name: '完成本题 / 下一题' }).click()
+    await expect(dialog.getByText('今日：1 / 1')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '查看答案' })).toHaveCount(0)
+    await dialog.getByRole('button', { name: '结束今日复盘' }).click()
+    await expect(page.getByRole('button', { name: '日常复盘', exact: true })).toBeFocused()
+    await page.reload()
+    await page.getByRole('button', { name: '错题本' }).click()
+    await page.getByRole('button', { name: '日常复盘', exact: true }).click()
+    await expect(dialog.getByText('今日：1 / 1')).toBeVisible()
+    await expect(dialog.getByText('本轮：1 / 3')).toBeVisible()
+    expect(await page.evaluate(() => localStorage.getItem('mindiary_mistakes'))).toBe(before)
+    await dialog.getByRole('button', { name: '关闭日常复盘' }).click()
+    await page.getByTestId('mistake-start-review-btn').click()
+    await expect(page.getByText('当前没有待复习错题')).toBeVisible()
+  })
+
   test('creates six records, edits after reload, and keeps toolbar selection current', async ({ page }) => {
     await openMistakes(page)
     for (let index = 1; index <= 5; index += 1) await createMistake(page, index)

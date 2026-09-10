@@ -1,4 +1,5 @@
 import { IS_ELECTRON } from '../../utils/apiAdapter'
+import { dailyReviewStorageKey } from './dailyReviewApi'
 import { STORAGE_KEYS } from '../../data/mockData'
 import type { Mistake, PomodoroSession, StudyTask, Subject, SubjectChapter, SaveToLocalFn } from '../../types'
 import type { SubjectsContextAPI } from '../../types/api'
@@ -46,6 +47,7 @@ export const createSubjectsApi = (
             return true
         }
         subjectsRef.current = subjectsRef.current.filter(s => s.id !== id)
+        localStorage.removeItem(dailyReviewStorageKey(id))
         saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
         const deletedChapterIds = new Set(
             relatedRefs?.subjectChaptersRef?.current

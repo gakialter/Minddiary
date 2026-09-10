@@ -14,6 +14,7 @@ import FormatToolbar from './common/FormatToolbar'
 import { useTextFormat } from '../hooks/useTextFormat'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import MistakeReviewModal from './MistakeReviewModal'
+import DailyReviewModal from './DailyReviewModal'
 import MistakeReviewAgentDialog from './MistakeReviewAgentDialog'
 
 interface MistakeFilter {
@@ -137,6 +138,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [draggingRole, setDraggingRole] = useState<ImageRole | null>(null)
     const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
     const [showManualReview, setShowManualReview] = useState(false)
+    const [showDailyReview, setShowDailyReview] = useState(false)
     const [showAIReview, setShowAIReview] = useState(false)
     const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
     const [editScrollRequest, setEditScrollRequest] = useState(0)
@@ -785,8 +787,9 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         onClick={() => setShowManualReview(true)}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                     >
-                        <BookOpen size={16} /> 开始复习
+                        <BookOpen size={16} /> 到期复习
                     </button>
+                    <button type="button" className="button button-secondary" onClick={() => setShowDailyReview(true)}>日常复盘</button>
                     <button
                         className={showForm ? 'button button-secondary' : 'button button-primary'}
                         onClick={handleToggleForm}
@@ -994,6 +997,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     subjectId={filter.subject_id ? Number(filter.subject_id) : undefined}
                 />
             )}
+            {showDailyReview && <DailyReviewModal subjects={subjects} subjectId={filter.subject_id ? Number(filter.subject_id) : undefined} onClose={() => setShowDailyReview(false)} />}
             {showAIReview && (
                 <MistakeReviewAgentDialog
                     mistakesAPI={diary.mistakes}

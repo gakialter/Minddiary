@@ -1330,7 +1330,8 @@ describe('MistakeBook Component', () => {
     expect(aiBtn).toBeInTheDocument()
     expect(aiBtn).toHaveTextContent('AI 复习规划')
     expect(manualBtn).toBeInTheDocument()
-    expect(manualBtn).toHaveTextContent('开始复习')
+    expect(manualBtn).toHaveTextContent('到期复习')
+    expect(screen.getByRole('button', { name: '日常复盘' })).toBeInTheDocument()
 
     // Click AI review button
     fireEvent.click(aiBtn)

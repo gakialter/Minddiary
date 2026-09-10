@@ -31,7 +31,8 @@ type DatabaseModule = {
   setCustomDbPath: (filepath: string) => void
   getDb: () => Database.Database
   exportBackupData: () => Record<string, unknown>
-  restoreBackupData: (data: Record<string, unknown>) => void
+  restoreBackupData: (data: Record<string, unknown>, schemaVersion?: number) => void
+  executeDailyReview: (command: import('../src/types/dailyReview').DailyReviewCommand) => import('../src/types/dailyReview').DailyReviewSnapshot
 }
 
 const databases: Database.Database[] = []
@@ -173,23 +174,23 @@ afterEach(() => {
 })
 
 describe('database migration registry', () => {
-  it('defines schema version 7 with a complete ordered registry', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(7)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
+  it('defines schema version 8 with a complete ordered registry', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(8)
+    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     expect(new Set(DATABASE_MIGRATIONS.map(migration => migration.version)).size).toBe(DATABASE_MIGRATIONS.length)
     expect(DATABASE_MIGRATIONS[DATABASE_MIGRATIONS.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION)
   })
 })
 
 describe('SQLite schema migrations', () => {
-  it('migrates a new database from user_version 0 to schema version 7', () => {
+  it('migrates a new database from user_version 0 to schema version 8', () => {
     const database = createDatabase()
 
     expect(getUserVersion(database)).toBe(0)
-    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(8)
 
-    expect(getUserVersion(database)).toBe(7)
-    expect(getDatabaseSchemaVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
+    expect(getDatabaseSchemaVersion(database)).toBe(8)
     for (const tableName of ['entries', 'tags', 'subjects', 'subject_chapters', 'pomodoro_sessions', 'mistakes', 'study_tasks', 'study_task_action_receipts', 'planning_runs', 'planning_run_candidates', 'diary_templates']) {
       expect(tableExists(database, tableName)).toBe(true)
     }
@@ -301,7 +302,7 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(0)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
     expect(database.prepare('SELECT title, content FROM entries WHERE id = 1').get()).toEqual({ title: 'legacy', content: 'kept' })
     expect(getColumnNames(database, 'tags')).toEqual(expect.arrayContaining(['icon', 'variant', 'pattern']))
     expect(getColumnNames(database, 'pomodoro_sessions')).toEqual(expect.arrayContaining(['date_key', 'started_at', 'task_id']))
@@ -368,7 +369,7 @@ describe('SQLite schema migrations', () => {
     runDatabaseMigrations(database)
     runDatabaseMigrations(database)
 
-    expect(getUserVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
     expect(getTableCount(database, 'diary_templates')).toBe(3)
     expect(getTableCount(database, 'subject_chapters')).toBe(0)
     expect(getTableCount(database, 'study_task_action_receipts')).toBe(0)
@@ -391,10 +392,10 @@ describe('SQLite schema migrations', () => {
     expect(getUserVersion(database)).toBe(2)
     expect(getColumnNames(database, 'pomodoro_sessions')).not.toContain('task_id')
 
-    expect(runDatabaseMigrations(database)).toBe(7)
-    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(8)
+    expect(runDatabaseMigrations(database)).toBe(8)
 
-    expect(getUserVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
     expect(indexExists(database, 'idx_pomodoro_task_id')).toBe(true)
     expect(tableExists(database, 'subject_chapters')).toBe(true)
     expect(database.prepare('SELECT task_id FROM pomodoro_sessions WHERE id = ?').get(sessionId)).toEqual({ task_id: null })
@@ -419,10 +420,10 @@ describe('SQLite schema migrations', () => {
     `).get(taskId) as { title: string; planned_date: string; status: string }
 
     expect(getColumnNames(database, 'study_tasks')).not.toContain('related_chapter_id')
-    expect(runDatabaseMigrations(database)).toBe(7)
-    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database)).toBe(8)
+    expect(runDatabaseMigrations(database)).toBe(8)
 
-    expect(getUserVersion(database)).toBe(7)
+    expect(getUserVersion(database)).toBe(8)
     expect(getColumnNames(database, 'study_tasks')).toContain('related_chapter_id')
     expect(indexExists(database, 'idx_study_tasks_related_chapter_id')).toBe(true)
     expect(database.prepare('PRAGMA foreign_key_list(study_tasks)').all()).toEqual(
@@ -488,11 +489,11 @@ describe('SQLite schema migrations', () => {
 
   it('rejects databases from newer schema versions without mutation', () => {
     const database = createDatabase()
-    database.pragma('user_version = 8')
+    database.pragma('user_version = 9')
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 8.*supported version 7/i)
+    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 9.*supported version 8/i)
 
-    expect(getUserVersion(database)).toBe(8)
+    expect(getUserVersion(database)).toBe(9)
     expect(tableExists(database, 'entries')).toBe(false)
   })
 
@@ -527,7 +528,7 @@ describe('SQLite schema migrations', () => {
 })
 
 describe('database initialize schema version handling', () => {
-  it('initializes a temporary database with WAL, foreign keys, and user_version 7', async () => {
+  it('initializes a temporary database with WAL, foreign keys, and user_version 8', async () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const databaseModule = await loadRealDatabaseModule()
@@ -537,8 +538,8 @@ describe('database initialize schema version handling', () => {
     const database = databaseModule.getDb()
     databases.push(database)
 
-    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(7)
-    expect(getUserVersion(database)).toBe(7)
+    expect(databaseModule.CURRENT_SCHEMA_VERSION).toBe(8)
+    expect(getUserVersion(database)).toBe(8)
     expect(getColumnNames(database, 'mistakes')).toContain('answer_image_path')
     expect(getColumnNames(database, 'pomodoro_sessions')).toContain('task_id')
     expect(tableExists(database, 'subject_chapters')).toBe(true)
@@ -556,22 +557,46 @@ describe('database initialize schema version handling', () => {
     const root = makeTempRoot()
     const dbPath = path.join(root, 'minddiary.db')
     const seed = createDatabase(dbPath)
-    seed.pragma('user_version = 8')
+    seed.pragma('user_version = 9')
     closeDatabase(seed)
     databases.splice(databases.indexOf(seed), 1)
     const databaseModule = await loadRealDatabaseModule()
 
     databaseModule.setCustomDbPath(dbPath)
-    expect(() => databaseModule.initialize()).toThrow(/schema version 8.*supported version 7/i)
+    expect(() => databaseModule.initialize()).toThrow(/schema version 9.*supported version 8/i)
     expect(() => databaseModule.getDb()).toThrow('Database has not been initialized')
 
     const reopened = createDatabase(dbPath)
-    expect(getUserVersion(reopened)).toBe(8)
+    expect(getUserVersion(reopened)).toBe(9)
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
   }, REAL_SQLITE_TEST_TIMEOUT_MS)
 })
 
 describe('backup schema version consistency', () => {
+  it('restores daily rounds through the real facade and preserves deleted queue ID high-water marks', async () => {
+    const databaseModule = await loadRealDatabaseModule()
+    databaseModule.setCustomDbPath(path.join(makeTempRoot(), 'daily.db'))
+    databaseModule.initialize()
+    const database = databaseModule.getDb()
+    databases.push(database)
+    database.exec("INSERT INTO subjects (id, name) VALUES (1, '数学'); INSERT INTO mistakes (id, subject_id, question) VALUES (100, 1, '历史题')")
+    databaseModule.executeDailyReview({ kind: 'configure', subjectId: 1, quota: 2, date: '2026-09-10' })
+    const initial = databaseModule.executeDailyReview({ kind: 'start', subjectId: 1, previousRoundId: null, date: '2026-09-10' })
+    database.exec('DELETE FROM mistakes WHERE id=100')
+    const backup = databaseModule.exportBackupData()
+    database.exec("DELETE FROM sqlite_sequence WHERE name='mistakes'")
+    databaseModule.restoreBackupData(backup, 8)
+    const restored = databaseModule.executeDailyReview({ kind: 'get', subjectId: 1, date: '2026-09-10' })
+    expect(restored).toMatchObject({ roundId: initial.roundId, roundTotal: 1, roundCompleted: 1, dailyCompleted: 0, status: 'round_done' })
+    const created = database.prepare("INSERT INTO mistakes (subject_id, question) VALUES (1, '新增题')").run()
+    expect(Number(created.lastInsertRowid)).toBeGreaterThan(100)
+    expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    database.close()
+    databaseModule.initialize()
+    databases.push(databaseModule.getDb())
+    expect(databaseModule.executeDailyReview({ kind: 'get', subjectId: 1, date: '2026-09-10' })).toMatchObject({ roundId: initial.roundId, status: 'round_done', roundCompleted: 1 })
+  }, REAL_SQLITE_TEST_TIMEOUT_MS)
+
   it('keeps backup manifests aligned with the current schema version and backup format', async () => {
     const root = makeTempRoot()
     const backupFile = await createAutoBackup({
@@ -586,9 +611,9 @@ describe('backup schema version consistency', () => {
     })
 
     const zipText = fs.readFileSync(backupFile, 'utf8')
-    expect(CURRENT_SCHEMA_VERSION).toBe(7)
+    expect(CURRENT_SCHEMA_VERSION).toBe(8)
     expect(BACKUP_FORMAT_VERSION).toBe(2)
-    expect(zipText).toContain('"schemaVersion": 7')
+    expect(zipText).toContain('"schemaVersion": 8')
     expect(zipText).toContain(`"backupFormatVersion": ${BACKUP_FORMAT_VERSION}`)
   })
 

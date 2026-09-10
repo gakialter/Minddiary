@@ -1,0 +1,13 @@
+.daily-review-dialog { max-width: 640px; }
+.daily-review-header, .daily-review-footer { padding: var(--space-4) var(--space-5); flex-shrink: 0; }
+.daily-review-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border-subtle); }
+.daily-review-header h2 { font-size: var(--font-size-section-title); margin: 0; }
+.daily-review-config { display: flex; align-items: flex-end; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.daily-review-config label { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; min-width: 120px; }
+.daily-review-config input, .daily-review-config select { width: 100%; }
+.daily-review-content { margin-top: var(--space-5); line-height: 1.7; }
+.daily-review-content h3 { font-size: var(--font-size-label); color: var(--color-text-secondary); margin: var(--space-4) 0 var(--space-2); }
+.daily-review-images { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.daily-review-footer { border-top: 1px solid var(--color-border-subtle); }
+.daily-review-progress { display: flex; flex-wrap: wrap; gap: var(--space-3); font-variant-numeric: tabular-nums; color: var(--color-text-secondary); margin-bottom: var(--space-3); }
+.daily-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }

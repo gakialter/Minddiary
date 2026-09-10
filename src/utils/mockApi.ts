@@ -9,6 +9,7 @@ import { assertTaskCreationDateIsCurrent } from './dateBoundTaskGuard'
 const mockEntries: Record<string, unknown> = {}
 
 const mockApi: ElectronAPI = {
+    dailyReview: { execute: async () => { throw new Error('Browser daily review uses DataContext persistence') } },
     window: {
         platform: navigator.userAgent.includes('Mac') ? 'darwin' : 'browser',
         titlebarMode: navigator.userAgent.includes('Mac') ? 'native' : 'custom',
