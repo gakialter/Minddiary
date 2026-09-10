@@ -132,6 +132,14 @@ describe('Editor format toolbar', () => {
     expect(screen.getByTestId('format-color')).toBeInTheDocument()
   })
 
+  it('exposes stable names for the diary title and writing canvas', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    expect(await screen.findByRole('textbox', { name: '日记标题' })).toHaveValue('Entry title')
+    expect(screen.getByRole('textbox', { name: '日记正文' })).toHaveValue('Entry body')
+  })
+
   it('displays updated Markdown hint text with highlight, underline, and color syntax', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<Editor entry={entry} onSave={onSave} loading={false} />)
@@ -168,6 +176,22 @@ describe('Editor AI summary request', () => {
     expect(payload[0]?.role).toBe('system')
     expect(payload[1]?.role).toBe('user')
     expect(payload[1]?.content).toContain('Entry body')
+  })
+
+  it('exposes the generated AI summary through a native disclosure control', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /AI 汇总/ }))
+    const disclosure = await screen.findByRole('button', { name: 'AI 辅助摘要' })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    expect(disclosure).toHaveAccessibleDescription('由模型生成 · 仅供参考')
+    expect(screen.getByText('summary result')).toBeInTheDocument()
+
+    fireEvent.click(disclosure)
+
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('summary result')).not.toBeInTheDocument()
   })
 
   it('keeps a late older summary from overwriting a newer content summary', async () => {
@@ -219,7 +243,7 @@ describe('Editor AI summary request', () => {
       expect(mocks.aiChat).toHaveBeenCalledTimes(1)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close AI summary' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭 AI 摘要' }))
 
     await act(async () => {
       request.resolve({ content: 'closed stale summary' })

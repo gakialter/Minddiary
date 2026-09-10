@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, PlusCircle, Target, Trash2 } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
 import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
@@ -278,90 +279,66 @@ export default function StudyProgress() {
     }
 
     return (
-        <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-            <div
-                className="card"
-                style={{
-                    padding: 'var(--space-xl)',
-                    marginBottom: 'var(--space-2xl)',
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--border-light)',
-                }}
-            >
-                <div className="flex items-center justify-between gap-md flex-wrap" style={{ marginBottom: 'var(--space-md)' }}>
-                    <div className="flex items-center gap-md flex-wrap">
-                        <div className="flex items-center gap-sm">
-                            <div
-                                style={{
-                                    padding: 8,
-                                    borderRadius: 8,
-                                    background: 'var(--accent)',
-                                    color: 'white',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}
-                            >
-                                <Target size={18} />
-                            </div>
-                            <span className="font-semibold text-lg">备考大盘</span>
-                        </div>
-                        <span className="font-bold text-3xl" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
-                            {overallProgress}%
+        <div className="workspace-page workspace-page--wide study-progress" aria-busy={loading}>
+            <section className="study-progress__overview" aria-labelledby="study-progress-overview-title">
+                <div className="study-progress__overview-header">
+                    <div className="study-progress__overview-copy">
+                        <span className="study-progress__overview-icon" aria-hidden="true">
+                            <Target size={18} />
                         </span>
+                        <div>
+                            <h2 id="study-progress-overview-title" className="study-progress__overview-title">备考总进度</h2>
+                            <p className="study-progress__overview-help">按科目查看章节进展与今日学习证据。</p>
+                        </div>
                     </div>
-
                     {!showForm && (
                         <button
-                            className="button button-primary"
-                            style={{ borderRadius: 20 }}
+                            type="button"
+                            className="button button-primary study-progress__add-subject"
                             onClick={() => {
                                 setShowForm(true)
                                 setEditingId(null)
                                 setForm({ name: '', total_chapters: '', color: '#0F766E' })
                             }}
                         >
-                            <PlusCircle size={16} /> 新增科目
+                            <PlusCircle size={16} aria-hidden="true" /> 新增科目
                         </button>
                     )}
                 </div>
 
-                <div style={{ height: 12, background: 'var(--bg-primary)', borderRadius: 6, overflow: 'hidden' }}>
-                    <div
-                        style={{
-                            height: '100%',
-                            width: `${overallProgress}%`,
-                            background: 'var(--accent)',
-                            borderRadius: 6,
-                            transition: 'width var(--duration-slow) var(--ease-out)',
-                        }}
-                    />
+                <div className="study-progress__overall-value">
+                    <strong>{overallProgress}%</strong>
+                    <span>已完成 {totalCompleted} / {totalChapters} 个章节</span>
                 </div>
-
-                <div className="flex items-center justify-between mt-4 gap-sm flex-wrap">
-                    <div className="text-sm">
-                        <span className="text-muted">已完成 </span>
-                        <span className="font-semibold">{totalCompleted}</span>
-                        <span className="text-muted"> / {totalChapters} 个章节</span>
-                    </div>
-                    {Number(overallProgress) >= 100 && totalChapters > 0 && (
-                        <div className="text-xs font-semibold" style={{ color: 'var(--success)', background: 'var(--accent-light)', padding: '4px 10px', borderRadius: 12 }}>
-                            全部完成
-                        </div>
-                    )}
+                <div
+                    className="study-progress__track study-progress__track--overall"
+                    role="progressbar"
+                    aria-label="总体章节进度"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Number(overallProgress)}
+                    aria-valuetext={`已完成 ${totalCompleted} / ${totalChapters} 个章节`}
+                >
+                    <span className="study-progress__fill" style={{ width: `${overallProgress}%` }} />
                 </div>
-            </div>
+                {Number(overallProgress) >= 100 && totalChapters > 0 && (
+                    <span className="study-progress__complete-status">全部完成</span>
+                )}
+            </section>
 
             {showForm && (
-                <div className="card" style={{ padding: 'var(--space-xl)', marginBottom: 'var(--space-xl)' }}>
-                    <h3 className="font-bold text-lg" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {editingId ? <><Pencil size={18} /> 编辑科目</> : <><BookOpen size={18} /> 创建科目</>}
-                    </h3>
-                    <div className="flex flex-col gap-md">
-                        <div className="flex gap-md w-full flex-wrap">
-                            <div style={{ flex: '2 1 260px' }}>
-                                <label className="text-xs font-bold text-muted uppercase mb-1 block">科目名称</label>
+                <section className="study-progress__form" aria-labelledby="study-progress-form-title">
+                    <h2 id="study-progress-form-title" className="study-progress__form-title">
+                        {editingId
+                            ? <><Pencil size={18} aria-hidden="true" /> 编辑科目</>
+                            : <><BookOpen size={18} aria-hidden="true" /> 创建科目</>}
+                    </h2>
+                    <div className="study-progress__form-fields">
+                        <div className="study-progress__form-row">
+                            <div className="workspace-field study-progress__name-field">
+                                <label htmlFor="study-progress-subject-name">科目名称</label>
                                 <input
+                                    id="study-progress-subject-name"
                                     className="input w-full"
                                     placeholder="例如：考研数学、英语一"
                                     value={form.name}
@@ -369,9 +346,10 @@ export default function StudyProgress() {
                                     autoFocus
                                 />
                             </div>
-                            <div style={{ flex: '1 1 160px' }}>
-                                <label className="text-xs font-bold text-muted uppercase mb-1 block">汇总章节数</label>
+                            <div className="workspace-field study-progress__chapter-count-field">
+                                <label htmlFor="study-progress-subject-total">汇总章节数</label>
                                 <input
+                                    id="study-progress-subject-total"
                                     className="input w-full"
                                     type="number"
                                     min={0}
@@ -383,237 +361,202 @@ export default function StudyProgress() {
                             </div>
                         </div>
 
-                        <div>
-                            <label className="text-xs font-bold text-muted uppercase mb-2 block">代表色</label>
-                            <div className="flex items-center gap-md flex-wrap">
+                        <fieldset className="study-progress__color-field">
+                            <legend>代表色</legend>
+                            <div className="study-progress__color-options">
                                 {COLORS.map(color => (
                                     <button
                                         key={color}
+                                        type="button"
+                                        className="study-progress__color-option"
                                         onClick={() => setForm({ ...form, color })}
-                                        style={{
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: '50%',
-                                            background: color,
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            outline: form.color === color ? `3px solid ${color}40` : 'none',
-                                            outlineOffset: 2,
-                                        }}
+                                        style={{ '--subject-color': color } as CSSProperties}
                                         title={`选择颜色 ${color}`}
                                         aria-label={`选择颜色 ${color}`}
+                                        aria-pressed={form.color === color}
+                                        data-selected={form.color === color || undefined}
                                     />
                                 ))}
                             </div>
-                        </div>
+                        </fieldset>
 
-                        <div className="flex gap-sm mt-2 justify-end">
-                            <button className="button button-secondary" onClick={resetForm} disabled={savingSubject}>
+                        <div className="study-progress__form-actions">
+                            <button type="button" className="button button-secondary" onClick={resetForm} disabled={savingSubject}>
                                 取消
                             </button>
-                            <button className="button button-primary" onClick={handleSubmit} disabled={!form.name.trim() || savingSubject}>
+                            <button type="button" className="button button-primary" onClick={handleSubmit} disabled={!form.name.trim() || savingSubject}>
                                 {savingSubject ? '保存中...' : editingId ? '保存更改' : '创建科目'}
                             </button>
                         </div>
                     </div>
-                </div>
+                </section>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: 'var(--space-xl)' }}>
+            <section className="study-progress__subjects" aria-label="科目进度">
                 {loading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
-                        <div key={index} className="card" style={{ padding: 'var(--space-lg)', minHeight: 200, opacity: 0.55 }}>
-                            <div className="skeleton-line" style={{ width: '45%', height: 24, marginBottom: 20 }} />
-                            <div className="skeleton-line" style={{ width: '100%', height: 8, borderRadius: 4, marginBottom: 30 }} />
-                            <div className="skeleton-line" style={{ width: '70%', height: 16 }} />
+                    <div className="study-progress__loading" role="status">
+                        <span>正在加载科目进度...</span>
+                        <div className="study-progress__skeleton-grid" aria-hidden="true">
+                            {Array.from({ length: 4 }).map((_, index) => (
+                                <div key={index} className="study-progress__skeleton">
+                                    <div className="skeleton-line study-progress__skeleton-title" />
+                                    <div className="skeleton-line study-progress__skeleton-track" />
+                                    <div className="skeleton-line study-progress__skeleton-detail" />
+                                </div>
+                            ))}
                         </div>
-                    ))
+                    </div>
                 ) : (
                     subjectMetrics.map(subject => {
                         const displayColor = subject.color || '#0F766E'
                         const expanded = expandedSubjectId === subject.id
                         return (
-                            <div
+                            <article
                                 key={subject.id}
                                 data-testid={`subject-card-${subject.id}`}
-                                className="card progress-card"
-                                style={{
-                                    padding: 'var(--space-xl)',
-                                    position: 'relative',
-                                    overflow: 'hidden',
-                                    borderTop: `4px solid ${displayColor}`,
-                                }}
+                                className="study-progress__subject"
+                                style={{ '--subject-color': displayColor } as CSSProperties}
+                                aria-labelledby={`study-progress-subject-${subject.id}`}
                             >
-                                <div className="flex items-center justify-between gap-sm" style={{ marginBottom: 'var(--space-md)' }}>
-                                    <h3 className="font-bold text-lg" style={{ overflowWrap: 'anywhere' }}>{subject.name}</h3>
-                                    <div className="flex gap-xs" style={{ opacity: 0.72 }}>
+                                <header className="study-progress__subject-header">
+                                    <h3 id={`study-progress-subject-${subject.id}`} className="study-progress__subject-title">{subject.name}</h3>
+                                    <div className="study-progress__subject-actions">
                                         <button
-                                            className="icon-button"
+                                            type="button"
+                                            className="study-progress__icon-action"
                                             onClick={() => handleEdit(subject)}
                                             title="编辑科目"
                                             aria-label={`编辑科目：${subject.name}`}
                                             disabled={!!subjectActionPending}
                                         >
-                                            <Pencil size={14} />
+                                            <Pencil size={14} aria-hidden="true" />
                                         </button>
                                         <button
-                                            className="icon-button"
+                                            type="button"
+                                            className="study-progress__icon-action study-progress__icon-action--danger"
                                             onClick={() => void handleDelete(subject.id)}
                                             title="删除科目"
                                             aria-label={`删除科目：${subject.name}`}
                                             disabled={!!subjectActionPending}
-                                            style={{ color: 'var(--danger)' }}
                                         >
-                                            <Trash2 size={14} />
+                                            <Trash2 size={14} aria-hidden="true" />
                                         </button>
                                     </div>
+                                </header>
+
+                                <div className="study-progress__subject-summary">
+                                    <strong>{subject.pct}%</strong>
+                                    <span>{subject.completed_chapters || 0} / {subject.total_chapters || 0} 章节</span>
+                                </div>
+                                <div
+                                    className="study-progress__track"
+                                    role="progressbar"
+                                    aria-label={`${subject.name}章节进度`}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-valuenow={subject.pct}
+                                    aria-valuetext={`已完成 ${subject.completed_chapters || 0} / ${subject.total_chapters || 0} 章节`}
+                                >
+                                    <span className="study-progress__fill" style={{ width: `${subject.pct}%` }} />
                                 </div>
 
-                                <div className="flex items-end justify-between gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
-                                    <div className="text-3xl font-extrabold" style={{ color: displayColor, fontVariantNumeric: 'tabular-nums' }}>
-                                        {subject.pct}%
-                                    </div>
-                                    <div className="text-sm text-muted font-medium mb-1">
-                                        {subject.completed_chapters || 0} / {subject.total_chapters || 0} 章节
-                                    </div>
-                                </div>
-
-                                <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', marginBottom: 'var(--space-lg)' }}>
-                                    <div
-                                        style={{
-                                            height: '100%',
-                                            width: `${subject.pct}%`,
-                                            background: displayColor,
-                                            borderRadius: 4,
-                                            transition: 'width var(--duration-slow) var(--ease-out)',
-                                        }}
-                                    />
-                                </div>
-
-                                <div className="text-sm" style={{ minHeight: 22, marginBottom: 'var(--space-md)' }}>
+                                <p className="study-progress__next-step">
                                     {subject.hasDetailedChapters ? (
                                         subject.nextIncompleteChapter ? (
-                                            <span className="text-secondary">下一章节：<span className="font-semibold">{subject.nextIncompleteChapter}</span></span>
+                                            <>下一章节：<strong>{subject.nextIncompleteChapter}</strong></>
                                         ) : (
-                                            <span className="text-success font-semibold">全部章节已完成</span>
+                                            <strong className="study-progress__complete-copy">全部章节已完成</strong>
                                         )
                                     ) : (
-                                        <span className="text-muted">汇总模式：可继续用 +/- 更新，或展开添加详细章节。</span>
+                                        <>汇总模式：可继续用 +/- 更新，或展开添加详细章节。</>
                                     )}
-                                </div>
+                                </p>
 
-                                <div className="flex justify-between items-center text-sm mb-4" style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 8, border: '1px solid var(--border-light)' }}>
-                                    <div className="flex flex-col items-center flex-1">
-                                        <span className="text-muted text-xs mb-1">今日专注</span>
-                                        <span className="font-semibold">{subject.studyTime} m</span>
+                                <dl className="study-progress__evidence">
+                                    <div>
+                                        <dt>今日专注</dt>
+                                        <dd>{subject.studyTime} 分钟</dd>
                                     </div>
-                                    <div className="flex flex-col items-center flex-1" style={{ borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
-                                        <span className="text-muted text-xs mb-1">未清错题</span>
-                                        <span className="font-semibold text-danger">{subject.mistakeCount - subject.masteredCount}</span>
+                                    <div>
+                                        <dt>未清错题</dt>
+                                        <dd className="study-progress__metric-danger">{subject.mistakeCount - subject.masteredCount}</dd>
                                     </div>
-                                    <div className="flex flex-col items-center flex-1">
-                                        <span className="text-muted text-xs mb-1">已掌握</span>
-                                        <span className="font-semibold text-success">{subject.masteredCount}</span>
+                                    <div>
+                                        <dt>已掌握</dt>
+                                        <dd className="study-progress__metric-success">{subject.masteredCount}</dd>
                                     </div>
-                                </div>
+                                </dl>
 
-                                <div className="flex items-center justify-between gap-sm pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                                <div className="study-progress__subject-footer">
                                     {!subject.hasDetailedChapters ? (
-                                        <div className="flex gap-sm">
+                                        <div className="study-progress__summary-controls" aria-label={`${subject.name}汇总进度调整`}>
                                             <button
-                                                className="button button-secondary flex items-center justify-center p-0"
-                                                style={{ width: 32, height: 32, borderRadius: '50%' }}
+                                                type="button"
+                                                className="button button-secondary study-progress__summary-control"
                                                 onClick={() => void updateSummaryProgress(subject, -1)}
                                                 disabled={!!subjectActionPending || (subject.completed_chapters || 0) <= 0}
                                                 title="汇总进度减一"
+                                                aria-label={`${subject.name}汇总进度减一`}
                                             >
-                                                -
+                                                −
                                             </button>
                                             <button
-                                                className="button button-primary flex items-center justify-center p-0"
-                                                style={{ width: 32, height: 32, borderRadius: '50%', background: displayColor }}
+                                                type="button"
+                                                className="button button-primary study-progress__summary-control"
                                                 onClick={() => void updateSummaryProgress(subject, 1)}
                                                 disabled={!!subjectActionPending || (subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
                                                 title="汇总进度加一"
+                                                aria-label={`${subject.name}汇总进度加一`}
                                             >
                                                 +
                                             </button>
                                         </div>
                                     ) : (
-                                        <span className="text-xs text-muted">详细章节自动汇总进度</span>
+                                        <span className="study-progress__auto-summary">详细章节自动汇总进度</span>
                                     )}
                                     <button
-                                        className="button button-secondary"
-                                        style={{ borderRadius: 20 }}
+                                        type="button"
+                                        className="button button-secondary study-progress__manage"
                                         onClick={() => setExpandedSubjectId(expanded ? null : subject.id)}
                                         aria-expanded={expanded}
+                                        aria-controls={`study-progress-chapters-${subject.id}`}
                                         title={expanded ? '收起章节管理' : '管理章节'}
                                         data-testid={`manage-chapters-${subject.id}`}
                                     >
-                                        {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                                        {expanded
+                                            ? <ChevronUp size={15} aria-hidden="true" />
+                                            : <ChevronDown size={15} aria-hidden="true" />}
                                         {expanded ? '收起' : '管理章节'}
                                     </button>
                                 </div>
 
                                 {expanded && (
-                                    <SubjectChapterPanel
-                                        subject={subject}
-                                        chapters={chaptersBySubject[subject.id] || []}
-                                        color={displayColor}
-                                        api={subjectChaptersAPI}
-                                        onRefresh={loadAllData}
-                                        onChapterUpdated={updateChapterLocally}
-                                        todayChapterTaskIds={todayChapterTaskIds}
-                                        onAddToToday={chapter => addChapterToToday(subject, chapter)}
-                                    />
+                                    <div id={`study-progress-chapters-${subject.id}`} className="study-progress__chapters">
+                                        <SubjectChapterPanel
+                                            subject={subject}
+                                            chapters={chaptersBySubject[subject.id] || []}
+                                            color={displayColor}
+                                            api={subjectChaptersAPI}
+                                            onRefresh={loadAllData}
+                                            onChapterUpdated={updateChapterLocally}
+                                            todayChapterTaskIds={todayChapterTaskIds}
+                                            onAddToToday={chapter => addChapterToToday(subject, chapter)}
+                                        />
+                                    </div>
                                 )}
-                            </div>
+                            </article>
                         )
                     })
                 )}
 
                 {!loading && subjectMetrics.length === 0 && !showForm && (
-                    <div className="empty-state" style={{ gridColumn: '1 / -1', padding: 'var(--space-2xl)' }}>
-                        <Library size={52} style={{ marginBottom: 'var(--space)', opacity: 0.25, color: 'var(--text-secondary)' }} />
-                        <h3 style={{ fontSize: 18, marginBottom: 'var(--space-sm)' }}>还没有科目</h3>
-                        <p className="text-muted" style={{ maxWidth: 420, margin: '0 auto', lineHeight: 1.7 }}>
-                            先创建科目，再添加详细章节或使用汇总进度记录备考进展。
-                        </p>
+                    <div className="workspace-empty study-progress__empty">
+                        <Library size={44} aria-hidden="true" />
+                        <h3>还没有科目</h3>
+                        <p>先创建科目，再添加详细章节或使用汇总进度记录备考进展。</p>
                     </div>
                 )}
-            </div>
-
-            <style>{`
-                .progress-card {
-                    transition: box-shadow var(--duration-normal) var(--ease-out), transform var(--duration-normal) var(--ease-out);
-                }
-                .progress-card:hover {
-                    transform: translateY(-2px);
-                    box-shadow: var(--shadow-lg);
-                }
-                .icon-button {
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 6px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: transparent;
-                    border: none;
-                    color: inherit;
-                    cursor: pointer;
-                    opacity: 0.75;
-                    transition: opacity var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
-                }
-                .icon-button:hover:not(:disabled) {
-                    opacity: 1;
-                    background: var(--bg-tertiary);
-                }
-                .icon-button:disabled {
-                    cursor: not-allowed;
-                    opacity: 0.35;
-                }
-            `}</style>
+            </section>
         </div>
     )
 }

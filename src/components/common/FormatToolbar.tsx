@@ -13,22 +13,6 @@ interface FormatToolbarProps {
   onColor?: (color: MarkdownColorKey) => void
 }
 
-const btnStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 30,
-  height: 30,
-  padding: 0,
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  cursor: 'pointer',
-  transition: 'all 0.15s',
-  flexShrink: 0,
-}
-
 /**
  * A lightweight Markdown format toolbar.
  *
@@ -38,85 +22,64 @@ const btnStyle: React.CSSProperties = {
  * into a textarea via the useTextFormat hook).
  */
 export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor }: FormatToolbarProps) {
-  // Use onMouseDown + preventDefault to avoid stealing focus from textarea
+  // Pointer activation runs on mousedown so the textarea selection is still intact.
+  // Keyboard/assistive activation reaches the click path with detail === 0.
   const handleMouseDown = (e: React.MouseEvent, action: () => void) => {
+    if (e.button !== 0) return
     e.preventDefault()
     action()
   }
 
+  const handleClick = (e: React.MouseEvent, action: () => void) => {
+    if (e.detail === 0) action()
+  }
+
   return (
     <div
-      className="flex items-center gap-xs"
+      className="format-toolbar"
       role="toolbar"
       aria-label="文本格式工具栏"
       data-testid="format-toolbar"
     >
       <button
         type="button"
-        style={btnStyle}
+        className="format-toolbar__button"
         title="加粗 (**文本**)"
         aria-label="加粗"
         data-testid="format-bold"
         onMouseDown={(e) => handleMouseDown(e, onBold)}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-tertiary)'
-          e.currentTarget.style.color = 'var(--text-primary)'
-          e.currentTarget.style.borderColor = 'var(--accent)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--text-secondary)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
+        onClick={(e) => handleClick(e, onBold)}
       >
-        <Bold size={14} />
+        <Bold size={15} aria-hidden="true" />
       </button>
 
       <button
         type="button"
-        style={btnStyle}
+        className="format-toolbar__button"
         title="高亮 (==文本==)"
         aria-label="高亮"
         data-testid="format-highlight"
         onMouseDown={(e) => handleMouseDown(e, onHighlight)}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-tertiary)'
-          e.currentTarget.style.color = 'var(--text-primary)'
-          e.currentTarget.style.borderColor = 'var(--accent)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--text-secondary)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
+        onClick={(e) => handleClick(e, onHighlight)}
       >
-        <Highlighter size={14} />
+        <Highlighter size={15} aria-hidden="true" />
       </button>
 
       <button
         type="button"
-        style={btnStyle}
+        className="format-toolbar__button"
         title="下划线 (++文本++)"
         aria-label="下划线"
         data-testid="format-underline"
         onMouseDown={(e) => handleMouseDown(e, onUnderline)}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-tertiary)'
-          e.currentTarget.style.color = 'var(--text-primary)'
-          e.currentTarget.style.borderColor = 'var(--accent)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--text-secondary)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
+        onClick={(e) => handleClick(e, onUnderline)}
       >
-        <Underline size={14} />
+        <Underline size={15} aria-hidden="true" />
       </button>
 
       {onColor && (
         <>
-          <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
+          <span className="format-toolbar__separator" aria-hidden="true" />
           <ColorPickerButton onSelectColor={onColor} />
         </>
       )}

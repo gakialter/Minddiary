@@ -13,47 +13,17 @@ export const TrustMetric: React.FC<TrustMetricProps> = ({
   hint,
   accent = 'default',
 }) => {
-  const valueColor =
-    accent === 'danger'
-      ? 'var(--danger)'
-      : accent === 'success'
-      ? 'var(--success)'
-      : 'var(--text-primary)';
-
   return (
-    <div style={{
-      borderRadius: 'var(--radius-lg)',
-      border: '1px solid var(--border)',
-      background: 'var(--bg-secondary)',
-      padding: '20px 24px',
-    }}>
-      <div style={{
-        fontSize: 'clamp(36px, 5vw, 56px)',
-        fontWeight: 700,
-        lineHeight: 1,
-        letterSpacing: '-0.03em',
-        color: valueColor,
-      }}>
-        {value}
-      </div>
-
-      <div style={{
-        marginTop: 'var(--space)',
-        fontSize: 13,
-        fontWeight: 500,
-        letterSpacing: '0.01em',
-        color: 'var(--text-secondary)',
-      }}>
+    <div className="today-action-trust-metric" data-accent={accent}>
+      <div className="today-action-trust-metric__label">
+        <span className="today-action-trust-metric__mark" aria-hidden="true" />
         {label}
       </div>
-
+      <div className="today-action-trust-metric__value">
+        {value}
+      </div>
       {hint ? (
-        <div style={{
-          marginTop: 'var(--space-sm)',
-          fontSize: 12,
-          lineHeight: 1.6,
-          color: 'var(--text-muted)',
-        }}>
+        <div className="today-action-trust-metric__hint">
           {hint}
         </div>
       ) : null}

@@ -13,9 +13,9 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
     if (attachments.length === 0) return null
 
     return (
-        <div style={{
+        <div className="ai-attachments" style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
             gap: 8,
         }}>
             {attachments.map(attachment => {
@@ -29,8 +29,8 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                             alignItems: 'center',
                             padding: 8,
                             borderRadius: 'var(--radius-sm)',
-                            border: `1px solid ${attachment.status === 'error' ? 'var(--danger, #C65A3A)' : 'var(--border-light)'}`,
-                            background: 'var(--bg-tertiary)',
+                            border: `1px solid ${attachment.status === 'error' ? 'var(--color-danger-fg)' : 'var(--color-border-subtle)'}`,
+                            background: 'var(--color-surface-subtle)',
                             minWidth: 0,
                         }}
                     >
@@ -53,10 +53,10 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 flexShrink: 0,
-                                background: 'var(--bg-secondary)',
-                                color: 'var(--text-muted)',
+                                background: 'var(--color-surface-base)',
+                                color: 'var(--color-text-secondary)',
                             }}>
-                                {attachment.status === 'reading' ? <Loader2 size={18} aria-hidden /> : attachment.kind === 'pdf' ? <FileText size={18} aria-hidden /> : <ImageIcon size={18} aria-hidden />}
+                                {attachment.status === 'reading' ? <Loader2 size={18} aria-hidden /> : attachment.kind === 'image' ? <ImageIcon size={18} aria-hidden /> : <FileText size={18} aria-hidden />}
                             </div>
                         )}
                         <div style={{ minWidth: 0, flex: 1 }}>
@@ -69,23 +69,24 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                             }}>
                                 {attachment.name}
                             </div>
-                            <div className="text-muted" style={{ fontSize: 11 }}>
+                            <div className="text-muted" role={attachment.status === 'reading' ? 'status' : undefined} style={{ fontSize: 12 }}>
                                 {attachment.status === 'reading' ? '读取中' : formatBytes(attachment.size)}
                                 {attachment.kind === 'pdf' && attachment.pageCount ? ` · ${attachment.pageCount} 页` : ''}
                             </div>
                             {attachment.error && (
-                                <div style={{ fontSize: 11, color: 'var(--danger, #C65A3A)' }}>{attachment.error}</div>
+                                <div style={{ fontSize: 12, color: 'var(--color-danger-fg)' }}>{attachment.error}</div>
                             )}
                         </div>
                         <button
                             type="button"
+                            className="ai-local-action"
                             aria-label={`删除附件 ${attachment.name}`}
                             title={`删除 ${attachment.name}`}
                             onClick={() => onRemove(attachment.id)}
                             style={{
                                 border: 'none',
                                 background: 'transparent',
-                                color: 'var(--text-muted)',
+                                color: 'var(--color-text-secondary)',
                                 cursor: 'pointer',
                                 padding: 2,
                                 display: 'flex',

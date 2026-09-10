@@ -1,12 +1,119 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { type ChildProcess } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const projectRoot = process.env.MINDDIARY_ISSUE145_PROJECT_ROOT
   ? path.resolve(process.env.MINDDIARY_ISSUE145_PROJECT_ROOT)
   : path.resolve(__dirname, '..', '..')
 const profilePrefix = 'minddiary-mistakes-e2e-'
+
+interface OwnedElectron {
+  app: ElectronApplication
+  process: ChildProcess
+  profilePath: string
+}
+
+function hasExited(process: ChildProcess): boolean {
+  return process.exitCode !== null || process.signalCode !== null
+}
+
+async function closeApp(app: ElectronApplication): Promise<void> {
+  const process = app.process()
+  const errors: unknown[] = []
+  try {
+    await app.close()
+  } catch (error) {
+    errors.push(error)
+  }
+  try {
+    if (!hasExited(process)) {
+      await new Promise<void>((resolve, reject) => {
+        const onExit = () => {
+          clearTimeout(timer)
+          process.off('exit', onExit)
+          process.off('close', onExit)
+          resolve()
+        }
+        const timer = setTimeout(() => {
+          process.off('exit', onExit)
+          process.off('close', onExit)
+          reject(new Error(`Owned Electron process ${process.pid} did not exit within 10 seconds`))
+        }, 10_000)
+        process.once('exit', onExit)
+        process.once('close', onExit)
+      })
+    }
+  } catch (error) {
+    errors.push(error)
+  }
+  if (errors.length) {
+    console.error('Owned Electron shutdown failed', { pid: process.pid, exited: hasExited(process), errors })
+    throw errors[0]
+  }
+}
+
+async function cleanupProfile(profilePath: string): Promise<void> {
+  const resolvedProfile = path.resolve(profilePath)
+  if (path.dirname(resolvedProfile) !== path.resolve(tmpdir())
+    || !path.basename(resolvedProfile).startsWith(profilePrefix)) {
+    throw new Error('Refusing to remove unexpected mistake E2E profile path')
+  }
+  const started = Date.now()
+  while (true) {
+    try {
+      await rm(resolvedProfile, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const elapsedMs = Date.now() - started
+      const code = (error as NodeJS.ErrnoException).code
+      if (process.platform !== 'win32' || !['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(code || '')
+        || elapsedMs >= 12_000) {
+        console.error('Profile deletion failed', { profilePath: resolvedProfile, elapsedMs, error })
+        throw error
+      }
+      await delay(Math.min(250, 12_000 - elapsedMs))
+    }
+  }
+}
+
+async function cleanupTest(
+  ownedApps: OwnedElectron[],
+  profilePaths: string[],
+  bodyFailed: boolean,
+): Promise<void> {
+  const errors: unknown[] = []
+  for (const owned of ownedApps) {
+    if (!hasExited(owned.process)) {
+      try {
+        await closeApp(owned.app)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+  }
+  for (const profilePath of profilePaths) {
+    const processes = ownedApps.filter(owned => owned.profilePath === profilePath)
+      .map(owned => ({ pid: owned.process.pid, exited: hasExited(owned.process) }))
+    try {
+      if (processes.some(process => !process.exited)) {
+        throw new Error(`Refusing to delete profile while owned Electron is running: ${profilePath}`)
+      }
+      await cleanupProfile(profilePath)
+    } catch (error) {
+      console.error('Electron cleanup diagnostic', { profilePath, processes, error })
+      errors.push(error)
+    }
+  }
+  console.log(`Electron test body: ${bodyFailed ? 'FAIL' : 'PASS'}; cleanup: ${errors.length ? 'FAIL' : 'PASS'}`)
+  if (errors.length) {
+    console.error('Electron cleanup errors (secondary when test body failed)', errors)
+    if (!bodyFailed) throw errors[0]
+  }
+}
 
 interface FieldDiagnostics {
   activeElement: string
@@ -20,11 +127,12 @@ interface FieldDiagnostics {
   viewport: { width: number; height: number }
 }
 
-async function launch(profilePath: string): Promise<{ app: ElectronApplication; page: Page }> {
+async function launch(profilePath: string, ownedApps: OwnedElectron[]): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     args: [projectRoot, `--user-data-dir=${profilePath}`],
     env: { ...process.env, NODE_ENV: 'production' },
   })
+  ownedApps.push({ app, process: app.process(), profilePath })
   const page = await app.firstWindow()
   await page.waitForLoadState('load')
   const startButton = page.getByRole('button', { name: '开始使用' })
@@ -39,7 +147,6 @@ async function launch(profilePath: string): Promise<{ app: ElectronApplication; 
 async function openCreateForm(page: Page): Promise<void> {
   await page.getByTestId('mistake-add-btn').click()
   await expect(page.getByTestId('mistake-form')).toBeVisible()
-  await expect(page.getByTestId('pomodoro-widget')).toBeHidden()
 }
 
 async function fillForm(page: Page, question: string, answer: string, notes: string): Promise<void> {
@@ -141,9 +248,11 @@ test.describe('repeated mistake entry and editing', () => {
 
   test('creates, edits, restarts, and keeps every textarea interactive', async () => {
     const profilePath = mkdtempSync(path.join(tmpdir(), profilePrefix))
+    const ownedApps: OwnedElectron[] = []
+    let bodyFailed = false
     let app: ElectronApplication | undefined
     try {
-      let launched = await launch(profilePath)
+      let launched = await launch(profilePath, ownedApps)
       app = launched.app
       let page = launched.page
 
@@ -151,18 +260,18 @@ test.describe('repeated mistake entry and editing', () => {
       await createMistake(page, '第二题', '答案二', '笔记二')
       await createMistake(page, '第三题', '答案三', '笔记三')
 
-      const second = page.locator('.card').filter({ hasText: '第二题' })
+      const second = page.locator('.mistake-item').filter({ hasText: '第二题' })
       await second.getByRole('button', { name: '编辑错题' }).click()
       await fillForm(page, '第二题（已修改）', '答案二（已修改）', '笔记二（已修改）')
       await submitForm(page)
 
-      await app.close()
+      await closeApp(app)
       app = undefined
-      launched = await launch(profilePath)
+      launched = await launch(profilePath, ownedApps)
       app = launched.app
       page = launched.page
 
-      const first = page.locator('.card').filter({ hasText: '第一题' })
+      const first = page.locator('.mistake-item').filter({ hasText: '第一题' })
       await first.getByRole('button', { name: '编辑错题' }).click()
       await fillForm(page, '第一题（重启后修改）', '答案一（重启后修改）', '笔记一（重启后修改）')
       await submitForm(page)
@@ -245,23 +354,23 @@ test.describe('repeated mistake entry and editing', () => {
       await expect(page.evaluate(() => window.api.mistakes.update(0, { question: '非法' }))).rejects.toThrow(
         'mistake id must be a positive integer',
       )
+    } catch (error) {
+      bodyFailed = true
+      console.error('Electron test body failed', error)
+      throw error
     } finally {
-      await app?.close()
-      const resolvedProfile = path.resolve(profilePath)
-      if (path.dirname(resolvedProfile) !== path.resolve(tmpdir())
-        || !path.basename(resolvedProfile).startsWith(profilePrefix)) {
-        throw new Error('Refusing to remove unexpected mistake E2E profile path')
-      }
-      rmSync(resolvedProfile, { recursive: true, force: true })
+      await cleanupTest(ownedApps, [profilePath], bodyFailed)
     }
   })
 
   test('round-trips exported mistake review progress into a fresh profile', async () => {
     const sourceProfile = mkdtempSync(path.join(tmpdir(), profilePrefix))
     const targetProfile = mkdtempSync(path.join(tmpdir(), profilePrefix))
+    const ownedApps: OwnedElectron[] = []
+    let bodyFailed = false
     let app: ElectronApplication | undefined
     try {
-      let launched = await launch(sourceProfile)
+      let launched = await launch(sourceProfile, ownedApps)
       app = launched.app
       let page = launched.page
       await page.evaluate(() => window.api.mistakes.create({
@@ -309,9 +418,9 @@ test.describe('repeated mistake entry and editing', () => {
         }),
       ])
 
-      await app.close()
+      await closeApp(app)
       app = undefined
-      launched = await launch(targetProfile)
+      launched = await launch(targetProfile, ownedApps)
       app = launched.app
       page = launched.page
       await page.getByRole('button', { name: '设置', exact: true }).click()
@@ -336,9 +445,9 @@ test.describe('repeated mistake entry and editing', () => {
         }),
       ])
 
-      await app.close()
+      await closeApp(app)
       app = undefined
-      launched = await launch(targetProfile)
+      launched = await launch(targetProfile, ownedApps)
       app = launched.app
       page = launched.page
       restored = await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))
@@ -442,24 +551,22 @@ test.describe('repeated mistake entry and editing', () => {
       expect(mappedSubjectResult.subject?.id).toBeGreaterThan(0)
       expect(mappedSubjectResult.subject?.id).not.toBe(42_424)
       expect(mappedSubjectResult.mistake?.subject_id).toBe(mappedSubjectResult.subject?.id)
+    } catch (error) {
+      bodyFailed = true
+      console.error('Electron test body failed', error)
+      throw error
     } finally {
-      await app?.close()
-      for (const profilePath of [sourceProfile, targetProfile]) {
-        const resolvedProfile = path.resolve(profilePath)
-        if (path.dirname(resolvedProfile) !== path.resolve(tmpdir())
-          || !path.basename(resolvedProfile).startsWith(profilePrefix)) {
-          throw new Error('Refusing to remove unexpected mistake E2E profile path')
-        }
-        rmSync(resolvedProfile, { recursive: true, force: true })
-      }
+      await cleanupTest(ownedApps, [sourceProfile, targetProfile], bodyFailed)
     }
   })
 
   test('keeps the mistake form clear of floating controls at supported small sizes', async () => {
     const profilePath = mkdtempSync(path.join(tmpdir(), profilePrefix))
+    const ownedApps: OwnedElectron[] = []
+    let bodyFailed = false
     let app: ElectronApplication | undefined
     try {
-      const launched = await launch(profilePath)
+      const launched = await launch(profilePath, ownedApps)
       app = launched.app
       const page = launched.page
       await openCreateForm(page)
@@ -475,6 +582,15 @@ test.describe('repeated mistake entry and editing', () => {
         { width: 1024, height: 480 },
       ]) {
         await setWindowSize(app, page, size.width, size.height)
+        await expect(page.getByTestId('pomodoro-widget')).toBeVisible()
+        for (const placeholder of ['问题 / 知识点', '答案 / 解析', '备注（可选）']) {
+          const field = page.getByPlaceholder(placeholder)
+          await field.scrollIntoViewIfNeeded()
+          await field.click()
+          await expect(field).toBeFocused()
+          await expect(field).toBeEditable()
+          await field.fill(`${placeholder}\n中文`)
+        }
         const fields = await Promise.all([
           diagnostics(page, '问题 / 知识点'),
           diagnostics(page, '答案 / 解析'),
@@ -489,16 +605,15 @@ test.describe('repeated mistake entry and editing', () => {
           expect(field.readOnly).toBe(false)
           expect(field.visible).toBe(true)
           expect(field.hitTarget).toMatch(/^textarea:/)
+          expect(field.formRect.x + field.formRect.width).toBeLessThanOrEqual(field.viewport.width)
         }
       }
+    } catch (error) {
+      bodyFailed = true
+      console.error('Electron test body failed', error)
+      throw error
     } finally {
-      await app?.close()
-      const resolvedProfile = path.resolve(profilePath)
-      if (path.dirname(resolvedProfile) !== path.resolve(tmpdir())
-        || !path.basename(resolvedProfile).startsWith(profilePrefix)) {
-        throw new Error('Refusing to remove unexpected mistake E2E profile path')
-      }
-      rmSync(resolvedProfile, { recursive: true, force: true })
+      await cleanupTest(ownedApps, [profilePath], bodyFailed)
     }
   })
 })

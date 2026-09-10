@@ -235,17 +235,17 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
 
   if (shouldShowInitialLoading) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <Loader2 size={32} className="animate-spin mb-4" style={{ color: 'var(--text-muted)' }} />
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="dashboard-loading">正在加载实时模型状态...</p>
+      <div className="today-action-state" role="status" aria-live="polite">
+        <Loader2 size={28} className="animate-spin" aria-hidden="true" />
+        <p data-testid="dashboard-loading">正在加载实时模型状态...</p>
       </div>
     )
   }
 
   if (shouldShowInitialError) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <p style={{ color: 'var(--danger)' }}>加载失败: {error}</p>
+      <div className="today-action-state today-action-state--error" role="alert">
+        <p>加载失败: {error}</p>
       </div>
     )
   }
@@ -337,236 +337,179 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   }
 
   return (
-    <div className="w-full min-h-full bg-transparent overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
-        <div className="space-y-6">
+    <div className="today-action">
+      <div className="today-action__frame">
+        <div className="today-action__content">
           {hasBackgroundDashboardError && (
-            <p role="alert" data-testid="dashboard-background-refresh-error" className="rounded-lg px-4 py-3 text-sm" style={{ border: '1px solid var(--danger)', color: 'var(--danger)', background: 'var(--danger-bg, rgba(220, 38, 38, 0.1))' }}>
+            <p
+              role="alert"
+              data-testid="dashboard-background-refresh-error"
+              className="today-action__notice today-action__notice--danger"
+            >
               实时模型刷新失败：{error}。当前仍显示上次成功加载的数据。
             </p>
           )}
 
-          <section
-            data-testid="today-execution-overview"
-            className="rounded-2xl p-5 md:p-6"
-            style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
-          >
-            <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>今日学习驾驶舱</p>
-                <h2 className="mt-1 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>今日概览</h2>
-              </div>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{todayDate}</p>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div data-testid="overview-tasks" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日任务</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {executionSummary.completedTasks} / {executionSummary.totalTasks}
-                </div>
-                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>已完成 / 总数</div>
-              </div>
-              <div data-testid="overview-focus" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日专注</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {executionSummary.focusMinutes} 分钟
-                </div>
-                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>全部专注会话</div>
-              </div>
-              <div data-testid="overview-chapters" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>章节推进</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}
-                </div>
-                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>已完成 / 今日章节</div>
-              </div>
-              <div data-testid="overview-diary" className="rounded-xl px-4 py-3" style={{ background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>今日复盘</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{diaryStatusLabel}</div>
-                <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>按今日日记内容判断</div>
-              </div>
-            </div>
-          </section>
+          <CommanderHero config={config} onActionClick={handleCTA} />
 
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-            <div
-              data-testid="next-today-action"
-              className="rounded-2xl p-5 md:p-6"
-              style={{ border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))', background: 'var(--bg-secondary)' }}
-            >
-              <div className="text-xs font-medium" style={{ color: 'var(--accent)' }}>推荐下一步</div>
-              <h2 className="mt-2 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{nextAction.title}</h2>
-              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{nextAction.reason}</p>
+          <section
+            data-testid="next-today-action"
+            className="today-action__next"
+            aria-labelledby="today-action-next-title"
+          >
+            <div className="today-action__next-copy">
+              <p className="today-action__eyebrow">推荐下一步</p>
+              <h2 id="today-action-next-title">{nextAction.title}</h2>
+              <p id="today-action-next-reason" className="today-action__next-reason">{nextAction.reason}</p>
               {nextAction.task && (
-                <div className="mt-3 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                <div className="today-action__next-meta">
                   <span>{nextAction.task.status} · 预计 {nextAction.task.estimate_minutes} 分钟</span>
                   <span data-testid="next-action-source">
                     来源：{recommendedTaskSource?.label ?? '今日任务'}
                   </span>
                 </div>
               )}
-              <button
-                type="button"
-                data-testid="next-today-action-cta"
-                className="button button-primary mt-4"
-                disabled={taskLoading || Boolean(taskError)}
-                onClick={handleNextAction}
-                style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
-              >
-                {nextAction.actionLabel}
-              </button>
             </div>
-
-            <div
-              data-testid="today-review-entry"
-              className="rounded-2xl p-5 md:p-6"
-              style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+            <button
+              type="button"
+              data-testid="next-today-action-cta"
+              className="button button-primary today-action__next-action"
+              disabled={taskLoading || Boolean(taskError)}
+              onClick={handleNextAction}
+              aria-describedby="today-action-next-reason"
             >
-              <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>今日复盘</div>
-              <h2 className="mt-2 text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{reviewActionLabel}</h2>
-              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
-                回到今天的日记，记录收获、问题和明日第一步。
-              </p>
-              <button
-                type="button"
-                data-testid="today-review-cta"
-                className="button button-secondary mt-4"
-                onClick={openTodayReview}
-                style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
-              >
-                {reviewActionLabel}
-              </button>
-            </div>
+              {nextAction.actionLabel}
+            </button>
           </section>
 
-          <CommanderHero config={config} onActionClick={handleCTA} />
-
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
-            <TrustMetric 
-              value={commanderMetrics.riskPoolCount} 
-              label="72 小时风险池" 
-              hint={commanderMetrics.riskPoolCount > 0 ? `待处理 ${commanderMetrics.riskPoolCount} 个` : '当前无明显风险'}
-              accent={commanderMetrics.riskPoolCount > 0 ? 'danger' : 'default'}
-            />
-            <TrustMetric 
-              value={commanderMetrics.lockedKnowledgeGrowth > 0 ? `+${commanderMetrics.lockedKnowledgeGrowth}` : commanderMetrics.lockedKnowledgeGrowth} 
-              label="稳定记忆净增" 
-              hint="近 7 天口径"
-              accent={commanderMetrics.lockedKnowledgeGrowth > 0 ? 'success' : 'default'}
-            />
-            <TrustMetric 
-              value={`${commanderMetrics.focusConversionRate}%`} 
-              label="有效专注转化率" 
-              hint="专注时长与沉淀产出比"
-              accent="default"
-            />
+          <section
+            data-testid="today-execution-overview"
+            className="today-action__overview"
+            aria-labelledby="today-action-overview-title"
+          >
+            <div className="today-action__section-heading today-action__section-heading--compact">
+              <div>
+                <p className="today-action__eyebrow">今日学习状态</p>
+                <h2 id="today-action-overview-title">今日概览</h2>
+              </div>
+              <time className="today-action__date" dateTime={todayDate}>{todayDate}</time>
+            </div>
+            <dl className="today-action__overview-grid">
+              <div data-testid="overview-tasks" className="today-action__overview-item">
+                <dt>今日任务</dt>
+                <dd>
+                  <strong>{executionSummary.completedTasks} / {executionSummary.totalTasks}</strong>
+                  <span>已完成 / 总数</span>
+                </dd>
+              </div>
+              <div data-testid="overview-focus" className="today-action__overview-item">
+                <dt>今日专注</dt>
+                <dd>
+                  <strong>{executionSummary.focusMinutes} 分钟</strong>
+                  <span>全部专注会话</span>
+                </dd>
+              </div>
+              <div data-testid="overview-chapters" className="today-action__overview-item">
+                <dt>章节推进</dt>
+                <dd>
+                  <strong>{executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}</strong>
+                  <span>已完成 / 今日章节</span>
+                </dd>
+              </div>
+              <div data-testid="overview-diary" className="today-action__overview-item">
+                <dt>今日复盘</dt>
+                <dd>
+                  <strong>{diaryStatusLabel}</strong>
+                  <span>按今日日记内容判断</span>
+                </dd>
+              </div>
+            </dl>
           </section>
 
           <section
             data-testid="daily-action-queue"
-            className="rounded-2xl p-5 md:p-6"
-            style={{
-              border: '1px solid var(--border)',
-              background: 'var(--bg-secondary)',
-            }}
+            className="today-action__queue"
+            aria-labelledby="today-action-queue-title"
+            aria-busy={taskLoading || taskMutating}
           >
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="today-action__section-heading">
               <div>
-                <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                <p className="today-action__eyebrow">当前执行</p>
+                <h2 id="today-action-queue-title">
                   今日行动队列
                 </h2>
-                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <p className="today-action__queue-summary">
                   todo {taskStatusCounts.todo} · doing {taskStatusCounts.doing} · done {taskStatusCounts.done} · skipped {taskStatusCounts.skipped}
                 </p>
               </div>
-              {taskLoading && (
-                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>同步中...</span>
+              {(taskLoading || taskMutating) && (
+                <span className="today-action__sync-status" role="status" aria-live="polite">
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  {taskMutating ? '正在更新任务...' : '同步中...'}
+                </span>
               )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  onClick={() => setPlanningHistoryOpen(true)}
-                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
-                >
-                  最近 AI 规划
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  data-testid="open-daily-review-agent"
-                  disabled={taskMutating}
-                  onClick={() => setDailyReviewAgentOpenDate(todayDate)}
-                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
-                >
-                  每日复盘
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  data-testid="open-ai-today-action-suggestions"
-                  disabled={taskMutating}
-                  onClick={() => setAiSuggestionOpen(true)}
-                  style={{ minHeight: 36, borderRadius: 'var(--radius-sm)' }}
-                >
-                  AI 规划今日行动
-                </button>
-              </div>
             </div>
 
-            <form className="mt-4 grid gap-3 md:grid-cols-[1fr_150px_120px_auto]" onSubmit={handleManualTaskSubmit}>
-              <input
-                data-testid="task-title-input"
-                value={newTaskTitle}
-                onChange={event => setNewTaskTitle(event.target.value)}
-                placeholder="添加一个今日任务"
-                className="input"
-                style={{ minHeight: 40 }}
-              />
-              <select
-                data-testid="task-type-select"
-                value={newTaskType}
-                onChange={event => setNewTaskType(event.target.value as StudyTaskType)}
-                className="input"
-                style={{ minHeight: 40 }}
-              >
-                <option value="custom">custom</option>
-                <option value="review">review</option>
-                <option value="focus">focus</option>
-                <option value="diary">diary</option>
-                <option value="mistake">mistake</option>
-              </select>
-              <input
-                data-testid="task-estimate-input"
-                value={newTaskEstimate}
-                onChange={event => setNewTaskEstimate(Number(event.target.value))}
-                type="number"
-                min={1}
-                max={240}
-                className="input"
-                style={{ minHeight: 40 }}
-                aria-label="预计分钟数"
-              />
+            <form className="today-action__task-create" aria-label="添加今日任务" onSubmit={handleManualTaskSubmit}>
+              <label className="today-action__field today-action__field--title" htmlFor="today-task-title">
+                <span>任务标题</span>
+                <input
+                  id="today-task-title"
+                  data-testid="task-title-input"
+                  value={newTaskTitle}
+                  onChange={event => setNewTaskTitle(event.target.value)}
+                  placeholder="添加一个今日任务"
+                  className="input"
+                />
+              </label>
+              <label className="today-action__field" htmlFor="today-task-type">
+                <span>任务类型</span>
+                <select
+                  id="today-task-type"
+                  data-testid="task-type-select"
+                  value={newTaskType}
+                  onChange={event => setNewTaskType(event.target.value as StudyTaskType)}
+                  className="input"
+                >
+                  <option value="custom">custom</option>
+                  <option value="review">review</option>
+                  <option value="focus">focus</option>
+                  <option value="diary">diary</option>
+                  <option value="mistake">mistake</option>
+                </select>
+              </label>
+              <label className="today-action__field" htmlFor="today-task-estimate">
+                <span>预计分钟数</span>
+                <input
+                  id="today-task-estimate"
+                  data-testid="task-estimate-input"
+                  value={newTaskEstimate}
+                  onChange={event => setNewTaskEstimate(Number(event.target.value))}
+                  type="number"
+                  min={1}
+                  max={240}
+                  className="input"
+                />
+              </label>
               <button
                 data-testid="task-create-submit"
-                className="button button-primary"
+                className="button today-action__task-create-submit"
                 type="submit"
                 disabled={taskMutating || !newTaskTitle.trim()}
-                style={{ minHeight: 40, borderRadius: 'var(--radius-sm)' }}
               >
                 新增
               </button>
             </form>
 
             {commanderMetrics.riskPoolCount > 0 || (!data.todayEntry && !hasDiaryTask) ? (
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="today-action__task-suggestions" role="group" aria-label="任务补全建议">
+                <span className="today-action__task-suggestions-label">可选补全</span>
                 {commanderMetrics.riskPoolCount > 0 && (
                   <button
                     data-testid="create-review-task-suggestion"
                     type="button"
-                    className="button"
+                    className="button today-action__quiet-action"
                     disabled={taskMutating}
-                    style={{ height: 36, padding: '0 12px', borderRadius: 'var(--radius-sm)' }}
                     onClick={() => setReviewPickerOpen(true)}
                   >
                     生成今日错题复习任务
@@ -576,9 +519,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                   <button
                     data-testid="create-diary-task-suggestion"
                     type="button"
-                    className="button"
+                    className="button today-action__quiet-action"
                     disabled={taskMutating}
-                    style={{ height: 36, padding: '0 12px', borderRadius: 'var(--radius-sm)' }}
                     onClick={() => createSuggestedTask('diary', {
                       title: '写今日学习沉淀',
                       description: '记录今天的有效专注、错题收获和明日第一步。',
@@ -594,79 +536,36 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               </div>
             ) : null}
 
-            <div
-              data-testid="task-focus-loop-metrics"
-              className="mt-4 grid gap-3 md:grid-cols-5"
-            >
-              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>计划预计</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {plannedTaskMinutes}m / {taskFocus.focusedMinutes}m
-                </div>
-              </div>
-              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>任务完成率</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {taskFocus.effectiveTaskCount > 0 ? `${taskFocus.completionRate}%` : '暂无任务'}
-                </div>
-              </div>
-              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>专注覆盖率</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {taskFocus.effectiveTaskCount > 0 ? `${taskFocus.focusCoverageRate}%` : '暂无任务'}
-                </div>
-              </div>
-              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>任务专注</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {taskFocus.focusedMinutes}m
-                </div>
-              </div>
-              <div className="rounded-xl px-3 py-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>未闭环提示</div>
-                <div className="mt-1 text-sm font-medium" style={{ color: taskFocus.unclosedTaskTitles.length > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
-                  {taskFocus.effectiveTaskCount === 0
-                    ? '添加任务后开始闭环'
-                    : taskFocus.unclosedTaskTitles.length > 0
-                      ? taskFocus.unclosedTaskTitles.join('、')
-                      : '今日任务已闭环'}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-2">
+            <div className="today-action__task-list">
               {tasks.length === 0 ? (
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                <p className="today-action__empty-queue" role="status">
                   今天还没有行动任务，可以先添加一个最小可执行动作。
                 </p>
               ) : tasks.map(task => (
                 <div
                   key={task.id}
-                  className="min-w-0 rounded-xl px-4 py-3"
-                  style={{
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-tertiary)',
-                  }}
+                  className="today-action__task-row"
+                  data-status={task.status}
                 >
                   {editingTaskId === task.id ? (
-                    <form className="min-w-0 space-y-3" noValidate onSubmit={handleTaskEditSubmit}>
-                      <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
-                        <label className="min-w-0 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                          任务标题
+                    <form className="today-action__task-edit" noValidate onSubmit={handleTaskEditSubmit}>
+                      <div className="today-action__task-edit-fields">
+                        <label className="today-action__field">
+                          <span>任务标题</span>
                           <input
                             data-testid={`task-edit-title-${task.id}`}
-                            className="input mt-1 w-full min-w-0"
+                            className="input"
                             value={editTaskTitle}
                             maxLength={200}
                             disabled={taskMutating}
                             onChange={event => setEditTaskTitle(event.target.value)}
                           />
                         </label>
-                        <label className="min-w-0 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                          预计分钟数
+                        <label className="today-action__field">
+                          <span>预计分钟数</span>
                           <input
                             data-testid={`task-edit-estimate-${task.id}`}
-                            className="input mt-1 w-full min-w-0"
+                            className="input"
                             type="number"
                             min={TASK_ESTIMATE_MINUTES_MIN}
                             max={TASK_ESTIMATE_MINUTES_MAX}
@@ -677,75 +576,66 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                           />
                         </label>
                       </div>
-                      <div className="flex flex-wrap justify-end gap-2">
+                      <div className="today-action__task-edit-actions">
                         <button
                           type="button"
-                          className="button"
+                          className="button today-action__task-action"
                           data-testid={`task-edit-cancel-${task.id}`}
                           disabled={taskMutating}
                           onClick={closeTaskEditor}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                         >
                           取消
                         </button>
                         <button
                           type="submit"
-                          className="button button-primary"
+                          className="button button-primary today-action__task-action"
                           data-testid={`task-edit-save-${task.id}`}
                           disabled={taskMutating}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                         >
                           {taskMutating ? '保存中...' : '保存'}
                         </button>
                       </div>
                     </form>
                   ) : (
-                    <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="min-w-0 max-w-full break-words font-medium" style={{ color: 'var(--text-primary)' }}>{task.title}</span>
+                    <div className="today-action__task-layout">
+                      <div className="today-action__task-copy">
+                        <div className="today-action__task-title-line">
+                          <span className="today-action__task-title">{task.title}</span>
                           <span
                             data-testid={`task-status-${task.id}`}
-                            className="rounded-full px-2 py-0.5 text-xs"
-                            style={{
-                              border: '1px solid var(--border)',
-                              color: 'var(--text-secondary)',
-                              background: 'var(--bg-secondary)',
-                            }}
+                            className="today-action__task-status"
+                            data-status={task.status}
                           >
                             {task.status}
                           </span>
-                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <span className="today-action__task-meta">
                             {task.type} · {task.estimate_minutes}m
                           </span>
                           {task.source === 'ai' && (
-                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--accent)', border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                            <span className="today-action__task-tag today-action__task-tag--ai">
                               AI 建议
                             </span>
                           )}
                           {task.related_mistake_id !== null && (
-                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
+                            <span className="today-action__task-tag today-action__task-tag--warning">
                               关联错题 #{task.related_mistake_id}
                             </span>
                           )}
                           {task.related_entry_id !== null && (
-                            <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 45%, transparent)', background: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
+                            <span className="today-action__task-tag today-action__task-tag--success">
                               关联日记 #{task.related_entry_id}
                             </span>
                           )}
                           {task.related_chapter_id !== null && (
                             <>
-                              <span
-                                className="rounded-full px-2 py-0.5 text-xs"
-                                style={{ color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}
-                              >
+                              <span className="today-action__task-tag today-action__task-tag--chapter">
                                 章节任务
                               </span>
                               {taskSourceLabels[task.id] && (
                                 <span
                                   data-testid={`task-source-${task.id}`}
-                                  className="text-xs"
-                                  style={{ color: taskSourceLabels[task.id]?.missingChapter ? 'var(--warning)' : 'var(--text-secondary)' }}
+                                  className="today-action__task-source"
+                                  data-missing={taskSourceLabels[task.id]?.missingChapter ? 'true' : 'false'}
                                 >
                                   {taskSourceLabels[task.id]?.label}
                                 </span>
@@ -754,16 +644,15 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                           )}
                         </div>
                         {task.description && (
-                          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
+                          <p className="today-action__task-description">{task.description}</p>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="today-action__task-actions" role="group" aria-label={`${task.title} 的操作`}>
                         <button
                           data-testid={`task-edit-${task.id}`}
                           type="button"
-                          className="button"
+                          className="button today-action__task-action"
                           disabled={taskMutating}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                           onClick={() => openTaskEditor(task)}
                         >
                           修改
@@ -771,9 +660,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                         <button
                           data-testid={`task-complete-${task.id}`}
                           type="button"
-                          className="button"
+                          className="button today-action__task-action today-action__task-action--complete"
                           disabled={taskMutating || task.status === 'done'}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                           onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
                         >
                           完成
@@ -781,9 +669,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                         <button
                           data-testid={`task-skip-${task.id}`}
                           type="button"
-                          className="button"
+                          className="button today-action__task-action"
                           disabled={taskMutating || task.status === 'skipped'}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                           onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
                         >
                           跳过
@@ -791,9 +678,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                         <button
                           data-testid={`task-delete-${task.id}`}
                           type="button"
-                          className="button"
+                          className="button today-action__task-action today-action__task-action--danger"
                           disabled={taskMutating}
-                          style={{ height: 34, padding: '0 10px', borderRadius: 'var(--radius-sm)' }}
                           onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
                         >
                           删除
@@ -806,66 +692,186 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
             </div>
 
             {taskError && (
-              <p role="alert" data-testid="task-error" className="mt-3 break-words text-sm" style={{ color: 'var(--danger)' }}>{taskError}</p>
+              <p role="alert" id="today-action-task-error" data-testid="task-error" className="today-action__notice today-action__notice--danger">
+                {taskError}
+              </p>
             )}
           </section>
 
-          <section className="max-w-3xl">
-            <div className="flex items-center gap-3">
-              <button 
-                type="button"
-                onClick={() => setShowDetails(!showDetails)}
-                className="inline-flex items-center gap-1.5 text-sm font-medium bg-transparent border-0 outline-none appearance-none transition-colors"
-                data-testid="dashboard-details-toggle"
-                style={{ color: 'var(--text-secondary)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'}
-              >
-                {showDetails ? '收起系统依据' : '查看系统依据'}
-                {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </button>
-              {!showDetails && <div className="h-px w-24" style={{ background: 'linear-gradient(to right, var(--border), transparent)' }} />}
+          <section className="today-action__followup" aria-labelledby="today-action-followup-title">
+            <div className="today-action__section-heading">
+              <div>
+                <p className="today-action__eyebrow">复盘与计划</p>
+                <h2 id="today-action-followup-title">完成今天的学习闭环</h2>
+              </div>
             </div>
-            
-            {showDetails && (
+
+            <div className="today-action__followup-grid">
               <div
-                className="mt-4 rounded-2xl p-5 md:p-6 opacity-[0.98]"
-                style={{
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-tertiary)',
-                }}
+                data-testid="today-review-entry"
+                className="today-action__review-entry"
               >
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统依据</h3>
-                <p
-                  className="mt-3 text-sm leading-6 max-w-2xl"
-                  data-testid="dashboard-state-explanation"
-                  style={{ color: 'var(--text-primary)' }}
+                <p className="today-action__followup-kicker">今日复盘</p>
+                <h3>{reviewActionLabel}</h3>
+                <p>回到今天的日记，记录收获、问题和明日第一步。</p>
+                <button
+                  type="button"
+                  data-testid="today-review-cta"
+                  className="button button-secondary"
+                  onClick={openTodayReview}
                 >
-                  {config.explanation}
-                </p>
-                <p className="mt-3 text-sm leading-6 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
-                  系统当前连续诊断天数：<strong style={{ color: 'var(--text-primary)' }}>{data.streakDays} 天</strong>。<br/>
-                  如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
-                  我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
-                </p>
+                  {reviewActionLabel}
+                </button>
+              </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="today-action__workflow-actions">
+                <div className="today-action__workflow-row">
+                  <div>
+                    <strong>每日复盘</strong>
+                    <span>基于本地证据检查今日学习，并确认候选任务。</span>
+                  </div>
                   <button
-                    className="button"
-                    style={{ height: 40, padding: '0 16px', borderRadius: 'var(--radius-sm)' }}
-                    onClick={() => setActiveView('dashboard')}
+                    type="button"
+                    className="button button-secondary"
+                    data-testid="open-daily-review-agent"
+                    disabled={taskMutating}
+                    onClick={() => setDailyReviewAgentOpenDate(todayDate)}
                   >
-                    打开全局图表与分析报表
+                    打开每日复盘
                   </button>
+                </div>
 
-                  {examDaysDiff !== null && (
-                    <span className="text-sm sm:ml-auto" style={{ color: 'var(--text-secondary)' }}>
-                      距目标 <strong style={{ color: 'var(--text-primary)', margin: '0 4px' }}>{examDaysDiff}</strong> 天
-                    </span>
-                  )}
+                <div className="today-action__workflow-row">
+                  <div>
+                    <strong>AI 规划今日行动</strong>
+                    <span>生成结果是建议，仍需由你确认。</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="button today-action__quiet-action"
+                    data-testid="open-ai-today-action-suggestions"
+                    disabled={taskMutating}
+                    onClick={() => setAiSuggestionOpen(true)}
+                  >
+                    打开 AI 规划
+                  </button>
+                </div>
+
+                <div className="today-action__workflow-row today-action__workflow-row--quiet">
+                  <div>
+                    <strong>最近 AI 规划</strong>
+                    <span>查看既有规划记录与执行反馈。</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="button today-action__quiet-action"
+                    onClick={() => setPlanningHistoryOpen(true)}
+                  >
+                    最近 AI 规划
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
+          </section>
+
+          <section className="today-action__evidence" aria-labelledby="today-action-evidence-title">
+            <div className="today-action__section-heading">
+              <div>
+                <p className="today-action__eyebrow">支持依据</p>
+                <h2 id="today-action-evidence-title">为什么这样安排</h2>
+              </div>
+              <p className="today-action__section-note">指标用于解释当前建议，不替代你的判断。</p>
+            </div>
+
+            <div className="today-action__trust-band" role="group" aria-label="今日推荐支持指标">
+              <TrustMetric
+                value={commanderMetrics.riskPoolCount}
+                label="72 小时风险池"
+                hint={commanderMetrics.riskPoolCount > 0 ? `待处理 ${commanderMetrics.riskPoolCount} 个` : '当前无明显风险'}
+                accent={commanderMetrics.riskPoolCount > 0 ? 'danger' : 'default'}
+              />
+              <TrustMetric
+                value={commanderMetrics.lockedKnowledgeGrowth > 0 ? `+${commanderMetrics.lockedKnowledgeGrowth}` : commanderMetrics.lockedKnowledgeGrowth}
+                label="稳定记忆净增"
+                hint="近 7 天口径"
+                accent={commanderMetrics.lockedKnowledgeGrowth > 0 ? 'success' : 'default'}
+              />
+              <TrustMetric
+                value={`${commanderMetrics.focusConversionRate}%`}
+                label="有效专注转化率"
+                hint="专注时长与沉淀产出比"
+                accent="default"
+              />
+            </div>
+
+            <dl data-testid="task-focus-loop-metrics" className="today-action__focus-metrics">
+              <div>
+                <dt>计划预计</dt>
+                <dd>{plannedTaskMinutes}m / {taskFocus.focusedMinutes}m</dd>
+              </div>
+              <div>
+                <dt>任务完成率</dt>
+                <dd>{taskFocus.effectiveTaskCount > 0 ? `${taskFocus.completionRate}%` : '暂无任务'}</dd>
+              </div>
+              <div>
+                <dt>专注覆盖率</dt>
+                <dd>{taskFocus.effectiveTaskCount > 0 ? `${taskFocus.focusCoverageRate}%` : '暂无任务'}</dd>
+              </div>
+              <div>
+                <dt>任务专注</dt>
+                <dd>{taskFocus.focusedMinutes}m</dd>
+              </div>
+              <div data-warning={taskFocus.unclosedTaskTitles.length > 0 ? 'true' : 'false'}>
+                <dt>未闭环提示</dt>
+                <dd>
+                  {taskFocus.effectiveTaskCount === 0
+                    ? '添加任务后开始闭环'
+                    : taskFocus.unclosedTaskTitles.length > 0
+                      ? taskFocus.unclosedTaskTitles.join('、')
+                      : '今日任务已闭环'}
+                </dd>
+              </div>
+            </dl>
+
+            <div className="today-action__details">
+              <button
+                type="button"
+                onClick={() => setShowDetails(!showDetails)}
+                className="today-action__details-toggle"
+                data-testid="dashboard-details-toggle"
+                aria-expanded={showDetails}
+                aria-controls="today-action-system-evidence"
+              >
+                {showDetails ? '收起系统依据' : '查看系统依据'}
+                {showDetails
+                  ? <ChevronUp size={16} aria-hidden="true" />
+                  : <ChevronDown size={16} aria-hidden="true" />}
+              </button>
+
+              {showDetails && (
+                <div id="today-action-system-evidence" className="today-action__details-content">
+                  <h3>系统依据</h3>
+                  <p data-testid="dashboard-state-explanation">{config.explanation}</p>
+                  <p>
+                    系统当前连续诊断天数：<strong>{data.streakDays} 天</strong>。<br />
+                    如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
+                    我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
+                  </p>
+
+                  <div className="today-action__details-actions">
+                    <button className="button" onClick={() => setActiveView('dashboard')}>
+                      打开全局图表与分析报表
+                    </button>
+
+                    {examDaysDiff !== null && (
+                      <span>
+                        距目标 <strong>{examDaysDiff}</strong> 天
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
 
         </div>

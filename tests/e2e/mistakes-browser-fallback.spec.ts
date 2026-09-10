@@ -75,7 +75,6 @@ async function openSettings(page: Page): Promise<void> {
 async function openForm(page: Page): Promise<void> {
   await page.getByTestId('mistake-add-btn').click()
   await expect(page.getByTestId('mistake-form')).toBeVisible()
-  await expect(page.getByTestId('pomodoro-widget')).toBeHidden()
 }
 
 async function createMistake(page: Page, index: number): Promise<void> {
@@ -107,7 +106,7 @@ test.describe('browser fallback repeated mistakes', () => {
     await openMistakes(page)
     for (let index = 1; index <= 5; index += 1) await createMistake(page, index)
 
-    const second = page.locator('.card').filter({ hasText: '第2题' })
+    const second = page.locator('.mistake-item').filter({ hasText: '第2题' })
     await second.getByRole('button', { name: '编辑错题' }).click()
     await page.getByPlaceholder('问题 / 知识点').fill('第2题（修改）')
     await page.getByPlaceholder('答案 / 解析').fill('答案2（修改）')
@@ -119,7 +118,7 @@ test.describe('browser fallback repeated mistakes', () => {
     await page.reload()
     await page.getByRole('button', { name: '错题本' }).click()
 
-    const first = page.locator('.card').filter({ hasText: '第1题' })
+    const first = page.locator('.mistake-item').filter({ hasText: '第1题' })
     await first.getByRole('button', { name: '编辑错题' }).click()
     const notes = page.getByPlaceholder('备注（可选）')
     await notes.fill('当前备注')
@@ -149,6 +148,7 @@ test.describe('browser fallback repeated mistakes', () => {
       { width: 1024, height: 480 },
     ]) {
       await page.setViewportSize(viewport)
+      await expect(page.getByTestId('pomodoro-widget')).toBeVisible()
       for (const [placeholder, text] of [
         ['问题 / 知识点', '问题\n中文'],
         ['答案 / 解析', '答案\n中文'],

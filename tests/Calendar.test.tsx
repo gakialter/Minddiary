@@ -1,4 +1,4 @@
-import { render, screen, act, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, act, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Calendar from '../src/components/Calendar'
 import * as DiaryContext from '../src/contexts/DiaryContext'
@@ -224,5 +224,26 @@ describe('Calendar Component', () => {
     const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
     expect(mockOnSelectDate).toHaveBeenCalledWith(expected)
+  })
+
+  it('12. 暴露选中日期与今天语义，并保持原有日期选择回调', async () => {
+    const mockOnSelectDate = vi.fn()
+
+    await act(async () => {
+      render(<Calendar selectedDate="2023-10-15" onSelectDate={mockOnSelectDate} />)
+    })
+    await waitFor(() => {
+      expect(mockGetDatesWithEntries).toHaveBeenCalled()
+      expect(mockGetRange).toHaveBeenCalled()
+    })
+
+    const selectedDay = screen.getByRole('button', { name: /^2023-10-15/ })
+    expect(selectedDay).toHaveAttribute('aria-pressed', 'true')
+    expect(selectedDay).toHaveAttribute('aria-current', 'date')
+
+    const nextDay = screen.getByRole('button', { name: /^2023-10-16/ })
+    expect(nextDay).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(nextDay)
+    expect(mockOnSelectDate).toHaveBeenCalledWith('2023-10-16')
   })
 })

@@ -21,6 +21,66 @@ const renderZen = (overrides: Partial<ComponentProps<typeof FocusZenMode>> = {})
 }
 
 describe('FocusZenMode', () => {
+  it('focuses Zen and contains both Tab directions', () => {
+    const entry = document.createElement('button')
+    document.body.append(entry)
+    entry.focus()
+    renderZen()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(screen.getByTestId('focus-zen-exit-btn')).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
+    expect(screen.getByTestId('focus-zen-toggle-btn')).toHaveFocus()
+    entry.remove()
+  })
+
+  it('restores focus when visibility changes without invoking timer actions', () => {
+    const entry = document.createElement('button')
+    document.body.append(entry)
+    entry.focus()
+    const props = { visible: true, timeLeft: 20, modeLabel: '专注', modeColor: 'green', isRunning: true, onToggleTimer: vi.fn(), onExit: vi.fn(), formatTime: String }
+    const { rerender } = render(<FocusZenMode {...props} />)
+    rerender(<FocusZenMode {...props} visible={false} />)
+    expect(entry).toHaveFocus()
+    expect(props.onToggleTimer).not.toHaveBeenCalled()
+    entry.remove()
+  })
+
+  it('does not consume native button Space and keeps focused controls visible', () => {
+    const props = renderZen()
+    const button = screen.getByTestId('focus-zen-exit-btn')
+    act(() => button.focus())
+    expect(fireEvent.keyDown(button, { key: ' ', code: 'Space' })).toBe(true)
+    expect(props.onToggleTimer).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(5000))
+    expect(button.parentElement).toHaveStyle({ opacity: '1' })
+    act(() => screen.getByRole('dialog').focus())
+    act(() => vi.advanceTimersByTime(2400))
+    expect(button.parentElement).toHaveStyle({ opacity: '0' })
+  })
+
+  it('leaves select and editable Space semantics intact', () => {
+    const props = renderZen()
+    const dialog = screen.getByRole('dialog')
+    for (const control of [document.createElement('select'), document.createElement('textarea')]) {
+      dialog.append(control)
+      expect(fireEvent.keyDown(control, { key: ' ', code: 'Space' })).toBe(true)
+      control.remove()
+    }
+    expect(props.onToggleTimer).not.toHaveBeenCalled()
+  })
+
+  it('does not restart or cancel hiding on timer ticks or callback replacements', () => {
+    const props = { visible: true, timeLeft: 20, modeLabel: '专注', modeColor: 'green', isRunning: true, onToggleTimer: vi.fn(), onExit: vi.fn(), formatTime: String }
+    const { rerender } = render(<FocusZenMode {...props} />)
+    fireEvent.mouseMove(screen.getByRole('dialog'))
+    for (let time = 19; time >= 17; time--) {
+      act(() => vi.advanceTimersByTime(1000))
+      rerender(<FocusZenMode {...props} timeLeft={time} onToggleTimer={vi.fn()} onExit={vi.fn()} />)
+    }
+    expect(screen.getByTestId('focus-zen-toggle-btn').parentElement).toHaveStyle({ opacity: '0' })
+  })
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -100,7 +160,7 @@ describe('FocusZenMode', () => {
     act(() => {
       fireEvent.mouseMove(screen.getByTestId('focus-zen-mode'))
     })
-    expect(controls).toHaveStyle({ opacity: '0.82' })
+    expect(controls).toHaveStyle({ opacity: '1' })
 
     act(() => {
       vi.advanceTimersByTime(2400)

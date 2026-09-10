@@ -7,33 +7,9 @@ import { IS_ELECTRON } from '../utils/apiAdapter'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
 import FocusZenMode from './FocusZenMode'
-import { Play, Pause, RotateCcw, Maximize2, Square } from 'lucide-react'
+import { usePomodoroWidgetPlacement } from '../hooks/usePomodoroWidgetPlacement'
+import { Play, Pause, RotateCcw, Maximize2, Square, GripVertical, PanelLeft, PanelRight } from 'lucide-react'
 import type { ActiveAppInfo, FocusWhitelistItem } from '../types'
-
-const DRAG_THRESHOLD = 5 // px — below this is a click, above is a drag
-const STORAGE_KEY = 'pomodoro-widget-position'
-
-interface Position {
-  x: number
-  y: number
-}
-
-function getInitialPosition(isCollapsed: boolean): Position {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch { /* ignore */ }
-  return { x: isCollapsed ? 90 : 260, y: window.innerHeight - 80 }
-}
-
-function clampPosition(x: number, y: number, elWidth = 160, elHeight = 56): Position {
-  const maxX = window.innerWidth - elWidth
-  const maxY = window.innerHeight - elHeight
-  return {
-    x: Math.max(0, Math.min(x, maxX)),
-    y: Math.max(0, Math.min(y, maxY)),
-  }
-}
 
 function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
   return Array.isArray(value) ? value.filter((item): item is FocusWhitelistItem => (
@@ -93,11 +69,11 @@ interface PomodoroProps {
   onFullscreenChange?: (isActive: boolean) => void
 }
 
-export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreenChange }: PomodoroProps) {
+export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: PomodoroProps) {
   const { settingsData, settings, notification } = useDiary()
   const {
     mode, timeLeft, isRunning,
-    progress, circleCircumference, miniCircumference,
+    progress, circleCircumference,
     dynamicModes, hasActiveTimerSession, countdownElapsedSeconds,
   } = usePomodoroTimer()
 
@@ -162,62 +138,7 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
     ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
     : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
 
-  // ─── Drag state (widget only) ───
-  const [pos, setPos] = useState<Position>(() => getInitialPosition(isCollapsed))
-  const [isDragging, setIsDragging] = useState(false)
-  const dragRef = useRef({ startX: 0, startY: 0, startPosX: 0, startPosY: 0, moved: false })
-  const widgetRef = useRef<HTMLDivElement>(null)
-
-  // Update default position when sidebar collapses (only if user hasn't dragged)
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem(STORAGE_KEY)) {
-        setPos(prev => ({ ...prev, x: isCollapsed ? 90 : 260 }))
-      }
-    } catch { /* ignore */ }
-  }, [isCollapsed])
-
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    // Don't initiate drag on the play/pause button area
-    if ((e.target as HTMLElement).closest('[data-no-drag]')) return
-    e.preventDefault()
-    const ref = dragRef.current
-    ref.startX = e.clientX
-    ref.startY = e.clientY
-    ref.startPosX = pos.x
-    ref.startPosY = pos.y
-    ref.moved = false
-    setIsDragging(true)
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }, [pos])
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return
-    const ref = dragRef.current
-    const dx = e.clientX - ref.startX
-    const dy = e.clientY - ref.startY
-    if (!ref.moved && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return
-    ref.moved = true
-    const el = widgetRef.current
-    const w = el ? el.offsetWidth : 160
-    const h = el ? el.offsetHeight : 56
-    const clamped = clampPosition(ref.startPosX + dx, ref.startPosY + dy, w, h)
-    setPos(clamped)
-  }, [isDragging])
-
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return
-    setIsDragging(false)
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    const ref = dragRef.current
-    if (!ref.moved) {
-      // It was a click — navigate to Pomodoro page
-      onExpand?.()
-    } else {
-      // Save position
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pos)) } catch { /* ignore */ }
-    }
-  }, [isDragging, onExpand, pos])
+  const placement = usePomodoroWidgetPlacement()
 
   const addViolationToWhitelist = useCallback(async (app: ActiveAppInfo) => {
     const item = activeAppToWhitelistItem(app)
@@ -368,56 +289,18 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   if (isWidget) {
     return (
       <>
-      <div
-        ref={widgetRef}
-        className="pomodoro-mini card"
-        data-testid="pomodoro-widget"
-        style={{
-          position: 'fixed',
-          left: pos.x,
-          top: pos.y,
-          padding: '6px 14px 6px 6px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          border: `1px solid ${mode.color}20`,
-          background: 'var(--bg-secondary)',
-          backdropFilter: 'blur(16px)',
-          zIndex: 'var(--z-floating)',
-          transition: isDragging ? 'none' : 'box-shadow 0.3s, border-color 0.3s',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          boxShadow: isDragging ? '0 12px 24px rgba(0,0,0,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
-          borderRadius: 30,
-          userSelect: 'none',
-          touchAction: 'none',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        title="拖拽移动 · 点击打开番茄钟"
-        aria-label="番茄钟"
-      >
-        <div
-          data-no-drag
-          aria-disabled={timerControlsDisabled}
-          style={{ position: 'relative', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: timerControlsDisabled ? 'not-allowed' : 'pointer', opacity: timerControlsDisabled ? 0.6 : 1 }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!timerControlsDisabled) void toggleTimer()
-          }}
-        >
-          <svg viewBox="0 0 40 40" width="32" height="32" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
-            <circle cx="20" cy="20" r="18" fill="none" stroke="var(--border)" strokeWidth="3" />
-            <circle cx="20" cy="20" r="18" fill="none" stroke={mode.color} strokeWidth="3" strokeLinecap="round"
-              strokeDasharray={miniCircumference} strokeDashoffset={miniCircumference * (1 - progress)}
-              style={{ transition: 'stroke-dashoffset 1s linear' }} />
-          </svg>
-          <div style={{ fontSize: 13, opacity: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {isRunning ? <Pause size={14} /> : <Play size={14} />}
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: mode.color, opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
-            {formatTime(timeLeft)}
-          </div>
+      <div className="pomodoro-mini" data-testid="pomodoro-widget" data-dock={placement.dock} data-dragging={placement.isDragging} aria-label="番茄钟">
+        <span className="pomodoro-mini__handle" aria-hidden="true" title="拖拽选择左侧或右侧停靠" {...placement.handleProps}><GripVertical size={16} /></span>
+        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : '开始计时'} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
+          {isRunning ? <Pause size={16} /> : <Play size={16} />}
+        </button>
+        <button type="button" className="button button-secondary pomodoro-mini__open" aria-label="打开番茄钟" onClick={onExpand}>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatTime(timeLeft)}</span>
+          <Maximize2 size={14} aria-hidden="true" />
+        </button>
+        <div role="group" aria-label="番茄钟停靠位置" className="pomodoro-mini__docks">
+          <button type="button" className="button button-secondary button-icon" aria-label="停靠左下角" aria-pressed={placement.dock === 'bottom-left'} onClick={() => placement.setDock('bottom-left')}><PanelLeft size={14} /></button>
+          <button type="button" className="button button-secondary button-icon" aria-label="停靠右下角" aria-pressed={placement.dock === 'bottom-right'} onClick={() => placement.setDock('bottom-right')}><PanelRight size={14} /></button>
         </div>
       </div>
       {focusNotice}
@@ -428,10 +311,10 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
   // ─── Full-page view ───
   return (
     <>
-    <div className="pomodoro-container flex flex-col items-center w-full" style={{ padding: 'var(--space-xl) 0' }} data-testid="pomodoro-timer">
+    <div className="workspace-page workspace-page--wide pomodoro-page" data-testid="pomodoro-timer">
 
       {/* Mode Switcher */}
-      <div className="flex gap-sm p-1 rounded-full bg-secondary" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 24, marginBottom: 'var(--space-2xl)' }}>
+      <div className="pomodoro-page__modes" role="group" aria-label="计时模式">
         {Object.values(dynamicModes).map(m => {
           const isCurrentMode = mode.id === m.id
           const shouldLockModeSwitch = hasActiveTimerSession && isFocusMode
@@ -439,19 +322,12 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
           return (
             <button
               key={m.id}
+              className="button button-secondary"
+              aria-pressed={isCurrentMode}
               onClick={() => setMode(m)}
               disabled={isSwitchDisabled}
               data-testid={`pomodoro-mode-${m.id}`}
               title={isSwitchDisabled ? '请先完成或重置当前专注' : undefined}
-              style={{
-                padding: '6px 16px', borderRadius: 20, fontSize: 14, fontWeight: 500, border: 'none',
-                cursor: isSwitchDisabled ? 'not-allowed' : 'pointer',
-                opacity: isSwitchDisabled ? 0.4 : 1,
-                background: isCurrentMode ? 'var(--bg-primary)' : 'transparent',
-                color: isCurrentMode ? m.color : 'var(--text-muted)',
-                boxShadow: isCurrentMode ? 'var(--shadow-sm)' : 'none',
-                transition: 'all 0.3s'
-              }}
             >
               {m.label}
             </button>
@@ -460,9 +336,10 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
       </div>
 
       {mode.id === 'custom' && !isRunning && (
-        <div style={{ marginBottom: 'var(--space-2xl)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>时长:</span>
+        <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <label htmlFor="pomodoro-minutes">时长</label>
           <input
+            id="pomodoro-minutes"
             type="number"
             min={1}
             max={120}
@@ -479,205 +356,192 @@ export default function Pomodoro({ isWidget, onExpand, isCollapsed, onFullscreen
         </div>
       )}
 
-      {/* Timer Visual */}
-      <div style={{ position: 'relative', width: 260, height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-xl)' }}>
-        <svg viewBox="0 0 200 200" width="260" height="260" style={{ position: 'absolute' }}>
-          <circle cx="100" cy="100" r="90" fill="none" stroke="var(--border)" strokeWidth="4" />
-          <circle
-            cx="100" cy="100" r="90" fill="none"
-            stroke={mode.color}
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeDasharray={circleCircumference}
-            strokeDashoffset={circleCircumference * (1 - progress)}
-            transform="rotate(-90 100 100)"
-            style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.4s ease' }}
-          />
-        </svg>
-        <div className="flex flex-col items-center">
-          <div style={{ fontSize: 64, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', lineHeight: 1 }}>
-            {formatTime(timeLeft)}
-          </div>
-          <div className="text-sm mt-2" style={{ color: mode.color, opacity: 0.8, fontWeight: 500 }}>
-            {timerStatusText}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-md" style={{ marginBottom: 'var(--space-2xl)' }}>
-        <button
-          className="button"
-          data-testid="pomodoro-start-btn"
-          disabled={timerControlsDisabled}
-          style={{
-            minWidth: 120, height: 44, borderRadius: 22, fontSize: 16, fontWeight: 600, border: 'none',
-            background: timerControlsDisabled ? 'var(--bg-tertiary)' : isRunning ? 'var(--bg-tertiary)' : mode.color,
-            color: timerControlsDisabled ? 'var(--text-muted)' : isRunning ? 'var(--text-primary)' : 'white',
-            boxShadow: isRunning ? 'none' : `0 8px 16px ${mode.color}40`,
-            cursor: timerControlsDisabled ? 'not-allowed' : 'pointer',
-          }}
-          onClick={() => { void toggleTimer() }}
-        >
-          {isRunning
-            ? <><Pause size={18} /> 暂停</>
-            : <><Play size={18} /> {startButtonLabel}</>}
-        </button>
-        <button
-          className="button button-secondary"
-          data-testid="pomodoro-reset-btn"
-          disabled={timerControlsDisabled}
-          style={{ width: 44, height: 44, borderRadius: 22, padding: 0, cursor: timerControlsDisabled ? 'not-allowed' : 'pointer' }}
-          onClick={handleResetTimer}
-          title="重置"
-          aria-label="重置番茄钟"
-        >
-          <RotateCcw size={18} />
-        </button>
-        {showFinishCountdownSession && (
-          <button
-            className="button"
-            data-testid="pomodoro-finish-countdown-btn"
-            disabled={!canFinishCountdownSession}
-            style={{
-              minWidth: 148, height: 44, borderRadius: 22, fontWeight: 600, border: 'none',
-              background: canFinishCountdownSession ? mode.color : 'var(--bg-tertiary)',
-              color: canFinishCountdownSession ? 'white' : 'var(--text-muted)',
-              cursor: canFinishCountdownSession ? 'pointer' : 'not-allowed',
-              boxShadow: canFinishCountdownSession ? `0 8px 16px ${mode.color}30` : 'none',
-            }}
-            title={canFinishCountdownSession ? '提前结束并保存当前实际专注时长' : '至少专注 1 分钟后可保存'}
-            onClick={() => { void handleFinishCountdownFocusSession() }}
-          >
-            <Square size={16} /> {isSavingInterruptedFocus ? '正在保存...' : '提前结束并保存'}
-          </button>
-        )}
-        {isStopwatchMode && (
-          <button
-            className="button"
-            data-testid="pomodoro-finish-stopwatch-btn"
-            disabled={!canSaveStopwatchSession}
-            style={{
-              minWidth: 128, height: 44, borderRadius: 22, fontWeight: 600, border: 'none',
-              background: canSaveStopwatchSession ? mode.color : 'var(--bg-tertiary)',
-              color: canSaveStopwatchSession ? 'white' : 'var(--text-muted)',
-              cursor: canSaveStopwatchSession ? 'pointer' : 'not-allowed',
-              boxShadow: canSaveStopwatchSession ? `0 8px 16px ${mode.color}30` : 'none',
-            }}
-            title={canSaveStopwatchSession ? '结束并保存本次正计时' : '至少专注 1 分钟后可保存'}
-            onClick={() => { void finishStopwatchSession() }}
-          >
-            <Square size={16} /> 结束并保存
-          </button>
-        )}
-        <button
-          className="button button-secondary"
-          data-testid="pomodoro-enter-zen-btn"
-          style={{ minWidth: 150, height: 44, borderRadius: 22 }}
-          onClick={() => { void enterZenMode() }}
-        >
-          <Maximize2 size={18} /> 进入全屏专注
-        </button>
-      </div>
-
-      {isFocusMode && (
-        <div
-          data-testid="pomodoro-task-binding"
-          style={{ width: '100%', maxWidth: 360, marginBottom: 'var(--space-md)' }}
-        >
-          <select
-            className="input w-full"
-            data-testid="pomodoro-task-select"
-            value={selectedTask?.id ?? ''}
-            onChange={(event) => selectFocusTask(event.target.value ? Number(event.target.value) : null)}
-            disabled={hasActiveTimerSession || timerControlsDisabled}
-          >
-            <option value="">不绑定今日任务</option>
-            {selectableTasks.map(task => {
-              const subjectName = task.subject_id ? subjectNameById.get(task.subject_id) : undefined
-              const details = [
-                task.status,
-                subjectName,
-                task.estimate_minutes ? `${task.estimate_minutes}m` : undefined,
-              ].filter(Boolean).join(' · ')
-              return (
-                <option key={task.id} value={task.id}>
-                  {task.title}{details ? ` · ${details}` : ''}
-                </option>
-              )
-            })}
-          </select>
-          {selectedTask && (
-            <div
-              data-testid="pomodoro-selected-task-summary"
-              className="text-xs"
-              style={{ marginTop: 8, color: 'var(--text-secondary)', textAlign: 'center' }}
-            >
-              当前任务：{selectedTask.title}
-              {selectedTaskSubjectName ? ` · ${selectedTaskSubjectName}` : ''}
-              {selectedTask.estimate_minutes ? ` · 预计 ${selectedTask.estimate_minutes} 分钟` : ''}
-            </div>
-          )}
-          {taskError && (
-            <div
-              data-testid="pomodoro-task-error"
-              className="text-xs"
-              style={{ marginTop: 8, color: 'var(--danger)', textAlign: 'center' }}
-            >
-              {taskError}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Subject Select */}
-      <div style={{ width: '100%', maxWidth: '300px', marginBottom: 'var(--space-xl)' }}>
-        <select
-          className="input w-full"
-          data-testid="pomodoro-subject-select"
-          value={selectedSubject || ''}
-          onChange={(e) => setSelectedSubject(e.target.value ? Number(e.target.value) : null)}
-          disabled={!isFocusMode}
-        >
-          {isFocusMode ? (
-            <option value="">选择专注科目（可选）</option>
-          ) : (
-            <option value="">休息中...</option>
-          )}
-          {subjects.map(s => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Today Stats */}
-      <div className="card w-full" style={{ maxWidth: '340px', padding: 'var(--space-lg)' }} data-testid="pomodoro-stats">
-        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-          <h3 className="text-base font-semibold">当前进度</h3>
-          <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
-            {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
-          </div>
-        </div>
-
-        {todayStats.length > 0 ? (
-          <div className="flex flex-col gap-sm">
-            {todayStats.map((stat, i) => (
-              <div key={i} className="flex items-center justify-between text-sm py-1" style={{ borderBottom: i < todayStats.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
-                <span className="flex items-center gap-sm">
-                  <span style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: stat.color || 'var(--border)'
-                  }} />
-                  {stat.subject_name || '未分类'}
-                </span>
-                <span className="text-muted">{stat.total_minutes}m · {stat.session_count} 番茄</span>
+      <div className="pomodoro-page__layout">
+        <section className="pomodoro-page__timer" aria-label="专注计时">
+          {/* Timer Visual */}
+          <div className="pomodoro-page__clock" style={{ position: 'relative', width: 260, height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 'var(--space-xl)' }}>
+            <svg viewBox="0 0 200 200" width="260" height="260" style={{ position: 'absolute' }}>
+              <circle cx="100" cy="100" r="90" fill="none" stroke="var(--border)" strokeWidth="4" />
+              <circle
+                cx="100" cy="100" r="90" fill="none"
+                stroke={mode.color}
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeDasharray={circleCircumference}
+                strokeDashoffset={circleCircumference * (1 - progress)}
+                transform="rotate(-90 100 100)"
+                style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.4s ease' }}
+              />
+            </svg>
+            <div className="flex flex-col items-center">
+              <div style={{ fontSize: 64, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', lineHeight: 1 }}>
+                {formatTime(timeLeft)}
               </div>
-            ))}
+              <div className="text-sm mt-2" style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                {timerStatusText}
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="text-sm text-muted text-center py-2 opacity-70">
-            今天还没有专注记录。开始一次番茄后，这里会显示当前进度。
+
+          <div className="pomodoro-page__controls">
+            <button
+              className="button button-primary"
+              data-testid="pomodoro-start-btn"
+              disabled={timerControlsDisabled}
+              onClick={() => { void toggleTimer() }}
+            >
+              {isRunning
+                ? <><Pause size={18} /> 暂停</>
+                : <><Play size={18} /> {startButtonLabel}</>}
+            </button>
+            <button
+              className="button button-secondary"
+              data-testid="pomodoro-reset-btn"
+              disabled={timerControlsDisabled}
+              style={{ width: 44, height: 44, borderRadius: 'var(--radius-control)', padding: 0, cursor: timerControlsDisabled ? 'not-allowed' : 'pointer' }}
+              onClick={handleResetTimer}
+              title="重置"
+              aria-label="重置番茄钟"
+            >
+              <RotateCcw size={18} />
+            </button>
+            {showFinishCountdownSession && (
+              <button
+                className="button button-secondary"
+                data-testid="pomodoro-finish-countdown-btn"
+                disabled={!canFinishCountdownSession}
+                title={canFinishCountdownSession ? '提前结束并保存当前实际专注时长' : '至少专注 1 分钟后可保存'}
+                onClick={() => { void handleFinishCountdownFocusSession() }}
+              >
+                <Square size={16} /> {isSavingInterruptedFocus ? '正在保存...' : '提前结束并保存'}
+              </button>
+            )}
+            {isStopwatchMode && (
+              <button
+                className="button button-secondary"
+                data-testid="pomodoro-finish-stopwatch-btn"
+                disabled={!canSaveStopwatchSession}
+                title={canSaveStopwatchSession ? '结束并保存本次正计时' : '至少专注 1 分钟后可保存'}
+                onClick={() => { void finishStopwatchSession() }}
+              >
+                <Square size={16} /> 结束并保存
+              </button>
+            )}
+            <button
+              className="button button-secondary"
+              data-testid="pomodoro-enter-zen-btn"
+              style={{ minWidth: 150, height: 44, borderRadius: 'var(--radius-control)' }}
+              onClick={() => { void enterZenMode() }}
+            >
+              <Maximize2 size={18} /> 进入全屏专注
+            </button>
           </div>
-        )}
+
+        </section>
+        <section className="pomodoro-page__context" aria-label="本次专注与今日进度">
+          {isFocusMode && (
+            <div
+              data-testid="pomodoro-task-binding"
+              className="workspace-field"
+            >
+              <label htmlFor="pomodoro-task">今日任务</label>
+              <select id="pomodoro-task"
+                className="input w-full"
+                data-testid="pomodoro-task-select"
+                value={selectedTask?.id ?? ''}
+                onChange={(event) => selectFocusTask(event.target.value ? Number(event.target.value) : null)}
+                disabled={hasActiveTimerSession || timerControlsDisabled}
+              >
+                <option value="">不绑定今日任务</option>
+                {selectableTasks.map(task => {
+                  const subjectName = task.subject_id ? subjectNameById.get(task.subject_id) : undefined
+                  const details = [
+                    task.status,
+                    subjectName,
+                    task.estimate_minutes ? `${task.estimate_minutes}m` : undefined,
+                  ].filter(Boolean).join(' · ')
+                  return (
+                    <option key={task.id} value={task.id}>
+                      {task.title}{details ? ` · ${details}` : ''}
+                    </option>
+                  )
+                })}
+              </select>
+              {selectedTask && (
+                <div
+                  data-testid="pomodoro-selected-task-summary"
+                  className="text-xs"
+                  style={{ marginTop: 8, color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}
+                >
+                  当前任务：{selectedTask.title}
+                  {selectedTaskSubjectName ? ` · ${selectedTaskSubjectName}` : ''}
+                  {selectedTask.estimate_minutes ? ` · 预计 ${selectedTask.estimate_minutes} 分钟` : ''}
+                </div>
+              )}
+              {taskError && (
+                <div
+                  data-testid="pomodoro-task-error"
+                  className="text-xs"
+                  style={{ marginTop: 8, color: 'var(--color-danger-fg)', overflowWrap: 'anywhere' }}
+                >
+                  {taskError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Subject Select */}
+          <div className="workspace-field">
+            <label htmlFor="pomodoro-subject">专注科目（可选）</label>
+            <select id="pomodoro-subject"
+              className="input w-full"
+              data-testid="pomodoro-subject-select"
+              value={selectedSubject || ''}
+              onChange={(e) => setSelectedSubject(e.target.value ? Number(e.target.value) : null)}
+              disabled={!isFocusMode}
+            >
+              {isFocusMode ? (
+                <option value="">选择专注科目（可选）</option>
+              ) : (
+                <option value="">休息中...</option>
+              )}
+              {subjects.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Today Stats */}
+          <div className="workspace-section pomodoro-page__stats" data-testid="pomodoro-stats">
+            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
+              <h3 className="text-base font-semibold">当前进度</h3>
+              <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
+                {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
+              </div>
+            </div>
+
+            {todayStats.length > 0 ? (
+              <div className="flex flex-col gap-sm">
+                {todayStats.map((stat, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm py-1" style={{ borderBottom: i < todayStats.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+                    <span className="flex items-center gap-sm">
+                      <span style={{
+                        width: 10, height: 10, borderRadius: '50%',
+                        background: stat.color || 'var(--border)'
+                      }} />
+                      {stat.subject_name || '未分类'}
+                    </span>
+                    <span className="text-muted">{stat.total_minutes}m · {stat.session_count} 番茄</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted text-center py-2 opacity-70">
+                今天还没有专注记录。开始一次番茄后，这里会显示当前进度。
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
     <FocusZenMode

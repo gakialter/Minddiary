@@ -233,7 +233,9 @@ describe('HomeDashboard Component - Commander Engine', () => {
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
-    expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument()
+    const loading = screen.getByTestId('dashboard-loading')
+    expect(loading).toBeInTheDocument()
+    expect(screen.getByRole('status')).toContainElement(loading)
   })
 
   it('renders error state correctly', async () => {
@@ -248,7 +250,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     await act(async () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
-    expect(screen.getByText(/加载失败.*网络连接失败/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/加载失败.*网络连接失败/)
   })
 
   it('keeps an open Daily Review instance mounted while its successful creation refreshes the dashboard', async () => {
@@ -436,7 +438,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
       render(<HomeDashboard setActiveView={mockSetActiveView} />)
     })
 
-    expect(screen.getByText(/今天有 6 个高风险知识点待抢救/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /今天有 6 个高风险知识点待抢救/ })).toBeInTheDocument()
     expect(screen.getByText('72 小时风险池')).toBeInTheDocument()
     expect(screen.getByText('稳定记忆净增')).toBeInTheDocument()
     expect(screen.getByText('有效专注转化率')).toBeInTheDocument()
@@ -458,11 +460,15 @@ describe('HomeDashboard Component - Commander Engine', () => {
     })
 
     const toggleBtn = screen.getByTestId('dashboard-details-toggle')
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'false')
+    expect(toggleBtn).toHaveAttribute('aria-controls', 'today-action-system-evidence')
     expect(screen.queryByTestId('dashboard-state-explanation')).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(toggleBtn)
     })
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('today-action-system-evidence')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-state-explanation')).toHaveTextContent('待复习错题 6 ≥ 5')
   })
 
@@ -893,9 +899,16 @@ describe('HomeDashboard Component - Commander Engine', () => {
   it('creates a manual task from the lightweight queue form', async () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
-    fireEvent.change(await screen.findByTestId('task-title-input'), { target: { value: 'Read math notes' } })
-    fireEvent.change(screen.getByTestId('task-type-select'), { target: { value: 'focus' } })
-    fireEvent.change(screen.getByTestId('task-estimate-input'), { target: { value: '40' } })
+    const titleInput = await screen.findByLabelText('任务标题')
+    const typeSelect = screen.getByLabelText('任务类型')
+    const estimateInput = screen.getByLabelText('预计分钟数')
+    expect(titleInput).toBe(screen.getByTestId('task-title-input'))
+    expect(typeSelect).toBe(screen.getByTestId('task-type-select'))
+    expect(estimateInput).toBe(screen.getByTestId('task-estimate-input'))
+
+    fireEvent.change(titleInput, { target: { value: 'Read math notes' } })
+    fireEvent.change(typeSelect, { target: { value: 'focus' } })
+    fireEvent.change(estimateInput, { target: { value: '40' } })
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('task-create-submit'))

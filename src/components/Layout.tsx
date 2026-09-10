@@ -35,70 +35,60 @@ function Layout({ children, isSidebarCollapsed }: LayoutProps) {
     window.api.window.close()
   }
 
-  const winBtnStyle: React.CSSProperties = {
-    width: 40, height: '100%',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'none', border: 'none', cursor: 'pointer',
-    color: 'var(--text-muted)', transition: 'all 0.15s',
-  }
-
   return (
     <div
       className="app-container"
       style={{
-        '--sidebar-width': isSidebarCollapsed ? '72px' : '240px',
+        '--sidebar-width': isSidebarCollapsed ? '60px' : '184px',
         '--titlebar-height': hasCustomTitlebar ? '40px' : '0px',
       } as React.CSSProperties}
     >
       {hasCustomTitlebar && (
         <div className="titlebar titlebar-custom">
-          <div className="flex items-center gap-sm">
-            <div style={{ width: 16, height: 16, color: 'var(--text-secondary)' }}>
+          <div className="titlebar-brand">
+            <div className="titlebar-brand-mark" aria-hidden="true">
               <Logo size={16} />
             </div>
-            <span className="text-sm font-semibold text-secondary">MindDiary</span>
+            <span className="titlebar-brand-name">MindDiary</span>
           </div>
           <div className="titlebar-drag-region flex-1 self-stretch" data-testid="titlebar-drag-region" aria-hidden="true" />
-          <div className="flex items-center" style={{ height: '100%' }}>
+          <div className="titlebar-controls" role="group" aria-label="窗口控制">
             <button
-              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              type="button"
+              className="titlebar-control"
               onClick={handleMinimize}
               title="最小化"
               aria-label="最小化窗口"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
                 <rect y="5.5" width="12" height="1" fill="currentColor" />
               </svg>
             </button>
             <button
-              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              type="button"
+              className="titlebar-control"
               onClick={handleMaximize}
               title={isMaximized ? "还原" : "最大化"}
               aria-label={isMaximized ? "还原窗口" : "最大化窗口"}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
             >
               {isMaximized ? (
-                <svg width="10" height="10" viewBox="0 0 10 10">
+                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
                   <path d="M2,1v2H0v7h7V8h2V1H2z M6,9H1V3h5V9z M9,6H8V2H3V1h6V6z" fill="currentColor" />
                 </svg>
               ) : (
-                <svg width="10" height="10" viewBox="0 0 10 10">
+                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
                   <path d="M0,0v10h10V0H0z M9,9H1V1h8V9z" fill="currentColor" />
                 </svg>
               )}
             </button>
             <button
-              style={{ ...winBtnStyle, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              type="button"
+              className="titlebar-control titlebar-control--close"
               onClick={handleClose}
               title="关闭"
               aria-label="关闭窗口"
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--danger) 15%, transparent)'; e.currentTarget.style.color = 'var(--danger)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
                 <path d="M10.707,1.293c-0.391-0.391-1.023-0.391-1.414,0L6,4.586L2.707,1.293c-0.391-0.391-1.023-0.391-1.414,0s-0.391,1.023,0,1.414L4.586,6L1.293,9.293c-0.391,0.391-0.391,1.023,0,1.414C1.488,10.902,1.744,11,2,11s0.512-0.098,0.707-0.293L6,7.414l3.293,3.293C9.488,10.902,9.744,11,10,11s0.512-0.098,0.707-0.293c0.391-0.391,0.391-1.023,0-1.414L7.414,6l3.293-3.293C11.098,2.316,11.098,1.684,10.707,1.293z" fill="currentColor" />
               </svg>
             </button>

@@ -6,6 +6,7 @@ import App from '../src/App'
 import { getLocalDateKey } from '../src/utils/dateKey'
 
 const mocks = vi.hoisted(() => ({
+  activeView: 'editor',
   entries: {
     getByDate: vi.fn(),
     create: vi.fn(),
@@ -66,7 +67,7 @@ vi.mock('../src/hooks/useGlobalKeyboard', () => ({
 
 vi.mock('../src/hooks/useNavigation', () => ({
   useNavigation: () => ({
-    activeView: 'editor',
+    activeView: mocks.activeView,
     setActiveView: mocks.setActiveView,
     selectedDate: '2026-05-12',
     setSelectedDate: mocks.setSelectedDate,
@@ -185,6 +186,7 @@ vi.mock('../src/components/Toast', () => ({
 
 describe('App diary save flow', () => {
   beforeEach(() => {
+    mocks.activeView = 'editor'
     localStorage.clear()
     localStorage.setItem('started', 'true')
     mocks.entries.getByDate.mockReset()
@@ -233,6 +235,30 @@ describe('App diary save flow', () => {
     mocks.setOnBreakStart.mockImplementation((cb: (() => void) | null) => {
       mocks.breakStartCallback = cb
     })
+  })
+
+  it('resets only the shared main scroll when the first-level view changes', async () => {
+    mocks.activeView = 'home'
+    const { rerender } = render(<App />)
+    await waitFor(() => expect(mocks.entries.getByDate).toHaveBeenCalled())
+    const main = screen.getByRole('main')
+    main.scrollTop = 240
+
+    rerender(<App />)
+    expect(main.scrollTop).toBe(240)
+
+    mocks.activeView = 'dashboard'
+    rerender(<App />)
+    expect(main.scrollTop).toBe(0)
+
+    main.scrollTop = 120
+    fireEvent.click(screen.getByTitle('导出数据'))
+    expect(main.scrollTop).toBe(120)
+
+    mocks.activeView = 'editor'
+    rerender(<App />)
+    expect(main.scrollTop).toBe(0)
+    expect(main).toHaveAttribute('data-scroll-owner', 'specialized')
   })
 
   it('sets tags after a new diary receives its saved entry id', async () => {

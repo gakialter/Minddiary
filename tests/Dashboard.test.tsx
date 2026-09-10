@@ -2,11 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from '../src/components/Dashboard'
 import type { TodayDashboardData } from '../src/types'
+import { getTodayStr } from '../src/utils/helpers'
 
 const mocks = vi.hoisted(() => ({
   dataRefreshVersion: 0,
   pomodoroGetRange: vi.fn(),
   pomodoroGetStats: vi.fn(),
+  pomodoroGetStatsRange: vi.fn(),
   dashboardStreak: vi.fn(),
   entryDatesRange: vi.fn(),
   mistakesGetAll: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock('../src/contexts/DiaryContext', () => ({
     pomodoro: {
       getRange: mocks.pomodoroGetRange,
       getStats: mocks.pomodoroGetStats,
+      getStatsRange: mocks.pomodoroGetStatsRange,
     },
     dashboard: {
       streak: mocks.dashboardStreak,
@@ -70,6 +73,7 @@ beforeEach(() => {
   mocks.dataRefreshVersion = 0
   mocks.pomodoroGetRange.mockResolvedValue([])
   mocks.pomodoroGetStats.mockResolvedValue([])
+  mocks.pomodoroGetStatsRange.mockResolvedValue([])
   mocks.dashboardStreak.mockResolvedValue(99)
   mocks.entryDatesRange.mockResolvedValue([])
   mocks.mistakesGetAll.mockResolvedValue({ data: [], total: 0, masteredTotal: 0 })
@@ -99,7 +103,7 @@ describe('Dashboard', () => {
   })
 
   it('renders the focus distribution module', async () => {
-    mocks.pomodoroGetStats.mockResolvedValue([
+    mocks.pomodoroGetStatsRange.mockResolvedValue([
       { subject_name: '数学', color: '#0F766E', total_minutes: 60, session_count: 3 },
     ])
 
@@ -108,5 +112,26 @@ describe('Dashboard', () => {
     await waitFor(() => {
       expect(screen.getByText('专注分布')).toBeInTheDocument()
     })
+  })
+
+  it('provides visible and assistive equivalents for trend and diary-record data', async () => {
+    const today = getTodayStr()
+    mocks.pomodoroGetRange.mockResolvedValue([
+      { date: today, total_minutes: 45, session_count: 2 },
+    ])
+    mocks.entryDatesRange.mockResolvedValue([
+      { date: today, mood: null },
+    ])
+
+    render(<Dashboard />)
+
+    await waitFor(() => {
+      expect(screen.getByText('近 7 日专注趋势')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('单位：分钟')).toBeInTheDocument()
+    expect(screen.getByText(`${today}，有日记记录`)).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`^${today}，.+，45 分钟$`))).toBeInTheDocument()
+    expect(screen.getByText('每个方格仅表示当天有无日记记录，不代表时长或强度。')).toBeInTheDocument()
   })
 })

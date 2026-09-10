@@ -4,6 +4,30 @@ import MistakeReviewAgentDialog from '../src/components/MistakeReviewAgentDialog
 import type { Mistake, StudyTask, Subject } from '../src/types'
 
 describe('MistakeReviewAgentDialog Component', () => {
+  it('owns dialog focus, Escape, background isolation and restoration with a named close control', () => {
+    const entry = document.createElement('button')
+    document.body.append(entry)
+    entry.focus()
+    const onClose = vi.fn()
+    const { container, unmount } = render(<MistakeReviewAgentDialog onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'AI 错题复习规划' })
+    const close = screen.getByRole('button', { name: '关闭 AI 错题复习规划' })
+    expect(close).toHaveFocus()
+    expect(container).not.toContainElement(dialog)
+    expect(entry.inert).toBe(true)
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Tab' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    unmount()
+    expect(entry).toHaveFocus()
+    expect(entry.inert).toBeFalsy()
+    expect(document.body.style.overflow).toBe('')
+    entry.remove()
+  })
   const currentDate = '2026-08-15'
 
   const mockSubjects: Subject[] = [

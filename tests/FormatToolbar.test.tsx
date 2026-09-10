@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { applyTextFormat, FORMAT_BOLD, FORMAT_HIGHLIGHT, FORMAT_UNDERLINE } from '../src/hooks/useTextFormat'
 import FormatToolbar from '../src/components/common/FormatToolbar'
 import ColorPickerButton from '../src/components/common/ColorPickerButton'
@@ -18,6 +18,17 @@ function makeTextarea(value: string, selectionStart: number, selectionEnd: numbe
   }
   el.focus = vi.fn()
   return el
+}
+
+function activateNativeButtonWithKeyboard(button: HTMLButtonElement, key: 'Enter' | ' ') {
+  act(() => {
+    const keyDown = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    const shouldDispatchClick = button.dispatchEvent(keyDown)
+    button.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }))
+    if (shouldDispatchClick) {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }))
+    }
+  })
 }
 
 describe('applyTextFormat', () => {
@@ -207,6 +218,49 @@ describe('FormatToolbar', () => {
     expect(onUnderline).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ['加粗', 'Enter', 'format-bold'],
+    ['加粗', 'Space', 'format-bold'],
+    ['高亮', 'Enter', 'format-highlight'],
+    ['高亮', 'Space', 'format-highlight'],
+    ['下划线', 'Enter', 'format-underline'],
+    ['下划线', 'Space', 'format-underline'],
+  ] as const)('activates %s exactly once with the %s key path', (_label, keyName, testId) => {
+    const actions = {
+      'format-bold': vi.fn(),
+      'format-highlight': vi.fn(),
+      'format-underline': vi.fn(),
+    }
+    render(
+      <FormatToolbar
+        onBold={actions['format-bold']}
+        onHighlight={actions['format-highlight']}
+        onUnderline={actions['format-underline']}
+      />,
+    )
+
+    activateNativeButtonWithKeyboard(screen.getByTestId(testId) as HTMLButtonElement, keyName === 'Space' ? ' ' : 'Enter')
+
+    expect(actions[testId]).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not invoke formatting twice for a pointer press followed by click', () => {
+    const onBold = vi.fn()
+    render(
+      <FormatToolbar
+        onBold={onBold}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+      />,
+    )
+    const button = screen.getByTestId('format-bold')
+
+    fireEvent.mouseDown(button, { button: 0 })
+    fireEvent.click(button, { detail: 1 })
+
+    expect(onBold).toHaveBeenCalledTimes(1)
+  })
+
   it('has a toolbar role', () => {
     render(
       <FormatToolbar
@@ -275,6 +329,19 @@ describe('ColorPickerButton', () => {
     }
   })
 
+  it('opens from native keyboard activation and links the trigger to its popover', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    const trigger = screen.getByTestId('format-color') as HTMLButtonElement
+
+    trigger.focus()
+    activateNativeButtonWithKeyboard(trigger, 'Enter')
+
+    const popover = screen.getByTestId('color-picker-popover')
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveAttribute('aria-controls', popover.id)
+    expect(screen.getByLabelText('红色')).toHaveFocus()
+  })
+
   it('fires onSelectColor with the clicked color key', () => {
     const onSelectColor = vi.fn()
     render(<ColorPickerButton onSelectColor={onSelectColor} />)
@@ -284,12 +351,56 @@ describe('ColorPickerButton', () => {
     expect(onSelectColor).toHaveBeenCalledTimes(1)
   })
 
+  it('selects a color once from the keyboard and restores a usable focus target', () => {
+    const onSelectColor = vi.fn()
+    render(<ColorPickerButton onSelectColor={onSelectColor} />)
+    const trigger = screen.getByTestId('format-color') as HTMLButtonElement
+
+    trigger.focus()
+    activateNativeButtonWithKeyboard(trigger, 'Enter')
+    activateNativeButtonWithKeyboard(screen.getByLabelText('蓝色') as HTMLButtonElement, ' ')
+
+    expect(onSelectColor).toHaveBeenCalledTimes(1)
+    expect(onSelectColor).toHaveBeenCalledWith('blue')
+    expect(screen.queryByTestId('color-picker-popover')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
   it('closes the popover after selecting a color', () => {
     render(<ColorPickerButton onSelectColor={vi.fn()} />)
     fireEvent.mouseDown(screen.getByTestId('format-color'))
     expect(screen.getByTestId('color-picker-popover')).toBeInTheDocument()
     fireEvent.mouseDown(screen.getByTestId('color-swatch-blue'))
     expect(screen.queryByTestId('color-picker-popover')).toBeNull()
+  })
+
+  it('closes on Escape and returns focus to the trigger', () => {
+    render(<ColorPickerButton onSelectColor={vi.fn()} />)
+    const trigger = screen.getByTestId('format-color') as HTMLButtonElement
+
+    trigger.focus()
+    activateNativeButtonWithKeyboard(trigger, 'Enter')
+    fireEvent.keyDown(screen.getByLabelText('红色'), { key: 'Escape' })
+
+    expect(screen.queryByTestId('color-picker-popover')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('closes after an outside pointer press without stealing outside focus', () => {
+    render(
+      <div>
+        <ColorPickerButton onSelectColor={vi.fn()} />
+        <button type="button">外部操作</button>
+      </div>,
+    )
+    fireEvent.mouseDown(screen.getByTestId('format-color'))
+    const outside = screen.getByRole('button', { name: '外部操作' })
+
+    outside.focus()
+    fireEvent.mouseDown(outside)
+
+    expect(screen.queryByTestId('color-picker-popover')).not.toBeInTheDocument()
+    expect(outside).toHaveFocus()
   })
 
   it('does not show popover initially', () => {

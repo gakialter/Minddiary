@@ -115,14 +115,14 @@ describe('BreakReviewModal', () => {
       answer_image_path: 'mistake_images/break-answer.png',
     })
 
-    const { container } = render(<BreakReviewModal onClose={vi.fn()} />)
+    render(<BreakReviewModal onClose={vi.fn()} />)
 
     expect(await screen.findByText('Q')).toBeInTheDocument()
-    expect(container.querySelector('img[alt="错题复习题目图片 1"]')).toBeInTheDocument()
-    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).not.toBeInTheDocument()
+    expect(screen.getByAltText('错题复习题目图片 1')).toBeInTheDocument()
+    expect(screen.queryByAltText('错题复习答案图片 1')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('break-review-reveal-answer'))
 
-    expect(container.querySelector('img[alt="错题复习答案图片 1"]')).toBeInTheDocument()
+    expect(screen.getByAltText('错题复习答案图片 1')).toBeInTheDocument()
   })
 })

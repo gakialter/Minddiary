@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { PomodoroStat, StudyTaskType } from '../types'
@@ -163,15 +163,15 @@ function ContextDecisionList({
   testIdPrefix: string
 }) {
   if (decisions.length === 0) {
-    return <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>尚无可显示的请求依据。</p>
+    return <p className="daily-review__details-empty">尚无可显示的请求依据。</p>
   }
   return (
-    <ul className="mt-2 grid gap-2" style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}>
+    <ul className="daily-review__decision-list">
       {decisions.map(decision => {
         const isAvailabilityMarker = decision.reasonCode === 'source_unavailable'
           && decision.disposition === 'included'
         return (
-          <li key={decision.category} data-testid={`${testIdPrefix}-${decision.category}`} className="text-xs">
+          <li key={decision.category} data-testid={`${testIdPrefix}-${decision.category}`}>
             <strong>{decision.label}</strong>
             {' — '}准备：{CONTEXT_PREPARATION_LABELS[decision.preparation]}；
             {isAvailabilityMarker
@@ -319,6 +319,8 @@ export default function DailyReviewAgentDialog({
   const currentDateRef = useRef(date)
   const mountedRef = useRef(true)
   const dialogInstanceId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   const transitionPlanningRun = useCallback(async (request: PlanningRunTransitionRequest) => {
     const api = getPlanningRunsAPI()
@@ -482,6 +484,51 @@ export default function DailyReviewAgentDialog({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closeDialog, creating, generating])
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    const previousBodyOverflow = document.body.style.overflow
+
+    document.body.style.overflow = 'hidden'
+    closeButtonRef.current?.focus()
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow
+      previouslyFocused?.focus()
+    }
+  }, [])
+
+  const handleDialogKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
+    )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+
+    if (focusableElements.length === 0) {
+      event.preventDefault()
+      dialog.focus()
+      return
+    }
+
+    const firstFocusable = focusableElements[0]!
+    const lastFocusable = focusableElements[focusableElements.length - 1]!
+    const activeElement = document.activeElement
+    const focusIsOutsideDialog = !dialog.contains(activeElement)
+
+    if (event.shiftKey && (activeElement === firstFocusable || focusIsOutsideDialog)) {
+      event.preventDefault()
+      lastFocusable.focus()
+    } else if (!event.shiftKey && (activeElement === lastFocusable || focusIsOutsideDialog)) {
+      event.preventDefault()
+      firstFocusable.focus()
+    }
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -1030,138 +1077,62 @@ export default function DailyReviewAgentDialog({
 
   const modal = (
     <div
+      ref={dialogRef}
+      className="daily-review"
       role="dialog"
       aria-modal="true"
       aria-labelledby="daily-review-agent-title"
+      aria-describedby="daily-review-agent-description"
+      aria-busy={generating || creating}
+      tabIndex={-1}
+      onKeyDown={handleDialogKeyDown}
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 'var(--z-modal)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 'var(--space-lg)',
-        background: 'rgba(0,0,0,0.42)',
-        backdropFilter: 'blur(6px)',
       }}
     >
-      <div
-        style={{
-          width: 'min(800px, 100%)',
-          maxHeight: 'min(800px, calc(100vh - 48px))',
-          overflow: 'hidden',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border)',
-          background: 'var(--bg-secondary)',
-          boxShadow: 'var(--shadow-lg)',
-        }}
-      >
-        <div className="flex items-start justify-between gap-sm" style={{ padding: 'var(--space-lg)', borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <h3 id="daily-review-agent-title" style={{ margin: 0, color: 'var(--text-primary)' }}>每日复盘</h3>
-            <p className="text-sm" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
-              AI 只生成复盘建议和次日候选；创建任务前始终需要你的确认。
+      <div className="daily-review__workspace">
+        <header className="daily-review__header">
+          <div className="daily-review__heading">
+            <span className="daily-review__eyebrow">学习复盘 · {date}</span>
+            <h3 id="daily-review-agent-title">每日复盘</h3>
+            <p id="daily-review-agent-description">
+              先核对本地证据，再理解建议并决定是否创建次日任务。
             </p>
           </div>
+          <div className="daily-review__trust" aria-label="复盘信任边界">
+            <span>本地证据优先</span>
+            <span>AI 仅作建议</span>
+          </div>
           <button
+            ref={closeButtonRef}
             type="button"
             aria-label="关闭每日复盘"
-            className="button button-secondary"
+            title="关闭每日复盘"
+            className="button button-secondary daily-review__close"
             disabled={generating || creating}
             onClick={closeDialog}
-            style={{ padding: 6 }}
           >
-            <X size={16} />
+            <X size={16} aria-hidden="true" />
           </button>
-        </div>
+        </header>
 
-        <div style={{ padding: 'var(--space-lg)', overflowY: 'auto', maxHeight: 'min(600px, calc(100vh - 220px))' }}>
-          <div className="flex flex-wrap items-center gap-sm">
-            <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              次日可用时间
-              <input
-                data-testid="daily-review-available-minutes"
-                className="input"
-                type="number"
-                min={5}
-                max={720}
-                value={availableMinutes}
-                disabled={generating || creating}
-                onChange={event => setAvailableMinutes(clampDailyReviewAvailableMinutes(event.target.value))}
-                style={{ width: 96, marginLeft: 8, minHeight: 36 }}
-              />
-              分钟
-            </label>
-            <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              次日规划策略
-              <select
-                data-testid="daily-review-strategy-selector"
-                aria-label="次日规划策略"
-                className="input"
-                value={selectedStrategy}
-                disabled={creating}
-                onChange={event => setSelectedStrategy(event.target.value as PlanningStrategyId)}
-                style={{ marginLeft: 8, minHeight: 36 }}
-              >
-                {PLANNING_STRATEGIES.map(strategy => (
-                  <option key={strategy.id} value={strategy.id} title={strategy.description}>
-                    {strategy.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="button button-primary"
-              data-testid="daily-review-generate"
-              disabled={generating || creating || contextLoading}
-              onClick={generateReview}
-            >
-              {generating
-                ? <><Loader2 size={14} className="animate-spin" /> 生成中...</>
-                : <><Sparkles size={14} /> {generationErrors.length > 0 ? '重新生成复盘建议' : '生成复盘建议'}</>}
-            </button>
-          </div>
-
-          {generatedStrategy !== null && candidates.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-sm">
-              <span
-                data-testid="daily-review-generated-strategy-badge"
-                className="text-xs px-2 py-1 rounded"
-                style={{
-                  backgroundColor: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                次日候选基于「{getPlanningStrategyMetadata(generatedStrategy).label}」策略生成
-              </span>
-              {selectedStrategy !== generatedStrategy && (
-                <span
-                  data-testid="daily-review-strategy-mismatch-notice"
-                  className="text-xs"
-                  style={{ color: 'var(--warning, #b45309)' }}
-                >
-                  （当前显示基于「{getPlanningStrategyMetadata(generatedStrategy).label}」；切换为「{getPlanningStrategyMetadata(selectedStrategy).label}」将在重新生成时生效）
-                </span>
-              )}
-            </div>
-          )}
-
-          <section className="mt-4" aria-label="每日复盘依据" data-testid="daily-review-context-preview">
-            <div className="flex flex-wrap items-center justify-between gap-sm">
+        <div className="daily-review__content" data-testid="daily-review-dialog-content">
+          <section className="daily-review__section daily-review__evidence" aria-labelledby="daily-review-evidence-title" data-testid="daily-review-context-preview">
+            <div className="daily-review__section-header">
               <div>
-                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>复盘依据（仅本地读取）</h4>
-                <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                <span className="daily-review__section-kicker">本地证据</span>
+                <h4 id="daily-review-evidence-title">复盘依据（仅本地读取）</h4>
+                <p className="daily-review__section-description">
                   打开或刷新只读取本地安全摘要，不请求 AI，也不会创建或修改任务。
                 </p>
-                <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                <p className="daily-review__privacy-note">
                   本功能不会把日记正文、错题答案或图片发送给 AI。
                 </p>
               </div>
               <button
                 type="button"
-                className="button button-secondary"
+                className="button button-secondary daily-review__quiet-action"
                 data-testid="daily-review-refresh-context"
                 disabled={contextLoading || generating || creating}
                 onClick={() => { void refreshReviewContext() }}
@@ -1170,213 +1141,185 @@ export default function DailyReviewAgentDialog({
               </button>
             </div>
 
-            {contextLoading && <p className="mt-2 text-sm" data-testid="daily-review-context-loading" style={{ color: 'var(--text-muted)' }}>正在加载本地复盘依据…</p>}
-            {contextError && <p className="mt-2 text-sm" data-testid="daily-review-context-error" role="alert" style={{ color: 'var(--danger)' }}>无法加载本地复盘依据：{contextError}</p>}
+            {contextLoading && <p className="daily-review__inline-status" data-testid="daily-review-context-loading" role="status">正在加载本地复盘依据…</p>}
+            {contextError && <p className="daily-review__notice daily-review__notice--danger" data-testid="daily-review-context-error" role="alert">无法加载本地复盘依据：{contextError}</p>}
             {visibleContext && (
               <>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="daily-review__evidence-grid">
                   {contextPreview.map((item, index) => {
                     const source = item && typeof item === 'object' && 'source' in item && typeof item.source === 'string'
                       ? item.source
                       : `item-${index}`
                     return (
-                      <div key={`${source}-${index}`} data-testid={`daily-review-context-${source}`} className="rounded-lg p-3 text-sm" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                      <article
+                        key={`${source}-${index}`}
+                        data-testid={`daily-review-context-${source}`}
+                        data-included={item.included}
+                        className="daily-review__evidence-item"
+                      >
                         {displayPreviewItem(item)}
                         {item.warnings?.map(warning => (
-                          <div key={warning} className="mt-1 text-xs" style={{ color: 'var(--warning, var(--text-muted))' }}>风险提示：{warning}</div>
+                          <div key={warning} className="daily-review__evidence-warning">风险提示：{warning}</div>
                         ))}
-                      </div>
+                      </article>
                     )
                   })}
                 </div>
-                <div className="mt-3 rounded-lg p-3" data-testid="daily-review-deterministic-summary" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                  <h5 className="text-sm font-medium" style={{ margin: 0, color: 'var(--text-primary)' }}>本地确定性摘要</h5>
-                  <ul className="mt-2 text-sm" style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}>
+                <section className="daily-review__deterministic" data-testid="daily-review-deterministic-summary" aria-labelledby="daily-review-deterministic-title">
+                  <div>
+                    <span className="daily-review__section-kicker">确定性总结</span>
+                    <h5 id="daily-review-deterministic-title">本地确定性摘要</h5>
+                  </div>
+                  <ul>
                     {deterministicSummary.map(item => <li key={item.label}>{displaySummaryItem(item)}</li>)}
                   </ul>
-                </div>
-                {isEmptyDay && <p className="mt-2 text-sm" data-testid="daily-review-empty-day" style={{ color: 'var(--text-muted)' }}>今天尚无足够本地复盘数据；你仍可手动生成建议或稍后再试。</p>}
+                </section>
+                {isEmptyDay && <p className="daily-review__notice daily-review__notice--neutral" data-testid="daily-review-empty-day" role="status">今天尚无足够本地复盘数据；你仍可手动生成建议或稍后再试。</p>}
               </>
             )}
           </section>
 
-          <details className="mt-4 rounded-lg p-3" data-testid="daily-review-request-explainability" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-            <summary className="text-sm font-medium" style={{ cursor: 'pointer', color: 'var(--text-primary)' }}>本次请求依据</summary>
-            <div className="mt-3" data-testid="daily-review-current-request-preview">
-              <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>当前本地预览（刷新会更新）</strong>
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>表示若现在生成，本地应用会如何准备并加入各类信息。</p>
+          <details className="daily-review__details" data-testid="daily-review-request-explainability">
+            <summary>本次请求依据</summary>
+            <div className="daily-review__details-group" data-testid="daily-review-current-request-preview">
+              <strong>当前本地预览（刷新会更新）</strong>
+              <p>表示若现在生成，本地应用会如何准备并加入各类信息。</p>
               <ContextDecisionList decisions={currentRequestDecisions} testIdPrefix="daily-review-current-request-context" />
             </div>
-            <div className="mt-3" data-testid="daily-review-generation-request-snapshot">
-              <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>本代请求快照（刷新不会覆盖）</strong>
+            <div className="daily-review__details-group" data-testid="daily-review-generation-request-snapshot">
+              <strong>本代请求快照（刷新不会覆盖）</strong>
               {planningSession ? (
                 <>
-                  <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>本代标识：{planningSession.generationId}</p>
+                  <p>本代标识：{planningSession.generationId}</p>
                   <ContextDecisionList decisions={planningSession.contextDecisions} testIdPrefix="daily-review-generation-request-context" />
                 </>
               ) : (
-                <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>尚未生成请求；这里不会把当前预览误写成历史快照。</p>
+                <p>尚未生成请求；这里不会把当前预览误写成历史快照。</p>
               )}
             </div>
-            <p className="mt-3 text-xs" data-testid="daily-review-provider-usage-disclaimer" style={{ color: 'var(--text-muted)' }}>{PROVIDER_USAGE_DISCLAIMER}</p>
+            <p className="daily-review__provider-disclaimer" data-testid="daily-review-provider-usage-disclaimer">{PROVIDER_USAGE_DISCLAIMER}</p>
           </details>
 
-          {generationErrors.length > 0 && (
-            <div className="mt-4 rounded-lg p-3 text-sm" role="alert" data-testid="daily-review-errors" style={{ background: 'var(--danger-bg, rgba(220, 38, 38, 0.1))', color: 'var(--danger)' }}>
-              {generationErrors.map(error => <p key={error} style={{ margin: 0 }}>{error}</p>)}
-              <p style={{ margin: '6px 0 0' }}>AI 返回格式无效；不会创建任务。请重新生成。</p>
+          <section className="daily-review__section daily-review__ai-request" aria-labelledby="daily-review-ai-request-title" aria-busy={generating}>
+            <div className="daily-review__section-header">
+              <div>
+                <span className="daily-review__section-kicker daily-review__section-kicker--ai">AI 建议 · 仅供参考</span>
+                <h4 id="daily-review-ai-request-title">生成次日建议</h4>
+                <p className="daily-review__section-description">AI 只读取上方安全摘要；输出须经本地验证并由你明确确认。</p>
+              </div>
             </div>
-          )}
-          {planningHistoryWarning && (
-            <p className="mt-3 text-sm" role="status" data-testid="planning-history-save-warning" style={{ color: 'var(--warning, var(--text-secondary))' }}>
-              {planningHistoryWarning}
-            </p>
-          )}
-          {creationError && <p className="mt-4 text-sm" role="alert" data-testid="daily-review-creation-error" style={{ color: 'var(--danger)' }}>{creationError}</p>}
-          {staleContextNotice && <p className="mt-4 text-sm" role="status" data-testid="daily-review-stale-context" style={{ color: 'var(--warning, #b45309)' }}>{staleContextNotice}</p>}
-          <PendingStudyTaskRecoveryPanel
-            operationKind="daily_review"
-            tasksAPI={tasksAPI}
-            revision={recoveryRevision}
-            onOutcome={async (observation: PlanningStudyTaskActionExecutionObservation) => {
-              setCreationSummary(null)
-              setPlanningSession(current => {
-                if (current === null) return current
-                const record = current.candidates.find(candidate => candidate.operationId === observation.operationId)
-                return record
-                  ? updatePlanningSessionCandidate(current, record.clientId, candidate => (
-                      applyPlanningCandidateObservedOutcome(candidate, observation, record.operationId!)
-                    ))
-                  : current
-              })
 
-              if (observation.status !== 'succeeded') {
-                setCandidates(current => current.map(candidate => {
-                  if (candidate.operationId !== observation.operationId) return candidate
-                  if (observation.status === 'uncertain') {
-                    return {
-                      ...candidate,
-                      creationState: 'uncertain',
-                      creationError: observation.outcome.message,
-                      selected: false,
-                    }
-                  }
-                  const retainForConflict = observation.code === 'IDEMPOTENCY_CONFLICT'
-                  return {
-                    ...candidate,
-                    operationId: retainForConflict ? observation.operationId : undefined,
-                    creationState: 'failed',
-                    creationError: observation.outcome.message,
-                    selected: retainForConflict ? false : candidate.selected,
-                  }
-                }))
-                return
-              }
-
-              setCandidates(current => current.map(candidate => (
-                candidate.operationId === observation.operationId
-                  ? {
-                      ...candidate,
-                      creationState: 'created',
-                      createdTaskId: observation.task.id,
-                      replayed: observation.replayed,
-                      creationError: undefined,
-                      selected: false,
-                    }
-                  : candidate
-              )))
-              setReviewContext(current => {
-                if (!current || current.candidateDateTasks.some(task => task.id === observation.task.id)) return current
-                return {
-                  ...current,
-                  candidateDateTasks: [...current.candidateDateTasks, toDailyReviewSafeTask(observation.task)],
-                }
-              })
-              await onCreated()
-            }}
-          />
-          {creationSummary && (
-            <div className="mt-4 text-sm" data-testid="daily-review-creation-summary" style={{ color: 'var(--text-secondary)' }}>
-              本次新创建 {creationSummary.created - creationSummary.replayed} 项，重放确认 {creationSummary.replayed} 项，未新建 {creationSummary.failed} 项，结果待检查 {creationSummary.uncertain} 项
-              {creationSummary.failed > 0 && <p style={{ margin: '4px 0 0' }}>请以每项确认结果为准；可修改已解锁候选后重试。</p>}
-              {creationSummary.uncertain > 0 && <p style={{ margin: '4px 0 0' }}>结果不确定的候选已锁定，请使用恢复区检查。</p>}
-              {creationSummary.recoveryWarning && <p role="alert" style={{ margin: '4px 0 0', color: 'var(--warning)' }}>{creationSummary.recoveryWarning}</p>}
-              {creationSummary.refreshError && <p role="alert" style={{ margin: '4px 0 0', color: 'var(--danger)' }}>列表刷新失败：{creationSummary.refreshError}</p>}
+            <div className="daily-review__planner-controls">
+              <label className="daily-review__field daily-review__field--minutes">
+                <span>次日可用时间</span>
+                <span className="daily-review__field-control">
+                  <input
+                    data-testid="daily-review-available-minutes"
+                    className="input"
+                    type="number"
+                    min={5}
+                    max={720}
+                    value={availableMinutes}
+                    disabled={generating || creating}
+                    onChange={event => setAvailableMinutes(clampDailyReviewAvailableMinutes(event.target.value))}
+                  />
+                  <span>分钟</span>
+                </span>
+              </label>
+              <label className="daily-review__field">
+                <span>次日规划策略</span>
+                <select
+                  data-testid="daily-review-strategy-selector"
+                  aria-label="次日规划策略"
+                  className="input"
+                  value={selectedStrategy}
+                  disabled={creating}
+                  onChange={event => setSelectedStrategy(event.target.value as PlanningStrategyId)}
+                >
+                  {PLANNING_STRATEGIES.map(strategy => (
+                    <option key={strategy.id} value={strategy.id} title={strategy.description}>
+                      {strategy.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="button button-secondary daily-review__generate"
+                data-testid="daily-review-generate"
+                aria-busy={generating}
+                disabled={generating || creating || contextLoading}
+                onClick={generateReview}
+              >
+                {generating
+                  ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 生成中...</>
+                  : <><Sparkles size={14} aria-hidden="true" /> {generationErrors.length > 0 ? '重新生成复盘建议' : '生成复盘建议'}</>}
+              </button>
             </div>
-          )}
 
-          <details className="mt-4 rounded-lg p-3" data-testid="daily-review-candidate-decision-summary" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-            <summary className="text-sm font-medium" style={{ cursor: 'pointer', color: 'var(--text-primary)' }}>候选决策摘要</summary>
-            <p className="mt-2 text-xs" data-testid="daily-review-candidate-decision-counts" style={{ color: 'var(--text-secondary)' }}>
-              初始通过验证 {explainabilitySummary.providerValidated} 项 · 用户修复后纳入 {explainabilitySummary.userRepaired} 项 · 已编辑 {explainabilitySummary.edited} 项 · 已移除 {explainabilitySummary.removed} 项 · 保留但未选择 {explainabilitySummary.retainedUnselected} 项 · 当前已选择 {explainabilitySummary.selected} 项 · 已确认 {explainabilitySummary.confirmed} 项
-            </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>“未选择”只表示当前没有勾选，不代表候选被否定。</p>
-            {planningSession === null && <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>尚无本代候选记录。</p>}
-            {sessionCandidates.map(record => (
-              <div key={record.candidateId} className="mt-2 rounded-lg p-2" data-testid={`daily-review-candidate-decision-${record.clientId}`} style={{ border: '1px solid var(--border)' }}>
-                <strong className="text-xs" style={{ color: 'var(--text-primary)' }}>{record.current.title || record.clientId}</strong>
-                <span className="text-xs" style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>{CANDIDATE_ADMISSION_ORIGIN_LABELS[record.admissionOrigin]}</span>
-                <span className="text-xs" style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>{CANDIDATE_DECISION_LABELS[record.decision]}</span>
-                {record.changedFields.length > 0 && (
-                  <ul className="mt-1 text-xs" data-testid={`daily-review-candidate-changes-${record.clientId}`} style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}>
-                    {record.changedFields.map(field => (
-                      <li key={field}>
-                        {CANDIDATE_FIELD_LABELS[field]}：{formatCandidateSnapshotValue(record.initial[field])} → {formatCandidateSnapshotValue(record.current[field])}
-                      </li>
-                    ))}
-                  </ul>
+            {generatedStrategy !== null && candidates.length > 0 && (
+              <div className="daily-review__provenance-row">
+                <span data-testid="daily-review-generated-strategy-badge" className="daily-review__provenance-badge">
+                  AI 建议来源 · 次日候选基于「{getPlanningStrategyMetadata(generatedStrategy).label}」策略生成
+                </span>
+                {selectedStrategy !== generatedStrategy && (
+                  <span data-testid="daily-review-strategy-mismatch-notice" className="daily-review__notice-inline daily-review__notice-inline--warning">
+                    （当前显示基于「{getPlanningStrategyMetadata(generatedStrategy).label}」；切换为「{getPlanningStrategyMetadata(selectedStrategy).label}」将在重新生成时生效）
+                  </span>
                 )}
               </div>
-            ))}
-          </details>
+            )}
 
-          <details className="mt-4 rounded-lg p-3" data-testid="daily-review-confirmation-outcomes" style={{ border: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-            <summary className="text-sm font-medium" style={{ cursor: 'pointer', color: 'var(--text-primary)' }}>确认结果</summary>
-            {confirmedCandidateRecords.length === 0 && <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>尚无已确认候选。</p>}
-            {confirmedCandidateRecords.map(record => (
-              <div
-                key={record.candidateId}
-                className="mt-2 rounded-lg p-2 text-xs"
-                data-testid={`daily-review-confirmation-outcome-${record.clientId}`}
-                data-outcome-kind={record.outcome?.kind ?? 'pending'}
-                style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-              >
-                <strong style={{ color: 'var(--text-primary)' }}>{record.current.title || record.clientId}</strong>
-                <p style={{ margin: '4px 0 0' }}>结果：{record.outcome?.message ?? '已确认，正在等待本地执行结果。'}</p>
-                <p style={{ margin: '4px 0 0' }}>操作 ID：{record.operationId ?? '无'}</p>
-                {record.outcome?.taskId !== undefined && <p style={{ margin: '4px 0 0' }}>任务 ID：{record.outcome.taskId}</p>}
+            {generating && <p className="daily-review__inline-status" role="status">正在请求并验证 AI 建议…</p>}
+            {!generating && generationErrors.length === 0 && observations.length === 0 && candidates.length === 0 && (
+              <p className="daily-review__ai-empty">尚未生成 AI 建议。你可以先阅读本地证据，再决定是否发起请求。</p>
+            )}
+            {generationErrors.length > 0 && (
+              <div className="daily-review__notice daily-review__notice--danger" role="alert" data-testid="daily-review-errors">
+                {generationErrors.map(error => <p key={error}>{error}</p>)}
+                <p>AI 返回格式无效；不会创建任务。请重新生成。</p>
               </div>
-            ))}
-          </details>
-
+            )}
+            {planningHistoryWarning && (
+              <p className="daily-review__notice daily-review__notice--warning" role="status" data-testid="planning-history-save-warning">
+                {planningHistoryWarning}
+              </p>
+            )}
+            {creationError && <p className="daily-review__notice daily-review__notice--danger" role="alert" data-testid="daily-review-creation-error">{creationError}</p>}
+            {staleContextNotice && <p className="daily-review__notice daily-review__notice--warning" role="status" data-testid="daily-review-stale-context">{staleContextNotice}</p>}
+          </section>
           {observations.length > 0 && (
-            <section className="mt-5" aria-label="AI 复盘建议" data-testid="daily-review-observations">
-              <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>AI 复盘建议</h4>
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>以下内容是 AI 对本地安全摘要的建议，不是已发生事实。</p>
-              <div className="mt-3 grid gap-2">
+            <section className="daily-review__section daily-review__ai-observations" aria-labelledby="daily-review-observations-title" data-testid="daily-review-observations">
+              <div className="daily-review__section-heading">
+                <span className="daily-review__section-kicker">AI 建议 · 参考信息</span>
+                <h4 id="daily-review-observations-title">AI 复盘建议</h4>
+                <p>以下内容是 AI 对本地安全摘要的建议，不是已发生事实。</p>
+              </div>
+              <div className="daily-review__observation-list">
                 {observations.map((observation, index) => (
-                  <div key={`${observation.summary}-${index}`} className="rounded-lg p-3" style={{ border: '1px solid var(--border)' }}>
-                    <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>{observation.summary}</strong>
-                    <p className="mt-1 text-sm" style={{ marginBottom: 0, color: 'var(--text-secondary)' }}>{observation.reason}</p>
+                  <article key={`${observation.summary}-${index}`} className="daily-review__observation">
+                    <strong>{observation.summary}</strong>
+                    <p>{observation.reason}</p>
                     {observation.sourceRefs.length > 0 && (
-                      <p className="mt-2 text-xs" style={{ marginBottom: 0, color: 'var(--text-muted)' }}>本地来源：{observation.sourceRefs.join('、')}</p>
+                      <p className="daily-review__source-ref">本地来源：{observation.sourceRefs.join('、')}</p>
                     )}
-                  </div>
+                  </article>
                 ))}
               </div>
             </section>
           )}
 
           {candidates.length > 0 && (
-            <section className="mt-5" aria-label="次日任务候选" data-testid="daily-review-candidates">
-              <div className="flex flex-wrap items-baseline justify-between gap-sm">
-                <div>
-                  <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>次日任务候选</h4>
-                  <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>候选仅保存在当前窗口。编辑、取消选择或删除后，再由你明确确认创建。</p>
+            <section className="daily-review__section daily-review__candidates" aria-labelledby="daily-review-candidates-title" data-testid="daily-review-candidates">
+              <div className="daily-review__candidate-heading">
+                <div className="daily-review__section-heading">
+                  <span className="daily-review__section-kicker">已验证候选 · 等待你的决定</span>
+                  <h4 id="daily-review-candidates-title">候选与确认</h4>
+                  <p>候选仅保存在当前窗口。编辑、取消选择或删除后，再由你明确确认创建。</p>
                 </div>
-                {visibleContext && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>计划日期：{visibleContext.candidateDate}</span>}
+                {visibleContext && <span className="daily-review__candidate-date">计划日期：{visibleContext.candidateDate}</span>}
               </div>
-              <div className="mt-3 grid gap-3">
+              <div className="daily-review__candidate-list">
                 {candidates.map((candidate, index) => {
                   const isCreated = candidate.creationState === 'created'
                   const isLocked = generating
@@ -1387,10 +1330,44 @@ export default function DailyReviewAgentDialog({
                     || Boolean(candidate.operationId)
                   const isKnownSubject = candidate.subject_id === null || visibleContext?.subjects.some(subject => subject.id === candidate.subject_id)
                   const isKnownMistake = candidate.related_mistake_id === null || visibleContext?.dueMistakes.some(mistake => mistake.id === candidate.related_mistake_id)
+                  const presentationState = candidate.creationState === 'created'
+                    ? (candidate.replayed ? 'replayed' : 'created')
+                    : candidate.creationState === 'creating'
+                      ? 'creating'
+                      : candidate.creationState === 'uncertain'
+                        ? 'uncertain'
+                        : candidate.creationState === 'failed'
+                          ? 'failed'
+                          : candidate.validationErrors.length > 0
+                            ? 'invalid'
+                            : candidate.selected
+                              ? 'selected'
+                              : 'unselected'
+                  const presentationLabel = presentationState === 'replayed'
+                    ? '已重放并恢复'
+                    : presentationState === 'created'
+                      ? '已创建'
+                      : presentationState === 'creating'
+                        ? '创建中'
+                        : presentationState === 'uncertain'
+                          ? '结果不确定'
+                          : presentationState === 'failed'
+                            ? '创建失败'
+                            : presentationState === 'invalid'
+                              ? '本地校验未通过'
+                              : presentationState === 'selected'
+                                ? '已选择 · 可编辑'
+                                : '未选择 · 可编辑'
                   return (
-                    <div key={candidate.clientId} className="rounded-lg p-3" data-testid={`daily-review-candidate-${candidate.clientId}`} style={{ border: '1px solid var(--border)', opacity: isCreated ? 0.72 : 1 }}>
-                      <div className="flex flex-wrap items-center justify-between gap-sm">
-                        <label className="flex items-center gap-sm text-sm" style={{ color: 'var(--text-primary)' }}>
+                    <article
+                      key={candidate.clientId}
+                      className="daily-review__candidate"
+                      data-testid={`daily-review-candidate-${candidate.clientId}`}
+                      data-selected={candidate.selected ? 'true' : 'false'}
+                      data-state={presentationState}
+                    >
+                      <div className="daily-review__candidate-toolbar">
+                        <label className="daily-review__candidate-selection">
                           <input
                             type="checkbox"
                             aria-label={`选择候选任务：${candidate.title || index + 1}`}
@@ -1404,47 +1381,47 @@ export default function DailyReviewAgentDialog({
                           />
                           创建此候选
                         </label>
+                        <span className="daily-review__candidate-state" data-state={presentationState}>
+                          {presentationLabel}
+                        </span>
                         <button
                           type="button"
-                          className="button button-secondary"
+                          className="button button-secondary daily-review__icon-button"
                           aria-label={`删除候选任务：${candidate.title || index + 1}`}
                           disabled={isLocked}
                           onClick={() => removeCandidate(candidate.clientId)}
-                          style={{ padding: 6 }}
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={15} aria-hidden="true" />
                         </button>
                       </div>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2">
-                        <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      <div className="daily-review__candidate-fields">
+                        <label className="daily-review__field-label">
                           任务标题
                           <input
-                            className="input"
+                            className="input daily-review__candidate-field"
                             aria-label="候选任务标题"
                             value={candidate.title}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { title: event.target.value }, 'edit')}
                             onBlur={() => commitCandidate(candidate)}
-                            style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
                         </label>
-                        <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <label className="daily-review__field-label">
                           类型
                           <select
-                            className="input"
+                            className="input daily-review__candidate-field"
                             aria-label="候选任务类型"
                             value={candidate.type}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { type: event.target.value as StudyTaskType }, 'edit', true)}
-                            style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {TASK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
                           </select>
                         </label>
-                        <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <label className="daily-review__field-label">
                           预计分钟数
                           <input
-                            className="input"
+                            className="input daily-review__candidate-field"
                             type="number"
                             min={5}
                             max={180}
@@ -1452,18 +1429,16 @@ export default function DailyReviewAgentDialog({
                             value={candidate.estimate_minutes}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { estimate_minutes: Number(event.target.value) }, 'edit', true)}
-                            style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           />
                         </label>
-                        <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <label className="daily-review__field-label">
                           关联科目
                           <select
-                            className="input"
+                            className="input daily-review__candidate-field"
                             aria-label="候选关联科目"
                             value={candidate.subject_id ?? ''}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit', true)}
-                            style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {!isKnownSubject && <option value={candidate.subject_id ?? ''} disabled>请选择有效科目</option>}
                             <option value="">不关联科目</option>
@@ -1471,10 +1446,10 @@ export default function DailyReviewAgentDialog({
                           </select>
                         </label>
                         {candidate.type === 'review' && (
-                          <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          <label className="daily-review__field-label">
                             关联截至次日到期错题
                             <select
-                              className="input"
+                              className="input daily-review__candidate-field"
                               aria-label="关联截至次日到期错题"
                               value={candidate.related_mistake_id ?? ''}
                               disabled={isLocked}
@@ -1486,7 +1461,6 @@ export default function DailyReviewAgentDialog({
                                   ...(selectedMistake ? { subject_id: selectedMistake.subject_id } : {}),
                                 }, 'edit', true)
                               }}
-                              style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                             >
                               {!isKnownMistake && <option value={candidate.related_mistake_id ?? ''} disabled>请选择有效错题</option>}
                               <option value="">选择到期错题</option>
@@ -1494,67 +1468,195 @@ export default function DailyReviewAgentDialog({
                             </select>
                           </label>
                         )}
-                        <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <label className="daily-review__field-label">
                           建议优先级（不写入任务）
                           <select
-                            className="input"
+                            className="input daily-review__candidate-field"
                             aria-label="候选建议优先级"
                             value={candidate.priority}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { priority: event.target.value as DailyReviewPriority }, 'edit', true)}
-                            style={{ width: '100%', marginTop: 4, minHeight: 32 }}
                           >
                             {PRIORITIES.map(priority => <option key={priority} value={priority}>{PRIORITY_LABELS[priority]}</option>)}
                           </select>
                         </label>
                       </div>
-                      <label className="mt-2 block text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      <label className="daily-review__field-label daily-review__candidate-reason">
                         候选理由
                         <textarea
-                          className="input"
+                          className="input daily-review__candidate-field daily-review__candidate-textarea"
                           aria-label="候选理由"
                           value={candidate.reason}
                           disabled={isLocked}
                           onChange={event => updateCandidate(candidate.clientId, { reason: event.target.value }, 'edit')}
                           onBlur={() => commitCandidate(candidate)}
-                          style={{ width: '100%', minHeight: 58, marginTop: 4 }}
                         />
                       </label>
-                      <div className="mt-2 flex flex-wrap items-center gap-sm text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {candidate.creationState === 'created' && <span style={{ color: 'var(--success)' }}>{candidate.replayed ? '已重放并恢复' : '已创建'} #{candidate.createdTaskId}</span>}
-                        {candidate.creationState === 'failed' && <span style={{ color: 'var(--danger)' }}>{candidate.creationError}</span>}
-                        {candidate.creationState === 'uncertain' && <span style={{ color: 'var(--warning)' }}>{candidate.creationError}</span>}
+                      <div className="daily-review__candidate-outcome" role="status">
+                        {candidate.creationState === 'created' && <span className="daily-review__status-text daily-review__status-text--success">{candidate.replayed ? '已重放并恢复' : '已创建'} #{candidate.createdTaskId}</span>}
+                        {candidate.creationState === 'failed' && <span className="daily-review__status-text daily-review__status-text--danger">{candidate.creationError}</span>}
+                        {candidate.creationState === 'uncertain' && <span className="daily-review__status-text daily-review__status-text--warning">{candidate.creationError}</span>}
                       </div>
                       {candidate.validationErrors.length > 0 && (
-                        <ul className="mt-2 text-xs" role="alert" style={{ color: 'var(--danger)', paddingLeft: 18 }}>
+                        <ul className="daily-review__validation-errors" role="alert">
                           {candidate.validationErrors.map(error => (
                             <li key={error}>{formatCandidateValidationMessage(error)}</li>
                           ))}
                         </ul>
                       )}
-                    </div>
+                    </article>
                   )
                 })}
               </div>
             </section>
           )}
+
+          <section className="daily-review__section daily-review__decision-zone" aria-labelledby="daily-review-decision-title">
+            <div className="daily-review__section-heading">
+              <span className="daily-review__section-kicker">确认与恢复</span>
+              <h4 id="daily-review-decision-title">确认前检查</h4>
+              <p>选择只代表纳入本次确认；任务仅会在你点击底部确认按钮后创建。</p>
+            </div>
+
+            <div className="daily-review__recovery-slot">
+              <PendingStudyTaskRecoveryPanel
+                operationKind="daily_review"
+                tasksAPI={tasksAPI}
+                revision={recoveryRevision}
+                onOutcome={async (observation: PlanningStudyTaskActionExecutionObservation) => {
+                  setCreationSummary(null)
+                  setPlanningSession(current => {
+                    if (current === null) return current
+                    const record = current.candidates.find(candidate => candidate.operationId === observation.operationId)
+                    return record
+                      ? updatePlanningSessionCandidate(current, record.clientId, candidate => (
+                          applyPlanningCandidateObservedOutcome(candidate, observation, record.operationId!)
+                        ))
+                      : current
+                  })
+
+                  if (observation.status !== 'succeeded') {
+                    setCandidates(current => current.map(candidate => {
+                      if (candidate.operationId !== observation.operationId) return candidate
+                      if (observation.status === 'uncertain') {
+                        return {
+                          ...candidate,
+                          creationState: 'uncertain',
+                          creationError: observation.outcome.message,
+                          selected: false,
+                        }
+                      }
+                      const retainForConflict = observation.code === 'IDEMPOTENCY_CONFLICT'
+                      return {
+                        ...candidate,
+                        operationId: retainForConflict ? observation.operationId : undefined,
+                        creationState: 'failed',
+                        creationError: observation.outcome.message,
+                        selected: retainForConflict ? false : candidate.selected,
+                      }
+                    }))
+                    return
+                  }
+
+                  setCandidates(current => current.map(candidate => (
+                    candidate.operationId === observation.operationId
+                      ? {
+                          ...candidate,
+                          creationState: 'created',
+                          createdTaskId: observation.task.id,
+                          replayed: observation.replayed,
+                          creationError: undefined,
+                          selected: false,
+                        }
+                      : candidate
+                  )))
+                  setReviewContext(current => {
+                    if (!current || current.candidateDateTasks.some(task => task.id === observation.task.id)) return current
+                    return {
+                      ...current,
+                      candidateDateTasks: [...current.candidateDateTasks, toDailyReviewSafeTask(observation.task)],
+                    }
+                  })
+                  await onCreated()
+                }}
+              />
+            </div>
+
+            {creationSummary && (
+              <div className="daily-review__creation-summary" role="status" data-testid="daily-review-creation-summary">
+                <strong>本次确认结果</strong>
+                <p>本次新创建 {creationSummary.created - creationSummary.replayed} 项，重放确认 {creationSummary.replayed} 项，未新建 {creationSummary.failed} 项，结果待检查 {creationSummary.uncertain} 项</p>
+                {creationSummary.failed > 0 && <p>请以每项确认结果为准；可修改已解锁候选后重试。</p>}
+                {creationSummary.uncertain > 0 && <p>结果不确定的候选已锁定，请使用恢复区检查。</p>}
+                {creationSummary.recoveryWarning && <p className="daily-review__status-text daily-review__status-text--warning" role="alert">{creationSummary.recoveryWarning}</p>}
+                {creationSummary.refreshError && <p className="daily-review__status-text daily-review__status-text--danger" role="alert">列表刷新失败：{creationSummary.refreshError}</p>}
+              </div>
+            )}
+
+            <details className="daily-review__details" data-testid="daily-review-candidate-decision-summary">
+              <summary>候选决策摘要</summary>
+              <p data-testid="daily-review-candidate-decision-counts">
+                初始通过验证 {explainabilitySummary.providerValidated} 项 · 用户修复后纳入 {explainabilitySummary.userRepaired} 项 · 已编辑 {explainabilitySummary.edited} 项 · 已移除 {explainabilitySummary.removed} 项 · 保留但未选择 {explainabilitySummary.retainedUnselected} 项 · 当前已选择 {explainabilitySummary.selected} 项 · 已确认 {explainabilitySummary.confirmed} 项
+              </p>
+              <p className="daily-review__details-note">“未选择”只表示当前没有勾选，不代表候选被否定。</p>
+              {planningSession === null && <p className="daily-review__details-note">尚无本代候选记录。</p>}
+              {sessionCandidates.map(record => (
+                <div key={record.candidateId} className="daily-review__record" data-testid={`daily-review-candidate-decision-${record.clientId}`}>
+                  <strong>{record.current.title || record.clientId}</strong>
+                  <span>{CANDIDATE_ADMISSION_ORIGIN_LABELS[record.admissionOrigin]}</span>
+                  <span>{CANDIDATE_DECISION_LABELS[record.decision]}</span>
+                  {record.changedFields.length > 0 && (
+                    <ul data-testid={`daily-review-candidate-changes-${record.clientId}`}>
+                      {record.changedFields.map(field => (
+                        <li key={field}>
+                          {CANDIDATE_FIELD_LABELS[field]}：{formatCandidateSnapshotValue(record.initial[field])} → {formatCandidateSnapshotValue(record.current[field])}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </details>
+
+            <details className="daily-review__details" data-testid="daily-review-confirmation-outcomes">
+              <summary>确认结果</summary>
+              {confirmedCandidateRecords.length === 0 && <p className="daily-review__details-note">尚无已确认候选。</p>}
+              {confirmedCandidateRecords.map(record => (
+                <div
+                  key={record.candidateId}
+                  className="daily-review__record daily-review__outcome-record"
+                  data-testid={`daily-review-confirmation-outcome-${record.clientId}`}
+                  data-outcome-kind={record.outcome?.kind ?? 'pending'}
+                >
+                  <strong>{record.current.title || record.clientId}</strong>
+                  <p>结果：{record.outcome?.message ?? '已确认，正在等待本地执行结果。'}</p>
+                  <p>操作 ID：{record.operationId ?? '无'}</p>
+                  {record.outcome?.taskId !== undefined && <p>任务 ID：{record.outcome.taskId}</p>}
+                </div>
+              ))}
+            </details>
+          </section>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-sm" style={{ padding: 'var(--space-md) var(--space-lg)', borderTop: '1px solid var(--border)' }}>
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>可创建 {selectedValidCount} 项</span>
-          <div className="flex items-center gap-sm">
+        <footer className="daily-review__footer">
+          <div className="daily-review__confirmation-copy">
+            <strong>可创建 {selectedValidCount} 项</strong>
+            <span>只有点击“创建选中任务”后才会发起创建。</span>
+          </div>
+          <div className="daily-review__footer-actions">
             <button type="button" className="button button-secondary" disabled={generating || creating} onClick={closeDialog}>关闭</button>
             <button
               type="button"
               className="button button-primary"
               data-testid="daily-review-create-selected"
+              aria-busy={creating}
               disabled={generating || creating || contextLoading || !visibleContext || selectedValidCount === 0 || generationErrors.length > 0}
               onClick={createSelectedCandidates}
             >
               {creating ? '创建中...' : '创建选中任务'}
             </button>
           </div>
-        </div>
+        </footer>
       </div>
     </div>
   )

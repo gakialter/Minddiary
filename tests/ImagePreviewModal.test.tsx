@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs'
 import type { ReactNode } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BreakReviewModal from '../src/components/BreakReviewModal'
 import ImagePreviewModal from '../src/components/ImagePreviewModal'
 import { showToast, ToastContainer } from '../src/components/Toast'
+
+const styles = readFileSync('src/index.css', 'utf8')
 
 const mocks = vi.hoisted(() => ({
   getRandomDue: vi.fn(),
@@ -97,12 +100,11 @@ describe('ImagePreviewModal', () => {
   })
 
   it('uses the modal z-index token on the break review overlay', async () => {
-    const { container } = render(<BreakReviewModal onClose={vi.fn()} />)
+    render(<BreakReviewModal onClose={vi.fn()} />)
     await screen.findByRole('img')
 
-    expect(container.firstElementChild).toHaveStyle({
-      zIndex: 'var(--z-modal)',
-    })
+    expect(screen.getByRole('dialog').parentElement).toHaveClass('c8-review-overlay')
+    expect(styles).toMatch(/\.c8-review-overlay\s*\{[^}]*z-index: var\(--z-modal\)/)
   })
 
   it('keeps image preview above the break review modal when opened from break review', async () => {
@@ -115,17 +117,18 @@ describe('ImagePreviewModal', () => {
       if (rank == null) throw new Error(`Unexpected z-index token: ${zIndex}`)
       return rank
     }
-    const { container } = render(<BreakReviewModal onClose={vi.fn()} />)
-    const breakReviewOverlay = container.firstElementChild as HTMLElement
+    render(<BreakReviewModal onClose={vi.fn()} />)
+    const breakReviewOverlay = screen.getByRole('dialog').parentElement as HTMLElement
     const thumbnail = await screen.findByRole('img')
 
     fireEvent.click(thumbnail.closest('button')!)
 
     const imagePreviewOverlay = screen.getByRole('dialog', { name: '图片预览' })
 
-    expect(breakReviewOverlay).toHaveStyle({ zIndex: 'var(--z-modal)' })
+    expect(breakReviewOverlay).toHaveClass('c8-review-overlay')
     expect(imagePreviewOverlay).toHaveStyle({ zIndex: 'var(--z-image-preview)' })
-    expect(getTokenRank(imagePreviewOverlay.style.zIndex)).toBeGreaterThan(getTokenRank(breakReviewOverlay.style.zIndex))
+    const reviewLayer = styles.match(/\.c8-review-overlay\s*\{[^}]*z-index: ([^;]+);/)?.[1]
+    expect(getTokenRank(imagePreviewOverlay.style.zIndex)).toBeGreaterThan(getTokenRank(reviewLayer!))
   })
 
   it('uses the toast z-index token on the toast container', () => {

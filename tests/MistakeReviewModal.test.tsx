@@ -115,6 +115,57 @@ beforeEach(() => {
 })
 
 describe('MistakeReviewModal', () => {
+  it('portals, isolates background, contains focus, ignores backdrop and restores entry focus', async () => {
+    const entry = document.createElement('button')
+    document.body.append(entry)
+    entry.focus()
+    document.body.style.overflow = 'auto'
+    const onClose = vi.fn()
+    const { container, unmount } = render(<MistakeReviewModal onClose={onClose} variant="manual" />)
+    const close = screen.getByRole('button', { name: '关闭复习' })
+    expect(close).toHaveFocus()
+    expect(container).not.toContainElement(screen.getByRole('dialog'))
+    expect(entry.inert).toBe(true)
+    expect(document.body.style.overflow).toBe('hidden')
+    const reveal = await screen.findByTestId('mistake-review-reveal-answer')
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+    expect(reveal).toHaveFocus()
+    fireEvent.keyDown(reveal, { key: 'Tab' })
+    expect(close).toHaveFocus()
+    fireEvent.click(screen.getByRole('dialog').parentElement!)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(close, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('mistake-review-scroll')).toHaveClass('c8-review-body')
+    unmount()
+    expect(entry.inert).toBeFalsy()
+    expect(document.body.style.overflow).toBe('auto')
+    expect(entry).toHaveFocus()
+    entry.remove()
+    document.body.style.overflow = ''
+  })
+
+  it('gives nested image preview sole Escape ownership and restores image trigger focus', async () => {
+    mocks.getRandomDue.mockResolvedValue({ ...dueMistake, image_path: 'question.png' })
+    const onClose = vi.fn()
+    render(<MistakeReviewModal onClose={onClose} variant="manual" />)
+    const trigger = await screen.findByRole('button', { name: '放大查看错题复习题目图片 1' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const childClose = screen.getByRole('button', { name: '关闭图片预览' })
+    expect(childClose).toHaveFocus()
+    fireEvent.keyDown(childClose, { key: 'Tab' })
+    expect(childClose).toHaveFocus()
+    fireEvent.keyDown(childClose, { key: 'Tab', shiftKey: true })
+    expect(childClose).toHaveFocus()
+    fireEvent.keyDown(childClose, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
   it('shows question images during the question phase and answer images only after reveal', async () => {
     mocks.getRandomDue.mockResolvedValue({
       ...dueMistake,
@@ -122,7 +173,7 @@ describe('MistakeReviewModal', () => {
       answer_image_path: JSON.stringify(['mistake_images/answer.png']),
     })
 
-    const { container } = render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
+    const { baseElement: container } = render(<MistakeReviewModal onClose={vi.fn()} variant="manual" />)
 
     expect(await screen.findByText('Manual question')).toBeInTheDocument()
     expect(container.querySelector('img[alt="错题复习题目图片 1"]')).toBeInTheDocument()

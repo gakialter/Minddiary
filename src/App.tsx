@@ -74,6 +74,11 @@ function AppContent() {
     changeDate, viewTitle,
   } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
+  const mainRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [activeView])
+
   // ─── Local UI state ───
   const [entry, setEntry] = useState<DiaryEntry | null>(null)
   const [loading, setLoading] = useState(false)
@@ -328,53 +333,61 @@ function AppContent() {
         isCollapsed={isSidebarCollapsed}
         onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
       />
-      <div className="main">
+      <div className="main" data-pomodoro-docked={activeView !== 'pomodoro'} data-active-view={activeView}>
         {activeView !== 'settings' && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginBottom: 'var(--space-md)', padding: '0 var(--space)',
-          }}>
-            <div className="flex items-center gap-md">
-              <h1 style={{ fontSize: 22, fontWeight: 700 }}>
+          <header className="shell-page-header">
+            <div className="shell-page-heading">
+              <h1 id="shell-page-title" className="shell-page-title">
                 {viewTitle}
               </h1>
-              <Countdown />
+              <div className="shell-page-context">
+                <Countdown />
+              </div>
             </div>
-            <div className="flex items-center gap-sm">
+            <div className="shell-page-actions">
               {activeView === 'editor' && entry && (
-                <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ ...entry, mood })} />
+                <div className="shell-page-mood">
+                  <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ ...entry, mood })} />
+                </div>
               )}
               <button
-                className="button button-secondary"
-                style={{ borderRadius: 12, fontSize: 13, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                type="button"
+                className="button button-secondary shell-export-button"
                 onClick={() => setShowExport(true)}
                 title="导出数据"
               >
-                <Download size={14} /> 导出
+                <Download size={14} aria-hidden="true" />
+                <span>导出</span>
               </button>
             </div>
-          </div>
+          </header>
         )}
-        <div style={{ flex: 1, overflow: 'auto', padding: activeView === 'editor' ? 0 : 'var(--space)' }}>
-          <div key={activeView} className="view-transition">
+        <main
+          ref={mainRef}
+          className={`shell-content ${activeView === 'editor' ? 'shell-content--editor' : 'shell-content--standard'}`}
+          aria-labelledby={activeView === 'settings' ? undefined : 'shell-page-title'}
+          aria-label={activeView === 'settings' ? '设置' : undefined}
+          data-scroll-owner={activeView === 'editor' ? 'specialized' : 'page'}
+        >
+          <div key={activeView} className="view-transition" data-view={activeView}>
             <ErrorBoundary fallback={<ViewErrorFallback />} onReset={() => navigateToView('welcome')}>
               {renderView()}
             </ErrorBoundary>
           </div>
-        </div>
+        </main>
+        {activeView !== 'pomodoro' && (
+          <Pomodoro
+            isWidget={true}
+            onExpand={() => navigateToView('pomodoro')}
+            isCollapsed={isSidebarCollapsed}
+          />
+        )}
       </div>
       <CommandPalette
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
         onNavigate={navigateToView}
       />
-      {activeView !== 'pomodoro' && (
-        <Pomodoro
-          isWidget={true}
-          onExpand={() => navigateToView('pomodoro')}
-          isCollapsed={isSidebarCollapsed}
-        />
-      )}
       <ToastContainer />
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
       {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}

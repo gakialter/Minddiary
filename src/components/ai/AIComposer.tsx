@@ -63,7 +63,8 @@ export default function AIComposer({
     }
 
     return (
-        <div style={{ padding: 'var(--space-md) var(--space-xl)', background: 'transparent', zIndex: 10 }}>
+        <div className="ai-composer">
+            <label htmlFor="ai-composer-input" className="ai-composer__label">向小研提问</label>
             {prompts.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
                     <AIQuickPromptMenu prompts={prompts} onSelect={onPromptSelect} compact />
@@ -90,28 +91,31 @@ export default function AIComposer({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 8,
-                    background: 'var(--bg-secondary)',
+                    background: 'var(--color-surface-base)',
                     padding: 8,
-                    borderRadius: 18,
-                    border: `1px solid ${dragging ? 'var(--accent)' : 'var(--border-light)'}`,
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
+                    borderRadius: 'var(--radius-object)',
+                    border: `1px solid ${dragging ? 'var(--accent)' : 'var(--color-border-subtle)'}`,
                 }}
             >
-                <AIContextChips contextKinds={contextKinds} onRemove={onRemoveContext} />
-                <AIAttachmentList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
-                {dragging && (
-                    <div className="text-xs text-muted" style={{
-                        padding: 8,
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--bg-tertiary)',
-                        textAlign: 'center',
-                    }}>
-                        松开后添加到本次 AI 请求，不会自动发送。
-                    </div>
-                )}
-                {error && (
-                    <div role="alert" style={{ fontSize: 12, color: 'var(--danger, #C65A3A)' }}>
-                        {error}
+                {(contextKinds.length > 0 || attachments.length > 0 || dragging || error) && (
+                    <div className="ai-composer__auxiliary">
+                        <AIContextChips contextKinds={contextKinds} onRemove={onRemoveContext} />
+                        <AIAttachmentList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
+                        {dragging && (
+                            <div className="text-xs text-muted" style={{
+                                padding: 8,
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'var(--color-surface-subtle)',
+                                textAlign: 'center',
+                            }}>
+                                松开后添加到本次 AI 请求，不会自动发送。
+                            </div>
+                        )}
+                        {error && (
+                            <div role="alert" style={{ fontSize: 12, color: 'var(--color-danger-fg)' }}>
+                                {error}
+                            </div>
+                        )}
                     </div>
                 )}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--space-sm)' }}>
@@ -124,7 +128,7 @@ export default function AIComposer({
                         style={{
                             width: 40,
                             height: 40,
-                            borderRadius: 20,
+                            borderRadius: 'var(--radius-control)',
                             padding: 0,
                             display: 'flex',
                             alignItems: 'center',
@@ -146,13 +150,14 @@ export default function AIComposer({
                         style={{ display: 'none' }}
                     />
                     <textarea
+                        id="ai-composer-input"
+                        aria-describedby="ai-composer-help"
                         className="input"
                         style={{
                             flex: 1,
                             resize: 'none',
-                            border: 'none',
+                            border: '1px solid var(--color-border-default)',
                             background: 'transparent',
-                            boxShadow: 'none',
                             padding: '8px 12px',
                             minHeight: 40,
                             maxHeight: 140,
@@ -179,7 +184,7 @@ export default function AIComposer({
                         <button
                             type="button"
                             className="button button-secondary"
-                            style={{ width: 40, height: 40, borderRadius: 20, padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            style={{ width: 40, height: 40, borderRadius: 'var(--radius-control)', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={onCancel}
                             aria-label="取消 AI 请求"
                             title="取消请求"
@@ -193,7 +198,7 @@ export default function AIComposer({
                             style={{
                                 width: 40,
                                 height: 40,
-                                borderRadius: 20,
+                                borderRadius: 'var(--radius-control)',
                                 padding: 0,
                                 flexShrink: 0,
                                 display: 'flex',
@@ -211,7 +216,8 @@ export default function AIComposer({
                     )}
                 </div>
             </div>
-            <div style={{ textAlign: 'center', marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+            <div id="ai-composer-help" className="ai-composer__help">
+                Enter 发送，Shift+Enter 换行。
                 附件仅在你点击发送后传给当前配置的 AI 服务商；MindDiary 不会把附件写入数据库或聊天历史。
             </div>
         </div>

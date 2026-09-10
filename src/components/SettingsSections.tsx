@@ -1,4 +1,4 @@
-import React, { useState, useMemo, type Dispatch, type SetStateAction } from 'react'
+import React, { useState, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2, Monitor } from 'lucide-react'
 import { AI_PROVIDERS, getKnownModelCapabilities, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
@@ -112,20 +112,9 @@ interface SettingsAboutProps {
   version: string
 }
 
-const sectionStyle: React.CSSProperties = {
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-lg)',
-    padding: 'var(--space-lg)',
-}
-
 const labelStyle: React.CSSProperties = {
     display: 'block', fontSize: 13, color: 'var(--text-secondary)',
     marginBottom: 'var(--space-sm)',
-}
-
-const fieldGroupStyle: React.CSSProperties = {
-    display: 'flex', flexDirection: 'column', gap: 'var(--space-md)',
 }
 
 export function SettingsGeneral({
@@ -140,11 +129,11 @@ export function SettingsGeneral({
     autoSave, setAutoSave
 }: SettingsGeneralProps) {
     return (
-        <div style={sectionStyle}>
-            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ClipboardList size={16} /> 基本设置
-            </h3>
-            <div style={fieldGroupStyle}>
+        <section className="settings-section" aria-labelledby="settings-general-title">
+            <h2 id="settings-general-title" className="settings-section__title">
+                <ClipboardList size={17} aria-hidden="true" /> 基本设置
+            </h2>
+            <div className="settings-section__body">
                 <CountdownEventsManager
                     examDate={examDate}
                     setExamDate={setExamDate}
@@ -154,16 +143,17 @@ export function SettingsGeneral({
                     resetVersion={countdownResetVersion}
                 />
                 <div>
-                    <label style={labelStyle}>主题</label>
-                    <select className="input w-full" value={theme} onChange={(e) => changeTheme(e.target.value)}>
+                    <label htmlFor="settings-theme" style={labelStyle}>主题</label>
+                    <select id="settings-theme" className="input w-full" value={theme} onChange={(e) => changeTheme(e.target.value)}>
                         <option value="system">跟随系统</option>
                         <option value="light">亮色模式</option>
                         <option value="dark">暗色模式</option>
                     </select>
                 </div>
                 <div>
-                    <label style={labelStyle}>番茄钟时长（分钟）</label>
+                    <label htmlFor="settings-pomodoro-minutes" style={labelStyle}>番茄钟时长（分钟）</label>
                     <input
+                        id="settings-pomodoro-minutes"
                         type="number" className="input w-full"
                         min={1} max={120}
                         value={pomodoroMinutes}
@@ -171,35 +161,35 @@ export function SettingsGeneral({
                     />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                    <label className="settings-check-row">
                         <input
+                            className="settings-checkbox"
                             type="checkbox" checked={pomodoroSound}
                             onChange={(e) => setPomodoroSound(e.target.checked)}
-                            style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
                         />
                         <span className="text-sm">计时结束音效提示</span>
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                    <label className="settings-check-row">
                         <input
+                            className="settings-checkbox"
                             type="checkbox" checked={pomodoroAlert}
                             onChange={(e) => setPomodoroAlert(e.target.checked)}
-                            style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
                         />
                         <span className="text-sm">计时结束弹窗提示（适合看网课时使用）</span>
                     </label>
                 </div>
                 <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+                    <label className="settings-check-row">
                         <input
+                            className="settings-checkbox"
                             type="checkbox" checked={autoSave}
                             onChange={(e) => setAutoSave(e.target.checked)}
-                            style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
                         />
                         <span className="text-sm">启用自动保存</span>
                     </label>
                 </div>
             </div>
-        </div>
+        </section>
     )
 }
 
@@ -256,45 +246,33 @@ export function SettingsFocus({
     }
 
     return (
-        <div style={{ ...sectionStyle, gridColumn: '1 / -1' }}>
-            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ShieldCheck size={16} /> 专注模式
-            </h3>
-            <div style={fieldGroupStyle}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer' }}>
+        <section className="settings-section" aria-labelledby="settings-focus-title">
+            <h2 id="settings-focus-title" className="settings-section__title">
+                <ShieldCheck size={17} aria-hidden="true" /> 专注模式
+            </h2>
+            <div className="settings-section__body">
+                <label className="settings-check-row">
                     <input
                         type="checkbox"
                         checked={focusGuardEnabled}
                         onChange={(e) => setFocusGuardEnabled(e.target.checked)}
-                        style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                        className="settings-checkbox"
                     />
                     <span className="text-sm font-semibold">启用专注白名单提醒</span>
                 </label>
 
-                <div className="text-xs text-muted" style={{ lineHeight: 1.6 }}>
+                <div className="settings-help-text">
                     开启后，番茄钟专注期间只提醒不在白名单内的应用。建议先加入网课、资料、输入法、浏览器或常用学习工具。
                 </div>
 
                 {!isWindowsPlatform && (
-                    <div
-                        data-testid="focus-guard-platform-hint"
-                        style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 10,
-                            padding: '10px 14px',
-                            borderRadius: 'var(--radius-sm)',
-                            background: 'var(--bg-tertiary)',
-                            border: '1px solid var(--border-light)',
-                            lineHeight: 1.6,
-                        }}
-                    >
-                        <Monitor size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
+                    <div className="settings-inline-note" data-testid="focus-guard-platform-hint">
+                        <Monitor size={16} aria-hidden="true" />
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <span className="text-xs" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
                                 当前平台暂未完整支持前台应用检测
                             </span>
-                            <span className="text-xs text-muted">
+                            <span className="text-xs text-secondary">
                                 你仍可以配置白名单，但系统可能无法准确判断当前应用。Windows 版本支持更完整的专注提醒。
                             </span>
                         </div>
@@ -343,35 +321,23 @@ export function SettingsFocus({
                         title={isWindowsPlatform ? undefined : '当前平台暂不支持自动捕获前台应用'}
                         style={!isWindowsPlatform ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                     >
-                        <Plus size={15} /> 添加当前应用
+                        <Plus size={15} aria-hidden="true" /> 添加当前应用
                     </button>
                     <button type="button" className="button button-primary" onClick={addManualApp}>
                         手动添加
                     </button>
                 </div>
 
-                {feedback && <div className="text-xs text-muted">{feedback}</div>}
+                {feedback && <div className="settings-feedback" role="status">{feedback}</div>}
 
                 {focusWhitelist.length === 0 ? (
-                    <div className="text-xs text-muted" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', lineHeight: 1.6 }}>
+                    <div className="settings-empty-note">
                         当前没有白名单，除 MindDiary 外的应用都会触发提醒。
                     </div>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="settings-compact-list">
                         {focusWhitelist.map(item => (
-                            <div
-                                key={item.id}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: 12,
-                                    padding: '8px 10px',
-                                    border: '1px solid var(--border-light)',
-                                    borderRadius: 'var(--radius-sm)',
-                                    background: 'var(--bg-primary)',
-                                }}
-                            >
+                            <div key={item.id} className="settings-compact-row">
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                                     <input
                                         type="checkbox"
@@ -380,29 +346,28 @@ export function SettingsFocus({
                                             current.id === item.id ? { ...current, enabled: e.target.checked } : current
                                         )))}
                                         aria-label={`${item.enabled ? '停用' : '启用'} ${item.name}`}
-                                        style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                                        className="settings-checkbox"
                                     />
                                     <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                                         <span className="text-sm" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.name}</span>
-                                        <span className="text-xs text-muted">{item.processName || item.executable || '仅按应用名称匹配'}</span>
+                                        <span className="text-xs text-secondary">{item.processName || item.executable || '仅按应用名称匹配'}</span>
                                     </span>
                                 </label>
                                 <button
                                     type="button"
-                                    className="button button-secondary"
+                                    className="settings-icon-action settings-icon-action--danger"
                                     aria-label={`删除 ${item.name}`}
                                     title={`删除 ${item.name}`}
                                     onClick={() => setFocusWhitelist(focusWhitelist.filter(current => current.id !== item.id))}
-                                    style={{ width: 32, height: 32, padding: 0, borderRadius: 16, flexShrink: 0 }}
                                 >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={14} aria-hidden="true" />
                                 </button>
                             </div>
                         ))}
                     </div>
                 )}
             </div>
-        </div>
+        </section>
     )
 }
 
@@ -411,17 +376,10 @@ function ProviderChip({ provider, active, onClick }: {
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '6px 12px', borderRadius: 'var(--radius)',
-        border: active ? `2px solid var(--accent)` : '1px solid var(--border)',
-        background: active ? `var(--accent-light)` : 'transparent',
-        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-        cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400,
-        transition: 'all 0.2s ease',
-        whiteSpace: 'nowrap',
-      }}
+      className="settings-provider-chip"
+      aria-pressed={active}
     >
       <span>{provider.name}</span>
     </button>
@@ -434,24 +392,14 @@ function ModelCard({ model, active, onClick }: {
   const tagColors = model.tag ? getTagColor(model.tag) : null
   return (
     <button
+      type="button"
       onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 14px', borderRadius: 'var(--radius-sm)',
-        border: active ? `2px solid var(--accent)` : '1px solid var(--border)',
-        background: active ? `var(--accent-light)` : 'var(--bg-primary)',
-        cursor: 'pointer', width: '100%', textAlign: 'left',
-        transition: 'all 0.15s ease',
-      }}
+      className="settings-model-option"
+      aria-pressed={active}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {active && (
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: 'var(--accent)', flexShrink: 0,
-            }} />
-          )}
+          {active && <span className="settings-selection-dot" aria-hidden="true" />}
           <span style={{
             fontSize: 13, fontWeight: active ? 600 : 500,
             color: active ? 'var(--accent)' : 'var(--text-primary)',
@@ -460,7 +408,7 @@ function ModelCard({ model, active, onClick }: {
           </span>
           {model.tag && tagColors && (
             <span style={{
-              fontSize: 10, fontWeight: 600, padding: '1px 6px',
+              fontSize: 12, fontWeight: 600, padding: '1px 6px',
               borderRadius: 4, background: tagColors.bg, color: tagColors.text,
               lineHeight: '16px',
             }}>
@@ -468,7 +416,7 @@ function ModelCard({ model, active, onClick }: {
             </span>
           )}
         </div>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
           {model.desc}
         </span>
       </div>
@@ -500,6 +448,7 @@ export function SettingsAI({
       activeProviderId === 'custom' ? aiModel : ''
     )
     const [showModelPicker, setShowModelPicker] = useState(false)
+    const modelTriggerRef = useRef<HTMLButtonElement>(null)
     const [modelSearch, setModelSearch] = useState('')
 
     const activeProvider = getProvider(activeProviderId) || AI_PROVIDERS[AI_PROVIDERS.length - 1]!
@@ -542,18 +491,16 @@ export function SettingsAI({
     const currentCapabilities = getKnownModelCapabilities(aiModel)
 
     return (
-        <div style={{ ...sectionStyle, gridColumn: '1 / -1' }}>
-            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Bot size={16} /> AI 助手设置
-            </h3>
+        <section className="settings-section" aria-labelledby="settings-ai-title">
+            <h2 id="settings-ai-title" className="settings-section__title">
+                <Bot size={17} aria-hidden="true" /> AI 助手设置
+            </h2>
 
-            <div style={fieldGroupStyle}>
+            <div className="settings-section__body">
                 {/* ── Provider Selection ── */}
-                <div>
-                    <label style={labelStyle}>选择供应商</label>
-                    <div style={{
-                      display: 'flex', flexWrap: 'wrap', gap: 8,
-                    }}>
+                <fieldset className="settings-fieldset">
+                    <legend>选择供应商</legend>
+                    <div className="settings-provider-list">
                       {AI_PROVIDERS.map(p => (
                         <ProviderChip
                           key={p.id}
@@ -563,12 +510,12 @@ export function SettingsAI({
                         />
                       ))}
                     </div>
-                </div>
+                </fieldset>
 
                 {/* ── Endpoint ── */}
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label style={{ ...labelStyle, marginBottom: 0 }}>API 请求地址</label>
+                      <label htmlFor="settings-ai-endpoint" style={{ ...labelStyle, marginBottom: 0 }}>API 请求地址</label>
                       {activeProvider.website && (
                         <a
                           href={activeProvider.website}
@@ -580,20 +527,21 @@ export function SettingsAI({
                             textDecoration: 'none', opacity: 0.8,
                           }}
                         >
-                          官网 <ExternalLink size={11} />
+                          官网 <ExternalLink size={11} aria-hidden="true" />
                         </a>
                       )}
                     </div>
                     <div style={{
-                        fontSize: 12, color: 'var(--text-muted)',
+                        fontSize: 12, color: 'var(--color-text-secondary)',
                         background: 'var(--bg-tertiary)', padding: '6px 10px',
                         borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: 6,
                         marginTop: 'var(--space-sm)'
                     }}>
-                        <Info size={14} style={{ color: 'var(--accent)' }} />
+                        <Info size={14} style={{ color: 'var(--accent)' }} aria-hidden="true" />
                         <span>填写真实有效的 API 端点地址，留空将无法使用对应模型。</span>
                     </div>
                     <input
+                        id="settings-ai-endpoint"
                         type="text" className="input w-full"
                         placeholder="https://your-api-endpoint.com/v1"
                         value={aiEndpoint}
@@ -604,7 +552,7 @@ export function SettingsAI({
 
                 {/* ── API Key ── */}
                 <div>
-                    <label style={labelStyle}>API Key</label>
+                    <label htmlFor="settings-ai-api-key" style={labelStyle}>API Key</label>
                     {aiApiKeyPresent && !aiKeyDirty && !clearKeyRequested ? (
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }}>
@@ -614,6 +562,7 @@ export function SettingsAI({
                             </div>
                             <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
                                 <button
+                                    type="button"
                                     className="button button-secondary"
                                     style={{ fontSize: 13, padding: '4px var(--space-md)' }}
                                     onClick={() => { setAiKeyDirty(true); setAiApiKeyInput('') }}
@@ -621,8 +570,9 @@ export function SettingsAI({
                                     修改
                                 </button>
                                 <button
-                                    className="button button-secondary"
-                                    style={{ fontSize: 13, padding: '4px var(--space-md)', color: 'var(--danger, #C65A3A)' }}
+                                    type="button"
+                                    className="button button-secondary settings-danger-action"
+                                    style={{ fontSize: 13, padding: '4px var(--space-md)' }}
                                     onClick={() => {
                                         setClearKeyRequested(true)
                                         setAiKeyDirty(true)
@@ -636,6 +586,7 @@ export function SettingsAI({
                     ) : (
                         <div>
                             <input
+                                id="settings-ai-api-key"
                                 type="password" className="input w-full"
                                 placeholder={clearKeyRequested ? 'Key 将在保存时清除' : '输入新 API Key（留空保持不变）'}
                                 value={aiApiKeyInput}
@@ -643,6 +594,7 @@ export function SettingsAI({
                             />
                             {clearKeyRequested && (
                                 <button
+                                    type="button"
                                     className="button button-secondary"
                                     style={{ fontSize: 12, padding: '2px var(--space-sm)', marginTop: 'var(--space-sm)' }}
                                     onClick={() => { setClearKeyRequested(false); setAiKeyDirty(false) }}
@@ -656,25 +608,37 @@ export function SettingsAI({
 
                 {/* ── Model Selection ── */}
                 <div>
-                    <label style={labelStyle}>模型名称</label>
+                    <label htmlFor={activeProviderId === 'custom' ? 'settings-ai-custom-model' : 'settings-ai-model-trigger'} style={labelStyle}>模型名称</label>
                     {activeProviderId === 'custom' ? (
                       <div>
                         <input
+                          id="settings-ai-custom-model"
                           type="text" className="input w-full"
                           placeholder="输入自定义模型名称，如 gpt-4o"
                           value={customModelInput}
                           onChange={e => handleCustomModelChange(e.target.value)}
                         />
-                        <div className="text-xs text-muted" style={{ marginTop: 4 }}>
+                        <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
                           指定使用的模型名称，将直接传递给 API
                         </div>
                       </div>
                     ) : (
-                      <div style={{ position: 'relative' }}>
+                      <div onKeyDown={event => {
+                        if (event.key === 'Escape' && showModelPicker) {
+                          event.stopPropagation()
+                          setShowModelPicker(false)
+                          modelTriggerRef.current?.focus()
+                        }
+                      }}>
                         {/* Current Selection Button */}
                         <button
+                          id="settings-ai-model-trigger"
+                          ref={modelTriggerRef}
+                          type="button"
                           onClick={() => setShowModelPicker(!showModelPicker)}
                           className="input w-full"
+                          aria-expanded={showModelPicker}
+                          aria-controls="settings-ai-model-options"
                           style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                             cursor: 'pointer', textAlign: 'left',
@@ -697,32 +661,32 @@ export function SettingsAI({
                               </span>
                             )}
                           </div>
-                          <ChevronDown size={16} style={{
-                            color: 'var(--text-muted)',
+                          <ChevronDown size={16} aria-hidden="true" style={{
+                            color: 'var(--color-text-secondary)',
                             transform: showModelPicker ? 'rotate(180deg)' : 'none',
-                            transition: 'transform 0.2s',
+                            transition: 'transform var(--motion-duration-selection) var(--motion-ease-standard)',
                           }} />
                         </button>
 
                         {/* Dropdown: Model Picker */}
                         {showModelPicker && (
-                          <div style={{
-                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 'var(--z-dropdown)',
+                          <div id="settings-ai-model-options" className="settings-model-picker" style={{
                               marginTop: 8, background: 'var(--bg-secondary)',
                               border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                              boxShadow: 'var(--shadow-lg)',
                               overflow: 'hidden', display: 'flex', flexDirection: 'column',
                           }}>
                             {/* Search */}
                             {activeProvider.models.length > 3 && (
                               <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+                                <label htmlFor="settings-model-search" style={labelStyle}>搜索模型</label>
                                 <div style={{
                                   display: 'flex', alignItems: 'center', gap: 6,
                                   padding: '4px 8px', background: 'var(--bg-primary)',
                                   borderRadius: 8, border: '1px solid var(--border)',
                                 }}>
-                                  <Search size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                                  <Search size={13} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} aria-hidden="true" />
                                   <input
+                                    id="settings-model-search"
                                     type="text"
                                     placeholder="搜索模型..."
                                     value={modelSearch}
@@ -734,9 +698,9 @@ export function SettingsAI({
                                     autoFocus
                                   />
                                   {modelSearch && (
-                                    <button onClick={() => setModelSearch('')} style={{
+                                    <button type="button" onClick={() => setModelSearch('')} style={{
                                       background: 'none', border: 'none', cursor: 'pointer',
-                                      color: 'var(--text-muted)', padding: 0,
+                                      color: 'var(--color-text-secondary)', padding: 0,
                                     }} aria-label="清除搜索" title="清除搜索">
                                       <X size={13} aria-hidden />
                                     </button>
@@ -753,7 +717,7 @@ export function SettingsAI({
                               {filteredModels.length === 0 ? (
                                 <div style={{
                                   padding: '16px', textAlign: 'center',
-                                  color: 'var(--text-muted)', fontSize: 13,
+                                  color: 'var(--color-text-secondary)', fontSize: 13,
                                 }}>
                                   未找到匹配模型
                                 </div>
@@ -766,6 +730,7 @@ export function SettingsAI({
                                     onClick={() => {
                                       setAiModel(model.id)
                                       setShowModelPicker(false)
+                                      modelTriggerRef.current?.focus()
                                     }}
                                   />
                                 ))
@@ -785,35 +750,35 @@ export function SettingsAI({
                   border: '1px solid var(--border-light)',
                 }}>
                   {activeProviderId === 'custom' ? (
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                    <label className="settings-check-row settings-check-row--top">
                       <input
                         type="checkbox"
                         checked={aiVisionEnabled}
                         onChange={event => setAiVisionEnabled(event.target.checked)}
-                        style={{ marginTop: 3 }}
+                        className="settings-checkbox"
                       />
                       <span>
                         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>此模型支持图片输入</span>
-                        <span className="text-xs text-muted">
+                        <span className="text-xs text-secondary">
                           仅在你确认当前自定义 OpenAI-compatible 模型支持图片时开启。关闭时，图片附件不会被发送。
                         </span>
                       </span>
                     </label>
                   ) : (
-                    <div className="text-xs text-muted">
+                    <div className="text-xs text-secondary">
                       当前预设模型：{currentCapabilities?.vision ? '支持图片输入' : '未声明图片输入能力'}。图片发送由模型能力边界控制。
                     </div>
                   )}
                 </div>
 
-                <div className="text-xs text-muted" style={{
+                <div className="text-xs text-secondary" style={{
                   padding: '8px 12px', borderRadius: 'var(--radius-sm)',
                   background: 'var(--bg-tertiary)'
                 }}>
                     留空则不启用 AI 功能。所有接口均兼容 OpenAI 格式，只需填写对应的 Endpoint 和 Key 即可使用。
                 </div>
             </div>
-        </div>
+        </section>
     )
 }
 
@@ -823,69 +788,70 @@ export function SettingsBackup({
     exportData, importData, restoreAutomaticBackupZip, showToast
 }: SettingsBackupProps) {
     return (
-        <div style={sectionStyle}>
-            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Database size={16} /> 数据管理与备份
-            </h3>
-            <div style={fieldGroupStyle}>
+        <section className="settings-section" aria-labelledby="settings-backup-title">
+            <h2 id="settings-backup-title" className="settings-section__title">
+                <Database size={17} aria-hidden="true" /> 数据管理与备份
+            </h2>
+            <div className="settings-section__body">
                 <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', cursor: 'pointer', marginBottom: 'var(--space-sm)' }}>
+                    <label className="settings-check-row settings-check-row--with-help">
                         <input
                             type="checkbox" checked={autoBackup}
                             onChange={(e) => setAutoBackup(e.target.checked)}
-                            style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+                            className="settings-checkbox"
                         />
                         <span className="text-sm font-semibold">开启静默自动备份</span>
                     </label>
-                    <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-sm)' }}>
+                    <div className="text-xs text-secondary" style={{ marginBottom: 'var(--space-sm)' }}>
                         开启后，每24小时及启动时自动在指定目录生成 ZIP 灾备包（数据库 + 附件）。
                     </div>
 
-                    <div style={{ opacity: autoBackup ? 1 : 0.5, pointerEvents: autoBackup ? 'auto' : 'none', transition: 'opacity 0.2s', marginBottom: 'var(--space-md)' }}>
-                        <label style={labelStyle}>自动备份目录</label>
+                    <fieldset className="settings-dependent-field" disabled={!autoBackup}>
+                        <label htmlFor="settings-backup-path" style={labelStyle}>自动备份目录</label>
                         <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
                             <input
+                                id="settings-backup-path"
                                 type="text" className="input" style={{ flex: 1, fontSize: 12 }}
                                 placeholder="选择文件夹..."
                                 value={backupPath}
                                 readOnly
                             />
-                            <button className="button button-secondary" style={{ padding: '0 var(--space-md)' }} onClick={async () => {
+                            <button type="button" className="button button-secondary" style={{ padding: '0 var(--space-md)' }} onClick={async () => {
                                 if (!(window as any).api?.settings?.selectBackupFolder) return showToast('此功能仅在客户端可用', 'error')
                                 const path = await (window as any).api.settings.selectBackupFolder()
                                 if (path) setBackupPath(path)
                             }}>选择</button>
                         </div>
-                    </div>
+                    </fieldset>
                 </div>
 
-                <div style={{ height: 1, background: 'var(--border)', margin: 'var(--space-sm) 0' }} />
+                <div className="settings-divider" aria-hidden="true" />
                 <div>
                     <label style={labelStyle}>导出数据</label>
-                    <button className="button button-secondary w-full" onClick={exportData}>
-                        <Package size={15} /> 导出为 JSON
+                    <button type="button" className="button button-secondary w-full" onClick={exportData}>
+                        <Package size={15} aria-hidden="true" /> 导出为 JSON
                     </button>
                 </div>
                 <div>
                     <label style={labelStyle}>导入数据</label>
-                    <button className="button button-secondary w-full" onClick={importData}>
-                        <FolderOpen size={15} /> 从 JSON 导入
+                    <button type="button" className="button button-secondary w-full" onClick={importData}>
+                        <FolderOpen size={15} aria-hidden="true" /> 从 JSON 导入
                     </button>
                 </div>
                 <div>
                     <label style={labelStyle}>{RESTORE_ZIP_LABEL}</label>
-                    <button className="button button-secondary w-full" onClick={restoreAutomaticBackupZip}>
-                        <RotateCw size={15} /> {RESTORE_ZIP_BUTTON}
+                    <button type="button" className="button button-secondary w-full" onClick={restoreAutomaticBackupZip}>
+                        <RotateCw size={15} aria-hidden="true" /> {RESTORE_ZIP_BUTTON}
                     </button>
-                    <div className="text-xs text-muted" style={{ marginTop: 'var(--space-xs)' }}>
+                    <div className="text-xs text-secondary" style={{ marginTop: 'var(--space-xs)' }}>
                         {RESTORE_ZIP_HELP}
                     </div>
                 </div>
-                <div className="text-xs text-muted">
+                <div className="text-xs text-secondary">
                     {BACKUP_SCOPE_HELP}
                 </div>
             </div>
-        </div>
+        </section>
     )
 }
 
@@ -915,19 +881,19 @@ export function SettingsAbout({
     const formattedReleaseDate = formatReleaseDate(updateStatus.releaseDate)
 
     return (
-        <div style={sectionStyle}>
-            <h3 className="font-semibold" style={{ fontSize: 15, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Info size={16} /> 关于
-            </h3>
+        <section className="settings-section" aria-labelledby="settings-about-title">
+            <h2 id="settings-about-title" className="settings-section__title">
+                <Info size={17} aria-hidden="true" /> 关于
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                 <div className="text-sm">
-                    <span className="text-muted">当前版本：</span> <span>v{version}</span>
+                    <span className="text-secondary">当前版本：</span> <span>v{version}</span>
                 </div>
                 <div className="text-sm">
-                    <span className="text-muted">存储：</span> <span>SQLite 本地数据库</span>
+                    <span className="text-secondary">存储：</span> <span>SQLite 本地数据库</span>
                 </div>
                 <div className="text-sm">
-                    <span className="text-muted">隐私：</span> <span>学习数据完全本地存储；AI 与更新检查仅在配置或触发时联网</span>
+                    <span className="text-secondary">隐私：</span> <span>学习数据完全本地存储；AI 与更新检查仅在配置或触发时联网</span>
                 </div>
                 <div
                     data-testid="current-release-notes"
@@ -947,31 +913,33 @@ export function SettingsAbout({
                 <div style={{ marginTop: 'var(--space-md)' }}>
                     {isDownloaded ? (
                         <button
+                            type="button"
                             className="button button-primary w-full"
                             onClick={installUpdate}
                             data-testid="update-install-btn"
                         >
-                            <RotateCw size={15} /> 重启安装 v{updateStatus.version}
+                            <RotateCw size={15} aria-hidden="true" /> 重启安装 v{updateStatus.version}
                         </button>
                     ) : (
                         <button
+                            type="button"
                             className="button button-secondary w-full"
                             onClick={checkForUpdates}
                             disabled={isBusy}
                             data-testid="update-check-btn"
                         >
                             {isChecking
-                                ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> 正在检查...</>
+                                ? <><RefreshCw size={15} className="settings-spinner" aria-hidden="true" /> 正在检查...</>
                                 : status === 'error'
-                                    ? <><RefreshCw size={15} /> 重试</>
-                                    : <><RefreshCw size={15} /> 检查更新</>}
+                                    ? <><RefreshCw size={15} aria-hidden="true" /> 重试</>
+                                    : <><RefreshCw size={15} aria-hidden="true" /> 检查更新</>}
                         </button>
                     )}
                 </div>
 
                 {/* ── Update Status Line ── */}
                 {status !== 'idle' && (
-                    <div data-testid="update-status" style={{
+                    <div data-testid="update-status" role="status" aria-live="polite" className="settings-update-status" style={{
                         display: 'flex', flexDirection: 'column', gap: 6,
                         padding: '8px 12px',
                         borderRadius: 'var(--radius-sm)',
@@ -979,22 +947,22 @@ export function SettingsAbout({
                         animation: 'fadeIn 0.2s ease',
                     }}>
                         {status === 'checking' && (
-                            <span className="text-xs" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                            <span className="text-xs" style={{ color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <RefreshCw size={12} className="settings-spinner" aria-hidden="true" />
                                 正在连接更新服务器...
                             </span>
                         )}
 
                         {status === 'available' && (
                             <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <Download size={12} />
+                                <Download size={12} aria-hidden="true" />
                                 发现新版本 v{updateStatus.version}，正在准备下载...
                             </span>
                         )}
 
                         {status === 'not-available' && (
                             <span className="text-xs" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <CheckCircle size={12} />
+                                <CheckCircle size={12} aria-hidden="true" />
                                 已是最新版本
                             </span>
                         )}
@@ -1003,11 +971,11 @@ export function SettingsAbout({
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <Download size={12} />
+                                        <Download size={12} aria-hidden="true" />
                                         正在下载... {updateStatus.percent ?? 0}%
                                     </span>
                                     {updateStatus.bytesPerSecond != null && updateStatus.bytesPerSecond > 0 && (
-                                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                                             {formatSpeed(updateStatus.bytesPerSecond)}
                                         </span>
                                     )}
@@ -1019,12 +987,17 @@ export function SettingsAbout({
                                 }}>
                                     <div
                                         data-testid="update-progress-bar"
+                                        role="progressbar"
+                                        aria-label="更新下载进度"
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                        aria-valuenow={updateStatus.percent ?? 0}
                                         style={{
                                             height: '100%',
                                             width: `${updateStatus.percent ?? 0}%`,
                                             background: 'var(--accent)',
                                             borderRadius: 2,
-                                            transition: 'width 0.3s ease',
+                                            transition: 'width var(--motion-duration-status) var(--motion-ease-standard)',
                                         }}
                                     />
                                 </div>
@@ -1033,21 +1006,21 @@ export function SettingsAbout({
 
                         {status === 'downloaded' && (
                             <span className="text-xs" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <CheckCircle size={12} />
+                                <CheckCircle size={12} aria-hidden="true" />
                                 新版本 v{updateStatus.version} 已下载完毕，重启即可安装
                             </span>
                         )}
 
                         {status === 'error' && (
-                            <span className="text-xs" style={{ color: 'var(--danger, #C65A3A)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <AlertTriangle size={12} />
+                            <span className="text-xs" style={{ color: 'var(--color-danger-fg)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertTriangle size={12} aria-hidden="true" />
                                 {updateStatus.message || '检查更新失败'}
                             </span>
                         )}
 
                         {status === 'auto-update-not-configured' && (
-                            <span className="text-xs" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <AlertTriangle size={12} />
+                            <span className="text-xs" style={{ color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertTriangle size={12} aria-hidden="true" />
                                 {updateStatus.message || '当前版本未配置自动更新源'}
                             </span>
                         )}
@@ -1067,7 +1040,7 @@ export function SettingsAbout({
                             最新版本：v{updateStatus.version || '未知'}
                         </div>
                         {formattedReleaseDate && (
-                            <div className="text-xs text-muted" style={{ marginTop: 4 }}>
+                            <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
                                 发布时间：{formattedReleaseDate}
                             </div>
                         )}
@@ -1082,15 +1055,15 @@ export function SettingsAbout({
                                 {updateStatus.releaseNotes}
                             </div>
                         ) : (
-                            <div className="text-xs text-muted">暂时无法获取更新日志</div>
+                            <div className="text-xs text-secondary">暂时无法获取更新日志</div>
                         )}
                     </div>
                 )}
 
-                <div className="text-xs text-muted" style={{ paddingTop: 12 }}>
+                <div className="text-xs text-secondary" style={{ paddingTop: 12 }}>
                     MindDiary · 面向备考场景的本地优先学习系统
                 </div>
             </div>
-        </div>
+        </section>
     )
 }

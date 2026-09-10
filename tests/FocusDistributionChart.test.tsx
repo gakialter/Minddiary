@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FocusDistributionChart from '../src/components/FocusDistributionChart'
 import type { PomodoroStat } from '../src/types'
@@ -127,6 +127,12 @@ describe('FocusDistributionChart', () => {
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
+    const rangeGroup = screen.getByRole('group', { name: '专注分布时间范围' })
+    const rangeButtons = within(rangeGroup).getAllByRole('button')
+    expect(rangeButtons.map(button => button.textContent)).toEqual(['今日', '近 7 天', '近 30 天', '单日', '范围'])
+    expect(screen.getByTestId('focus-range-today')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('focus-range-week')).toHaveAttribute('aria-pressed', 'false')
+
     await waitFor(() => {
       expect(getStatsRangeFn).toHaveBeenCalledTimes(1)
     })
@@ -137,6 +143,9 @@ describe('FocusDistributionChart', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('focus-range-week'))
     })
+
+    expect(screen.getByTestId('focus-range-today')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('focus-range-week')).toHaveAttribute('aria-pressed', 'true')
 
     await waitFor(() => {
       expect(getStatsRangeFn).toHaveBeenCalledTimes(1)

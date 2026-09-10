@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom'
+import { useModalFocus } from '../hooks/useModalFocus'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Minimize2, Pause, Play, Square } from 'lucide-react'
 
@@ -19,6 +21,7 @@ interface FocusZenModeProps {
 }
 
 const CONTROL_HIDE_DELAY_MS = 2400
+const INTERACTIVE_TARGET = 'button, input, select, textarea, a[href], summary, audio[controls], video[controls], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="combobox"], [tabindex]:not([tabindex="-1"])'
 
 export default function FocusZenMode({
   visible,
@@ -36,6 +39,10 @@ export default function FocusZenMode({
   isFinishingEarly = false,
   onFinishEarly,
 }: FocusZenModeProps) {
+  const modalRef = useModalFocus(onExit, visible, true)
+  const controlsRef = useRef<HTMLDivElement>(null)
+  const actionsRef = useRef({ onToggleTimer, isFinishingEarly })
+  actionsRef.current = { onToggleTimer, isFinishingEarly }
   const [controlsVisible, setControlsVisible] = useState(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -49,7 +56,9 @@ export default function FocusZenMode({
   const revealControls = useCallback(() => {
     setControlsVisible(true)
     clearHideTimer()
-    hideTimerRef.current = setTimeout(() => setControlsVisible(false), CONTROL_HIDE_DELAY_MS)
+    if (!controlsRef.current?.contains(document.activeElement)) {
+      hideTimerRef.current = setTimeout(() => setControlsVisible(false), CONTROL_HIDE_DELAY_MS)
+    }
   }, [clearHideTimer])
 
   useEffect(() => {
@@ -60,16 +69,12 @@ export default function FocusZenMode({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onExit()
-        return
-      }
-
+      if (event.defaultPrevented || event.repeat) return
       if (event.key === ' ' || event.code === 'Space') {
+        if (event.target instanceof Element && event.target.closest(INTERACTIVE_TARGET)) return
         event.preventDefault()
         revealControls()
-        if (!isFinishingEarly) onToggleTimer()
+        if (!actionsRef.current.isFinishingEarly) actionsRef.current.onToggleTimer()
       }
     }
 
@@ -78,7 +83,7 @@ export default function FocusZenMode({
       window.removeEventListener('keydown', handleKeyDown)
       clearHideTimer()
     }
-  }, [clearHideTimer, isFinishingEarly, onExit, onToggleTimer, revealControls, visible])
+  }, [clearHideTimer, revealControls, visible])
 
   if (!visible) return null
 
@@ -87,14 +92,15 @@ export default function FocusZenMode({
     ? '休息中'
     : [selectedTaskTitle, selectedSubjectName, modeLabel].filter(Boolean).join(' · ') || '专注中'
 
-  return (
+  return createPortal(
     <div
+      ref={modalRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="Zen 全屏专注模式"
       data-testid="focus-zen-mode"
       onMouseMove={revealControls}
-      onFocus={revealControls}
       style={{
         position: 'fixed',
         inset: 0,
@@ -135,7 +141,6 @@ export default function FocusZenMode({
             color: modeColor,
             fontSize: 16,
             fontWeight: 500,
-            opacity: 0.58,
           }}
         >
           {statusText}
@@ -143,6 +148,10 @@ export default function FocusZenMode({
       </div>
 
       <div
+        ref={controlsRef}
+        className="focus-zen-controls"
+        onFocus={revealControls}
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) revealControls() }}
         style={{
           position: 'fixed',
           left: '50%',
@@ -150,9 +159,9 @@ export default function FocusZenMode({
           transform: 'translateX(-50%)',
           display: 'flex',
           gap: 12,
-          opacity: controlsVisible ? 0.82 : 0,
+          opacity: controlsVisible ? 1 : 0,
           pointerEvents: controlsVisible ? 'auto' : 'none',
-          transition: 'opacity 180ms ease',
+          transition: 'opacity var(--motion-duration-standard) var(--motion-ease-standard)',
         }}
       >
         <button
@@ -168,7 +177,7 @@ export default function FocusZenMode({
           style={{
             minWidth: 104,
             height: 42,
-            borderRadius: 21,
+            borderRadius: 'var(--radius-control)',
             background: 'var(--bg-secondary)',
             color: isFinishingEarly ? 'var(--text-muted)' : 'var(--text-primary)',
             border: '1px solid var(--border-light)',
@@ -185,7 +194,7 @@ export default function FocusZenMode({
           style={{
             minWidth: 116,
             height: 42,
-            borderRadius: 21,
+            borderRadius: 'var(--radius-control)',
             background: 'var(--bg-secondary)',
             color: 'var(--text-primary)',
             border: '1px solid var(--border-light)',
@@ -207,7 +216,7 @@ export default function FocusZenMode({
             style={{
               minWidth: 148,
               height: 42,
-              borderRadius: 21,
+              borderRadius: 'var(--radius-control)',
               background: canFinishEarly && !isFinishingEarly ? 'var(--bg-secondary)' : 'var(--bg-tertiary)',
               color: canFinishEarly && !isFinishingEarly ? 'var(--text-primary)' : 'var(--text-muted)',
               border: '1px solid var(--border-light)',
@@ -218,6 +227,6 @@ export default function FocusZenMode({
           </button>
         )}
       </div>
-    </div>
+    </div>, document.body
   )
 }

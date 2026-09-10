@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom'
+import { useModalFocus } from '../hooks/useModalFocus'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, CheckCircle, Pin, RotateCcw, Trophy, X } from 'lucide-react'
 import Latex from 'react-latex-next'
@@ -42,6 +44,7 @@ const parseImagePaths = (raw?: string | null): string[] => {
 }
 
 export default function MistakeReviewModal({ onClose, variant, subjectId }: MistakeReviewModalProps) {
+    const modalRef = useModalFocus(onClose)
     const diary = useDiary()
     const [mistake, setMistake] = useState<Mistake | null>(null)
     const [loading, setLoading] = useState(true)
@@ -154,23 +157,9 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     const questionImagePaths = parseImagePaths(mistake?.image_path)
     const answerImagePaths = parseImagePaths(mistake?.answer_image_path)
 
-    return (
-        <div style={{
-            position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
-            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            animation: 'page-fade-in 0.2s ease-out'
-        }}>
-            <div style={{
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: '0 32px 96px rgba(0,0,0,0.4)',
-                width: '100%', maxWidth: 520,
-                margin: '0 var(--space-lg)',
-                overflow: 'hidden',
-                animation: 'slide-up 0.3s cubic-bezier(0.2, 0, 0, 1)'
-            }}>
+    return createPortal(
+        <div className="c8-review-overlay">
+            <div ref={modalRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="c8-review-dialog c8-review-dialog--manual">
                 <div style={{
                     padding: 'var(--space-md) var(--space-lg)',
                     borderBottom: '1px solid var(--border)',
@@ -183,15 +172,15 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                     </div>
                     <button
                         type="button"
+                        className="button c8-review-close"
                         onClick={onClose}
                         aria-label="关闭复习"
-                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}
                     >
                         <X size={18} />
                     </button>
                 </div>
 
-                <div style={{ padding: 'var(--space-xl)' }}>
+                <div className="c8-review-body" data-testid="mistake-review-scroll">
                     {loading && (
                         <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--space-2xl)' }}>
                             <div style={{ width: 32, height: 32, border: '3px solid var(--warning)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto var(--space-md)' }} />
@@ -400,8 +389,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
                         <span className="text-xs text-muted">错题会根据你的作答质量，由 SM-2 算法安排下次复习时间</span>
                     </div>
                 )}
+                <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
             </div>
-            <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
-        </div>
+        </div>, document.body
     )
 }

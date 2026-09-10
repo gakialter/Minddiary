@@ -361,23 +361,15 @@ export default function AIPanel({ entry }: AIPanelProps) {
     }
 
     return (
-        <div style={{
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            maxWidth: 800,
-            margin: '0 auto',
-            width: '100%',
-            position: 'relative',
-        }}>
-            <div className="flex items-center justify-between" style={{ padding: 'var(--space-md) var(--space-xl)', background: 'transparent', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div className="ai-workspace">
+            <div className="ai-workspace__header">
                 <div className="flex items-center gap-sm">
-                    <div style={{ width: 36, height: 36, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', color: 'var(--accent)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-control)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', color: 'var(--accent)' }}>
                         <Bot size={20} />
                     </div>
                     <div>
                         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>小研</h2>
-                        <span style={{ fontSize: 12, color: 'var(--success)' }}>● 在线待命</span>
+                        <span className="workspace-help" role="status">{loading ? '正在生成回复…' : 'AI 学习助手'}</span>
                     </div>
                 </div>
                 <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={clearMessages}>
@@ -385,32 +377,14 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 </button>
             </div>
 
-            <div style={{
-                flex: 1,
-                padding: 'var(--space-lg) var(--space-xl)',
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-xl)',
-            }}>
+            <div className="ai-workspace__messages" role="region" aria-label="对话消息" tabIndex={0}>
                 {messages.length === 0 && (
-                    <div className="empty-state" style={{ height: '100%', animation: 'page-fade-in 0.5s ease-out' }}>
-                        <div style={{
-                            width: 80,
-                            height: 80,
-                            borderRadius: 24,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginBottom: 'var(--space-md)',
-                            background: 'var(--bg-tertiary)',
-                            color: 'var(--accent)',
-                            boxShadow: 'inset 0 4px 10px rgba(255,255,255,0.6), var(--shadow-sm)',
-                        }}>
-                            <Bot size={40} />
+                    <div className="workspace-empty ai-workspace__empty">
+                        <div className="workspace-empty__icon">
+                            <Bot size={28} />
                         </div>
-                        <h3 style={{ fontSize: 20, marginBottom: 'var(--space-sm)' }}>我是你的专属考研智囊</h3>
-                        <p className="text-muted" style={{ maxWidth: 320, textAlign: 'center', lineHeight: 1.6, marginBottom: 'var(--space-2xl)' }}>
+                        <h3>我是你的专属考研智囊</h3>
+                        <p className="text-muted">
                             快捷提示会先进入草稿，你可以编辑请求、移除上下文，再主动发送给 AI。
                         </p>
                         <AIQuickPromptMenu prompts={quickPrompts} onSelect={composer.applyQuickPrompt} />
@@ -431,19 +405,20 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 ))}
 
                 {loading && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-sm)', animation: 'page-fade-in 0.3s ease-in' }}>
+                    <div className="ai-workspace__loading" aria-hidden="true">
+                        <span>小研正在生成回复…</span>
                         <div style={{
                             padding: '16px 20px',
-                            borderRadius: 16,
+                            borderRadius: 'var(--radius-object)',
                             borderTopLeftRadius: 4,
                             background: 'var(--bg-tertiary)',
                             display: 'flex',
                             gap: 6,
                             alignItems: 'center',
                         }}>
-                            <div className="typing-dot" style={{ animationDelay: '0s' }}></div>
-                            <div className="typing-dot" style={{ animationDelay: '0.2s' }}></div>
-                            <div className="typing-dot" style={{ animationDelay: '0.4s' }}></div>
+                            <div className="typing-dot" aria-hidden="true" style={{ animationDelay: '0s' }}></div>
+                            <div className="typing-dot" aria-hidden="true" style={{ animationDelay: '0.2s' }}></div>
+                            <div className="typing-dot" aria-hidden="true" style={{ animationDelay: '0.4s' }}></div>
                         </div>
                     </div>
                 )}
