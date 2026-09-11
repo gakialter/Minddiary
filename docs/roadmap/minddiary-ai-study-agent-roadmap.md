@@ -1,6 +1,6 @@
 # MindDiary AI Study Planning Agent Roadmap
 
-Status: Active roadmap aligned with v1.19.1 release and current main baseline.
+Status: Active roadmap aligned with the v1.19.1 release and the verified documentation-audit baseline.
 
 This is a planning document. It authorizes documentation alignment only. It does not authorize runtime changes, prompt changes, schema changes, migrations, implementation, a PR, merge, tag, release, or publication. Every later implementation must revalidate `main` and receive its own scope and authorization.
 
@@ -13,13 +13,13 @@ The published Release and the current development branch are separate facts. A l
 - Latest published GitHub Release: `v1.19.1`.
 - Published at: `2026-09-11T17:31:49Z`.
 - Release state: not a draft and not a prerelease.
-- Release target commitish: `main`; the immutable `v1.19.1` tag resolves to commit `19465ab4022c0695ea48325a7a726715ae62fe99`.
+- Release target commitish: `main`; the immutable `v1.19.1` tag resolves to commit `19465ab8872ac3a9b26b8fba75844c8ba0bb97fd`.
 - Tag package version: `1.19.1`.
 - Tag SQLite baseline: `CURRENT_SCHEMA_VERSION = 8`.
 
 These values describe the published release baseline.
 
-### Current main baseline
+### Baseline used for this roadmap refresh
 
 - Baseline commit: `74840b85260fcba7950519807a66305e6dcca5bc`.
 - Commit title: `docs: refresh README for v1.19.1`.
@@ -28,7 +28,7 @@ These values describe the published release baseline.
 - Schema 8 migration: `add-subject-daily-review-state`.
 - Schema 8 table: `subject_daily_review_state`.
 
-Historical schema versions remain intact: v1.17.1 was published on schema 5, PR #154 introduced schema 6 (`study_task_action_receipts`), PR #159 introduced schema 7 (`planning_runs`, `planning_run_candidates`), and v1.19.0 introduced schema 8. Every later implementation must fetch and revalidate `main`, package metadata, schema, migrations, and relevant release facts before work starts.
+This baseline SHA was used to audit and verify product facts for this roadmap refresh. Subsequent work must fetch and revalidate `main`, package metadata, schema, migrations, and relevant release facts before work starts. Historical schema versions remain intact: v1.17.1 was published on schema 5, PR #154 introduced schema 6 (`study_task_action_receipts`), PR #159 introduced schema 7 (`planning_runs`, `planning_run_candidates`), and v1.19.0 introduced schema 8.
 
 SQLite remains MindDiary's local authoritative source of truth. Model output remains untrusted candidate input.
 
