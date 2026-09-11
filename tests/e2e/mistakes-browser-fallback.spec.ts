@@ -178,11 +178,11 @@ test.describe('browser fallback repeated mistakes', () => {
     await createMistake(page, 6)
     await page.reload()
     await page.getByRole('button', { name: '错题本' }).click()
-
     const first = page.locator('.mistake-item').filter({ hasText: '第1题' })
     await first.getByRole('button', { name: '编辑错题' }).click()
     const notes = page.getByPlaceholder('备注（可选）')
     await notes.fill('当前备注')
+    await expect(notes).toHaveValue('当前备注')
     await notes.evaluate(element => {
       const textarea = element as HTMLTextAreaElement
       textarea.focus()
