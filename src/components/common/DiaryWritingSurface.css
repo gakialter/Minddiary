@@ -26,3 +26,19 @@
 .diary-selection-toolbar { position: fixed; z-index: var(--z-dropdown); padding: 3px 5px; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); background: var(--color-surface-raised); }
 .diary-selection-toolbar .color-picker__popover { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; }
 @media (max-height: 680px) { .diary-live-preview .cm-editor { min-height: 220px; } }
+.diary-selection-toolbar { display: flex; align-items: center; gap: 4px; }
+.diary-polish-menu { position: absolute; top: 100%; left: 0; width: 172px; padding: 4px; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); background: var(--color-surface-raised); }
+.diary-polish-menu button, .diary-polish-review button { color: var(--color-text-primary); background: transparent; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.diary-polish-menu button { display: block; width: 100%; text-align: left; border: 0; }
+.diary-polish-menu button:hover, .diary-polish-review button:hover:not(:disabled) { background: var(--color-surface-interactive); }
+.diary-polish-review { position: fixed; z-index: var(--z-modal); right: 16px; bottom: 16px; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); color: var(--color-text-primary); background: var(--color-surface-raised); }
+.diary-polish-review header { display: grid; gap: 4px; }
+.diary-polish-review header span { color: var(--color-text-secondary); font-size: 12px; }
+.diary-polish-review__text { overflow: auto; min-height: 0; max-height: 300px; margin: 12px 0; overflow-wrap: anywhere; }
+.diary-polish-review h3 { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 4px; }
+.diary-polish-review p { font-size: 14px; line-height: 1.7; white-space: pre-wrap; margin: 0 0 12px; }
+.diary-polish-review__candidate { border-left: 2px solid var(--color-accent); padding-left: 10px; }
+.diary-polish-review footer { display: flex; justify-content: flex-end; gap: 8px; }
+.diary-polish-review button:disabled { color: var(--color-text-disabled); cursor: default; }
+.diary-polish-review button.diary-polish-review__apply:not(:disabled) { background: var(--color-accent); color: var(--color-on-accent); }
+.diary-polish-review button:focus-visible, .diary-polish-menu button:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }

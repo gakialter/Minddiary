@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Annotation, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
@@ -7,6 +7,10 @@ import { activeFormats, diaryMarkdown, formatTransaction, previewField, rangeFie
 import FormatToolbar from './FormatToolbar'
 import type { DiaryFormat, MarkdownColorKey } from '../../utils/markdownDialect'
 import './DiaryWritingSurface.css'
+import { useDiaryPolish } from './useDiaryPolish'
+import DiaryPolishPopover from './DiaryPolishPopover'
+import { polishActions, type PolishAction } from '../../utils/diaryPolish'
+import type { AIMessage, AIResponse } from '../../types'
 
 export type DiaryFormatState = ReturnType<typeof activeFormats>
 export interface DiaryWritingHandle {
@@ -15,6 +19,8 @@ export interface DiaryWritingHandle {
   replace: (text: string) => void
 }
 interface Props {
+  identity?: string
+  polishChat?: (messages: AIMessage[]) => Promise<AIResponse>
   value: string
   onChange: (value: string) => void
   onFormatState: (state: DiaryFormatState) => void
@@ -36,6 +42,22 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
   const [formats, setFormats] = useState<DiaryFormatState>({ bold: false, underline: false, highlight: false, color: undefined })
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
   const [notice, setNotice] = useState('')
+  const [polishMenu, setPolishMenu] = useState(false)
+  const polish = useDiaryPolish(viewRef, props.identity ?? '', props.polishChat)
+  const polishRef = useRef(polish)
+  polishRef.current = polish
+  useEffect(() => {
+    if (!polishMenu) return
+    const dismiss = (event: Event) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.diary-selection-toolbar')) setPolishMenu(false)
+    }
+    document.addEventListener('mousedown', dismiss)
+    document.addEventListener('focusin', dismiss)
+    return () => {
+      document.removeEventListener('mousedown', dismiss)
+      document.removeEventListener('focusin', dismiss)
+    }
+  }, [polishMenu])
 
   const afterComposition = (run: () => void) => {
     let cancelled = false
@@ -100,7 +122,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
         if (!start || !end || start.top < Math.max(150, bounds.top) || end.bottom > Math.min(innerHeight - 8, bounds.bottom)) {
           setPosition(null); return
         }
-        setPosition({ left: Math.max(8, Math.min(start.left, innerWidth - 196)), top: start.top - 44 })
+        setPosition({ left: Math.max(8, Math.min(start.left, innerWidth - 240)), top: start.top - 44 })
       })
     }
     const publishState = (state: EditorState) => {
@@ -121,6 +143,10 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
           ...historyKeymap, ...defaultKeymap,
         ]),
         EditorView.updateListener.of(update => {
+          if (update.docChanged || (update.selectionSet && !update.startState.selection.eq(update.state.selection))) {
+            polishRef.current.invalidate()
+            setPolishMenu(false)
+          }
           if (update.docChanged && update.transactions.some(tr => tr.docChanged && !tr.annotation(externalSync))) {
             latest.current.onChange(update.state.doc.toString())
           }
@@ -131,7 +157,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
           locate()
         }),
         EditorView.domEventObservers({
-          compositionstart: () => { setPosition(null) },
+          compositionstart: () => { setPosition(null); polishRef.current.invalidate(); setPolishMenu(false) },
           compositionend: locate,
         }),
       ],
@@ -181,13 +207,25 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
         if (e.key === 'Escape') {
           e.preventDefault()
           toolbarDismissed.current = true
+          setPolishMenu(false)
           setPosition(null)
           viewRef.current?.focus()
         }
       }}>
-      <FormatToolbar active={formats} onBold={() => format('bold')} onUnderline={() => format('underline')}
+      {!polishMenu && <FormatToolbar active={formats} onBold={() => format('bold')} onUnderline={() => format('underline')}
         onHighlight={() => format('highlight')} onColor={color => format('color', color)} onClearColor={() => format('color', null)} />
+      }
+      <button type="button" className="format-toolbar__button" aria-label="AI 润色" aria-expanded={polishMenu}
+        onMouseDown={e => e.preventDefault()} onClick={() => setPolishMenu(open => !open)}>AI</button>
+      {polishMenu && <div className="diary-polish-menu" role="group" aria-label="选择润色动作"
+        style={{ position: 'fixed', left: position.left, top: Math.min(position.top + 38, innerHeight - 176) }}>
+        {(Object.keys(polishActions) as PolishAction[]).map(action => <button key={action} type="button"
+          onMouseDown={e => e.preventDefault()} onClick={() => { setPolishMenu(false); void polish.run(action) }}>{polishActions[action].label}</button>)}
+      </div>}
     </div>, document.body)}
+    {polish.review && createPortal(<DiaryPolishPopover review={polish.review}
+      onClose={() => { polish.close(); viewRef.current?.focus() }} onApply={polish.apply}
+      onRegenerate={() => { if (polish.review?.target) void polish.run(polish.review.action, polish.review.target) }} />, document.body)}
   </>
 })
 export default DiaryWritingSurface

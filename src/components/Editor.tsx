@@ -422,6 +422,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
           <DiaryWritingSurface
             key={entry?.date ?? 'new'}
             ref={writingRef}
+            identity={`${entry?.date ?? 'new'}:${entry?.id ?? ''}`}
+            polishChat={diary.ai.chat}
             value={entry !== entryRef.current ? entry?.content || '' : content}
             onChange={handleContentChange}
             onFormatState={setFormatState}
