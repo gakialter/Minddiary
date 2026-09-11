@@ -455,16 +455,16 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.18.0 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.19.0 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.18.0')).toBeInTheDocument()
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('今日任务')
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('Planning History')
+    expect(screen.getByText('v1.19.0')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('日常复盘')
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('AI 选区润色')
   })
 
   it('shows remote release notes and release date when an update is available', async () => {

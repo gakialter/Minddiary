@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.18.0', () => {
-    expect(packageJson.version).toBe('1.18.0')
-    expect(packageLock.version).toBe('1.18.0')
-    expect(packageLock.packages['']?.version).toBe('1.18.0')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.18.0')
+  it('locks every current release version surface to v1.19.0', () => {
+    expect(packageJson.version).toBe('1.19.0')
+    expect(packageLock.version).toBe('1.19.0')
+    expect(packageLock.packages['']?.version).toBe('1.19.0')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.19.0')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -71,17 +71,17 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
     expect(releaseNotes).toContain('未进行 Apple notarization')
     expect(releaseNotes).toContain('不支持 Intel macOS')
-    expect(releaseNotes).not.toContain('v1.18.0 已发布')
+    expect(releaseNotes).not.toContain('v1.19.0 已发布')
     expect(releaseNotes).not.toContain('自动更新已完全可靠')
     expect(releaseNotes).not.toContain('Windows 已签名')
     expect(releaseNotes).not.toContain('macOS 已 notarize')
   })
 
-  it('records the schema 5 to 7 compatibility boundary without claiming no migration', () => {
+  it('records the schema 5 to 8 compatibility boundary without claiming no migration', () => {
     expect(releaseNotes).toContain('正式发布的 v1.17.1 使用 Schema 5')
     expect(releaseNotes).toContain('6 → 7')
-    expect(releaseNotes).toContain('5 → 6 → 7')
-    expect(releaseNotes).toContain('add-persistent-planning-history')
+    expect(releaseNotes).toContain('5 → 6 → 7 → 8')
+    expect(releaseNotes).toContain('subject_daily_review_state')
     expect(releaseNotes).not.toContain('不新增 migration')
     expect(releaseNotes).not.toContain('计划作为')
     expect(releaseNotes).not.toContain('release-prep')

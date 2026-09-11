@@ -9,15 +9,15 @@ export interface LocalReleaseNotes {
  * release without GitHub access or a network connection.
  */
 export const CURRENT_RELEASE_NOTES: LocalReleaseNotes = {
-  version: '1.18.0',
+  version: '1.19.0',
   title: '本次更新',
   items: [
-    '今日任务（Today Action）和 Daily Review 新增规划策略、候选解释与确认结果记录，创建任务前更容易核对。',
-    '新增本地 Planning History，可回看最近 30 天、最多 100 次规划，并可随时清空。',
-    'Today Action 可选择历史任务结果作为规划参考，并使用有界、只读的章节进度上下文。',
-    '错题本新增 AI 错题复习规划，从到期错题生成建议，确认后才创建任务。',
-    '已确认的 AI 学习任务使用幂等 receipt 与本地恢复区，降低重复创建和不确定结果风险。',
-    'SQLite schema 7 新增持久化规划历史；现有有序 migration 支持 Schema 6 → 7，正式 v1.17.1 数据沿 5 → 6 → 7 升级。',
-    'Windows 安装版 updater 已加入真实下载、安装、重启与数据保留的 CI 端到端覆盖。',
+    '错题本分开提供到期复习与日常复盘；日常复盘按科目设置每日题量，使用不放回轮次，默认纳入已掌握错题，不改写 SM-2。',
+    '日常复盘支持跨日续做和重启恢复，完成一轮后需明确开始下一轮。',
+    '日记采用单一编辑面，实时预览加粗、下划线、高亮和文字颜色；编辑相关范围时显示语法标记，支持格式开关、快捷键和撤销／重做。',
+    '原有 Markdown 仍为日记正文存储格式，已有内容保持兼容，无需日记 schema migration。',
+    'AI 选区润色支持润色表达、精简、纠正语病、保持原意改写；仅向已配置 Provider 发送所选正文，候选需点击应用，原文变化时禁用应用，应用后可一步撤销。',
+    '统一主导航、错题本、AI、番茄钟与次级工作区的布局和交互，改善浅色／深色主题与紧凑桌面窗口体验。',
+    'SQLite schema 8 新增 subject_daily_review_state，保存各科当前复盘配置与轮次进度，不覆盖已有错题或 SM-2 状态；支持 Schema 7 → 8，正式 v1.17.1 数据沿 5 → 6 → 7 → 8 升级。',
   ],
 }

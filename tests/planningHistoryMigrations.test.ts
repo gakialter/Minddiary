@@ -4,7 +4,6 @@ import BetterSqlite3 from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
 import {
-  CURRENT_SCHEMA_VERSION,
   DATABASE_MIGRATIONS,
   runDatabaseMigrations,
 } from '../electron/databaseMigrations'
@@ -84,9 +83,8 @@ describe('Schema 7 planning history migration', () => {
   it('creates the frozen planning run schema on a fresh database', () => {
     const database = createDatabase()
 
-    expect(runDatabaseMigrations(database)).toBe(7)
-    expect(CURRENT_SCHEMA_VERSION).toBe(7)
-    expect(DATABASE_MIGRATIONS.map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(runDatabaseMigrations(database, { targetVersion: 7 })).toBe(7)
+    expect(DATABASE_MIGRATIONS.filter(migration => migration.version <= 7).map(migration => migration.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect(getColumns(database, 'planning_runs')).toEqual([
       'id',
       'contract_version',
@@ -152,8 +150,8 @@ describe('Schema 7 planning history migration', () => {
       ) VALUES (?, 'today_action', 'ai-study-task-action.v1', 'digest', '2026-08-13', '2026-08-13', ?)
     `).run('22222222-2222-4222-8222-222222222222', taskId)
 
-    expect(runDatabaseMigrations(database)).toBe(7)
-    expect(runDatabaseMigrations(database)).toBe(7)
+    expect(runDatabaseMigrations(database, { targetVersion: 7 })).toBe(7)
+    expect(runDatabaseMigrations(database, { targetVersion: 7 })).toBe(7)
 
     expect(database.prepare('SELECT id, title FROM study_tasks').all()).toEqual([{ id: taskId, title: '保留任务' }])
     expect(database.prepare('SELECT operation_id, task_id FROM study_task_action_receipts').all()).toEqual([{
@@ -171,7 +169,7 @@ describe('Schema 7 planning history migration', () => {
     database.exec('CREATE TABLE preserved (value TEXT)')
     database.prepare("INSERT INTO preserved (value) VALUES ('kept')").run()
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/schema version 8.*supported version 7/i)
+    expect(() => runDatabaseMigrations(database, { targetVersion: 7 })).toThrow(/schema version 8.*supported version 7/i)
 
     expect(database.pragma('user_version', { simple: true })).toBe(8)
     expect(database.prepare('SELECT value FROM preserved').get()).toEqual({ value: 'kept' })
@@ -188,7 +186,7 @@ describe('Schema 7 planning history migration', () => {
     runDatabaseMigrations(database, { targetVersion: 6 })
     database.exec(collisionSql)
 
-    expect(() => runDatabaseMigrations(database)).toThrow(/already exists/i)
+    expect(() => runDatabaseMigrations(database, { targetVersion: 7 })).toThrow(/already exists/i)
 
     expect(database.pragma('user_version', { simple: true })).toBe(6)
     if (!collisionSql.includes('CREATE TABLE planning_runs ')) {
@@ -201,7 +199,7 @@ describe('Schema 7 planning history migration', () => {
 
   it('enforces close pairs, candidate states, enums, ordinal, estimate, and operation uniqueness', () => {
     const database = createDatabase()
-    runDatabaseMigrations(database)
+    runDatabaseMigrations(database, { targetVersion: 7 })
     insertOpenRun(database)
 
     expect(() => database.prepare(`
@@ -245,7 +243,7 @@ describe('Schema 7 planning history migration', () => {
 
   it('accepts valid integer boundary values for ordinal and estimate_minutes', () => {
     const database = createDatabase()
-    runDatabaseMigrations(database)
+    runDatabaseMigrations(database, { targetVersion: 7 })
     insertOpenRun(database)
 
     insertCandidate(database, { ordinal: 0 })

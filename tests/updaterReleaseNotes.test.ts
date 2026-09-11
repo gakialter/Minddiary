@@ -4,15 +4,15 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.18.0 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.18.0')
+  it('bundles the current v1.19.0 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.19.0')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('今日任务')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Planning History')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 7')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Schema 6 → 7')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('5 → 6 → 7')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('日常复盘')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('AI 选区润色')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 8')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Schema 7 → 8')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('5 → 6 → 7 → 8')
   })
 
   it('normalizes a remote string release note', () => {
