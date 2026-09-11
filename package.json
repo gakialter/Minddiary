@@ -36,6 +36,11 @@
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"
     },
     "dependencies": {
+        "@codemirror/commands": "^6.11.0",
+        "@codemirror/lang-markdown": "^6.5.2",
+        "@codemirror/language": "^6.12.4",
+        "@codemirror/state": "^6.7.4",
+        "@codemirror/view": "^6.43.11",
         "better-sqlite3": "12.11.1",
         "dom-to-image-more": "^3.7.2",
         "electron-updater": "^6.8.9",

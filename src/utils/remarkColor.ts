@@ -12,30 +12,10 @@ import type { Root, Text, PhrasingContent, Parent } from 'mdast'
  * - Uses `data.hName` + `data.hProperties` for remark-rehype bridging.
  */
 
-/** Ordered list of allowed color keys — shared by toolbar and renderer. */
-export const COLOR_KEYS = [
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'blue',
-  'purple',
-  'gray',
-] as const
+import { COLOR_SOURCE, COLOR_WHITELIST } from './markdownDialect'
+export { COLOR_KEYS, COLOR_WHITELIST, type MarkdownColorKey } from './markdownDialect'
 
-/** Type-safe color key union derived from COLOR_KEYS. */
-export type MarkdownColorKey = typeof COLOR_KEYS[number]
-
-/** Allowed color keys — any key not in this set is ignored. */
-export const COLOR_WHITELIST: ReadonlySet<string> = new Set<string>(COLOR_KEYS)
-
-/**
- * Regex to match {color:KEY}text{/color}.
- * - Group 1: the color key
- * - Group 2: the inner text content
- * Non-greedy inner match prevents spanning across multiple markers.
- */
-const COLOR_PATTERN = /\{color:([a-z]+)\}((?:(?!\{\/color\}).)+)\{\/color\}/g
+const COLOR_PATTERN = new RegExp(COLOR_SOURCE, 'g')
 
 /**
  * Split a text node into an array of text / colorText nodes.

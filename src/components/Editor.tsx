@@ -9,7 +9,7 @@ import TagBadge from './TagBadge'
 import { Bot, ImagePlus, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
 import FormatToolbar from './common/FormatToolbar'
-import { useTextFormat } from '../hooks/useTextFormat'
+import DiaryWritingSurface, { type DiaryWritingHandle, type DiaryFormatState } from './common/DiaryWritingSurface'
 import { logger } from '../utils/logger'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
 import type { DiaryEntry, AIMessage, DiaryTemplate, Tag } from '../types'
@@ -56,9 +56,9 @@ const isSameSummaryRequestContext = (a: SummaryRequestContext, b: SummaryRequest
 
 function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange }: EditorProps) {
   const diary = useDiary()
-  const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
-  const [wordCount, setWordCount] = useState(0)
+  const [title, setTitle] = useState(entry?.title || '')
+  const [content, setContent] = useState(entry?.content || '')
+  const [wordCount, setWordCount] = useState(() => calculateWordCount(entry?.content || ''))
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [pomodoros, setPomodoros] = useState<PomodoroRecord[]>([])
@@ -73,7 +73,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   const entryRef = useRef<DiaryEntry | null>(null)
   const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const writingRef = useRef<DiaryWritingHandle>(null)
+  const [formatState, setFormatState] = useState<DiaryFormatState>({ bold: false, underline: false, highlight: false, color: undefined })
   const summaryGenerationRef = useRef(0)
   const activeSummaryGenerationRef = useRef<number | null>(null)
   const summaryRequestContextRef = useRef(getSummaryRequestContext(entry, content))
@@ -175,21 +176,14 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
     if (pendingInsert.date && pendingInsert.date !== entry.date) return
 
     const insertContent = pendingInsert.content.trim()
-    appliedInsertIdsRef.current.add(pendingInsert.id)
-
-    if (insertContent) {
-      setContent(current => {
-        const next = current.trim()
-          ? `${current.trimEnd()}\n\n${insertContent}\n`
-          : `${insertContent}\n`
-        setWordCount(calculateWordCount(next))
-        return next
-      })
-      setDirtyState(true)
-      textareaRef.current?.focus()
+    const applied = () => {
+      appliedInsertIdsRef.current.add(pendingInsert.id)
+      onPendingInsertApplied?.(pendingInsert.id)
     }
-
-    onPendingInsertApplied?.(pendingInsert.id)
+    // An IME-deferred insert is acknowledged only after its transaction applies.
+    // Switching diary/date cancels the queued operation, leaving the request pending.
+    if (insertContent) return writingRef.current?.append(insertContent, applied)
+    applied()
   }, [entry, onPendingInsertApplied, pendingInsert, setDirtyState])
 
   const handleSave = useCallback(async (isManual = false) => {
@@ -282,21 +276,12 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
     setDirtyState(true)
   }
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value
-    setContent(val)
-    setWordCount(calculateWordCount(val))
-    setDirtyState(true)
-  }
-
-  // Callback for FormatToolbar: update content when a format is applied
-  const handleFormatChange = useCallback((newValue: string) => {
+  // Every writing transaction publishes canonical Markdown to the save/AI state.
+  const handleContentChange = useCallback((newValue: string) => {
     setContent(newValue)
     setWordCount(calculateWordCount(newValue))
     setDirtyState(true)
   }, [setDirtyState])
-
-  const formatActions = useTextFormat(textareaRef, handleFormatChange)
 
   const handleTagToggle = (tagId: number) => {
     setSelectedTagIds(prev =>
@@ -324,8 +309,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   }, [handleSave])
 
   const handleTemplateInsert = (templateContent: string) => {
-    setContent(templateContent)
-    setDirtyState(true)
+    writingRef.current?.replace(templateContent)
   }
 
   const saveState = saving ? 'saving' : loading ? 'loading' : isDirty.current ? 'dirty' : entry ? 'saved' : 'idle'
@@ -358,12 +342,14 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
         </header>
 
         <section className="editor-commandbar" aria-label="编辑工具与状态">
-          <div className="editor-commandbar__primary">
+          <div className="editor-commandbar__primary" data-diary-format="true">
             <FormatToolbar
-              onBold={formatActions.bold}
-              onHighlight={formatActions.highlight}
-              onUnderline={formatActions.underline}
-              onColor={formatActions.color}
+              active={formatState}
+              onClearColor={() => writingRef.current?.format('color', null)}
+              onBold={() => writingRef.current?.format('bold')}
+              onHighlight={() => writingRef.current?.format('highlight')}
+              onUnderline={() => writingRef.current?.format('underline')}
+              onColor={color => writingRef.current?.format('color', color)}
             />
             <span className="editor-commandbar__separator" aria-hidden="true" />
             <div
@@ -433,15 +419,12 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               <span>从一件具体的小事开始写。</span>
             </div>
           )}
-          <textarea
-            id="editor-diary-content"
-            ref={textareaRef}
-            className="editor-writing-canvas__input"
-            data-testid="diary-content-input"
-            placeholder="写下今天的考研日记…"
-            value={content}
+          <DiaryWritingSurface
+            key={entry?.date ?? 'new'}
+            ref={writingRef}
+            value={entry !== entryRef.current ? entry?.content || '' : content}
             onChange={handleContentChange}
-            spellCheck={false}
+            onFormatState={setFormatState}
           />
         </div>
 
@@ -532,8 +515,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
         <footer className="editor-document__footer">
           <div>
-            <strong>Markdown</strong>
-            <span>**粗体** · ==高亮== · ++下划线++ · {'{'}color:red{'}'}颜色{'{'}/color{'}'} · - 列表</span>
+            <strong>实时预览 · Markdown</strong>
+            <span>选中文字设置格式；移入格式内可编辑 Markdown 标记。</span>
           </div>
           <div className="editor-document__shortcuts">
             <span>保存 <kbd>Ctrl/⌘ S</kbd></span>

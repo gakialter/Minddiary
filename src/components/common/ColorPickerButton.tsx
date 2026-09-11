@@ -3,6 +3,8 @@ import { Palette } from 'lucide-react'
 import { COLOR_KEYS, type MarkdownColorKey } from '../../utils/remarkColor'
 
 interface ColorPickerButtonProps {
+  currentColor?: MarkdownColorKey
+  onClearColor?: () => void
   onSelectColor: (color: MarkdownColorKey) => void
 }
 
@@ -24,7 +26,7 @@ const COLOR_LABELS: Record<MarkdownColorKey, string> = {
  * Selecting a swatch fires `onSelectColor` and closes the popover.
  * Uses `onMouseDown + preventDefault` to avoid stealing focus from a textarea.
  */
-export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonProps) {
+export default function ColorPickerButton({ onSelectColor, currentColor, onClearColor }: ColorPickerButtonProps) {
   const [open, setOpen] = useState(false)
   const popoverId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -95,11 +97,12 @@ export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonPr
   }
 
   return (
-    <div ref={containerRef} className="color-picker" onKeyDown={handleKeyDown}>
+    <div ref={containerRef} className={`color-picker${onClearColor ? ' color-picker--editable' : ''}`} onKeyDown={handleKeyDown}>
       <button
         ref={triggerRef}
         type="button"
         className="format-toolbar__button color-picker__trigger"
+        aria-pressed={onClearColor ? !!currentColor : undefined}
         title="文字颜色"
         aria-label="文字颜色"
         aria-expanded={open}
@@ -108,7 +111,7 @@ export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonPr
         onMouseDown={handleTriggerMouseDown}
         onClick={handleTriggerClick}
       >
-        <Palette size={15} aria-hidden="true" />
+        <Palette size={15} aria-hidden="true" className={currentColor ? `md-color-${currentColor}` : undefined} />
       </button>
 
       {open && (
@@ -123,10 +126,14 @@ export default function ColorPickerButton({ onSelectColor }: ColorPickerButtonPr
               title={COLOR_LABELS[color]}
               aria-label={COLOR_LABELS[color]}
               data-testid={`color-swatch-${color}`}
+              aria-pressed={onClearColor ? currentColor === color : undefined}
               onMouseDown={(e) => handleSelectMouseDown(e, color)}
               onClick={(e) => handleSelectClick(e, color)}
             />
           ))}
+          {onClearColor && <button type="button" className="color-picker__clear"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => { setOpen(false); onClearColor() }}>清除颜色</button>}
         </div>
       )}
     </div>

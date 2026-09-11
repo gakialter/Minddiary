@@ -1,3 +1,4 @@
+import { TEXT_FORMAT_SOURCE } from './markdownDialect'
 import type { Root, Text, PhrasingContent, Parent } from 'mdast'
 
 /**
@@ -13,7 +14,7 @@ import type { Root, Text, PhrasingContent, Parent } from 'mdast'
 
 // Combined regex: capture group 1 → highlight, group 2 → underline.
 // Non-greedy inner match prevents spanning across multiple markers.
-const FORMAT_PATTERN = /==((?:(?!==).)+)==|\+\+((?:(?!\+\+).)+)\+\+/g
+const FORMAT_PATTERN = new RegExp(TEXT_FORMAT_SOURCE, 'g')
 
 /**
  * Split a single text node into an array of text / mark / underline nodes.

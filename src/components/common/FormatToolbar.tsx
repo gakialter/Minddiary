@@ -3,6 +3,8 @@ import type { MarkdownColorKey } from '../../utils/remarkColor'
 import ColorPickerButton from './ColorPickerButton'
 
 interface FormatToolbarProps {
+  active?: { bold: boolean; underline: boolean; highlight: boolean; color?: MarkdownColorKey }
+  onClearColor?: () => void
   /** Callback when the bold button is clicked */
   onBold: () => void
   /** Callback when the highlight button is clicked */
@@ -21,7 +23,7 @@ interface FormatToolbarProps {
  * when a button is clicked (typically inserting Markdown markers
  * into a textarea via the useTextFormat hook).
  */
-export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor }: FormatToolbarProps) {
+export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor, active, onClearColor }: FormatToolbarProps) {
   // Pointer activation runs on mousedown so the textarea selection is still intact.
   // Keyboard/assistive activation reaches the click path with detail === 0.
   const handleMouseDown = (e: React.MouseEvent, action: () => void) => {
@@ -47,6 +49,7 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
         title="加粗 (**文本**)"
         aria-label="加粗"
         data-testid="format-bold"
+        aria-pressed={active?.bold}
         onMouseDown={(e) => handleMouseDown(e, onBold)}
         onClick={(e) => handleClick(e, onBold)}
       >
@@ -59,6 +62,7 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
         title="高亮 (==文本==)"
         aria-label="高亮"
         data-testid="format-highlight"
+        aria-pressed={active?.highlight}
         onMouseDown={(e) => handleMouseDown(e, onHighlight)}
         onClick={(e) => handleClick(e, onHighlight)}
       >
@@ -71,6 +75,7 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
         title="下划线 (++文本++)"
         aria-label="下划线"
         data-testid="format-underline"
+        aria-pressed={active?.underline}
         onMouseDown={(e) => handleMouseDown(e, onUnderline)}
         onClick={(e) => handleClick(e, onUnderline)}
       >
@@ -80,7 +85,7 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
       {onColor && (
         <>
           <span className="format-toolbar__separator" aria-hidden="true" />
-          <ColorPickerButton onSelectColor={onColor} />
+          <ColorPickerButton onSelectColor={onColor} currentColor={active?.color} onClearColor={onClearColor} />
         </>
       )}
     </div>

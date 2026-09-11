@@ -1,0 +1,28 @@
+.diary-live-preview { position: relative; z-index: 1; min-width: 0; height: 100%; }
+.diary-live-preview .cm-editor { height: 100%; min-height: 300px; color: var(--color-text-primary); background: transparent; }
+.diary-live-preview .cm-scroller { overflow: auto; font-family: var(--font-family-ui); font-size: var(--font-size-editor-prose); line-height: var(--line-height-editor-prose); }
+.diary-live-preview .cm-content { padding: var(--space-5) clamp(var(--space-4), 2.4vw, var(--space-6)); min-width: 0; overflow-wrap: anywhere; caret-color: var(--color-text-primary); }
+.diary-live-preview .cm-line { padding: 0; }
+.diary-live-preview .cm-placeholder { color: var(--color-text-muted); }
+.diary-live-preview .cm-focused { outline: none; box-shadow: inset 0 0 0 var(--focus-ring-width) var(--color-focus-ring); }
+.diary-live-preview .cm-cursor { border-left-color: var(--color-text-primary); }
+.diary-live-preview .diary-format-bold { font-weight: 700; }
+.diary-live-preview .diary-format-underline { text-decoration: underline; text-underline-offset: 3px; }
+.diary-live-preview .diary-format-highlight { background: color-mix(in srgb, var(--warning) 30%, transparent); border-radius: 2px; }
+/* Existing content palette, drawn toward theme text for readable prose contrast.
+   Scope stays in the writing surface; stored keys and reading/share CSS are unchanged. */
+.diary-live-preview .md-color-red { color: color-mix(in srgb, var(--md-color-red) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-orange { color: color-mix(in srgb, var(--md-color-orange) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-yellow { color: color-mix(in srgb, var(--md-color-yellow) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-green { color: color-mix(in srgb, var(--md-color-green) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-blue { color: color-mix(in srgb, var(--md-color-blue) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-purple { color: color-mix(in srgb, var(--md-color-purple) 65%, var(--color-text-primary)); }
+.diary-live-preview .md-color-gray { color: color-mix(in srgb, var(--md-color-gray) 65%, var(--color-text-primary)); }
+[data-diary-format] .format-toolbar__button[aria-pressed="true"] { background: var(--color-control-selected-bg); box-shadow: inset 0 -2px var(--color-control-selected-border); }
+.color-picker__swatch[aria-pressed="true"] { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.color-picker__clear { grid-column: 1 / -1; padding: 4px 6px; border: 0; border-top: 1px solid var(--color-border-subtle); background: transparent; color: var(--color-text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.color-picker__clear:hover { background: var(--color-surface-interactive); }
+.color-picker--editable .color-picker__popover { display: grid; grid-template-columns: repeat(4, 26px); }
+.diary-selection-toolbar { position: fixed; z-index: var(--z-dropdown); padding: 3px 5px; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); background: var(--color-surface-raised); }
+.diary-selection-toolbar .color-picker__popover { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; }
+@media (max-height: 680px) { .diary-live-preview .cm-editor { min-height: 220px; } }

@@ -1,7 +1,16 @@
+import { EditorView } from '@codemirror/view'
+import { undo } from '@codemirror/commands'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Editor from '../src/components/Editor'
 import type { AIMessage, AIResponse, DiaryEntry, Tag } from '../src/types'
+
+// jsdom has no layout; browser QA covers real selection geometry.
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+Range.prototype.getBoundingClientRect = () => new DOMRect()
+
+const writingView = () => EditorView.findFromDOM(screen.getByTestId('diary-content-input'))!
+const changeContent = (value: string) => act(() => { const view = writingView(); view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, userEvent: 'input.type' }) })
 
 const tags: Tag[] = [
   { id: 1, name: 'Tag A', color: '#0F766E', icon: '🌿', variant: 'solid', pattern: 'dots' },
@@ -137,19 +146,10 @@ describe('Editor format toolbar', () => {
     render(<Editor entry={entry} onSave={onSave} loading={false} />)
 
     expect(await screen.findByRole('textbox', { name: '日记标题' })).toHaveValue('Entry title')
-    expect(screen.getByRole('textbox', { name: '日记正文' })).toHaveValue('Entry body')
+    expect(screen.getByRole('textbox', { name: '日记正文' })).toHaveTextContent('Entry body')
   })
 
-  it('displays updated Markdown hint text with highlight, underline, and color syntax', async () => {
-    const onSave = vi.fn().mockResolvedValue(undefined)
-    render(<Editor entry={entry} onSave={onSave} loading={false} />)
 
-    await waitFor(() => {
-      expect(screen.getByText(/==高亮==/)).toBeInTheDocument()
-    })
-    expect(screen.getByText(/\+\+下划线\+\+/)).toBeInTheDocument()
-    expect(screen.getByText(/\{color:red\}颜色\{\/color\}/)).toBeInTheDocument()
-  })
 })
 
 describe('Editor AI summary request', () => {
@@ -208,8 +208,7 @@ describe('Editor AI summary request', () => {
       expect(mocks.aiChat).toHaveBeenCalledTimes(1)
     })
 
-    const contentInput = screen.getByTestId('diary-content-input')
-    fireEvent.change(contentInput, { target: { value: 'Updated body' } })
+    changeContent('Updated body')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /AI/ })).not.toBeDisabled()
     })
@@ -290,12 +289,11 @@ describe('Editor dirty tracking', () => {
     const onDirtyChange = vi.fn()
     render(<Editor entry={entry} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
 
-    const contentInput = await screen.findByTestId('diary-content-input')
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenCalledWith(false)
     })
 
-    fireEvent.change(contentInput, { target: { value: 'Changed body' } })
+    changeContent('Changed body')
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenLastCalledWith(true)
     })
@@ -320,8 +318,7 @@ describe('Editor dirty tracking', () => {
     const onDirtyChange = vi.fn()
     render(<Editor entry={entry} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
 
-    const contentInput = await screen.findByTestId('diary-content-input')
-    fireEvent.change(contentInput, { target: { value: 'Unsaved body' } })
+    changeContent('Unsaved body')
     await waitFor(() => {
       expect(onDirtyChange).toHaveBeenLastCalledWith(true)
     })
@@ -362,11 +359,10 @@ describe('Editor focus reflection insertion', () => {
       />,
     )
 
-    const contentInput = await screen.findByTestId('diary-content-input')
     await waitFor(() => {
-      expect((contentInput as HTMLTextAreaElement).value).toContain('## Focus Reflection')
+      expect(writingView().state.doc.toString()).toContain('## Focus Reflection')
     })
-    expect((contentInput as HTMLTextAreaElement).value).toContain('Entry body')
+    expect(writingView().state.doc.toString()).toContain('Entry body')
     expect(onApplied).toHaveBeenCalledWith(1)
 
     rerender(
@@ -379,7 +375,156 @@ describe('Editor focus reflection insertion', () => {
       />,
     )
 
-    expect(String((contentInput as HTMLTextAreaElement).value).match(/## Focus Reflection/g)).toHaveLength(1)
+    expect(String(writingView().state.doc.toString()).match(/## Focus Reflection/g)).toHaveLength(1)
+  })
+})
+
+describe('Editor live preview contracts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tagsGetAll.mockResolvedValue([])
+    mocks.getDailyTotal.mockResolvedValue(0)
+    mocks.templatesGetAll.mockResolvedValue([])
+    mocks.aiChat.mockResolvedValue({ content: 'summary' })
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('preserves selection, active state, keyboard formatting and one-step undo', async () => {
+    render(<Editor entry={entry} onSave={vi.fn()} loading={false} />)
+    await screen.findByRole('button', { name: '加粗' })
+    const view = writingView()
+    act(() => { view.focus(); view.dispatch({ selection: { anchor: 0, head: 5 } }) })
+    fireEvent.mouseDown(screen.getByRole('button', { name: '加粗' }), { button: 0 })
+    expect(view.state.doc.toString()).toBe('**Entry** body')
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('Entry')
+    expect(view.hasFocus).toBe(true)
+    expect(screen.getByRole('button', { name: '加粗' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.keyDown(view.contentDOM, { key: 'b', code: 'KeyB', ctrlKey: true })
+    expect(view.state.doc.toString()).toBe('Entry body')
+    fireEvent.keyDown(view.contentDOM, { key: 'u', code: 'KeyU', ctrlKey: true })
+    expect(view.state.doc.toString()).toBe('++Entry++ body')
+    fireEvent.keyDown(view.contentDOM, { key: 'z', code: 'KeyZ', ctrlKey: true })
+    expect(view.state.doc.toString()).toBe('Entry body')
+    act(() => { view.dispatch({ selection: { anchor: view.state.doc.length } }); view.dispatch(view.state.replaceSelection(' 后续输入')) })
+    expect(view.state.doc.toString()).toBe('Entry body 后续输入')
+  })
+
+  it('autosaves canonical markers after two seconds and updates word count', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+    await act(async () => {})
+    vi.useFakeTimers()
+    const view = writingView()
+    act(() => view.dispatch({ selection: { anchor: 0, head: 5 } }))
+    fireEvent.click(screen.getByRole('button', { name: '加粗' }))
+    await act(async () => { vi.advanceTimersByTime(1999) })
+    expect(onSave).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(onSave).toHaveBeenCalledWith({ title: entry.title, content: '**Entry** body', tags: [1] }, { origin: 'editor-auto' })
+    expect(screen.getByLabelText('日记字数 13')).toBeInTheDocument()
+  })
+
+  it('switches entries with fresh selection/history and does not save the previous draft into the new entry', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const onDirtyChange = vi.fn()
+    const { rerender } = render(<Editor entry={entry} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
+    await act(async () => {})
+    vi.useFakeTimers()
+    changeContent('Unsent old draft')
+    const oldView = writingView()
+    const next = { ...entry, id: 10, date: '2026-05-13', content: 'New entry content' }
+    rerender(<Editor entry={next} onSave={onSave} loading={false} onDirtyChange={onDirtyChange} />)
+    expect(writingView()).not.toBe(oldView)
+    expect(writingView().state.doc.toString()).toBe(next.content)
+    expect(writingView().state.selection.main.anchor).toBe(0)
+    act(() => { expect(undo(writingView())).toBe(false) })
+    await act(async () => { vi.advanceTimersByTime(2100) })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps cursor and undo when the first save assigns a new diary id', async () => {
+    const initial = { ...entry, id: 0, content: '' }
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const { rerender } = render(<Editor entry={initial} onSave={onSave} loading={false} />)
+    await act(async () => {})
+    changeContent('第一篇日记')
+    const view = writingView()
+    act(() => view.dispatch({ selection: { anchor: 3 } }))
+    rerender(<Editor entry={{ ...initial, id: 99, content: '第一篇日记' }} onSave={onSave} loading={false} />)
+    expect(writingView()).toBe(view)
+    expect(view.state.selection.main.anchor).toBe(3)
+    act(() => { expect(undo(view)).toBe(true) })
+    expect(view.state.doc.toString()).toBe('')
+  })
+
+  it('inserts a replacement template, updates count and sends its canonical text to AI', async () => {
+    const template = '**复习** ++重点++'
+    mocks.templatesGetAll.mockResolvedValue([{ id: 1, name: '复习模板', content: template }])
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(<Editor entry={entry} onSave={onSave} loading={false} />)
+    fireEvent.click(await screen.findByRole('button', { name: '复习模板' }))
+    expect(writingView().state.doc.toString()).toBe(template)
+    expect(writingView().state.selection.main.anchor).toBe(template.length)
+    expect(screen.getByLabelText('日记字数 12')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ content: template }), { origin: 'editor-manual' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI 汇总' }))
+    await waitFor(() => expect(mocks.aiChat).toHaveBeenCalledTimes(1))
+    expect((mocks.aiChat.mock.calls[0]?.[0] as AIMessage[])[1]?.content).toContain(template)
+  })
+
+  it('appends to the latest edited content, focuses the end, and autosaves it once', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const applied = vi.fn()
+    const { rerender } = render(<Editor entry={entry} onSave={onSave} loading={false} />)
+    await act(async () => {})
+    vi.useFakeTimers()
+    changeContent('当前 **正文**')
+    rerender(<Editor entry={entry} onSave={onSave} loading={false} pendingInsert={{ id: 42, content: '++插入++' }} onPendingInsertApplied={applied} />)
+    const expected = '当前 **正文**\n\n++插入++\n'
+    expect(writingView().state.doc.toString()).toBe(expected)
+    expect(writingView().state.selection.main.anchor).toBe(expected.length)
+    expect(writingView().hasFocus).toBe(true)
+    expect(applied).toHaveBeenCalledTimes(1)
+    await act(async () => { vi.advanceTimersByTime(2000) })
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ content: expected }), { origin: 'editor-auto' })
+  })
+
+  it('defers an external insert behind the composition gate and acknowledges only the applied transaction', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const applied = vi.fn()
+    const { rerender } = render(<Editor entry={entry} onSave={onSave} loading={false} />)
+    await act(async () => {})
+    const view = writingView()
+    // Gate unit test only: this is not a simulation of a native Chinese IME.
+    const composing = vi.spyOn(view, 'compositionStarted', 'get').mockReturnValue(true)
+    const pending = { id: 77, content: '外部插入', date: entry.date }
+    rerender(<Editor entry={entry} onSave={onSave} loading={false} pendingInsert={pending} onPendingInsertApplied={applied} />)
+    expect(view.state.doc.toString()).toBe(entry.content)
+    expect(applied).not.toHaveBeenCalled()
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: '中文' } }))
+    composing.mockRestore()
+    await waitFor(() => expect(applied).toHaveBeenCalledWith(77))
+    expect(writingView()).toBe(view)
+    expect(view.state.doc.toString()).toBe('Entry body中文\n\n外部插入\n')
+  })
+
+  it('cancels a deferred insert on entry switching without consuming its pending request', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    const applied = vi.fn()
+    const pending = { id: 78, content: '原日记插入', date: entry.date }
+    const { rerender } = render(<Editor entry={entry} onSave={onSave} loading={false} />)
+    await act(async () => {})
+    const composing = vi.spyOn(writingView(), 'compositionStarted', 'get').mockReturnValue(true)
+    rerender(<Editor entry={entry} onSave={onSave} loading={false} pendingInsert={pending} onPendingInsertApplied={applied} />)
+    rerender(<Editor entry={{ ...entry, id: 10, date: '2026-05-13', content: '另一篇' }} onSave={onSave} loading={false} pendingInsert={pending} onPendingInsertApplied={applied} />)
+    composing.mockRestore()
+    expect(writingView().state.doc.toString()).toBe('另一篇')
+    expect(applied).not.toHaveBeenCalled()
+    rerender(<Editor entry={entry} onSave={onSave} loading={false} pendingInsert={pending} onPendingInsertApplied={applied} />)
+    await waitFor(() => expect(applied).toHaveBeenCalledTimes(1))
+    expect(writingView().state.doc.toString()).toBe('Entry body\n\n原日记插入\n')
   })
 })
 
