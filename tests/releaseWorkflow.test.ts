@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.19.0', () => {
-    expect(packageJson.version).toBe('1.19.0')
-    expect(packageLock.version).toBe('1.19.0')
-    expect(packageLock.packages['']?.version).toBe('1.19.0')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.19.0')
+  it('locks every current release version surface to v1.19.1', () => {
+    expect(packageJson.version).toBe('1.19.1')
+    expect(packageLock.version).toBe('1.19.1')
+    expect(packageLock.packages['']?.version).toBe('1.19.1')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.19.1')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -71,7 +71,7 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
     expect(releaseNotes).toContain('未进行 Apple notarization')
     expect(releaseNotes).toContain('不支持 Intel macOS')
-    expect(releaseNotes).not.toContain('v1.19.0 已发布')
+    expect(releaseNotes).not.toContain('v1.19.1 已发布')
     expect(releaseNotes).not.toContain('自动更新已完全可靠')
     expect(releaseNotes).not.toContain('Windows 已签名')
     expect(releaseNotes).not.toContain('macOS 已 notarize')
