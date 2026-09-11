@@ -1,6 +1,6 @@
 # MindDiary v1.9.9 → v2.0 分阶段任务拆分计划
 
-> 历史说明（2026-07-05）：本文保留 v1.11.x 时点的任务拆分，不再作为当前版本、schema 或产品方向基线；当前路线请见 [MindDiary AI Study Planning Agent Roadmap](./roadmap/minddiary-ai-study-agent-roadmap.md)。
+> Historical planning snapshot. This document is preserved for project history and does not describe the current release or active roadmap. See the [MindDiary AI Study Planning Agent Roadmap](./roadmap/minddiary-ai-study-agent-roadmap.md) for current planning.
 
 > 基线版本：v1.11.2
 > 基线 commit：`152450de6a5ff76fb73ac94b90435d5a910d8679`

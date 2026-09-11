@@ -1,6 +1,6 @@
 # MindDiary v1.13.x to v2.0 Roadmap
 
-> Historical notice (2026-07-05): this document preserves the planning snapshot based on the v1.13.0 audit set. It is not the current version or product-direction baseline. See the [MindDiary AI Study Planning Agent Roadmap](./minddiary-ai-study-agent-roadmap.md) for the current roadmap.
+> Historical planning snapshot. This document is preserved for project history and does not describe the current release or active roadmap. See the [MindDiary AI Study Planning Agent Roadmap](./minddiary-ai-study-agent-roadmap.md) for the current roadmap.
 
 Status: historical planning snapshot.
 
