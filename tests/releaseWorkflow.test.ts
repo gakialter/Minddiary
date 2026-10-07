@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.19.1', () => {
-    expect(packageJson.version).toBe('1.19.1')
-    expect(packageLock.version).toBe('1.19.1')
-    expect(packageLock.packages['']?.version).toBe('1.19.1')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.19.1')
+  it('locks every current release version surface to v1.20.0', () => {
+    expect(packageJson.version).toBe('1.20.0')
+    expect(packageLock.version).toBe('1.20.0')
+    expect(packageLock.packages['']?.version).toBe('1.20.0')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.20.0')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {

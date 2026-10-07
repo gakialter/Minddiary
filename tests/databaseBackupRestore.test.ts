@@ -591,3 +591,60 @@ describe('database backup data normalization', () => {
     expect(result.planning_run_candidates).toHaveLength(1)
   })
 })
+
+// The existing settings-table backup owns the fixed negative-preference key.
+import { vi } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { createFirstSliceIpcHandlers, FIRST_SLICE_RESTRICTIONS_KEY, readFirstSliceDurablePreferences } from '../electron/aiFirstSlice'
+import type { FirstSliceSourceStamp } from '../electron/database'
+vi.mock('electron', () => ({ app: { getPath: () => '', isPackaged: false }, safeStorage: { isEncryptionAvailable: () => false } }))
+vi.mock('../electron/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
+type BackupDb = {
+  initialize: () => void; setCustomDbPath: (path: string) => void; getDb: () => import('better-sqlite3').Database;
+  getFirstSliceSourceStamp: () => FirstSliceSourceStamp | null; getFirstSliceConfigRevision: () => number;
+  setSetting: (key: string, value: string) => unknown; getSetting: (key: string) => unknown;
+  exportBackupData: () => Record<string, unknown>; restoreBackupData: (data: Record<string, unknown>, version?: number) => void;
+}
+describe('I3 backup restore boundaries and durable preferences', () => {
+  it.each([false, true])('restores fixed settings without format changes; corruption=%s stays closed and is not rewritten', async corrupt => {
+    const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path')
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-i3-restore-'))
+    vi.resetModules()
+    const modulePath = '../electron/database'
+    const imported = await import(modulePath) as { default: BackupDb }
+    const database = imported.default
+    database.setCustomDbPath(path.join(folder, 'fixture.db')); database.initialize()
+    try {
+      const durable = JSON.stringify([{ target: { category: 'all-outbound', operation: 'disclose' },
+        qualifiers: { purpose: 'aipanel_default', object: 'category', destination: 'all' } }])
+      const saved = corrupt ? '{broken' : durable
+      database.setSetting(FIRST_SLICE_RESTRICTIONS_KEY, saved)
+      const backup = database.exportBackupData()
+      expect(Object.keys(backup)).toEqual(DATABASE_BACKUP_TABLES.map(item => item.key))
+      expect(backup.settings).toContainEqual({ key: FIRST_SLICE_RESTRICTIONS_KEY, value: saved })
+      database.setSetting(FIRST_SLICE_RESTRICTIONS_KEY, '[]')
+      const service = { chatFirstSlice: vi.fn(async () => ({ content: 'synthetic' })) }
+      const handlers = createFirstSliceIpcHandlers({ enabled: true, database, service })
+      const event = { sender: Object.assign(new EventEmitter(), { isDestroyed: () => false }),
+        senderFrame: { processId: 1, routingId: 2, detached: false } } as unknown as Pick<Electron.IpcMainInvokeEvent, 'sender' | 'senderFrame'>
+      const old = await handlers.openSession(event, {}); if (old.kind !== 'opened') throw new Error('open')
+      const before = database.getFirstSliceSourceStamp()!, configBefore = database.getFirstSliceConfigRevision()
+      database.restoreBackupData(backup, 8)
+      expect(database.getFirstSliceSourceStamp()!.connectionGeneration).toBe(before.connectionGeneration + 1)
+      expect(database.getFirstSliceConfigRevision()).toBe(configBefore + 1)
+      expect(database.getSetting(FIRST_SLICE_RESTRICTIONS_KEY)).toBe(saved)
+      expect(await handlers.send(event, { session: old.session, kind: 'chat', userInput: 'old' })).toMatchObject({ kind: 'unavailable' })
+      const fresh = await handlers.openSession(event, {}); if (fresh.kind !== 'opened') throw new Error('open')
+      expect(await handlers.send(event, { session: fresh.session, kind: 'chat', userInput: 'fresh' })).toMatchObject({ kind: 'unavailable' })
+      expect(service.chatFirstSlice).not.toHaveBeenCalled()
+      expect(database.getSetting(FIRST_SLICE_RESTRICTIONS_KEY)).toBe(saved)
+      if (corrupt) expect(() => readFirstSliceDurablePreferences(saved)).toThrow()
+      else expect(readFirstSliceDurablePreferences(saved)).toEqual(JSON.parse(durable))
+      const stable = database.getFirstSliceSourceStamp(), stableConfig = database.getFirstSliceConfigRevision()
+      expect(() => database.restoreBackupData({ ...backup, subjects: [{ id: 1, name: null }] }, 8)).toThrow()
+      expect(database.getFirstSliceSourceStamp()).toEqual(stable)
+      expect(database.getFirstSliceConfigRevision()).toBe(stableConfig)
+      expect(database.getSetting(FIRST_SLICE_RESTRICTIONS_KEY)).toBe(saved)
+    } finally { database.getDb().close(); fs.rmSync(folder, { recursive: true, force: true }) }
+  })
+})

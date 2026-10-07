@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle, Loader2, X } from 'lucide-react'
+import { STUDY_TASK_STATUS_LABELS } from '../utils/studyTaskLabels'
 import type { DiaryEntry } from '../types'
 import type { TasksContextAPI } from '../types/api'
 import {
@@ -144,7 +145,7 @@ export default function DiaryTaskSettlementPrompt({
                   <span className="min-w-0">
                     <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{task.title}</span>
                     <span className="block text-xs" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
-                      {task.planned_date} · {task.estimate_minutes}m · {task.status}
+                      {task.planned_date} · {task.estimate_minutes} 分钟 · {STUDY_TASK_STATUS_LABELS[task.status]}
                     </span>
                   </span>
                 </label>

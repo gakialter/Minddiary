@@ -13,6 +13,113 @@ import type { ElectronPlanningRunsAPI } from './planningHistory'
 import type { DailyReviewAPI } from './dailyReview'
 import type { TodayActionProviderChapterProjection } from '../utils/todayActionChapterContext'
 
+// First Slice evidence only; no renderer API or dispatch is exposed in I1.
+export type SubjectRef = { by: 'id'; id: number } | { by: 'exact_name'; name: string }
+export type Period = { startDate: string; endDate: string }
+export type EvidenceRequest =
+  | { kind: 'subject_progress'; subject: SubjectRef }
+  | { kind: 'focus_comparison'; subject: SubjectRef; periodA: Period; periodB: Period }
+export type SubjectIdentity = { id: number; name: string }
+export type StopReason = 'enough' | 'ask_user' | 'denied' | 'insufficient'
+  | 'read_failed' | 'invalidated' | 'unsupported'
+
+export type ProgressEnvelope = {
+  semantics: 'chapter_marks'
+  sourceCategory: 'subject_progress'
+  scope: { subject: SubjectIdentity; observedAt: string }
+} & (
+  | { status: 'ok'; value: { completed: number; total: number; nextTitle: string | null };
+      coverage: 'detail' | 'aggregate_only' }
+  | { status: 'empty'; value: null; coverage: 'no_chapter_records' }
+  | { status: 'failed' | 'unavailable'; value: null; coverage: 'unknown' }
+)
+export type FocusPeriodResult =
+  | { status: 'ok' | 'empty'; recordedMinutes: number; observedDateCount: number }
+  | { status: 'failed' | 'unavailable'; recordedMinutes: null; observedDateCount: null }
+export type FocusEnvelope = {
+  semantics: 'recorded_focus_minutes'
+  sourceCategory: 'focus_comparison'
+  scope: { subject: SubjectIdentity; periodA: Period; periodB: Period; observedAt: string }
+  status: 'ok' | 'empty' | 'partial' | 'failed' | 'unavailable'
+  value: { periodA: FocusPeriodResult; periodB: FocusPeriodResult }
+  coverage: { realStudy: 'unknown'; unassigned: 'excluded_not_measured' }
+}
+export type EvidenceEnvelope = ProgressEnvelope | FocusEnvelope
+
+// First Slice trusted coordinator contracts; IPC input tokens remain plain strings.
+export type SessionHandle = string & { readonly __firstSliceSession: unique symbol }
+export type RequestHandle = string & { readonly __firstSliceRequest: unique symbol }
+export type RequestValidity = 'active' | 'completed' | 'invalid'
+export type RestrictionLifetime =
+  | { kind: 'request'; request: RequestHandle }
+  | { kind: 'session'; session: SessionHandle }
+  | { kind: 'durable_preference' }
+export type RestrictionTarget =
+  | { category: 'diary'; operation: 'use' | 'disclose' }
+  | { category: 'all-outbound'; operation: 'disclose' }
+export type RestrictionQualifiers = {
+  purpose: 'this_question' | 'this_conversation' | 'aipanel_default'
+  object: 'category' | { diaryId: number }
+  destination: 'all' | { normalizedEndpoint: string }
+}
+export type Restriction = {
+  lifetime: RestrictionLifetime
+  target: RestrictionTarget
+  qualifiers: RestrictionQualifiers
+}
+// Untrusted renderer interpretation; main derives and verifies its own scope.
+export type FirstSliceRestrictionIntent = {
+  lifetime: RestrictionLifetime['kind']
+  target: RestrictionTarget
+  purpose: RestrictionQualifiers['purpose']
+  object: 'category'
+  destination: 'all' | 'current_provider'
+}
+export type FocusDisclosurePeriod = {
+  startDate: string
+  endDate: string
+  recordedMinutes: number | null
+  limitation: 'recorded_only' | 'no_records' | 'read_failed' | 'unavailable'
+}
+export type FocusDisclosureSummary = {
+  subjectDisplayName: string
+  periodA: FocusDisclosurePeriod
+  periodB: FocusDisclosurePeriod
+  semantics: 'recorded study time, not efficiency'
+  coverageLimitations: { realStudy: 'unknown'; unassigned: 'excluded_not_measured' }
+}
+
+// Fixed I3 transport. Strings on input are untrusted; only main issues handles.
+export type FirstSliceUnavailable = { kind: 'unavailable'; reason: 'disabled' | 'invalid' | 'unsupported' }
+export type FirstSliceSessionInput = { session: string }
+export type FirstSliceRequestInput = { session: string; requestHandle: string }
+export type FirstSliceResolveInput =
+  | { session: string; userInput: string; request: EvidenceRequest }
+  | { session: string; requestHandle: string; request: EvidenceRequest }
+// Extracted content for this explicit send only; never a file, path or replay payload.
+export type FirstSliceTextAttachment = { kind: 'pdf' | 'text-file'; name: string; text: string }
+export type FirstSliceSendInput =
+  | { session: string; kind: 'chat'; userInput: string; imageDataUrls?: string[]; textAttachments?: FirstSliceTextAttachment[] }
+  | { session: string; kind: 'focus_explanation'; requestHandle: string; userInput: string; share: boolean; acceptLimited: boolean }
+export type FirstSliceRestrictInput = { session: string; userInput: string; intent: FirstSliceRestrictionIntent }
+export type FirstSliceResolution =
+  | { kind: 'resolved'; envelope: EvidenceEnvelope }
+  | { kind: 'ask_user'; candidates: SubjectIdentity[] }
+  | { kind: 'stopped'; reason: StopReason; status: 'failed' | 'unavailable' }
+export type FirstSliceSendResult = FirstSliceUnavailable
+  | { kind: 'answer'; requestHandle: string; content: string }
+  | { kind: 'discarded'; possiblySent: boolean }
+  | { kind: 'failed'; possiblySent: boolean }
+export interface FirstSliceAPI {
+  openSession: (input: Record<string, never>) => Promise<FirstSliceUnavailable | { kind: 'opened'; session: string }>
+  resolveEvidence: (input: FirstSliceResolveInput) => Promise<FirstSliceUnavailable | { requestHandle: string; result: FirstSliceResolution }>
+  send: (input: FirstSliceSendInput) => Promise<FirstSliceSendResult>
+  restrict: (input: FirstSliceRestrictInput) => Promise<FirstSliceUnavailable | { kind: 'restricted'; applied: boolean; durableSaved: boolean }>
+  cancel: (input: FirstSliceSessionInput | FirstSliceRequestInput) => Promise<FirstSliceUnavailable | { kind: 'cancelled'; possiblySent: boolean }>
+  regenerate: (input: FirstSliceRequestInput) => Promise<FirstSliceSendResult>
+  closeSession: (input: FirstSliceSessionInput) => Promise<FirstSliceUnavailable | { kind: 'closed' }>
+}
+
 // ─── Electron Preload API (window.api) ──────────────────────────────────────
 
 export interface ElectronWindowAPI {
@@ -302,6 +409,8 @@ export interface ElectronMistakesAPI {
 }
 
 export interface ElectronAIAPI {
+  // Optional for existing browser/mock surfaces; the Electron preload exposes it.
+  firstSlice?: FirstSliceAPI
   chat: (messages: AIMessage[]) => Promise<AIResponse>
   summarize: (content: string) => Promise<AIResponse>
 }
@@ -499,6 +608,8 @@ export interface NotificationContextAPI {
 }
 
 export interface AIContextAPI {
+  // Existing injected chat-only contexts remain supported. createAiApi supplies it.
+  firstSlice?: FirstSliceAPI
   chat: (messages: AIMessage[]) => Promise<AIResponse>
 }
 

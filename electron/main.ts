@@ -8,6 +8,12 @@ const { pathToFileURL } = require('url');
 const db = require('./database');
 const fileManager = require('./fileManager');
 const aiService = require('./aiService');
+import { createFirstSliceIpcHandlers, FIRST_SLICE_RESTRICTIONS_KEY } from './aiFirstSlice';
+const firstSliceIpc = createFirstSliceIpcHandlers({
+    enabled: true, // Code-level rollback: false keeps AIPanel fail-closed.
+    database: db,
+    service: aiService.createAiService(db),
+});
 const { createExportHandlers } = require('./exportHandlers');
 const { getActiveAppInfo } = require('./focusGuard');
 import { createAutoBackup } from './backup';
@@ -1028,6 +1034,7 @@ ipcMain.handle('settings:get', (_: unknown, key: string) => {
 // Returns all settings but replaces aiApiKey with masked status
 ipcMain.handle('settings:getAll', () => {
     const all = db.getAllSettings();
+    delete all[FIRST_SLICE_RESTRICTIONS_KEY];
     const safe = buildSafeSettingsPayload(all, db.getAiApiKey());
     for (const [k, v] of Object.entries(safe)) {
         if (k === 'countdownEvents') {
@@ -1123,6 +1130,8 @@ ipcMain.handle('settings:updateAI', (_: unknown, rawPatch: unknown) => {
         if (patch.aiVisionEnabled !== undefined) db.setSetting('aiVisionEnabled', String(patch.aiVisionEnabled));
     });
     txn();
+    if (patch.aiEndpoint !== undefined || patch.aiModel !== undefined || patch.aiVisionEnabled !== undefined
+        || patch.aiApiKey !== undefined || patch.clearAiApiKey) db.markFirstSliceAIConfigChanged();
     return { success: true };
 });
 
@@ -1465,6 +1474,13 @@ ipcMain.handle('mistakes:getImagePath', (_: unknown, filename: string) => fileMa
 
 // ==================== AI ====================
 ipcMain.handle('ai:chat', (_: unknown, messages: unknown) => aiService.chat(validateAiMessagesPayload(messages)));
+ipcMain.handle('ai:firstSlice:openSession', firstSliceIpc.openSession);
+ipcMain.handle('ai:firstSlice:resolveEvidence', firstSliceIpc.resolveEvidence);
+ipcMain.handle('ai:firstSlice:send', firstSliceIpc.send);
+ipcMain.handle('ai:firstSlice:restrict', firstSliceIpc.restrict);
+ipcMain.handle('ai:firstSlice:cancel', firstSliceIpc.cancel);
+ipcMain.handle('ai:firstSlice:regenerate', firstSliceIpc.regenerate);
+ipcMain.handle('ai:firstSlice:closeSession', firstSliceIpc.closeSession);
 ipcMain.handle('ai:summarize', (_: unknown, content: unknown) => aiService.summarize(validateAiSummaryPayload(content)));
 
 // ==================== Notifications ====================

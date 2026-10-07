@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { EditorState } from '@codemirror/state'
-import { history, undo, redo } from '@codemirror/commands'
+import { describe, expect, it, vi } from 'vitest'
+import { EditorState, StateEffect, Transaction } from '@codemirror/state'
+import { EditorView, keymap } from '@codemirror/view'
+import { defaultKeymap, history, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import MarkdownRenderer from '../src/components/common/MarkdownRenderer'
-import { activeFormats, diaryMarkdown, formatTransaction, rangeField, previewField } from '../src/components/common/diaryEditorState'
+import { activeFormats, diaryMarkdown, formatTransaction, inlineEditTransactions, inlineInteraction, inlineResolver, rangeField, previewField, structureInteraction, structureField } from '../src/components/common/diaryEditorState'
 import type { DiaryFormat, MarkdownColorKey } from '../src/utils/markdownDialect'
 
 const create = (doc: string, anchor = 0, head = anchor) => EditorState.create({ doc,
@@ -13,6 +14,308 @@ const format = (state: EditorState, kind: DiaryFormat, color?: MarkdownColorKey 
   const tr = formatTransaction(state, kind, color)
   return tr ? state.update(tr).state : state
 }
+
+function productionView(doc: string, anchor = 0, head = anchor) {
+  const parent = document.createElement('div')
+  document.body.appendChild(parent)
+  const view = new EditorView({ parent, state: EditorState.create({ doc, selection: { anchor, head },
+    extensions: [diaryMarkdown, history(), rangeField, structureInteraction, previewField, inlineInteraction] }),
+    dispatchTransactions: (transactions, target) => target.update(transactions.flatMap(inlineEditTransactions)),
+  })
+  return { view, close: () => { view.destroy(); parent.remove() } }
+}
+
+describe('production diary structure editing', () => {
+  const press = (view: EditorView, key: string) => {
+    view.focus()
+    view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true }))
+  }
+
+  it.each([
+    ['## 标题', '标题'], ['# 一级', '一级'], ['###### 六级', '六级'],
+    ['- 第一项', '•第一项'], ['-', '•'], ['- ', '•'], ['- \t', '•'],
+    ['## **重点**', '重点'], ['- **重点**', '•重点'],
+    ['- {color:green}复习{/color}', '•复习'], ['## **=={color:green}重点{/color}==**', '重点'],
+    ['- ++下划线++ ==高亮==', '•下划线 高亮'],
+  ])('projects recognized prefixes and inline wrappers without rewriting %s', (doc, visible) => {
+    const { view, close } = productionView(doc)
+    try {
+      for (let pos = 0; pos <= doc.length; pos++) {
+        view.dispatch({ selection: { anchor: pos } })
+        expect(view.contentDOM.textContent).toBe(visible)
+        expect(view.state.doc.toString()).toBe(doc)
+      }
+      expect(undoDepth(view.state)).toBe(0)
+    } finally { close() }
+  })
+
+  it.each([
+    ['## 标题', 5, 'Enter', '## 标题\n', 6],
+    ['## 标题', 3, 'Backspace', '标题', 0],
+    ['## **重点**', 5, 'Backspace', '**重点**', 2],
+    ['## **重点**', 7, 'Enter', '## **重点**\n', 10],
+    ['- 第一项', 5, 'Enter', '- 第一项\n- ', 8],
+    ['- **重点**', 6, 'Enter', '- **重点**\n- ', 11],
+    ['- 第一项\n- ', 8, 'Enter', '- 第一项\n', 6],
+    ['- 第一项\n- ', 8, 'Backspace', '- 第一项\n', 6],
+    ['-', 1, 'Enter', '', 0], ['-', 1, 'Backspace', '', 0],
+    ['- \t', 3, 'Backspace', '', 0],
+  ] as const)('one native history event: %s at %i %s', (doc, anchor, key, expected, caret) => {
+    const { view, close } = productionView(doc, anchor)
+    try {
+      press(view, key)
+      expect(view.state.doc.toString()).toBe(expected)
+      expect(view.state.selection.main.head).toBe(caret)
+      expect(undoDepth(view.state)).toBe(1)
+      expect(undo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(doc)
+      expect(undoDepth(view.state)).toBe(0)
+      expect(redo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(expected)
+      expect(view.state.selection.main.head).toBe(caret)
+    } finally { close() }
+  })
+
+  it('edits Chinese/English bodies, continues a list and isolates structure from text history', () => {
+    const { view, close } = productionView('## 标题\n- 第一项', 5)
+    try {
+      view.dispatch({ changes: { from: 5, insert: '中文 English' }, selection: { anchor: 15 }, userEvent: 'input.type' })
+      expect(view.state.doc.toString()).toBe('## 标题中文 English\n- 第一项')
+      view.dispatch({ selection: { anchor: view.state.doc.length } })
+      press(view, 'Enter')
+      const continued = view.state.doc.toString()
+      view.dispatch({ ...view.state.replaceSelection('第二项'), userEvent: 'input.type' })
+      expect(view.state.doc.toString()).toBe('## 标题中文 English\n- 第一项\n- 第二项')
+      undo(view)
+      expect(view.state.doc.toString()).toBe(continued)
+      undo(view)
+      expect(view.state.doc.toString()).toBe('## 标题中文 English\n- 第一项')
+      redo(view); redo(view)
+      expect(view.state.doc.toString()).toBe('## 标题中文 English\n- 第一项\n- 第二项')
+    } finally { close() }
+  })
+
+  it.each(['## 标题', '- 第一项'])('leaves native composition intact and guards structural keys: %s', doc => {
+    const { view, close } = productionView(doc, doc.length)
+    try {
+      const composing = vi.spyOn(view, 'compositionStarted', 'get').mockReturnValue(true)
+      press(view, 'Enter'); press(view, 'Backspace')
+      expect(view.state.doc.toString()).toBe(doc)
+      const tr = view.state.update({ changes: { from: doc.length, insert: '中文' },
+        selection: { anchor: doc.length + 2 }, userEvent: 'input.type.compose' })
+      expect(inlineEditTransactions(tr)).toEqual([tr])
+      view.dispatch(tr)
+      expect(view.state.doc.toString()).toBe(doc + '中文')
+      composing.mockRestore()
+      undo(view); expect(view.state.doc.toString()).toBe(doc)
+      redo(view); expect(view.state.doc.toString()).toBe(doc + '中文')
+    } finally { close() }
+  })
+
+  it.each(['input.type', 'input.type.compose', 'input.type.compose.start'])('adds the bare template separator in one %s transaction', userEvent => {
+    const { view, close } = productionView('-', 1)
+    try {
+      const tr = view.state.update({ changes: { from: 1, insert: '中文' }, selection: { anchor: 3 }, userEvent })
+      expect(tr.state.doc.toString()).toBe('- 中文')
+      expect(tr.newSelection.main.head).toBe(4)
+      expect(inlineEditTransactions(tr)).toEqual([tr])
+      view.dispatch(tr)
+      expect(view.contentDOM.textContent).toBe('•中文')
+      expect(undoDepth(view.state)).toBe(1)
+      undo(view); expect(view.state.doc.toString()).toBe('-')
+      redo(view); expect(view.state.doc.toString()).toBe('- 中文')
+    } finally { close() }
+  })
+
+  it.each([
+    '## 标题', '标题\n===', '标题\n---', '- 第一项\n- 第二项', '* 第一项', '+ 第一项',
+    '1. 第一项', '- [ ] 待办', '- [x] 完成', '- 外层\n  - 内层',
+    '```\n## 代码\n- 代码\n```', '    ## 代码\n    - 代码', '\\## 转义\n\\- 转义',
+    '##无空格', '####### 太多', '## ', '-无空格', '--', '> ## 引用\n> - 项目',
+  ])('retains legacy canonical bytes through navigation and external no-history sync: %s', doc => {
+    const { view, close } = productionView(doc)
+    try {
+      for (let pos = 0; pos <= doc.length; pos++) view.dispatch({ selection: { anchor: pos } })
+      expect(view.state.doc.toString()).toBe(doc)
+      expect(undoDepth(view.state)).toBe(0)
+      view.dispatch({ changes: { from: 0, to: doc.length, insert: doc }, annotations: Transaction.addToHistory.of(false) })
+      expect(view.state.doc.toString()).toBe(doc)
+      expect(undoDepth(view.state)).toBe(0)
+      if (!/^(## 标题|- 第一项)/.test(doc)) expect(view.state.field(structureField)).toHaveLength(0)
+    } finally { close() }
+  })
+
+  it.each(['* 第一项', '+ 第一项', '1. 第一项', '- [ ] 待办', '- [x] 完成', '##无空格', '## '])('keeps unsupported Enter on ordinary CM text semantics: %s', doc => {
+    const { view, close } = productionView(doc, doc.length)
+    try {
+      view.dispatch({ effects: StateEffect.appendConfig.of(keymap.of(defaultKeymap)) })
+      press(view, 'Enter')
+      expect(view.state.doc.toString()).toBe(doc + '\n')
+    } finally { close() }
+  })
+})
+
+describe('production inline projection, balanced edits and native history', () => {
+  it('derives nested tokens, body coordinates and inside/outside boundary affinity', () => {
+    const state = create('**=={color:green}重点{/color}==**')
+    const resolver = inlineResolver(state)
+    expect(resolver.tokens).toHaveLength(6)
+    const body = state.doc.toString().indexOf('重点')
+    expect(resolver.sourceToVisible(body)).toBe(0)
+    expect(resolver.sourceToVisible(body + 2)).toBe(2)
+    expect(resolver.visibleToSource(0, 1)).toBe(body)
+    expect(resolver.visibleToSource(0, -1)).toBe(0)
+    expect(resolver.visibleToSource(2, -1)).toBe(body + 2)
+    expect(resolver.visibleToSource(2, 1)).toBe(state.doc.length)
+    expect(resolver.endpoint(1, 1)).toBe(body)
+    expect(resolver.endpoint(body + 1)).toBe(body + 1)
+  })
+
+  it.each([
+    ['**abcdef**', 4, 6, 'bold', '**ab**cd**ef**'],
+    ['++abcdef++', 4, 6, 'underline', '++ab++cd++ef++'],
+    ['==abcdef==', 4, 6, 'highlight', '==ab==cd==ef=='],
+  ] as const)('fixture A: partial %s toggle keeps selected text and one native undo event', (original, a, h, kind, result) => {
+    const { view, close } = productionView(original, a, h)
+    try {
+      view.dispatch(formatTransaction(view.state, kind)!)
+      const selection = view.state.selection
+      expect(view.state.doc.toString()).toBe(result)
+      expect(view.state.sliceDoc(selection.main.from, selection.main.to)).toBe('cd')
+      expect(undoDepth(view.state)).toBe(1)
+      expect(undo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(original)
+      expect(redo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(result)
+      expect(view.state.selection.eq(selection)).toBe(true)
+    } finally { close() }
+  })
+
+  it.each([
+    ['mixed B', '**ab** ==cd==', 3, 10, '', '**a**==d==', 7],
+    ['cross', '**ab** ==cd==', 3, 10, ' ', '**a** ==d==', 8],
+    ['leading', '**ab**', 2, 2, ' ', ' **ab**', 3],
+    ['trailing', '**ab**', 4, 4, ' ', '**ab** ', 7],
+    ['whole bold C', '**x**', 2, 3, '', '', 0],
+    ['whole underline C', '++x++', 2, 3, '', '', 0],
+    ['whole highlight C', '==x==', 2, 3, '', '', 0],
+    ['whole color C', '{color:green}x{/color}', 13, 14, '', '', 0],
+    ['whole nested C', '**=={color:green}重点{/color}==**', 17, 19, '', '', 0],
+  ] as const)('%s: locks canonical result and exact post/redo source caret', (_name, original, a, h, insert, result, caret) => {
+    const { view, close } = productionView(original, a, h)
+    try {
+      view.dispatch({ changes: { from: a, to: h, insert }, selection: { anchor: a + insert.length },
+        userEvent: insert ? 'input.type' : 'delete.selection' })
+      expect(view.state.doc.toString()).toBe(result)
+      expect(view.state.selection.main).toMatchObject({ anchor: caret, head: caret })
+      const resolver = inlineResolver(view.state)
+      expect(resolver.tokens.some(t => caret > t.from && caret < t.to)).toBe(false)
+      expect(undoDepth(view.state)).toBe(1)
+      expect(undo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(original)
+      expect(undoDepth(view.state)).toBe(0)
+      expect(redoDepth(view.state)).toBe(1)
+      expect(redo(view)).toBe(true)
+      expect(view.state.doc.toString()).toBe(result)
+      expect(view.state.selection.main).toMatchObject({ anchor: caret, head: caret })
+      expect(undoDepth(view.state)).toBe(1)
+    } finally { close() }
+  })
+
+  it('adds bold then highlight around color with the existing grammar and visible body selection', () => {
+    const original = '{color:green}重点{/color}'
+    const { view, close } = productionView(original, 13, 15)
+    try {
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch(formatTransaction(view.state, 'highlight')!)
+      expect(view.state.doc.toString()).toBe('**=={color:green}重点{/color}==**')
+      expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('重点')
+      expect(view.dom.textContent).toBe('重点')
+      view.dispatch({ selection: { anchor: 18 } })
+      expect(view.dom.textContent).toBe('重点')
+      expect(undoDepth(view.state)).toBe(2)
+    } finally { close() }
+  })
+
+  it.each([[13, 25], [25, 13], [0, 25]] as const)('resolves a mouse/full visible color selection (%s,%s) before nested FORMAT', (anchor, head) => {
+    const { view, close } = productionView('{color:green}重点文字{/color}')
+    try {
+      view.dispatch({ selection: { anchor, head }, userEvent: 'select.pointer' })
+      expect(view.state.selection.main).toMatchObject({ from: 13, to: 17 })
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch(formatTransaction(view.state, 'highlight')!)
+      expect(view.state.doc.toString()).toBe('**=={color:green}重点文字{/color}==**')
+      expect(view.dom.textContent).toBe('重点文字')
+    } finally { close() }
+  })
+
+  it('extends native keyboard selection across hidden closers/openers without getting stuck on their shared visible boundary', () => {
+    const { view, close } = productionView('**ab** ==cd==', 3)
+    try {
+      view.focus()
+      for (const expected of [4, 7, 10]) {
+        view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', shiftKey: true, bubbles: true }))
+        expect(view.state.selection.main.head).toBe(expected)
+      }
+      view.dispatch({ changes: { from: 3, to: 10, insert: '' }, userEvent: 'delete.selection' })
+      expect(view.state.doc.toString()).toBe('**a**==d==')
+    } finally { close() }
+  })
+
+  it('records checkpoints only for logical rewrites, excluding native compose, sync, history and safe input', () => {
+    const state = EditorState.create({ doc: '**ab**', selection: { anchor: 3 },
+      extensions: [diaryMarkdown, history(), rangeField, previewField, inlineInteraction] })
+    for (const userEvent of ['input.type.compose', 'input.type.compose.start', 'input.type']) {
+      const tr = state.update({ changes: { from: 3, insert: '中' }, selection: { anchor: 4 }, userEvent })
+      expect(inlineEditTransactions(tr)).toEqual([tr])
+      expect(tr.state.doc.toString()).toBe('**a中b**')
+    }
+    const composeBoundary = state.update({ changes: { from: 2, insert: '中' }, selection: { anchor: 3 }, userEvent: 'input.type.compose' })
+    expect(inlineEditTransactions(composeBoundary)).toEqual([composeBoundary])
+    const sync = state.update({ changes: { from: 0, to: 6, insert: 'external' }, annotations: Transaction.addToHistory.of(false) })
+    expect(inlineEditTransactions(sync)).toEqual([sync])
+    expect(undoDepth(sync.state)).toBe(0)
+    const navigation = state.update({ selection: { anchor: 4 } })
+    expect(inlineEditTransactions(navigation)).toEqual([navigation])
+    expect(undoDepth(navigation.state)).toBe(0)
+  })
+
+  it('keeps A → format → B as three document actions, with navigation creating no document events', () => {
+    const { view, close } = productionView('')
+    try {
+      view.dispatch({ changes: { from: 0, insert: 'A' }, selection: { anchor: 1 }, userEvent: 'input.type' })
+      view.dispatch({ selection: { anchor: 0, head: 1 } })
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch({ selection: { anchor: 3 } })
+      view.dispatch({ changes: { from: 3, insert: 'B' }, selection: { anchor: 4 }, userEvent: 'input.type' })
+      expect(undoDepth(view.state)).toBe(3)
+      for (const expected of ['**A**', 'A', '']) { expect(undo(view)).toBe(true); expect(view.state.doc.toString()).toBe(expected) }
+      for (const expected of ['A', '**A**', '**AB**']) { expect(redo(view)).toBe(true); expect(view.state.doc.toString()).toBe(expected) }
+    } finally { close() }
+  })
+
+  it.each([
+    '**粗体**', '++下划线++', '==高亮==', '{color:green}颜色{/color}',
+    '**=={color:green}重点{/color}==**', '**一** **二**',
+    '`**代码** ++code++`', '```\n==code==\n```', '[链接](https://example.com)',
+    '<span>++text++</span>', '\\*\\*保留\\*\\*', '{color:unknown}未知{/color}',
+    '**未闭合 ++未闭合 ==未闭合 {color:red}未闭合', '**** ++++ ==== {color:red}{/color}',
+    '++**反向**++ {color:green}**反向**{/color}',
+  ])('preserves no-edit legacy bytes and sustained token projection: %s', original => {
+    const { view, close } = productionView(original)
+    try {
+      for (let pos = 0; pos <= original.length; pos++) {
+        view.dispatch({ selection: { anchor: pos } })
+        expect(view.state.doc.toString()).toBe(original)
+        expect(view.state.selection.main.empty).toBe(true)
+        const resolver = inlineResolver(view.state)
+        expect(resolver.tokens.some(t => view.state.selection.main.head > t.from && view.state.selection.main.head < t.to)).toBe(false)
+        expect(view.dom.textContent).toBe(original.split('').filter((_c, i) => !resolver.tokens.some(t => i >= t.from && i < t.to)).join('').replace(/\n/g, ''))
+      }
+      expect(undoDepth(view.state)).toBe(0)
+    } finally { close() }
+  })
+})
 
 // Assert the actual reading surface, including which characters inherit styles.
 // Comparing range counts alone would miss literal markers or widened operations.
@@ -185,7 +488,7 @@ describe('canonical Markdown writing state (compatibility spike)', () => {
     expect(formatTransaction(create('   ', 0, 3), 'bold')).toBeNull()
     expect(format(create(' a+b=c ', 0, 7), 'bold').doc.toString()).toBe(' **a+b=c** ')
   })
-  it('hides only inactive markers and never changes the stored string', () => {
+  it('sustains delimiter hiding inside a caret or selection and never changes the stored string', () => {
     const state = create('开头 **重点** ++再看++')
     let hidden = 0
     state.field(previewField).between(0, state.doc.length, (_from, _to, decoration) => { if (!decoration.spec.class) hidden++ })
@@ -193,7 +496,7 @@ describe('canonical Markdown writing state (compatibility spike)', () => {
     const editing = state.update({ selection: { anchor: 6 } }).state
     hidden = 0
     editing.field(previewField).between(0, editing.doc.length, (_from, _to, decoration) => { if (!decoration.spec.class) hidden++ })
-    expect(hidden).toBe(2)
+    expect(hidden).toBe(4)
     expect(editing.doc.toString()).toBe(state.doc.toString())
   })
 

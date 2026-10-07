@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { AI_ATTACHMENT_LIMITS } from '../src/utils/aiAttachmentPolicy'
 import { readAIComposerFile } from '../src/utils/aiAttachmentReader'
 
@@ -49,6 +50,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks()
+  vi.restoreAllMocks()
   pdfMocks.globalWorkerOptions.workerSrc = ''
 
   const urlGlobal = globalThis.URL as UrlWithObjectMethods
@@ -124,8 +126,44 @@ describe('AI attachment reader', () => {
       pageCount: 2,
       extractedText: 'First page\n\nSecond page',
     })
-    expect(pdfMocks.globalWorkerOptions.workerSrc).toContain('pdf.worker')
+    expect(pdfMocks.globalWorkerOptions.workerSrc).toBe(pdfWorkerUrl)
+    expect(pdfMocks.getDocument).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.any(Uint8Array),
+      cMapUrl: new URL('./pdfjs/cmaps/', document.baseURI).href,
+      cMapPacked: true,
+      disableFontFace: true,
+      disableAutoFetch: true,
+      disableStream: true,
+    }))
     expect(destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['http://localhost:5173/', 'http://localhost:5173/pdfjs/cmaps/'],
+    ['file:///C:/MindDiary/dist/index.html', 'file:///C:/MindDiary/dist/pdfjs/cmaps/'],
+    ['file:///C:/Program%20Files/MindDiary/resources/app.asar/dist/index.html', 'file:///C:/Program%20Files/MindDiary/resources/app.asar/dist/pdfjs/cmaps/'],
+  ])('uses the fixed bundled CMap directory from %s', async (documentUrl, cMapUrl) => {
+    vi.spyOn(document, 'baseURI', 'get').mockReturnValue(documentUrl)
+    pdfMocks.getDocument.mockReturnValueOnce({
+      promise: Promise.resolve({ numPages: 1, getPage: async () => ({
+        getTextContent: async () => ({ items: [{ str: '星河计划编号 7319' }] }),
+      }) }), destroy: vi.fn(async () => undefined),
+    })
+    const result = await readAIComposerFile(makePdfFile(), [])
+    expect(pdfMocks.getDocument).toHaveBeenCalledWith(expect.objectContaining({ cMapUrl, cMapPacked: true }))
+    expect(pdfMocks.globalWorkerOptions.workerSrc).toBe(pdfWorkerUrl)
+    expect(result).toMatchObject({ status: 'ready', extractedText: '星河计划编号 7319' })
+    expect(result).not.toHaveProperty('data')
+    expect(result).not.toHaveProperty('dataUrl')
+    expect(result).not.toHaveProperty('cMapUrl')
+  })
+
+  it('rejects a PDF over the byte limit before invoking PDF.js', async () => {
+    const file = makePdfFile()
+    Object.defineProperty(file, 'size', { value: AI_ATTACHMENT_LIMITS.maxPdfBytes + 1 })
+    const result = await readAIComposerFile(file, [])
+    expect(result.status).toBe('error')
+    expect(pdfMocks.getDocument).not.toHaveBeenCalled()
   })
 
   it('rejects scanned or oversized PDFs and still destroys the loading task', async () => {
@@ -142,7 +180,7 @@ describe('AI attachment reader', () => {
 
     const scanned = await readAIComposerFile(makePdfFile(), [])
     expect(scanned).toMatchObject({ kind: 'pdf', status: 'error' })
-    expect(scanned.error).toContain('OCR')
+    expect(scanned.error).toBe('未检测到可读取文字，当前不支持扫描版 PDF。')
     expect(scannedDestroy).toHaveBeenCalledTimes(1)
 
     const tooManyPagesDestroy = vi.fn(async () => undefined)
@@ -158,5 +196,27 @@ describe('AI attachment reader', () => {
     expect(tooManyPages).toMatchObject({ kind: 'pdf', status: 'error' })
     expect(tooManyPages.error).toContain(String(AI_ATTACHMENT_LIMITS.maxPdfPages))
     expect(tooManyPagesDestroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('counts pages with extractable text and retains over-budget text for explicit send rejection', async () => {
+    pdfMocks.getDocument.mockReturnValueOnce({
+      promise: Promise.resolve({ numPages: 2, getPage: async (page: number) => ({
+        getTextContent: async () => ({ items: page === 1 ? [{ str: 'a'.repeat(20_001) }] : [{ str: '  ' }] }),
+      }) }), destroy: vi.fn(async () => undefined),
+    })
+    const result = await readAIComposerFile(makePdfFile(), [])
+    expect(result).toMatchObject({ status: 'ready', textPageCount: 1, pageCount: 2, truncated: false })
+    expect(result.extractedText).toHaveLength(20_001)
+    expect(result.dataUrl).toBeUndefined()
+    expect(result.previewUrl).toBeUndefined()
+  })
+
+  it.each(['Invalid PDF structure', 'Password required'])('keeps PDF load failure closed: %s', async message => {
+    const destroy = vi.fn(async () => undefined)
+    pdfMocks.getDocument.mockReturnValueOnce({ promise: Promise.reject(new Error(message)), destroy })
+    const result = await readAIComposerFile(makePdfFile(), [])
+    expect(result).toMatchObject({ status: 'error', error: message })
+    expect(result.extractedText).toBeUndefined()
+    expect(destroy).toHaveBeenCalledTimes(1)
   })
 })

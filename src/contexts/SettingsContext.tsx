@@ -10,6 +10,7 @@ import {
     normalizeCountdownSettings,
 } from '../utils/countdown'
 import { logger } from '../utils/logger'
+import { coerceBoolean } from '../utils/helpers'
 import type { AppSettings } from '../types'
 import type { SettingsContextAPI, SanitizedSettings } from '../types/api'
 
@@ -58,6 +59,7 @@ const normalizeSettings = (rawSettings: Partial<AppSettings> | null | undefined)
     return {
         ...merged,
         theme: normalizeTheme(merged.theme),
+        aiVisionEnabled: coerceBoolean(merged.aiVisionEnabled, mockSettings.aiVisionEnabled ?? false),
         examDate: countdown.examDate,
         countdownEvents: countdown.countdownEvents,
     }
@@ -158,6 +160,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 return {
                     ...s,
                     theme: normalized.theme,
+                    aiVisionEnabled: normalized.aiVisionEnabled,
                     examDate: normalized.examDate,
                     countdownEvents: normalized.countdownEvents,
                 }

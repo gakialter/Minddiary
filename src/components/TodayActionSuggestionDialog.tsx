@@ -1,5 +1,6 @@
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { STUDY_TASK_STATUS_LABELS, STUDY_TASK_TYPE_LABELS } from '../utils/studyTaskLabels'
 import { Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Mistake, StudyTask, StudyTaskType, Subject } from '../types'
 import type {
@@ -151,7 +152,10 @@ function validateTodayActionAdmissionView(
   return validateTodayActionDrafts(admissionView, context)
 }
 
-function formatCandidateSnapshotValue(value: string | number | null): string {
+function formatCandidateSnapshotValue(value: string | number | null, field?: string): string {
+  if (field === 'type' && typeof value === 'string' && value in STUDY_TASK_TYPE_LABELS) {
+    return STUDY_TASK_TYPE_LABELS[value as keyof typeof STUDY_TASK_TYPE_LABELS]
+  }
   return value === null || value === '' ? '无' : String(value)
 }
 
@@ -1710,10 +1714,7 @@ export default function TodayActionSuggestionDialog({
                     {feedbackPreviewCandidates.map(candidate => {
                       const keyStr = `${candidate.key.runId}:${candidate.key.candidateId}`
                       const isSelected = selectedFeedbackKeys.has(keyStr)
-                      const statusLabel = candidate.currentStatus === 'done' ? '已完成'
-                        : candidate.currentStatus === 'skipped' ? '已跳过'
-                        : candidate.currentStatus === 'doing' ? '进行中'
-                        : '待办'
+                      const statusLabel = STUDY_TASK_STATUS_LABELS[candidate.currentStatus]
 
                       return (
                         <label
@@ -1738,7 +1739,7 @@ export default function TodayActionSuggestionDialog({
                             <div className="flex flex-wrap items-center gap-xs font-medium" style={{ color: 'var(--text-primary)' }}>
                               <span>{candidate.title}</span>
                               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                （{candidate.targetDate} · {candidate.type} · {candidate.estimateMinutes}分钟 · {statusLabel}）
+                                （{candidate.targetDate} · {STUDY_TASK_TYPE_LABELS[candidate.type]} · {candidate.estimateMinutes}分钟 · {statusLabel}）
                               </span>
                             </div>
                             <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
@@ -1830,14 +1831,17 @@ export default function TodayActionSuggestionDialog({
             )}
           </section>
 
-          <details className="mt-3" open data-testid="today-action-request-explainability">
+          <p className="mt-3 text-xs" data-testid="today-action-provider-usage-disclaimer" style={{ color: 'var(--text-muted)' }}>
+            {PROVIDER_USAGE_DISCLAIMER}
+          </p>
+          <details className="mt-3" data-testid="today-action-request-explainability">
             <summary className="text-sm" style={{ color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
-              本次请求依据
+              详细信息：本次请求依据
             </summary>
             <p className="text-xs" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
               {planningSession
                 ? '本代请求快照在生成时固定；刷新只会更新上方当前本地预览。'
-                : '尚未生成；当前只有本地预览，还没有 generation request snapshot。'}
+                : '尚未生成；当前只有本地预览，还没有固定的请求依据。'}
             </p>
             {planningSession && planningSession.contextDecisions.length === 0 && (
               <p className="text-xs" data-testid="today-action-request-not-formed" style={{ color: 'var(--text-muted)' }}>
@@ -1861,9 +1865,6 @@ export default function TodayActionSuggestionDialog({
                 ))}
               </ul>
             )}
-            <p className="text-xs" data-testid="today-action-provider-usage-disclaimer" style={{ marginTop: 8, color: 'var(--text-muted)' }}>
-              {PROVIDER_USAGE_DISCLAIMER}
-            </p>
           </details>
 
           {errors.length > 0 && (
@@ -1904,7 +1905,7 @@ export default function TodayActionSuggestionDialog({
                   style={{ marginBottom: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}
                 >
                   {refreshedChapterProjection.chapter_progress.length === 0
-                    ? <li>当前 bounded 章节投影为空。</li>
+                    ? <li>当前可用的章节信息为空。</li>
                     : refreshedChapterProjection.chapter_progress.map((chapter, index) => (
                         <li key={`${chapter.subject_ref}:${index}`}>
                           {chapter.subject_ref} · {chapter.title} · {chapter.completed ? '已完成' : '未完成'}
@@ -1927,9 +1928,9 @@ export default function TodayActionSuggestionDialog({
           )}
 
           {planningSession && (
-            <details className="mt-3" open data-testid="today-action-candidate-explainability">
+            <details className="mt-3" data-testid="today-action-candidate-explainability">
               <summary className="text-sm" style={{ color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
-                候选决策摘要
+                详细信息：建议的校验与选择
               </summary>
               <p className="text-xs" data-testid="today-action-candidate-counts" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
                 初始通过验证 {explainabilitySummary.providerValidated} · 用户修复后纳入 {explainabilitySummary.userRepaired} · 已净编辑 {explainabilitySummary.edited} · 已移除 {explainabilitySummary.removed} · 保留但未选择 {explainabilitySummary.retainedUnselected} · 当前选择 {explainabilitySummary.selected} · 已确认 {explainabilitySummary.confirmed}
@@ -1960,7 +1961,7 @@ export default function TodayActionSuggestionDialog({
                         <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                           {candidate.changedFields.map(field => (
                             <li key={field}>
-                              {CANDIDATE_FIELD_LABELS[field]}：{formatCandidateSnapshotValue(candidate.initial[field])} → {formatCandidateSnapshotValue(candidate.current[field])}
+                              {CANDIDATE_FIELD_LABELS[field]}：{formatCandidateSnapshotValue(candidate.initial[field], field)} → {formatCandidateSnapshotValue(candidate.current[field], field)}
                             </li>
                           ))}
                         </ul>
@@ -1990,7 +1991,9 @@ export default function TodayActionSuggestionDialog({
                     >
                       <strong>{candidate.current.title || candidate.initial.title || candidate.clientId}</strong>：{candidate.outcome!.message}
                       {candidate.outcome!.taskId ? `（任务 #${candidate.outcome!.taskId}）` : ''}
-                      {candidate.outcome!.operationId ? `；操作 ID：${candidate.outcome!.operationId}` : ''}
+                      {candidate.outcome!.operationId && (
+                        <details><summary>技术详情</summary>操作 ID：{candidate.outcome!.operationId}</details>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -2188,7 +2191,7 @@ export default function TodayActionSuggestionDialog({
                         style={{ width: 112, minHeight: 36 }}
                       >
                         {!TASK_TYPES.includes(suggestion.type) && <option value={suggestion.type} disabled>请选择有效类型</option>}
-                        {TASK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                        {TASK_TYPES.map(type => <option key={type} value={type}>{STUDY_TASK_TYPE_LABELS[type]}</option>)}
                       </select>
                       <input
                         className="input"

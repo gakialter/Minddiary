@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Annotation, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands'
-import { activeFormats, diaryMarkdown, formatTransaction, previewField, rangeField } from './diaryEditorState'
+import { activeFormats, diaryMarkdown, formatTransaction, inlineEditTransactions, inlineInteraction, previewField, rangeField, structureInteraction } from './diaryEditorState'
 import FormatToolbar from './FormatToolbar'
 import type { DiaryFormat, MarkdownColorKey } from '../../utils/markdownDialect'
 import './DiaryWritingSurface.css'
@@ -17,6 +17,8 @@ export interface DiaryWritingHandle {
   format: (kind: DiaryFormat, color?: MarkdownColorKey | null) => void
   append: (text: string, onApplied: () => void) => () => void
   replace: (text: string) => void
+  appendTemplate: (text: string) => void
+  applyTemplate: (text: string, onNeedsChoice: () => void) => void
 }
 interface Props {
   identity?: string
@@ -83,7 +85,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
     if (transaction) {
       view.dispatch(transaction)
       setNotice('')
-    } else setNotice('请在同一段纯文本或完整格式内选择；复杂交叉格式可直接编辑 Markdown。')
+    } else setNotice('这段文字包含不同格式，请缩小选区后再试。')
     view.focus()
   }
 
@@ -103,6 +105,11 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
   useImperativeHandle(ref, () => ({ format,
     append: (text, onApplied) => edit(current => current.trim() ? `${current.trimEnd()}\n\n${text}\n` : `${text}\n`, onApplied),
     replace: text => edit(() => text),
+    appendTemplate: text => edit(current => `${current}${current.endsWith('\n\n') ? '' : current.endsWith('\n') ? '\n' : '\n\n'}${text}`),
+    applyTemplate: (text, onNeedsChoice) => afterComposition(() => {
+      if (viewRef.current?.state.doc.toString().trim()) onNeedsChoice()
+      else if (viewRef.current) edit(() => text)
+    }),
   }))
 
   useLayoutEffect(() => {
@@ -130,9 +137,11 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
       setFormats(next)
       latest.current.onFormatState(next)
     }
-    const view = new EditorView({ parent: host.current!, state: EditorState.create({
+    const view = new EditorView({ parent: host.current!,
+      dispatchTransactions: (transactions, target) => target.update(transactions.flatMap(tr => inlineEditTransactions(tr))),
+      state: EditorState.create({
       doc: latest.current.value,
-      extensions: [diaryMarkdown, history(), rangeField, previewField,
+      extensions: [diaryMarkdown, history(), rangeField, structureInteraction, previewField, inlineInteraction,
         EditorView.lineWrapping, placeholder('写下今天的考研日记…'),
         EditorView.contentAttributes.of({ id: 'editor-diary-content', 'aria-label': '日记正文',
           'aria-multiline': 'true', 'data-testid': 'diary-content-input', spellcheck: 'false' }),
@@ -151,6 +160,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
             latest.current.onChange(update.state.doc.toString())
           }
           if (update.docChanged || update.selectionSet) {
+            setNotice('')
             toolbarDismissed.current = false
             publishState(update.state)
           }
@@ -201,7 +211,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
 
   return <>
     <div ref={host} className="diary-live-preview" />
-    <span className="editor-visually-hidden" role="status">{notice}</span>
+    <div className="diary-format-notice" role="status" aria-live="polite" aria-atomic="true">{notice}</div>
     {position && createPortal(<div className="diary-selection-toolbar" data-diary-format="true"
       style={position} onKeyDown={e => {
         if (e.key === 'Escape') {
@@ -225,6 +235,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
     </div>, document.body)}
     {polish.review && createPortal(<DiaryPolishPopover review={polish.review}
       onClose={() => { polish.close(); viewRef.current?.focus() }} onApply={polish.apply}
+      onCandidateChange={polish.editCandidate}
       onRegenerate={() => { if (polish.review?.target) void polish.run(polish.review.action, polish.review.target) }} />, document.body)}
   </>
 })

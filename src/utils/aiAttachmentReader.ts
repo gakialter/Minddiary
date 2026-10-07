@@ -144,7 +144,7 @@ async function readTextAttachment(file: File): Promise<AIComposerAttachment> {
     }
 }
 
-async function extractPdfText(pdf: PDFDocumentProxy): Promise<{ text: string; pageCount: number }> {
+async function extractPdfText(pdf: PDFDocumentProxy): Promise<{ text: string; pageCount: number; textPageCount: number }> {
     if (pdf.numPages > AI_ATTACHMENT_LIMITS.maxPdfPages) {
         throw new Error(`PDF 页数为 ${pdf.numPages}，超过 ${AI_ATTACHMENT_LIMITS.maxPdfPages} 页限制。`)
     }
@@ -162,9 +162,9 @@ async function extractPdfText(pdf: PDFDocumentProxy): Promise<{ text: string; pa
 
     const text = pageTexts.join('\n\n').trim()
     if (!text) {
-        throw new Error('该 PDF 可能是扫描件，当前版本不支持 OCR。')
+        throw new Error('未检测到可读取文字，当前不支持扫描版 PDF。')
     }
-    return { text, pageCount: pdf.numPages }
+    return { text, pageCount: pdf.numPages, textPageCount: pageTexts.filter(page => page.trim()).length }
 }
 
 async function readPdfAttachment(file: File): Promise<AIComposerAttachment> {
@@ -174,17 +174,21 @@ async function readPdfAttachment(file: File): Promise<AIComposerAttachment> {
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
         const loadingTask = pdfjs.getDocument({
             data,
+            cMapUrl: new URL('./pdfjs/cmaps/', document.baseURI).href,
+            cMapPacked: true,
             disableFontFace: true,
             disableAutoFetch: true,
             disableStream: true,
         })
         let text = ''
         let pageCount = 0
+        let textPageCount = 0
         try {
             const pdf = await loadingTask.promise
             const extracted = await extractPdfText(pdf)
             text = extracted.text
             pageCount = extracted.pageCount
+            textPageCount = extracted.textPageCount
         } finally {
             await loadingTask.destroy()
         }
@@ -196,6 +200,7 @@ async function readPdfAttachment(file: File): Promise<AIComposerAttachment> {
             originalTextLength: text.length,
             textLength: text.length,
             pageCount,
+            textPageCount,
             truncated: false,
         }
     } catch (error) {

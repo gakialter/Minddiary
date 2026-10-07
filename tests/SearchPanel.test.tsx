@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SearchPanel from '../src/components/SearchPanel'
+import { createSearchSession, type SearchSessionState } from '../src/utils/searchSession'
 import type { Attachment, DiaryEntry, Tag } from '../src/types'
 
 const mocks = vi.hoisted(() => ({
@@ -64,6 +65,39 @@ const imageAttachment: Attachment = {
 }
 
 describe('SearchPanel diary results', () => {
+  it('restores query and filters after opening a diary, re-queries current records, and keeps fresh launches empty', async () => {
+    let session: SearchSessionState = createSearchSession()
+    const remember = (value: SearchSessionState) => { session = value }
+    mocks.entriesGetAll.mockResolvedValue([])
+    mocks.entriesSearch.mockResolvedValue([makeEntry({ id: 3, title: '旧标题', content: '定义域', mood: 'happy' })])
+    const selectEntry = vi.fn()
+    const panel = render(<SearchPanel session={session} onSessionChange={remember} onSelectEntry={selectEntry} />)
+    await waitFor(() => expect(mocks.entriesGetAll).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '定义域' } })
+    fireEvent.change(screen.getByLabelText('心情'), { target: { value: 'happy' } })
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-05-01' } })
+    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开日记 旧标题' }))
+    expect(selectEntry).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }))
+    panel.unmount()
+    mocks.entriesSearch.mockResolvedValue([
+      makeEntry({ id: 3, title: '更新标题', content: '定义域更新', mood: 'happy' }),
+      makeEntry({ id: 4, title: '不符合筛选', content: '定义域更新', mood: 'sad' }),
+    ])
+    const returned = render(<SearchPanel session={session} onSessionChange={remember} />)
+    expect(screen.getByLabelText('关键词')).toHaveValue('定义域')
+    expect(screen.getByLabelText('心情')).toHaveValue('happy')
+    expect(screen.getByLabelText('开始日期')).toHaveValue('2026-05-01')
+    await waitFor(() => expect(screen.getByLabelText('标签')).toHaveValue('1'))
+    expect(await screen.findByRole('button', { name: '打开日记 更新标题' })).toBeInTheDocument()
+    expect(screen.queryByText('旧标题')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('search-result-4')).not.toBeInTheDocument()
+    expect(mocks.entriesSearch).toHaveBeenCalledTimes(2)
+    returned.unmount()
+    render(<SearchPanel />)
+    expect(screen.getByLabelText('关键词')).toHaveValue('')
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     vi.spyOn(window, 'confirm').mockReturnValue(true)

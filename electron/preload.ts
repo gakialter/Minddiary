@@ -228,6 +228,15 @@ contextBridge.exposeInMainWorld('api', {
 
     // AI
     ai: {
+        firstSlice: {
+            openSession: (input: Record<string, never>) => ipcRenderer.invoke('ai:firstSlice:openSession', input),
+            resolveEvidence: (input: import('../src/types/api').FirstSliceResolveInput) => ipcRenderer.invoke('ai:firstSlice:resolveEvidence', input),
+            send: (input: import('../src/types/api').FirstSliceSendInput) => ipcRenderer.invoke('ai:firstSlice:send', input),
+            restrict: (input: import('../src/types/api').FirstSliceRestrictInput) => ipcRenderer.invoke('ai:firstSlice:restrict', input),
+            cancel: (input: import('../src/types/api').FirstSliceSessionInput | import('../src/types/api').FirstSliceRequestInput) => ipcRenderer.invoke('ai:firstSlice:cancel', input),
+            regenerate: (input: import('../src/types/api').FirstSliceRequestInput) => ipcRenderer.invoke('ai:firstSlice:regenerate', input),
+            closeSession: (input: import('../src/types/api').FirstSliceSessionInput) => ipcRenderer.invoke('ai:firstSlice:closeSession', input),
+        } satisfies import('../src/types/api').FirstSliceAPI,
         chat: (messages: AIMessage[]) => ipcRenderer.invoke('ai:chat', messages),
         summarize: (content: string) => ipcRenderer.invoke('ai:summarize', content),
     },

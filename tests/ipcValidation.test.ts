@@ -343,3 +343,43 @@ describe('IPC runtime payload validation', () => {
     expect(validateEntryUpdatePayload(updatePayload)).toBe(updatePayload)
   })
 })
+
+import { firstSliceValidators, validateFirstSliceEvidence, validateFirstSliceIntent } from '../electron/ipcValidation';
+describe('I3 exact First Slice IPC payload validation', () => {
+  const request = { kind:'focus_comparison',subject:{by:'id',id:1},periodA:{startDate:'2026-09-07',endDate:'2026-09-13'},periodB:{startDate:'2026-09-14',endDate:'2026-09-20'} };
+  const intent = {lifetime:'request',target:{category:'diary',operation:'disclose'},purpose:'this_question',object:'category',destination:'all'};
+  it.each([
+    ['openSession',{}],['closeSession',{session:'s'}],['cancel',{session:'s'}],['regenerate',{session:'s',requestHandle:'r'}],
+    ['resolveEvidence',{session:'s',userInput:'compare',request}],['send',{session:'s',kind:'chat',userInput:'hello'}],['restrict',{session:'s',userInput:'这次别发日记',intent}],
+  ] as const)('%s rejects extra keys, inherited/accessor objects and symbols without evaluating getters', (method,payload) => {
+    const validate=(value:unknown)=>firstSliceValidators[method](value);
+    expect(()=>validate(payload)).not.toThrow();
+    expect(()=>validate({...payload,epoch:1})).toThrow();
+    expect(()=>validate(Object.create(payload))).toThrow();
+    expect(()=>validate({...payload,[Symbol('forged')]:true})).toThrow();
+    let reads=0;const accessor={...payload};Object.defineProperty(accessor,'unexpected',{enumerable:true,get(){reads++;return 1;}});
+    expect(()=>validate(accessor)).toThrow();expect(reads).toBe(0);
+  });
+  it.each(['', ' ', 'x'.repeat(201), 123, null])('rejects invalid opaque token %s',token=>{
+    expect(()=>firstSliceValidators.closeSession({session:token})).toThrow();
+    expect(()=>firstSliceValidators.regenerate({session:'s',requestHandle:token})).toThrow();
+  });
+  it.each([
+    {...request,kind:'third_type'}, {...request,subject:{by:'id',id:0}}, {...request,subject:{by:'id',id:Number.MAX_SAFE_INTEGER+1}},
+    {...request,subject:{by:'name',name:'math'}}, {...request,subject:{by:'exact_name',name:' '}},
+    {...request,periodA:{startDate:'2026-02-30',endDate:'2026-03-02'}},
+    {...request,periodA:{startDate:'2026-09-14',endDate:'2026-09-15'}},
+    {...request,periodA:{startDate:'2026-09-13',endDate:'2026-09-07'}},
+    {...request,subject:{by:'id',id:1,verified:true}}, {...request,sql:'SELECT *'},
+  ])('rejects malformed or forged evidence %#',payload=>{expect(()=>validateFirstSliceEvidence(payload)).toThrow();});
+  it.each([
+    {...intent,lifetime:'global'}, {...intent,lifetime:'durable_preference'}, {...intent,object:{diaryId:1}},
+    {...intent,destination:'https://injected.test'}, {...intent,target:{category:'all-outbound',operation:'use'}},
+    {...intent,qualifiers:{}}, {...intent,target:{category:'diary',operation:'allow'}},
+  ])('rejects malformed restrictions %#',payload=>{expect(()=>validateFirstSliceIntent(payload)).toThrow();});
+  it('does not coerce a nested restriction object via toString',()=>{
+    let called=0;
+    expect(()=>validateFirstSliceIntent({...intent,target:{category:'diary',operation:{toString(){called++;return 'disclose';}}}})).toThrow();
+    expect(called).toBe(0);
+  });
+});

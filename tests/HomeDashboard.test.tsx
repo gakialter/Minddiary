@@ -29,15 +29,16 @@ const localDateMocks = vi.hoisted(() => ({
 }))
 
 const pomodoroMocks = vi.hoisted(() => ({
-  timer: { hasActiveTimerSession: false },
+  timer: { hasActiveTimerSession: false, dynamicModes: { WORK: { id: 'work', label: '专注', time: 1500, color: '#000' } } },
   data: { selectedTask: null as StudyTask | null },
   selectFocusTask: vi.fn(),
+  setMode: vi.fn(),
 }))
 
 vi.mock('../src/contexts/PomodoroContext', () => ({
   usePomodoroTimer: () => pomodoroMocks.timer,
   usePomodoroData: () => pomodoroMocks.data,
-  usePomodoroActions: () => ({ selectFocusTask: pomodoroMocks.selectFocusTask }),
+  usePomodoroActions: () => ({ selectFocusTask: pomodoroMocks.selectFocusTask, setMode: pomodoroMocks.setMode }),
 }))
 let mockHookState: {
   data: TodayDashboardData
@@ -588,6 +589,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     fireEvent.click(await screen.findByTestId('next-today-action-cta'))
 
     expect(pomodoroMocks.selectFocusTask).toHaveBeenCalledWith(12)
+    expect(pomodoroMocks.setMode).toHaveBeenCalledWith(pomodoroMocks.timer.dynamicModes.WORK)
     expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro')
   })
 
@@ -603,6 +605,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     fireEvent.click(screen.getByTestId('next-today-action-cta'))
 
     expect(pomodoroMocks.selectFocusTask).not.toHaveBeenCalled()
+    expect(pomodoroMocks.setMode).not.toHaveBeenCalled()
     expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro')
   })
 
@@ -701,8 +704,8 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(await screen.findByTestId('daily-action-queue')).toBeInTheDocument()
     expect(screen.getByText('Review risk pool')).toBeInTheDocument()
     expect(screen.getByText('Write reflection')).toBeInTheDocument()
-    expect(screen.getByTestId('task-status-1')).toHaveTextContent('todo')
-    expect(screen.getByTestId('task-status-2')).toHaveTextContent('done')
+    expect(screen.getByTestId('task-status-1')).toHaveTextContent('待开始')
+    expect(screen.getByTestId('task-status-2')).toHaveTextContent('已完成')
     expect(screen.getByText('AI 建议')).toBeInTheDocument()
     expect(screen.getByText('关联错题 #44')).toBeInTheDocument()
     expect(screen.getByText('关联日记 #1')).toBeInTheDocument()
@@ -978,7 +981,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
       })
     })
     expect(await screen.findByText('深入学习章节')).toBeInTheDocument()
-    expect(screen.getByText('focus · 70m')).toBeInTheDocument()
+    expect(screen.getByText('专注学习 · 70 分钟')).toBeInTheDocument()
     expect(screen.getByTestId('task-focus-loop-metrics')).toHaveTextContent('70m / 0m')
     expect(screen.getByTestId('task-source-51')).toHaveTextContent('数学 · 函数')
     expect(screen.getByTestId('task-edit-51')).toBeEnabled()
@@ -1022,7 +1025,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
     fireEvent.click(screen.getByTestId('task-edit-cancel-53'))
     expect(screen.getByText('原任务')).toBeInTheDocument()
-    expect(screen.getByText('review · 25m')).toBeInTheDocument()
+    expect(screen.getByText('复习 · 25 分钟')).toBeInTheDocument()
   })
 
   it('prevents concurrent task updates while a save is pending', async () => {
@@ -1045,7 +1048,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     await act(async () => {
       updateResult.resolve({ ...original, estimate_minutes: 70 })
     })
-    expect(await screen.findByText('review · 70m')).toBeInTheDocument()
+    expect(await screen.findByText('复习 · 70 分钟')).toBeInTheDocument()
   })
 
   it('keeps editing available for done, skipped, and linked tasks', async () => {

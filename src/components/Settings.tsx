@@ -6,6 +6,7 @@ import { coerceBoolean } from '../utils/helpers'
 import { normalizeCountdownEvents, normalizeCountdownSettings } from '../utils/countdown'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
+import { DEFAULT_AI_MODEL } from '../data/aiProviders'
 import {
   validateMistakeWritePayload,
   type MistakeWritePayload,
@@ -49,7 +50,7 @@ function Settings() {
   const [aiApiKeyMasked, setAiApiKeyMasked] = useState<string | null>(null)
   const [aiKeyDirty, setAiKeyDirty] = useState(false)
   const [clearKeyRequested, setClearKeyRequested] = useState(false)
-  const [aiModel, setAiModel] = useState('deepseek-v4-flash')
+  const [aiModel, setAiModel] = useState(DEFAULT_AI_MODEL)
   const [aiVisionEnabled, setAiVisionEnabled] = useState(false)
   const [autoSave, setAutoSave] = useState(true)
   const [pomodoroMinutes, setPomodoroMinutes] = useState(25)
@@ -117,7 +118,7 @@ function Settings() {
       setAiEndpoint((settings.aiEndpoint as string) || '')
       setAiApiKeyPresent(settings.aiApiKeyPresent)
       setAiApiKeyMasked(settings.aiApiKeyMasked || null)
-      setAiModel((settings.aiModel as string) || 'deepseek-v4-flash')
+      setAiModel((settings.aiModel as string) || DEFAULT_AI_MODEL)
       setAiVisionEnabled(coerceBoolean(settings.aiVisionEnabled, false))
       setAutoSave(coerceBoolean(settings.autoSave, true))
       setPomodoroMinutes(parseInt(String(settings.pomodoroMinutes)) || 25)

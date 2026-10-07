@@ -248,6 +248,18 @@ export function createSubjectChaptersRepository(db: Database.Database) {
     }
 
     return {
+        getFirstSliceProgressRows(subjectId: number) {
+            const rows = db.prepare(`
+                SELECT title, sort_order, completed FROM subject_chapters
+                WHERE subject_id = ? ORDER BY sort_order ASC, id ASC
+            `).all(subjectId) as Array<{ title: string; sort_order: number; completed: number }>;
+            return rows.map(row => {
+                if (row.completed !== 0 && row.completed !== 1) {
+                    throw new Error('Invalid chapter completion mark');
+                }
+                return { title: row.title, sort_order: row.sort_order, completed: row.completed === 1 };
+            });
+        },
         getBySubject,
         createChapter: createOneTransaction,
         bulkCreateChapters: bulkCreateTransaction,

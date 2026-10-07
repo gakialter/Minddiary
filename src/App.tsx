@@ -26,7 +26,7 @@ import {
   type DiaryTaskSettlementCandidates,
   type DiaryTaskSettlementResult,
 } from './utils/diaryTaskSettlement'
-import type { DiaryEntry, MoodId } from './types'
+import type { DiaryEntry, Mistake, MoodId } from './types'
 import type { PendingDiaryInsert } from './components/Editor'
 import type { MistakeFilterIntent } from './components/MistakeBook'
 import type { DiarySaveOptions } from './hooks/useNavigation'
@@ -71,7 +71,7 @@ function AppContent() {
   const {
     activeView, setActiveView,
     selectedDate, setSelectedDate,
-    changeDate, viewTitle,
+    changeDate, viewTitle, searchSession, setSearchSession,
   } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
   const mainRef = useRef<HTMLElement>(null)
@@ -83,11 +83,17 @@ function AppContent() {
   const [entry, setEntry] = useState<DiaryEntry | null>(null)
   const [loading, setLoading] = useState(false)
   const loadRequestId = useRef(0)
+  const saveGenerationRef = useRef(0)
+  const metadataSaveGenerationRef = useRef(0)
+  const selectedDateRef = useRef(selectedDate)
+  selectedDateRef.current = selectedDate
+  // Initial saves share only the creation of an id; later drafts update that id.
+  const entryCreationRef = useRef<{ date: string; loadRequest: number; promise: Promise<DiaryEntry> } | null>(null)
   const [isFirstLaunch, setIsFirstLaunch] = useState(() => !localStorage.getItem('started'))
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [showExport, setShowExport] = useState(false)
-  const [showBreakReview, setShowBreakReview] = useState(false)
+  const [breakReviewMistake, setBreakReviewMistake] = useState<Mistake | null>(null)
   const [pendingDiaryInsert, setPendingDiaryInsert] = useState<PendingDiaryInsert | null>(null)
   const [pendingDiarySettlement, setPendingDiarySettlement] = useState<PendingDiarySettlement | null>(null)
   const [pendingMistakeFilter, setPendingMistakeFilter] = useState<MistakeFilterIntent | null>(null)
@@ -100,9 +106,17 @@ function AppContent() {
   const { setOnBreakStart, dismissAlert, settleFocusTask, resolveFocusReviewEntryCreation } = usePomodoroActions()
 
   useEffect(() => {
-    setOnBreakStart(() => setShowBreakReview(true))
-    return () => setOnBreakStart(null)
-  }, [setOnBreakStart])
+    let disposed = false
+    setOnBreakStart(() => {
+      void diary.mistakes.getRandomDue(currentDateKey).then(mistake => {
+        if (!disposed) setBreakReviewMistake(mistake ?? null)
+      }).catch(error => {
+        logger.error('Failed to check break review:', error)
+        if (!disposed) showToast('暂时无法检查待复习错题，可稍后从错题本重试。', 'info')
+      })
+    })
+    return () => { disposed = true; setOnBreakStart(null) }
+  }, [currentDateKey, diary.mistakes, setOnBreakStart])
 
   const navigateToView = useCallback((view: string) => {
     if (isPomodoroFullscreenActive && view !== activeView) {
@@ -243,12 +257,19 @@ function AppContent() {
   }
 
   // saveEntry receives Partial<DiaryEntry>. Tags are stripped out and saved
-  // separately via setEntryTags after the entry itself is persisted. When
-  // called from MoodPicker (which passes the full entry spread), `tags` will
-  // be present but is deliberately handled via setEntryTags rather than being
-  // sent to entries.create/update. When `tags` is absent (undefined), the
-  // setEntryTags call is skipped — this is intentional.
+  // separately via setEntryTags after the entry itself is persisted.
+  // Metadata-only changes (such as mood) leave the editor draft untouched.
+  // When `tags` is absent (undefined), setEntryTags is deliberately skipped.
   const saveEntry = async (updated: Partial<DiaryEntry>, options?: DiarySaveOptions): Promise<DiaryEntry | null> => {
+    const date = selectedDate
+    const loadRequest = loadRequestId.current
+    const savesDraft = updated.title !== undefined || updated.content !== undefined || updated.tags !== undefined
+    const generationRef = savesDraft ? saveGenerationRef : metadataSaveGenerationRef
+    const generation = ++generationRef.current
+    const isCurrentDiary = () => selectedDateRef.current === date && loadRequestId.current === loadRequest
+    const isCurrentRevision = () => (
+      isCurrentDiary() && generation === generationRef.current && (options?.isCurrentRevision?.() ?? true)
+    )
     try {
       const { tags, ...entryData } = updated
       const tagIds = Array.isArray(tags) ? tags : undefined
@@ -256,20 +277,53 @@ function AppContent() {
       if (entry?.id) {
         saved = await diary.entries.update(entry.id, entryData)
       } else {
-        saved = await diary.entries.create({
-          date: selectedDate,
-          title: entryData.title || '',
-          content: entryData.content || '',
-          mood: entryData.mood ?? null,
-          ...(entryData.images ? { images: entryData.images } : {}),
-        })
+        const creation = entryCreationRef.current
+        if (creation?.date === date && creation.loadRequest === loadRequest) {
+          const created = await creation.promise
+          saved = await diary.entries.update(created.id, entryData)
+        } else {
+          const promise = diary.entries.create({
+            date,
+            title: entryData.title || '',
+            content: entryData.content || '',
+            mood: entryData.mood ?? null,
+            ...(entryData.images ? { images: entryData.images } : {}),
+          })
+          entryCreationRef.current = { date, loadRequest, promise }
+          try {
+            saved = await promise
+          } catch (error) {
+            if (entryCreationRef.current?.promise === promise) entryCreationRef.current = null
+            throw error
+          }
+        }
       }
       if (saved) {
         if (tagIds) {
           await diary.tags.setEntryTags(saved.id, tagIds)
         }
-        setEntry({ ...saved, tags: tagIds || saved.tags || [] })
-        await maybeOfferDiaryTaskSettlement(saved, options)
+        const savedEntry = saved
+        setEntry(current => {
+          if (!isCurrentDiary()) return current
+          if (isCurrentRevision()) {
+            if (!savesDraft && current) {
+              return {
+                ...current, ...entryData, id: savedEntry.id,
+                created_at: savedEntry.created_at, updated_at: savedEntry.updated_at,
+              }
+            }
+            return {
+              ...savedEntry, tags: tagIds || savedEntry.tags || [],
+              mood: entryData.mood === undefined && current ? current.mood : savedEntry.mood,
+            }
+          }
+          // A stale first save can supply an id without echoing its old draft.
+          if (current?.date === date && !current.id) {
+            return { ...current, id: savedEntry.id, created_at: savedEntry.created_at }
+          }
+          return current
+        })
+        if (isCurrentRevision()) await maybeOfferDiaryTaskSettlement(saved, options)
       }
       return saved
     } catch (error) {
@@ -313,6 +367,7 @@ function AppContent() {
       onMistakeFilterIntent: handleMistakeFilterIntent,
       onMistakeFilterIntentApplied: handleMistakeFilterIntentApplied,
       onPomodoroFullscreenChange: setIsPomodoroFullscreenActive,
+      searchSession, onSearchSessionChange: setSearchSession,
     })
   }
 
@@ -347,7 +402,7 @@ function AppContent() {
             <div className="shell-page-actions">
               {activeView === 'editor' && entry && (
                 <div className="shell-page-mood">
-                  <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ ...entry, mood })} />
+                  <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ mood })} />
                 </div>
               )}
               <button
@@ -390,7 +445,9 @@ function AppContent() {
       />
       <ToastContainer />
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
-      {showBreakReview && <BreakReviewModal onClose={() => setShowBreakReview(false)} />}
+      {breakReviewMistake && !alertState.visible && (
+        <BreakReviewModal initialMistake={breakReviewMistake} onClose={() => setBreakReviewMistake(null)} />
+      )}
       <PomodoroAlert
         visible={alertState.visible}
         isWorkComplete={alertState.isWorkComplete}

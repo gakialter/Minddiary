@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { getLocalDateKey, isDateKey, toLocalDateTimeString } from '../../src/utils/dateKey';
 import type { PomodoroRangeEntry, PomodoroSession, PomodoroStat } from '../../src/types/index';
+import type { FocusPeriodResult, Period } from '../../src/types/api';
 
 export function createPomodoroRepository(db: Database.Database) {
     function normalizeOptionalDateTime(value: unknown): string | null {
@@ -21,6 +22,36 @@ export function createPomodoroRepository(db: Database.Database) {
     }
 
     return {
+        getFirstSliceFocusComparison(subjectId: number, periodA: Period, periodB: Period) {
+            function readPeriod(period: Period): FocusPeriodResult {
+                if (!db.open) {
+                    return { status: 'unavailable', recordedMinutes: null, observedDateCount: null };
+                }
+                try {
+                    const row = db.prepare(`
+                        SELECT COALESCE(SUM(duration), 0) AS recordedMinutes,
+                               COUNT(DISTINCT date_key) AS observedDateCount
+                        FROM pomodoro_sessions
+                        WHERE subject_id = ? AND date_key BETWEEN ? AND ?
+                    `).get(subjectId, period.startDate, period.endDate) as {
+                        recordedMinutes: number; observedDateCount: number;
+                    };
+                    const days = (Date.parse(period.endDate) - Date.parse(period.startDate)) / 86400000 + 1;
+                    if (typeof row?.recordedMinutes !== 'number' || !Number.isFinite(row.recordedMinutes)
+                        || row.recordedMinutes < 0 || !Number.isSafeInteger(row.observedDateCount)
+                        || row.observedDateCount < 0 || row.observedDateCount > days
+                        || (row.observedDateCount === 0 && row.recordedMinutes !== 0)) {
+                        throw new Error('Invalid focus aggregate');
+                    }
+                    return { status: row.observedDateCount === 0 ? 'empty' : 'ok', ...row };
+                } catch {
+                    return { status: 'failed', recordedMinutes: null, observedDateCount: null };
+                }
+            }
+            // Both periods are fixed before reading. Failure of A never causes a retry or prevents B.
+            return { periodA: readPeriod(periodA), periodB: readPeriod(periodB) };
+        },
+
         addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
             const completedAt = normalizeOptionalDateTime(completed_at) || toLocalDateTimeString();
             const startedAt = normalizeOptionalDateTime(started_at);

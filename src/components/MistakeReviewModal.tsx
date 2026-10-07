@@ -23,6 +23,7 @@ export interface MistakeReviewModalProps {
     onClose: () => void
     variant: 'break' | 'manual'
     subjectId?: number
+    initialMistake?: Mistake
 }
 
 type ReviewPhase = 'question' | 'answer' | 'done'
@@ -43,11 +44,11 @@ const parseImagePaths = (raw?: string | null): string[] => {
     return [trimmed]
 }
 
-export default function MistakeReviewModal({ onClose, variant, subjectId }: MistakeReviewModalProps) {
+export default function MistakeReviewModal({ onClose, variant, subjectId, initialMistake }: MistakeReviewModalProps) {
     const modalRef = useModalFocus(onClose)
     const diary = useDiary()
-    const [mistake, setMistake] = useState<Mistake | null>(null)
-    const [loading, setLoading] = useState(true)
+    const [mistake, setMistake] = useState<Mistake | null>(initialMistake ?? null)
+    const [loading, setLoading] = useState(!initialMistake)
     const [phase, setPhase] = useState<ReviewPhase>('question')
     const [noMistakes, setNoMistakes] = useState(false)
     const [reviewing, setReviewing] = useState(false)
@@ -98,8 +99,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId }: Mist
     }, [diary.mistakes, subjectId])
 
     useEffect(() => {
-        loadRandomMistake()
-    }, [loadRandomMistake])
+        if (!initialMistake) void loadRandomMistake()
+    }, [initialMistake, loadRandomMistake])
 
     const handleReview = async (quality: number) => {
         if (!mistake || reviewInFlightRef.current) return

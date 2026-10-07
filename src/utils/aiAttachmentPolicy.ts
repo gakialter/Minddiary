@@ -12,6 +12,7 @@ export interface AIComposerAttachment {
     dataUrl?: string
     extractedText?: string
     pageCount?: number
+    textPageCount?: number
     error?: string
     truncated?: boolean
     originalTextLength?: number
@@ -123,6 +124,10 @@ export function getReadyAttachmentError(attachments: AIComposerAttachment[]): st
     if (reading) return `附件 ${reading.name} 仍在读取中。`
     const failed = attachments.find(attachment => attachment.status === 'error')
     if (failed) return `附件 ${failed.name} 读取失败：${failed.error || '未知错误'}`
+    const empty = attachments.find(attachment => attachment.status === 'ready' && (
+        attachment.kind === 'image' ? !attachment.dataUrl : !attachment.extractedText?.trim()
+    ))
+    if (empty) return `附件 ${empty.name} 没有可发送的内容，请移除后重新添加。`
     const extractedChars = attachments
         .filter(attachment => attachment.kind !== 'image')
         .reduce((sum, attachment) => sum + (attachment.extractedText?.length || 0), 0)

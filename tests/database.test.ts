@@ -56,6 +56,16 @@ type StudyTaskRow = {
 }
 
 type DatabaseModule = {
+  getDb: () => import('better-sqlite3').Database
+  getFirstSliceSourceStamp: () => import('../electron/database').FirstSliceSourceStamp | null
+  createSubjectChapter: (input: import('../src/types').CreateSubjectChapterInput) => { id: number }
+  patchSubjectChapter: (id: number, patch: import('../src/types').SubjectChapterPatch) => unknown
+  toggleSubjectChapterCompleted: (id: number, completed: boolean) => unknown
+  reorderSubjectChapters: (id: number, chapters: number[]) => unknown
+  deleteSubjectChapter: (id: number) => unknown
+  bulkCreateSubjectChapters: (input: import('../src/types').BulkSubjectChaptersInput) => unknown
+  clearDetailedSubjectChapters: (id: number) => unknown
+  convertSubjectToDetailedChapters: (input: import('../src/types').ConvertSubjectChaptersInput) => unknown
   initialize: () => void
   createEntry: (entry: Pick<DiaryEntry, 'date' | 'title' | 'content' | 'mood'>) => Partial<DiaryEntry>
   updateEntry: (id: number, entry: Partial<Pick<DiaryEntry, 'title' | 'content' | 'mood'>>) => DiaryEntry | undefined
@@ -115,6 +125,7 @@ type DatabaseModule = {
 }
 
 const state = vi.hoisted(() => ({
+  realFactory: null as null | (() => unknown),
   preparedCalls: [] as PreparedCall[],
   execCalls: [] as string[],
   tagRows: [] as BatchTagRow[],
@@ -171,6 +182,7 @@ vi.mock('../electron/mistakeImageStorage', () => mistakeImageStorageState)
 
 vi.mock('better-sqlite3', () => {
   const MockBetterSqlite3 = vi.fn(function MockBetterSqlite3() {
+    if (state.realFactory) return state.realFactory()
     return {
       pragma: vi.fn((statement: string) => {
         if (statement === 'user_version') return state.userVersion
@@ -1244,7 +1256,8 @@ describe('database pomodoro facade APIs', () => {
       completed_at: '2026-06-06 09:25:00',
     })
 
-    const insertCall = lastPreparedCall()
+    expect(lastPreparedCall().sql).toBe('SELECT total_changes() AS count')
+    const insertCall = state.preparedCalls[state.preparedCalls.length - 2]!
     expect(insertCall.sql).toBe('INSERT INTO pomodoro_sessions (subject_id, task_id, duration, date_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)')
     expect(insertCall.params).toEqual([null, null, 25, '2026-06-06', '2026-06-06 09:00:00', '2026-06-06 09:25:00'])
 
@@ -1893,5 +1906,68 @@ describe('database mistake image cleanup', () => {
     await database.updateMistake(1, { image_path: 'mistake_images/case.png' })
 
     expect(mistakeImageStorageState.deleteManagedMistakeImage).not.toHaveBeenCalled()
+  })
+})
+
+// I3: real SQLite forwarding/PRAGMA tests use the existing module loader while
+// overriding only this file's constructor mock for their disposable database.
+describe('I3 database source markers on the authoritative connection', () => {
+  it('marks subject/chapter/focus writes, preserves reads/failures, observes a second connection and trusted date', async () => {
+    const actual = await vi.importActual<{ default: typeof import('better-sqlite3') }>('better-sqlite3')
+    const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path')
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-i3-source-'))
+    const filename = path.join(folder, 'fixture.db')
+    state.realFactory = () => new actual.default(filename)
+    const database = await loadDatabase()
+    const connection = database.getDb()
+    try {
+      const before = database.getFirstSliceSourceStamp()!
+      expect(before).toEqual({ connectionGeneration: 1, dataRevision: 0, externalDataVersion: expect.any(Number),
+        observedDate: (await import('../src/utils/dateKey')).getLocalDateKey() })
+      database.getAllSubjects(); database.getPomodoroStats('2026-09-27')
+      expect(database.getFirstSliceSourceStamp()).toEqual(before)
+      const subject = database.createSubject({ name: 'I3 synthetic', total_chapters: 0 })
+      expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(before.dataRevision + 1)
+      database.clearDetailedSubjectChapters(Number(subject.id))
+      expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(before.dataRevision + 1)
+      const chapter = database.createSubjectChapter({ subject_id: Number(subject.id), title: '第一章' })
+      expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(before.dataRevision + 2)
+      database.addPomodoroSession({ subject_id: Number(subject.id), duration: 25, date_key: '2026-09-27' })
+      expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(before.dataRevision + 3)
+      const stable = database.getFirstSliceSourceStamp()
+      expect(() => database.createSubjectChapter({ subject_id: -1, title: 'bad' })).toThrow()
+      expect(database.getFirstSliceSourceStamp()).toEqual(stable)
+      const writes = [
+        () => database.patchSubjectChapter(chapter.id, { title: '改名' }),
+        () => database.toggleSubjectChapterCompleted(chapter.id, true),
+        () => database.reorderSubjectChapters(Number(subject.id), [chapter.id]),
+        () => database.deleteSubjectChapter(chapter.id),
+        () => database.bulkCreateSubjectChapters({ subject_id: Number(subject.id), chapters: [{ title: '第二章' }] }),
+        () => database.clearDetailedSubjectChapters(Number(subject.id)),
+        () => database.convertSubjectToDetailedChapters({ subject_id: Number(subject.id), chapters: [{ title: '第三章' }], markCompletedCount: 0 }),
+        () => database.updateSubject(Number(subject.id), { name: 'after', total_chapters: 1, completed_chapters: 0, color: '#000000' }),
+        () => database.deleteSubject(Number(subject.id)),
+      ]
+      for (const write of writes) {
+        const revision = database.getFirstSliceSourceStamp()!.dataRevision
+        write()
+        expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(revision + 1)
+      }
+      const second = new actual.default(filename)
+      const externalBefore = database.getFirstSliceSourceStamp()!
+      try { second.prepare('INSERT INTO subjects(name) VALUES(?)').run('external') } finally { second.close() }
+      expect(database.getFirstSliceSourceStamp()!.externalDataVersion).not.toBe(externalBefore.externalDataVersion)
+      expect(database.getFirstSliceSourceStamp()!.dataRevision).toBe(externalBefore.dataRevision)
+      const pragma = connection.pragma.bind(connection)
+      vi.spyOn(connection, 'pragma').mockImplementation((query: string, options?: import('better-sqlite3').PragmaOptions) => {
+        if (query === 'data_version') throw new Error('synthetic unreadable version')
+        return pragma(query, options)
+      })
+      expect(database.getFirstSliceSourceStamp()).toBeNull()
+    } finally {
+      state.realFactory = null
+      connection.close()
+      fs.rmSync(folder, { recursive: true, force: true })
+    }
   })
 })

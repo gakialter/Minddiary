@@ -18,6 +18,7 @@ import {
 } from '../utils/todayExecution'
 import type { NewStudyTask, StudyTask, StudyTaskType, Subject, SubjectChapter } from '../types'
 import { getPlanningRunsAPI } from '../utils/planningHistoryClient'
+import { STUDY_TASK_STATUS_LABELS, STUDY_TASK_TYPE_LABELS } from '../utils/studyTaskLabels'
 
 const TASK_ESTIMATE_MINUTES_MIN = 1
 const TASK_ESTIMATE_MINUTES_MAX = 240
@@ -62,9 +63,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [dailyReviewAgentOpenDate, setDailyReviewAgentOpenDate] = useState<string | null>(null)
   const [planningHistoryOpen, setPlanningHistoryOpen] = useState(false)
   const todayDate = useCurrentLocalDateKey()
-  const { hasActiveTimerSession } = usePomodoroTimer()
+  const { hasActiveTimerSession, dynamicModes } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
-  const { selectFocusTask } = usePomodoroActions()
+  const { selectFocusTask, setMode } = usePomodoroActions()
 
   const config = useDashboardMasterState(data)
 
@@ -312,7 +313,10 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
       return
     }
     if (nextAction.kind === 'task' && nextAction.task) {
-      selectFocusTask(nextAction.task.id)
+      if (!hasActiveTimerSession) {
+        selectFocusTask(nextAction.task.id)
+        setMode(dynamicModes.WORK!)
+      }
       setActiveView('pomodoro')
       return
     }
@@ -363,7 +367,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               <p id="today-action-next-reason" className="today-action__next-reason">{nextAction.reason}</p>
               {nextAction.task && (
                 <div className="today-action__next-meta">
-                  <span>{nextAction.task.status} · 预计 {nextAction.task.estimate_minutes} 分钟</span>
+                  <span>{STUDY_TASK_STATUS_LABELS[nextAction.task.status]} · 预计 {nextAction.task.estimate_minutes} 分钟</span>
                   <span data-testid="next-action-source">
                     来源：{recommendedTaskSource?.label ?? '今日任务'}
                   </span>
@@ -439,7 +443,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                   今日行动队列
                 </h2>
                 <p className="today-action__queue-summary">
-                  todo {taskStatusCounts.todo} · doing {taskStatusCounts.doing} · done {taskStatusCounts.done} · skipped {taskStatusCounts.skipped}
+                  待开始 {taskStatusCounts.todo} · 进行中 {taskStatusCounts.doing} · 已完成 {taskStatusCounts.done} · 已跳过 {taskStatusCounts.skipped}
                 </p>
               </div>
               {(taskLoading || taskMutating) && (
@@ -471,11 +475,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                   onChange={event => setNewTaskType(event.target.value as StudyTaskType)}
                   className="input"
                 >
-                  <option value="custom">custom</option>
-                  <option value="review">review</option>
-                  <option value="focus">focus</option>
-                  <option value="diary">diary</option>
-                  <option value="mistake">mistake</option>
+                  {Object.entries(STUDY_TASK_TYPE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </label>
               <label className="today-action__field" htmlFor="today-task-estimate">
@@ -606,10 +608,10 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                             className="today-action__task-status"
                             data-status={task.status}
                           >
-                            {task.status}
+                            {STUDY_TASK_STATUS_LABELS[task.status]}
                           </span>
                           <span className="today-action__task-meta">
-                            {task.type} · {task.estimate_minutes}m
+                            {STUDY_TASK_TYPE_LABELS[task.type]} · {task.estimate_minutes} 分钟
                           </span>
                           {task.source === 'ai' && (
                             <span className="today-action__task-tag today-action__task-tag--ai">

@@ -1,6 +1,6 @@
 {
     "name": "minddiary",
-    "version": "1.19.1",
+    "version": "1.20.0",
     "description": "考研日记桌面应用",
     "engines": {
         "node": ">=22.12.0"
@@ -14,8 +14,10 @@
     "scripts": {
         "build:electron": "tsc -p tsconfig.electron.json",
         "build:resources": "npx tsx scripts/create-icon.ts",
-        "dev": "npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-        "electron:dev": "electron .",
+        "dev": "npm run native:ensure-electron && npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "electron:dev": "npm run native:ensure-electron && electron .",
+        "native:ensure-electron": "node scripts/native-runtime.mjs ensure-electron",
+        "native:doctor": "node scripts/native-runtime.mjs doctor",
         "postinstall": "electron-builder install-app-deps",
         "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
         "verify:electron-native": "node scripts/verify-electron-native.mjs",
@@ -31,7 +33,7 @@
         "build:mac": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --mac && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
         "build:win": "npm run build:electron && vite build && npm run build:resources && npm run rebuild:electron && npm run verify:electron-native && electron-builder --win && npm run verify:electron-package-security:release && npm run verify:electron-native:packaged",
         "preview": "vite preview",
-        "test": "vitest",
+        "test": "node scripts/native-runtime.mjs run-node -- vitest",
         "test:e2e": "playwright test",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json"
     },

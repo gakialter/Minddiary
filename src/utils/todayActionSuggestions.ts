@@ -256,7 +256,7 @@ export function buildTodayActionPlanningContextPreview(
       included: chapterProjection.chapter_progress.length > 0,
       reason: chapterProjection.chapter_progress.length > 0
         ? '仅提供按冻结窗口与全局上限筛选的只读章节进度，不建立任务与章节关系。'
-        : '本次没有可安全提供的 bounded 章节进度。',
+        : '本次没有可安全提供的章节进度。',
       count: chapterProjection.chapter_progress.length,
     },
     {

@@ -1,5 +1,6 @@
 // Mock 数据 - 用于前端开发和测试
 import type { DiaryEntry, Tag, AppSettings, Subject, SubjectChapter, Mistake, MoodId, StorageKeys } from '../types'
+import { DEFAULT_AI_MODEL } from './aiProviders'
 
 export const mockTags: Tag[] = [
   { id: 1, name: '政治', color: '#C65A3A' },
@@ -112,7 +113,7 @@ export const mockSettings: AppSettings = {
   aiEndpoint: '',
   aiApiKeyMasked: null,
   aiApiKeyPresent: false,
-  aiModel: 'gpt-3.5-turbo',
+  aiModel: DEFAULT_AI_MODEL,
   aiVisionEnabled: false,
   pomodoroMinutes: 25,
   focusGuardEnabled: false,

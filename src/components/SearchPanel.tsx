@@ -12,16 +12,12 @@ import { showToast } from './Toast'
 import { isBlankDiaryEntry } from '../utils/diaryEntry'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import type { Attachment, DiaryEntry, Tag } from '../types'
+import { createSearchSession, type SearchFilters, type SearchIntent, type SearchSessionState } from '../utils/searchSession'
 
 interface SearchPanelProps {
   onSelectEntry?: (entry: DiaryEntry) => void
-}
-
-interface SearchFilters {
-  mood: string
-  startDate: string
-  endDate: string
-  tagId: number | null
+  session?: SearchSessionState
+  onSessionChange?: (session: SearchSessionState) => void
 }
 
 type SearchResultEntry = DiaryEntry & {
@@ -37,7 +33,7 @@ const normalizeEntryIds = (entries: DiaryEntry[]): number[] => (
   ))
 )
 
-function SearchPanel({ onSelectEntry }: SearchPanelProps) {
+function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelProps) {
   const diary = useDiary()
   const getEntries = diary.entries.getAll
   const searchEntries = diary.entries.search
@@ -45,15 +41,12 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
   const getTags = diary.tags.getAll
   const getEntryTagsBatch = diary.tags.getEntryTagsBatch
   const getEntryAttachmentsBatch = diary.attachments.getByEntries
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(session?.query ?? '')
   const [results, setResults] = useState<SearchResultEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const [filters, setFilters] = useState<SearchFilters>({
-    mood: '',
-    startDate: '',
-    endDate: '',
-    tagId: null,
-  })
+  const [filters, setFilters] = useState<SearchFilters>(session?.filters ?? createSearchSession().filters)
+  const [submitted, setSubmitted] = useState<SearchIntent | null>(session?.submitted ?? null)
+  const initialIntent = useRef(session?.submitted ?? null)
   const [tags, setTags] = useState<Tag[]>([])
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
   const searchRequestIdRef = useRef(0)
@@ -139,11 +132,13 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
 
   useEffect(() => {
     void loadTags()
-    // Load recent entries on mount
-    void loadRecent()
-  }, [loadRecent, loadTags])
+  }, [loadTags])
 
-  const handleSearch = useCallback(async () => {
+  useEffect(() => {
+    onSessionChange?.({ query, filters, submitted })
+  }, [query, filters, submitted, onSessionChange])
+
+  const runSearch = useCallback(async ({ query, filters }: SearchIntent) => {
     if (!query.trim() && !filters.mood && !filters.startDate && !filters.endDate && !filters.tagId) {
       await loadRecent()
       return
@@ -162,7 +157,12 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
           tagId: filters.tagId ?? undefined,
         })
       }
-      const enriched = await enrichResults(data || [])
+      const enriched = (await enrichResults(data || [])).filter(entry => (
+        (!filters.mood || entry.mood === filters.mood)
+        && (!filters.startDate || entry.date >= filters.startDate)
+        && (!filters.endDate || entry.date <= filters.endDate)
+        && (!filters.tagId || entry.tags?.includes(filters.tagId))
+      ))
       if (requestId === searchRequestIdRef.current) {
         setResults(enriched)
       }
@@ -173,11 +173,26 @@ function SearchPanel({ onSelectEntry }: SearchPanelProps) {
         setLoading(false)
       }
     }
-  }, [query, filters, enrichResults, getEntries, loadRecent, searchEntries])
+  }, [enrichResults, getEntries, loadRecent, searchEntries])
+
+  useEffect(() => {
+    if (initialIntent.current) void runSearch(initialIntent.current)
+    else void loadRecent()
+    return () => { searchRequestIdRef.current++ }
+  }, [loadRecent, runSearch])
+
+  const handleSearch = () => {
+    const intent = { query, filters }
+    initialIntent.current = intent
+    setSubmitted(intent)
+    void runSearch(intent)
+  }
 
   const clearFilters = () => {
+    initialIntent.current = null
     setQuery('')
     setFilters({ mood: '', startDate: '', endDate: '', tagId: null })
+    setSubmitted(null)
     void loadRecent()
   }
 

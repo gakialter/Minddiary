@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { Subject } from '../../src/types/index';
+import type { SubjectIdentity, SubjectRef } from '../../src/types/api';
 
 const DEFAULT_SUBJECT_COLOR = '#0F766E';
 
@@ -16,6 +17,18 @@ export function createSubjectsRepository(db: Database.Database) {
     });
 
     return {
+        resolveFirstSliceSubject(ref: SubjectRef): SubjectIdentity[] {
+            return ref.by === 'id'
+                ? db.prepare('SELECT id, name FROM subjects WHERE id = ?').all(ref.id) as SubjectIdentity[]
+                : db.prepare('SELECT id, name FROM subjects WHERE name COLLATE BINARY = ? ORDER BY id ASC')
+                    .all(ref.name) as SubjectIdentity[];
+        },
+
+        getFirstSliceProgressAggregate(subjectId: number) {
+            return db.prepare('SELECT total_chapters, completed_chapters FROM subjects WHERE id = ?')
+                .get(subjectId) as { total_chapters: number; completed_chapters: number } | undefined;
+        },
+
         getAllSubjects(): Subject[] {
             return db.prepare('SELECT * FROM subjects ORDER BY name').all() as Subject[];
         },

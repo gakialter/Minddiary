@@ -4,15 +4,15 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.19.1 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.19.1')
+  it('bundles the current v1.20.0 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.20.0')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('日常复盘')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('AI 选区润色')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('PNG、JPEG、WebP')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('扫描版 PDF 不支持 OCR')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('日记选区润色')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 8')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('Schema 7 → 8')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('5 → 6 → 7 → 8')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('无新增数据迁移')
   })
 
   it('normalizes a remote string release note', () => {

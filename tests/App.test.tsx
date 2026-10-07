@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     find: vi.fn(),
     update: vi.fn(),
   },
+  mistakes: { getRandomDue: vi.fn() },
   requestDataRefresh: vi.fn(),
   setOnBreakStart: vi.fn(),
   breakStartCallback: null as (() => void) | null,
@@ -46,6 +47,7 @@ vi.mock('../src/contexts/DiaryContext', () => ({
     entries: mocks.entries,
     tags: mocks.tags,
     tasks: mocks.tasks,
+    mistakes: mocks.mistakes,
     requestDataRefresh: mocks.requestDataRefresh,
   }),
 }))
@@ -187,6 +189,7 @@ vi.mock('../src/components/Toast', () => ({
 describe('App diary save flow', () => {
   beforeEach(() => {
     mocks.activeView = 'editor'
+    mocks.mistakes.getRandomDue.mockReset().mockResolvedValue(null)
     localStorage.clear()
     localStorage.setItem('started', 'true')
     mocks.entries.getByDate.mockReset()
@@ -383,6 +386,7 @@ describe('App diary save flow', () => {
   })
 
   it('opens break review only when the natural completion callback fires', async () => {
+    mocks.mistakes.getRandomDue.mockResolvedValue({ id: 1, question: '复习题' })
     render(<App />)
 
     expect(screen.queryByTestId('mock-break-review-modal')).not.toBeInTheDocument()
@@ -392,6 +396,26 @@ describe('App diary save flow', () => {
       mocks.breakStartCallback?.()
     })
 
+    expect(screen.getByTestId('mock-break-review-modal')).toBeInTheDocument()
+  })
+
+  it('skips empty break review without hiding completion feedback', async () => {
+    mocks.alertState.visible = true
+    render(<App />)
+    await act(async () => { mocks.breakStartCallback?.() })
+    expect(mocks.mistakes.getRandomDue).toHaveBeenCalled()
+    expect(screen.queryByTestId('mock-break-review-modal')).not.toBeInTheDocument()
+    expect(screen.getByTestId('mock-alert-kind')).toBeInTheDocument()
+  })
+
+  it('keeps a due review available after completion settlement has been dismissed', async () => {
+    mocks.alertState.visible = true
+    mocks.mistakes.getRandomDue.mockResolvedValue({ id: 1, question: '复习题' })
+    const { rerender } = render(<App />)
+    await act(async () => { mocks.breakStartCallback?.() })
+    expect(screen.queryByTestId('mock-break-review-modal')).not.toBeInTheDocument()
+    mocks.alertState.visible = false
+    rerender(<App />)
     expect(screen.getByTestId('mock-break-review-modal')).toBeInTheDocument()
   })
 

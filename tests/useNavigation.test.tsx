@@ -46,6 +46,20 @@ describe('VIEW_CONFIG', () => {
 })
 
 describe('useNavigation', () => {
+  it('keeps search intent across views only within the current application session', () => {
+    const first = renderHook(() => useNavigation())
+    const intent = { query: '定义域', filters: { mood: 'happy', startDate: '', endDate: '', tagId: null } }
+    act(() => {
+      first.result.current.setSearchSession({ ...intent, submitted: intent })
+      first.result.current.setActiveView('editor')
+    })
+    act(() => first.result.current.setActiveView('search'))
+    expect(first.result.current.searchSession).toEqual({ ...intent, submitted: intent })
+    first.unmount()
+    const next = renderHook(() => useNavigation())
+    expect(next.result.current.searchSession.query).toBe('')
+    expect(next.result.current.searchSession.submitted).toBeNull()
+  })
   it('starts on the home view with today selected', () => {
     const { result } = renderHook(() => useNavigation())
 

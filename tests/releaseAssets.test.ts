@@ -180,9 +180,15 @@ describe('release asset allowlist', () => {
       )
     }
 
-    expect(ciWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(2)
+    const [unitJob, packagingJob] = ciWorkflow.split('  build-verification:')
+    expect(packageJson.scripts.test).toBe('node scripts/native-runtime.mjs run-node -- vitest')
+    expect(unitJob).not.toContain('npm rebuild better-sqlite3')
+    expect(unitJob).not.toContain('npm run rebuild:electron')
+    expect(unitJob).toMatch(/npm test -- --run[\s\S]*npm run verify:electron-native[\s\S]*npm run test:e2e/)
+    expect(packagingJob).toMatch(/npm run rebuild:electron[\s\S]*npm run verify:electron-native[\s\S]*npx electron-builder/)
+    expect(ciWorkflow.match(/run: npm run rebuild:electron/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e$/gm)).toHaveLength(1)
-    expect(ciWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(1)
+    expect(ciWorkflow.match(/run: npm run verify:electron-native$/gm)).toHaveLength(2)
     expect(ciWorkflow.match(/run: npm run verify:electron-native:packaged/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run verify:electron-package-security/g)).toHaveLength(1)
     expect(ciWorkflow.match(/run: npm run test:e2e:packaged-security/g)).toHaveLength(1)

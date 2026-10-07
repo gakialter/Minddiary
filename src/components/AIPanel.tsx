@@ -12,11 +12,10 @@ import {
     AI_QUICK_PROMPT_TEMPLATES,
     type AIQuickPromptViewModel,
 } from '../utils/aiQuickPrompts'
-import { buildAIContextSections, type AIContextSection } from '../utils/aiContextBuilder'
-import { attachmentToMeta, revokeAttachmentPreview, type AIComposerAttachment } from '../utils/aiAttachmentPolicy'
-import { buildAIConversation } from '../utils/aiConversationBuilder'
 import { resolveAIModelCapabilities } from '../data/aiProviders'
-import type { AIMessage, DiaryEntry } from '../types'
+import type { DiaryEntry } from '../types'
+import type { EvidenceRequest, FirstSliceSendInput, FirstSliceSendResult, SubjectIdentity } from '../types/api'
+import { classifyFirstSlice, formatFirstSliceAnswer, formatSuppliedFocusAnswer, type FocusSlots } from '../utils/aiFirstSlice'
 
 interface AIPanelProps {
     entry: DiaryEntry | null
@@ -97,29 +96,10 @@ const saveCachedMessages = (messages: AIChatMessage[]) => {
     }
 }
 
-interface LastRequestSnapshot {
-    requestMessages: AIMessage[]
-    assistantMessageId: number
-    attachments: AIComposerAttachment[]
-}
-
-interface EntryRequestContext {
-    entryId: number | null
-    entryDate: string
-    entryContent: string
-}
-
-const getEntryRequestContext = (entry: DiaryEntry | null): EntryRequestContext => ({
-    entryId: entry?.id ?? null,
-    entryDate: entry?.date ?? '',
-    entryContent: entry?.content ?? '',
-})
-
-const isSameEntryRequestContext = (a: EntryRequestContext, b: EntryRequestContext) => (
-    a.entryId === b.entryId &&
-    a.entryDate === b.entryDate &&
-    a.entryContent === b.entryContent
-)
+type Replay = { requestHandle: string; assistantMessageId: number }
+type Selection = { requestHandle: string; request: EvidenceRequest; candidates: SubjectIdentity[] }
+type Explanation = { requestHandle: string; partial: boolean }
+const unavailableText = '上下文范围已变化或当前功能不可用，请重新发送问题。'
 
 const iconByPromptId: Record<string, ReactElement> = {
     'daily-summary': <PenLine size={18} />,
@@ -130,59 +110,48 @@ const iconByPromptId: Record<string, ReactElement> = {
 }
 
 export default function AIPanel({ entry }: AIPanelProps) {
-    const {
-        settingsData,
-        ai: aiAPI,
-        entries,
-        mistakes,
-        subjects,
-        subjectChapters,
-        tasks,
-        pomodoro,
-    } = useDiary()
+    const { settingsData, ai: aiAPI } = useDiary()
+    const api = useRef(aiAPI.firstSlice).current
     const composer = useAIComposer()
     const [messages, setMessages] = useState<AIChatMessage[]>(() => loadCachedMessages())
     const [loading, setLoading] = useState(false)
     const [preview, setPreview] = useState<PreviewImage | null>(null)
+    const [notice, setNotice] = useState('')
+    const [selection, setSelection] = useState<Selection | null>(null)
+    const [explanation, setExplanation] = useState<Explanation | null>(null)
+    const [acceptLimited, setAcceptLimited] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const generationRef = useRef(0)
     const activeGenerationRef = useRef<number | null>(null)
-    const entrySensitiveGenerationRef = useRef<number | null>(null)
-    const lastRequestRef = useRef<LastRequestSnapshot | null>(null)
-    const entryRequestContextRef = useRef(getEntryRequestContext(entry))
+    const lastRequestRef = useRef<Replay | null>(null)
+    const replaySettingsRef = useRef(settingsData)
+    // Object replacement also catches key changes with identical sanitized values.
+    if (replaySettingsRef.current !== settingsData) {
+        replaySettingsRef.current = settingsData
+        lastRequestRef.current = null
+    }
+    const clarificationRef = useRef<FocusSlots | undefined>(undefined)
+    const sessionRef = useRef<Promise<string | null>>(Promise.resolve(null))
 
+    const openSession = () => api?.openSession({}).then(result => result.kind === 'opened' ? result.session : null).catch(() => null) ?? Promise.resolve(null)
+    const closeSession = (session: Promise<string | null>) => {
+        void session.then(async token => { if (token) await api?.closeSession({ session: token }) }).catch(() => {})
+    }
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages, loading])
-
-    useEffect(() => {
-        saveCachedMessages(messages)
-    }, [messages])
-
-    useEffect(() => () => {
-        lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
+        const session = openSession()
+        sessionRef.current = session
+        return () => { generationRef.current += 1; activeGenerationRef.current = null; closeSession(sessionRef.current) }
     }, [])
-
-    useEffect(() => {
-        const nextContext = getEntryRequestContext(entry)
-        if (!isSameEntryRequestContext(entryRequestContextRef.current, nextContext)) {
-            entryRequestContextRef.current = nextContext
-            if (
-                activeGenerationRef.current !== null &&
-                entrySensitiveGenerationRef.current === activeGenerationRef.current
-            ) {
-                invalidateRequest()
-            }
-        }
-    }, [entry?.id, entry?.date, entry?.content])
+    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
+    useEffect(() => { saveCachedMessages(messages) }, [messages])
 
     const modelCapabilities = useMemo(() => (
-        resolveAIModelCapabilities(settingsData.aiModel, settingsData.aiVisionEnabled)
-    ), [settingsData.aiModel, settingsData.aiVisionEnabled])
+        resolveAIModelCapabilities(settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint)
+    ), [settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint])
 
     const hasImageAttachment = composer.attachments.some(attachment => attachment.kind === 'image')
     const modelError = hasImageAttachment && !modelCapabilities.vision
-        ? '当前模型未声明支持图片输入，请切换视觉模型或在自定义模型设置中确认图片能力。'
+        ? '当前模型不支持图片，请切换支持图片的模型或移除图片。'
         : null
     const composerError = composer.error || modelError
     const canSend = composer.canSendContent && !loading && !composerError
@@ -191,11 +160,11 @@ export default function AIPanel({ entry }: AIPanelProps) {
         AI_QUICK_PROMPT_TEMPLATES.map(template => ({
             ...template,
             icon: iconByPromptId[template.id],
-            disabledReason: template.id === 'daily-summary' && !entry?.content?.trim()
+            disabledReason: template.id === 'daily-summary' && !entry
                 ? '当前日记为空，无法附加今日日记上下文。'
                 : undefined,
         }))
-    ), [entry?.content])
+    ), [entry?.id])
 
     const beginRequest = () => {
         const generation = ++generationRef.current
@@ -215,23 +184,76 @@ export default function AIPanel({ entry }: AIPanelProps) {
     const invalidateRequest = (updateLoading = true) => {
         generationRef.current += 1
         activeGenerationRef.current = null
-        entrySensitiveGenerationRef.current = null
         if (updateLoading) setLoading(false)
     }
 
-    const clearMessages = () => {
-        const confirmed = messages.length > 0
-            ? window.confirm?.('确认清空 AI 聊天历史吗？附件内容不会保留，清空后无法恢复。')
-            : true
-        if (confirmed === false) return
-        invalidateRequest()
-        lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
+    const clearInteraction = () => {
         lastRequestRef.current = null
-        setMessages([])
+        clarificationRef.current = undefined
+        setSelection(null)
+        setExplanation(null)
+        setAcceptLimited(false)
     }
-
-    const cancelRequest = () => {
+    const clearMessages = () => {
+        if (messages.length && window.confirm?.('确认清空 AI 聊天历史吗？附件内容不会保留，清空后无法恢复。') === false) return
         invalidateRequest()
+        clearInteraction()
+        closeSession(sessionRef.current)
+        sessionRef.current = openSession()
+        setMessages([])
+        setNotice('')
+    }
+    const cancelRequest = async () => {
+        const pending = sessionRef.current
+        invalidateRequest()
+        clearInteraction()
+        const generation = generationRef.current
+        try {
+            const session = await pending
+            const result = session && await api?.cancel({ session })
+            if (generation !== generationRef.current) return
+            setNotice(result && result.kind === 'cancelled'
+                ? result.possiblySent ? '已停止采用回复；请求可能已经发送，无法撤回。' : '已取消，尚未发送给 Provider。'
+                : unavailableText)
+        } catch { if (generation === generationRef.current) setNotice(unavailableText) }
+    }
+    const append = (userInput: string, content: string) => {
+        const id = Date.now() + Math.random()
+        setMessages(current => [...current, { role: 'user', content: userInput, id }, { role: 'assistant', content, id: id + 1 }])
+        return id + 1
+    }
+    const finish = (generation: number) => {
+        if (isCurrentRequest(generation)) { activeGenerationRef.current = null; setLoading(false) }
+    }
+    const resultNotice = (result: FirstSliceSendResult) => result.kind === 'failed' || result.kind === 'discarded'
+        ? result.possiblySent ? '回复未采用；请求可能已经发送，无法撤回。' : '请求未发送，请重新发送问题。'
+        : unavailableText
+    const provider = async (input: FirstSliceSendInput, generation: number, draft?: { input: string; attachmentIds: string[] }) => {
+        const requestSettings = settingsData
+        const result = await api!.send(input)
+        if (!isCurrentRequest(generation)) return
+        if (result.kind !== 'answer') { lastRequestRef.current = null; setNotice(resultNotice(result)); return }
+        const assistantMessageId = append(input.userInput, result.content)
+        lastRequestRef.current = input.kind === 'chat' && !input.imageDataUrls?.length && !input.textAttachments?.length && requestSettings === replaySettingsRef.current
+            ? { requestHandle: result.requestHandle, assistantMessageId } : null
+        if (input.kind === 'chat' && draft) composer.clearSentDraft(draft.input, draft.attachmentIds)
+    }
+    const resolveEvidence = async (session: string, userInput: string, request: EvidenceRequest, generation: number, requestHandle?: string) => {
+        const response = await api!.resolveEvidence(requestHandle ? { session, requestHandle, request } : { session, userInput, request })
+        if (!isCurrentRequest(generation)) return
+        if (!('result' in response)) { setNotice(unavailableText); return }
+        if (response.result.kind === 'ask_user') {
+            setSelection({ requestHandle: response.requestHandle, request, candidates: response.result.candidates })
+            setNotice('请选择要核对的科目。')
+        } else if (response.result.kind === 'resolved') {
+            const envelope = response.result.envelope
+            setSelection(null)
+            append(userInput, formatFirstSliceAnswer(envelope))
+            if (envelope.sourceCategory === 'focus_comparison' && ['ok', 'empty', 'partial'].includes(envelope.status)) {
+                setExplanation({ requestHandle: response.requestHandle, partial: envelope.status === 'partial' })
+            }
+            composer.clearComposer()
+        } else { setSelection(null); setNotice(unavailableText) }
     }
 
     const copyMessage = async (content: string) => {
@@ -245,119 +267,123 @@ export default function AIPanel({ entry }: AIPanelProps) {
     }
 
     const sendMessage = async (inputOverride?: string) => {
-        if (loading || hasActiveRequest()) return
+        const draftInput = inputOverride ?? composer.input
         const readyAttachments = composer.attachments.filter(attachment => attachment.status === 'ready')
-        const userInput = inputOverride ?? composer.input
-        const hasSendableContent = (
-            userInput.trim().length > 0 ||
-            composer.contextKinds.length > 0 ||
-            readyAttachments.length > 0
-        )
-        if (!hasSendableContent || composer.error) return
-        if (modelError) {
-            composer.setError(modelError)
+        const hasAttachment = composer.attachments.length > 0
+        const userInput = draftInput.trim() || (readyAttachments.some(attachment => attachment.kind !== 'image')
+            ? '请根据我附加的文件文字概括主要内容。'
+            : hasImageAttachment ? '请分析我附加的图片。' : '')
+        const classified = classifyFirstSlice(userInput, clarificationRef.current)
+        // Explicit draft images are user-supplied material, never a local-record lookup.
+        // Restriction intent still takes precedence over any attachments.
+        const gate = hasAttachment && classified.kind !== 'restriction' && classified.kind !== 'blocked'
+            ? { kind: 'chat' as const } : classified
+        // Refusal always reaches main, including while a Provider response is pending.
+        if (gate.kind === 'restriction' || gate.kind === 'blocked') {
+            invalidateRequest()
+            clearInteraction()
+            const generation = beginRequest()
+            try {
+                const session = await sessionRef.current
+                if (!isCurrentRequest(generation)) return
+                if (!session || !api) { setNotice(unavailableText); return }
+                if (gate.kind === 'blocked') {
+                    // Ambiguous refusals cannot leave an older request eligible for adoption.
+                    await api.cancel({ session })
+                    if (isCurrentRequest(generation)) setNotice('请明确限制范围；本次未继续发送。')
+                    return
+                }
+                const result = await api.restrict({ session, userInput, intent: gate.intent })
+                if (!isCurrentRequest(generation)) return
+                setNotice(result.kind === 'restricted' && result.applied
+                    ? gate.intent.lifetime === 'durable_preference' && !result.durableSaved
+                        ? '当前限制已生效，但长期偏好未能保存。'
+                        : '当前限制已生效，旧回复不会继续采用；已发出的请求无法撤回。'
+                    : '限制未能确认；本次未继续发送，请明确范围后重试。')
+                composer.setInput('')
+            } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
+            finally { finish(generation) }
             return
         }
-
+        if (loading || hasActiveRequest()) return
+        setNotice('')
+        if (composer.contextKinds.length) {
+            setExplanation(null)
+            setNotice('当前受控对话暂不支持所选上下文或附件。请移除后发送；这些材料没有发送。')
+            return
+        }
+        if (!userInput.trim() || composer.error || modelError) return
+        const imageDataUrls = readyAttachments.filter(attachment => attachment.kind === 'image').map(attachment => attachment.dataUrl!)
+        const textAttachments = readyAttachments.filter(attachment => attachment.kind !== 'image').map(attachment => ({
+            kind: attachment.kind as 'pdf' | 'text-file', name: attachment.name, text: attachment.extractedText!,
+        }))
+        clearInteraction()
+        if (gate.kind === 'clarify') {
+            clarificationRef.current = gate.slots
+            const prompts = { meaning: '请先确认含义：记录学习时间', subject: '请填写科目，例如：科目：数学', periodA: '请填写 A 的绝对日期，例如 A：2026-09-07..2026-09-13', periodB: '请填写 B 的绝对日期，例如 B：2026-09-14..2026-09-20' }
+            append(userInput, gate.missing.map(key => prompts[key]).join('；'))
+            composer.clearComposer()
+            return
+        }
+        if (gate.kind === 'supplied') { append(userInput, formatSuppliedFocusAnswer(gate.evidence)); composer.clearComposer(); return }
+        if (gate.kind === 'unsupported') { setNotice('当前无法按此问题核对本机记录。请明确科目及两段绝对日期，或到对应页面查看。'); return }
         const generation = beginRequest()
-        entrySensitiveGenerationRef.current = composer.contextKinds.includes('current-diary') ? generation : null
         try {
-            const contextSections: AIContextSection[] = await buildAIContextSections(composer.contextKinds, {
-                entry,
-                settingsData,
-                entries,
-                mistakes,
-                subjects,
-                subjectChapters,
-                tasks,
-                pomodoro,
-            })
+            const session = await sessionRef.current
             if (!isCurrentRequest(generation)) return
-
-            const conversation = buildAIConversation({
-                history: messages,
-                userInput,
-                selectedContextKinds: composer.contextKinds,
-                contextSections,
-                attachments: readyAttachments,
-            })
-            const result = await aiAPI.chat(conversation.messages)
-            if (!isCurrentRequest(generation)) return
-            if (result.error) {
-                composer.setError(result.error)
-                showToast(result.error.split('\n')[0]!, 'error')
+            if (!session || !api) { setNotice(unavailableText); return }
+            if (!composer.isAttachmentSnapshotCurrent(readyAttachments)) {
+                setNotice('附件已变化，请确认当前草稿后重新发送。')
                 return
             }
-
-            const userMessageId = Date.now() + Math.random()
-            const assistantMessageId = Date.now() + Math.random() + 1
-            const nextMessages: AIChatMessage[] = [
-                ...messages,
-                {
-                    role: 'user',
-                    content: conversation.visibleUserText,
-                    id: userMessageId,
-                    contextLabels: conversation.contextLabels,
-                    attachments: readyAttachments.map(attachmentToMeta),
-                },
-                {
-                    role: 'assistant',
-                    content: result.content || '',
-                    id: assistantMessageId,
-                },
-            ]
-            lastRequestRef.current?.attachments.forEach(revokeAttachmentPreview)
-            lastRequestRef.current = {
-                requestMessages: conversation.messages,
-                assistantMessageId,
-                attachments: readyAttachments,
-            }
-            setMessages(nextMessages)
-            composer.clearComposer()
-        } catch (error) {
-            if (!isCurrentRequest(generation)) return
-            const message = error instanceof Error ? error.message : String(error)
-            composer.setError(message)
-            showToast(message.split('\n')[0] || 'AI 请求失败', 'error')
-        } finally {
-            if (isCurrentRequest(generation)) {
-                activeGenerationRef.current = null
-                entrySensitiveGenerationRef.current = null
-                setLoading(false)
-            }
-        }
+            if (gate.kind === 'evidence') await resolveEvidence(session, userInput, gate.request, generation)
+            else await provider({ session, kind: 'chat', userInput,
+                ...(imageDataUrls.length ? { imageDataUrls } : {}),
+                ...(textAttachments.length ? { textAttachments } : {}),
+            }, generation, { input: draftInput, attachmentIds: readyAttachments.map(attachment => attachment.id) })
+        } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
+        finally { finish(generation) }
     }
-
+    const chooseSubject = async (id: number) => {
+        const pending = selection
+        if (!pending || hasActiveRequest()) return
+        const generation = beginRequest()
+        setSelection(null)
+        try {
+            const session = await sessionRef.current
+            if (!isCurrentRequest(generation)) return
+            if (!session || !api) { setNotice(unavailableText); return }
+            await resolveEvidence(session, '核对所选科目的记录', { ...pending.request, subject: { by: 'id', id } }, generation, pending.requestHandle)
+        } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
+        finally { finish(generation) }
+    }
+    const explain = async () => {
+        const pending = explanation
+        if (!pending || hasActiveRequest() || (pending.partial && !acceptLimited)) return
+        setExplanation(null)
+        const generation = beginRequest()
+        try {
+            const session = await sessionRef.current
+            if (!isCurrentRequest(generation)) return
+            if (!session || !api) { setNotice(unavailableText); return }
+            await provider({ session, kind: 'focus_explanation', requestHandle: pending.requestHandle, userInput: '请根据这份有限的记录学习时间摘要解释，保留未知与局限。', share: true, acceptLimited }, generation)
+        } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
+        finally { finish(generation) }
+    }
     const regenerateLastAnswer = async () => {
         const snapshot = lastRequestRef.current
         if (!snapshot || loading || hasActiveRequest()) return
-        const hasLostAttachment = snapshot.attachments.some(attachment => (
-            attachment.kind === 'image' ? !attachment.dataUrl : !attachment.extractedText
-        ))
-        if (hasLostAttachment) {
-            showToast('附件内容未持久化，无法重新生成带附件的回复。', 'error')
-            return
-        }
-
         const generation = beginRequest()
         try {
-            const result = await aiAPI.chat(snapshot.requestMessages)
+            const session = await sessionRef.current
             if (!isCurrentRequest(generation)) return
-            if (result.error) {
-                showToast(result.error.split('\n')[0]!, 'error')
-                return
-            }
-            setMessages(current => current.map(message => (
-                message.id === snapshot.assistantMessageId
-                    ? { ...message, content: result.content || '' }
-                    : message
-            )))
-        } finally {
-            if (isCurrentRequest(generation)) {
-                activeGenerationRef.current = null
-                setLoading(false)
-            }
-        }
+            if (!session || !api) { lastRequestRef.current = null; setNotice(unavailableText); return }
+            const result = await api.regenerate({ session, requestHandle: snapshot.requestHandle })
+            if (!isCurrentRequest(generation)) return
+            if (result.kind !== 'answer') { lastRequestRef.current = null; setNotice(resultNotice(result)); return }
+            setMessages(current => current.map(message => message.id === snapshot.assistantMessageId ? { ...message, content: result.content } : message))
+        } catch { if (isCurrentRequest(generation)) { lastRequestRef.current = null; setNotice(unavailableText) } }
+        finally { finish(generation) }
     }
 
     return (
@@ -425,6 +451,16 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
 
+            {notice && <p role="status" className="workspace-help">{notice}</p>}
+            {selection && <div role="group" aria-label="科目选择">
+                {selection.candidates.map(candidate => <button className="button button-secondary" key={candidate.id} onClick={() => void chooseSubject(candidate.id)}>{candidate.name}（{candidate.id}）</button>)}
+            </div>}
+            {explanation && <div role="group" aria-label="可选 AI 解释">
+                <p className="workspace-help">可将以上有限摘要发送给当前 Provider，请 AI 解释。只核对本机记录也可以。</p>
+                {explanation.partial && <label><input type="checkbox" checked={acceptLimited} onChange={event => setAcceptLimited(event.target.checked)} />我理解部分记录不可用，同意仅发送有限摘要</label>}
+                <button className="button button-secondary" disabled={loading || (explanation.partial && !acceptLimited)} onClick={() => void explain()}>发送摘要并解释</button>
+                <button className="button button-secondary" onClick={() => setExplanation(null)}>仅保留本机结果</button>
+            </div>}
             <AIComposer
                 input={composer.input}
                 onInputChange={composer.setInput}

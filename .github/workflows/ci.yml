@@ -25,22 +25,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Rebuild SQLite for Node tests
-        run: npm rebuild better-sqlite3
-
       - name: Type check
         run: npm run typecheck
 
       - name: Run unit tests
-        run: npx vitest run
+        run: npm test -- --run
+
+      - name: Verify automatic Electron native restoration
+        run: npm run verify:electron-native
 
       - name: Build verification
         run: |
           npm run build:electron
           npx vite build
-
-      - name: Rebuild native dependency for Electron E2E
-        run: npm run rebuild:electron
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium

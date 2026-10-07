@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import Settings from '../src/components/Settings'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 
@@ -12,7 +12,7 @@ const mockUseDiary = DiaryContextModule.useDiary as ReturnType<typeof vi.fn>
 
 describe('Settings Component', () => {
   let settingsApi: {
-    getAll: ReturnType<typeof vi.fn>
+    getAll: ReturnType<typeof vi.fn<() => Promise<Record<string, unknown>>>>
     updateGeneral: ReturnType<typeof vi.fn>
     updateAI: ReturnType<typeof vi.fn>
     updateBackup: ReturnType<typeof vi.fn>
@@ -118,18 +118,16 @@ describe('Settings Component', () => {
     expect(chooseDirectory).toBeEnabled()
   })
 
-  it('keeps a visible associated model search label after typing', async () => {
+  it('shows a short curated list with clear image labels without requiring search', async () => {
     await act(async () => {
       render(<Settings />)
     })
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
     fireEvent.click(screen.getByRole('button', { name: '模型名称' }))
 
-    const search = screen.getByLabelText('搜索模型')
-    fireEvent.change(search, { target: { value: 'Flash' } })
-
-    expect(search).toHaveValue('Flash')
-    expect(screen.getByText('搜索模型', { selector: 'label' })).toBeVisible()
+    expect(screen.queryByLabelText('搜索模型')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /DeepSeek Flash.*推荐.*支持图片/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /DeepSeek V4 Pro.*更强.*仅文字/ })).toBeInTheDocument()
   })
 
   it('closes the model picker on Escape and restores focus without selecting a model', async () => {
@@ -137,13 +135,98 @@ describe('Settings Component', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
     const trigger = screen.getByRole('button', { name: '模型名称' })
     fireEvent.click(trigger)
-    const search = screen.getByLabelText('搜索模型')
+    const option = screen.getByRole('button', { name: /DeepSeek V4 Pro/ })
     const selection = trigger.textContent
-    fireEvent.keyDown(search, { key: 'Escape' })
+    fireEvent.keyDown(option, { key: 'Escape' })
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(trigger).toHaveFocus()
     expect(trigger.textContent).toBe(selection)
     expect(screen.queryByLabelText('搜索模型')).not.toBeInTheDocument()
+  })
+
+  it.each(['deepseek-chat', 'deepseek-reasoner'])('shows the removed-model warning and preserves %s until explicit selection', async aiModel => {
+    vi.useFakeTimers()
+    const saved = await settingsApi.getAll()
+    settingsApi.getAll.mockResolvedValue({ ...saved, aiEndpoint: 'https://api.deepseek.com', aiModel })
+    await act(async () => { render(<Settings />) })
+    expect(screen.getByRole('alert')).toHaveTextContent('当前模型已不可用，请重新选择模型。')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    expect(screen.getByRole('button', { name: '模型名称' })).toHaveTextContent(aiModel)
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(settingsApi.updateAI).toHaveBeenLastCalledWith(expect.objectContaining({ aiModel }))
+    fireEvent.click(screen.getByRole('button', { name: '模型名称' }))
+    expect(screen.queryByRole('button', { name: /DeepSeek Chat|DeepSeek Reasoner/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /DeepSeek Flash/ }))
+    expect(screen.queryByText('当前模型已不可用，请重新选择模型。')).not.toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(settingsApi.updateAI).toHaveBeenLastCalledWith(expect.objectContaining({ aiModel: 'deepseek-flash' }))
+  })
+
+  it('only selects a recommendation on a real provider switch, preserving a saved second model on load and same-provider clicks', async () => {
+    const saved = await settingsApi.getAll()
+    settingsApi.getAll.mockResolvedValue({ ...saved, aiEndpoint: 'https://api.deepseek.com', aiModel: 'deepseek-v4-pro' })
+    await act(async () => { render(<Settings />) })
+    const trigger = screen.getByRole('button', { name: '模型名称' })
+    expect(trigger).toHaveTextContent('DeepSeek V4 Pro')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    expect(trigger).toHaveTextContent('DeepSeek V4 Pro')
+    fireEvent.click(screen.getByRole('button', { name: '通义千问' }))
+    expect(trigger).toHaveTextContent('Qwen3.8 Flash')
+    fireEvent.click(screen.getByRole('button', { name: '模型名称' }))
+    fireEvent.click(screen.getByRole('button', { name: /Qwen3.8 Max/ }))
+    fireEvent.click(screen.getByRole('button', { name: '通义千问' }))
+    expect(trigger).toHaveTextContent('Qwen3.8 Max')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    expect(trigger).toHaveTextContent('DeepSeek Flash')
+  })
+
+  it('hydrates a saved provider and model asynchronously without replacing its selection', async () => {
+    const saved = await settingsApi.getAll()
+    let hydrate!: (value: Record<string, unknown>) => void
+    settingsApi.getAll.mockReturnValue(new Promise(resolve => { hydrate = resolve }))
+    render(<Settings />)
+    await act(async () => { hydrate({ ...saved, aiEndpoint: 'https://api.moonshot.cn/v1', aiModel: 'kimi-latest' }) })
+    expect(screen.getByRole('button', { name: 'Kimi' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '模型名称' })).toHaveTextContent('kimi-latest')
+    expect(screen.getByText('当前模型已不可用，请重新选择模型。')).toBeInTheDocument()
+  })
+
+  it('preserves the legacy Flash alias and reports its image capability on load', async () => {
+    const saved = await settingsApi.getAll()
+    settingsApi.getAll.mockResolvedValue({ ...saved, aiEndpoint: 'https://api.deepseek.com', aiModel: 'deepseek-v4-flash' })
+    await act(async () => { render(<Settings />) })
+    expect(screen.getByRole('button', { name: '模型名称' })).toHaveTextContent('deepseek-v4-flash')
+    expect(screen.getByText('当前模型：支持图片')).toBeInTheDocument()
+    expect(screen.queryByText('当前模型已不可用，请重新选择模型。')).not.toBeInTheDocument()
+  })
+
+  it('keeps a same-named Custom model, endpoint and vision toggle through loading and a provider round trip', async () => {
+    const saved = await settingsApi.getAll()
+    settingsApi.getAll.mockResolvedValue({ ...saved, aiEndpoint: 'https://custom.example/v1', aiModel: 'deepseek-chat', aiVisionEnabled: true })
+    await act(async () => { render(<Settings />) })
+    expect(screen.getByRole('button', { name: '自定义' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('模型名称')).toHaveValue('deepseek-chat')
+    expect(screen.getByRole('checkbox', { name: /此模型支持图片输入/ })).toBeChecked()
+    expect(screen.queryByText('当前模型已不可用，请重新选择模型。')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '自定义' }))
+    expect(screen.getByLabelText('API 请求地址')).toHaveValue('https://custom.example/v1')
+    expect(screen.getByLabelText('模型名称')).toHaveValue('deepseek-chat')
+    expect(screen.getByRole('checkbox', { name: /此模型支持图片输入/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+    await waitFor(() => expect(settingsApi.updateAI).toHaveBeenLastCalledWith(expect.objectContaining({ aiModel: 'deepseek-chat', aiEndpoint: 'https://custom.example/v1', aiVisionEnabled: true })))
+  })
+
+  it.each([
+    ['https://open.bigmodel.cn/api/paas/v4', 'glm-4-flash'],
+    ['https://ark.cn-beijing.volces.com/api/v3', 'doubao-pro-128k'],
+    ['https://ark.cn-beijing.volces.com/api/v3', 'ep-user-vision'],
+  ])('preserves UNKNOWN saved configuration %s / %s without an unavailable warning', async (aiEndpoint, aiModel) => {
+    const saved = await settingsApi.getAll()
+    settingsApi.getAll.mockResolvedValue({ ...saved, aiEndpoint, aiModel })
+    await act(async () => { render(<Settings />) })
+    expect(screen.getByRole('button', { name: '模型名称' })).toHaveTextContent(aiModel)
+    expect(screen.queryByText('当前模型已不可用，请重新选择模型。')).not.toBeInTheDocument()
   })
 
   it('debounces auto-saving via patch APIs', async () => {
@@ -455,16 +538,16 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.19.1 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.20.0 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.19.1')).toBeInTheDocument()
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('日常复盘')
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('AI 选区润色')
+    expect(screen.getByText('v1.20.0')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('PNG、JPEG、WebP')
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('日记选区润色')
   })
 
   it('shows remote release notes and release date when an update is available', async () => {

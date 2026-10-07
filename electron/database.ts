@@ -36,6 +36,43 @@ import type {
 let db: Database.Database = undefined as unknown as Database.Database;
 let repositories: DatabaseRepositories = undefined as unknown as DatabaseRepositories;
 let isInitialized = false;
+let firstSliceConnectionGeneration = 0;
+let firstSliceDataRevision = 0;
+let firstSliceConfigRevision = 0;
+let firstSliceTrackingReliable = true;
+
+export type FirstSliceSourceStamp = {
+    connectionGeneration: number; dataRevision: number; externalDataVersion: number; observedDate: string;
+};
+
+function getFirstSliceSourceStamp(): FirstSliceSourceStamp | null {
+    try {
+        if (!firstSliceTrackingReliable) return null;
+        const externalDataVersion: unknown = getDb().pragma('data_version', { simple: true });
+        if (typeof externalDataVersion !== 'number' || !Number.isSafeInteger(externalDataVersion) || externalDataVersion < 1) return null;
+        return { connectionGeneration: firstSliceConnectionGeneration, dataRevision: firstSliceDataRevision,
+            externalDataVersion, observedDate: getLocalDateKey() };
+    } catch { return null; }
+}
+function getFirstSliceConfigRevision(): number { return firstSliceConfigRevision; }
+function markFirstSliceAIConfigChanged(): void { firstSliceConfigRevision += 1; }
+
+// Only the subject/chapter/focus forwarding seams use this marker. Exceptions do
+// not advance it, and reads never enter this helper.
+function firstSliceEvidenceWrite<T>(write: () => T): T {
+    const changeCount = (): number | null => {
+        try {
+            const row = getDb().prepare('SELECT total_changes() AS count').get() as { count: number } | undefined;
+            return row && Number.isSafeInteger(row.count) && row.count >= 0 ? row.count : null;
+        } catch { return null; }
+    };
+    const before = changeCount();
+    const result = write();
+    const after = changeCount();
+    if (before === null || after === null) firstSliceTrackingReliable = false;
+    else if (after !== before) firstSliceDataRevision += 1;
+    return result;
+}
 
 let customDbPath: string | null = null;
 const API_KEY_ENCRYPTION_UNAVAILABLE_MESSAGE = '当前系统加密能力不可用，无法安全保存 API Key';
@@ -62,6 +99,9 @@ function initialize() {
         repositories = createDatabaseRepositories(candidate);
         db = candidate;
         isInitialized = true;
+        firstSliceTrackingReliable = true;
+        firstSliceConnectionGeneration += 1;
+        firstSliceConfigRevision += 1;
         candidate = null;
     } catch (error) {
         isInitialized = false;
@@ -190,15 +230,15 @@ function getAllSubjects(): Subject[] {
 }
 
 function createSubject(subject: Partial<Subject>) {
-    return getRepositories().subjects.createSubject(subject);
+    return firstSliceEvidenceWrite(() => getRepositories().subjects.createSubject(subject));
 }
 
 function updateSubject(id: number, subject: Partial<Subject>) {
-    return getRepositories().subjects.updateSubject(id, subject);
+    return firstSliceEvidenceWrite(() => getRepositories().subjects.updateSubject(id, subject));
 }
 
 function deleteSubject(id: number) {
-    return getRepositories().subjects.deleteSubject(id);
+    return firstSliceEvidenceWrite(() => getRepositories().subjects.deleteSubject(id));
 }
 
 function getSubjectChapters(subjectId: number) {
@@ -206,40 +246,40 @@ function getSubjectChapters(subjectId: number) {
 }
 
 function createSubjectChapter(chapter: CreateSubjectChapterInput) {
-    return getRepositories().subjectChapters.createChapter(chapter);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.createChapter(chapter));
 }
 
 function bulkCreateSubjectChapters(input: BulkSubjectChaptersInput) {
-    return getRepositories().subjectChapters.bulkCreateChapters(input);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.bulkCreateChapters(input));
 }
 
 function convertSubjectToDetailedChapters(input: ConvertSubjectChaptersInput) {
-    return getRepositories().subjectChapters.convertSubjectToDetailedChapters(input);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.convertSubjectToDetailedChapters(input));
 }
 
 function patchSubjectChapter(id: number, patch: SubjectChapterPatch) {
-    return getRepositories().subjectChapters.patchChapter(id, patch);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.patchChapter(id, patch));
 }
 
 function toggleSubjectChapterCompleted(id: number, completed?: boolean) {
-    return getRepositories().subjectChapters.toggleChapterCompleted(id, completed);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.toggleChapterCompleted(id, completed));
 }
 
 function reorderSubjectChapters(subjectId: number, chapterIds: number[]) {
-    return getRepositories().subjectChapters.reorderChapters(subjectId, chapterIds);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.reorderChapters(subjectId, chapterIds));
 }
 
 function deleteSubjectChapter(id: number) {
-    return getRepositories().subjectChapters.deleteChapter(id);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.deleteChapter(id));
 }
 
 function clearDetailedSubjectChapters(subjectId: number) {
-    return getRepositories().subjectChapters.clearDetailedChapters(subjectId);
+    return firstSliceEvidenceWrite(() => getRepositories().subjectChapters.clearDetailedChapters(subjectId));
 }
 
 // ==================== Pomodoro ====================
 function addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at }: PomodoroSession) {
-    return getRepositories().pomodoro.addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at });
+    return firstSliceEvidenceWrite(() => getRepositories().pomodoro.addPomodoroSession({ subject_id, task_id, duration, date_key, started_at, completed_at }));
 }
 
 function getPomodoroStats(date: string): PomodoroStat[] {
@@ -814,9 +854,13 @@ function restoreBackupData(data: Record<string, unknown>, manifestSchemaVersion 
         }
     });
     transaction();
+    firstSliceConnectionGeneration += 1;
+    firstSliceDataRevision += 1;
+    firstSliceConfigRevision += 1;
 }
 
 module.exports = {
+    getFirstSliceSourceStamp, getFirstSliceConfigRevision, markFirstSliceAIConfigChanged,
     executeDailyReview: (input: unknown) => getRepositories().dailyReview.execute(input),
     CURRENT_SCHEMA_VERSION,
     initialize,

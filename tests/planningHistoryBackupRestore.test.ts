@@ -65,6 +65,11 @@ const contextSummaryJson = JSON.stringify([
   { category: 'focus_history', preparation: 'prepared', disposition: 'included', reasonCode: 'included_required' },
 ])
 
+// Round-trip fixtures must remain inside the runtime's 30-day retention window.
+// Expired records are constructed separately by the retention regression below.
+const retainedFixtureCreatedAt = new Date(Date.now() - 60_000).toISOString()
+const retainedFixtureUpdatedAt = new Date().toISOString()
+
 const planningRun = {
   id: '123e4567-e89b-42d3-a456-426614174000',
   contract_version: 'planning-history.v1',
@@ -73,9 +78,9 @@ const planningRun = {
   target_date: '2026-08-13',
   generation_result_kind: 'candidate_set',
   context_summary_json: contextSummaryJson,
-  created_at: '2026-08-13T01:02:03.004Z',
-  updated_at: '2026-08-13T01:03:03.004Z',
-  closed_at: '2026-08-13T01:03:03.004Z',
+  created_at: retainedFixtureCreatedAt,
+  updated_at: retainedFixtureUpdatedAt,
+  closed_at: retainedFixtureUpdatedAt,
   close_reason: 'dialog_closed',
 }
 
@@ -96,9 +101,9 @@ const planningCandidate = {
   user_disposition: 'confirmed',
   operation_id: '223e4567-e89b-42d3-a456-426614174000',
   outcome_kind: 'created',
-  outcome_observed_at: '2026-08-13T01:03:03.004Z',
-  admitted_at: '2026-08-13T01:02:03.004Z',
-  updated_at: '2026-08-13T01:03:03.004Z',
+  outcome_observed_at: retainedFixtureUpdatedAt,
+  admitted_at: retainedFixtureCreatedAt,
+  updated_at: retainedFixtureUpdatedAt,
 }
 
 afterEach(() => {

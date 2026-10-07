@@ -63,7 +63,8 @@ export function useAIComposer() {
                 attachment.id === pending.id ? result : attachment
             ))
             commitAttachments(nextAttachments)
-            if (result.status === 'error') setError(result.error || '附件读取失败。')
+            // Reader errors belong to the attachment; derive them from the current list.
+            // Removing one file must not leave a stale composer-wide error behind.
         }
     }, [commitAttachments])
 
@@ -74,11 +75,24 @@ export function useAIComposer() {
         commitAttachments(currentAttachments.filter(attachment => attachment.id !== id))
     }, [commitAttachments])
 
+    const isAttachmentSnapshotCurrent = useCallback((snapshot: AIComposerAttachment[]) => (
+        snapshot.every(item => attachmentsRef.current.includes(item))
+    ), [])
+
     const clearComposer = useCallback(() => {
         attachmentsRef.current.forEach(revokeAttachmentPreview)
         setInput('')
         setContextKinds([])
         commitAttachments([])
+        setError(null)
+    }, [commitAttachments])
+
+    // A response may arrive after the user has started another draft.
+    const clearSentDraft = useCallback((sentInput: string, attachmentIds: string[]) => {
+        const sentIds = new Set(attachmentIds)
+        attachmentsRef.current.filter(item => sentIds.has(item.id)).forEach(revokeAttachmentPreview)
+        commitAttachments(attachmentsRef.current.filter(item => !sentIds.has(item.id)))
+        setInput(current => current === sentInput ? '' : current)
         setError(null)
     }, [commitAttachments])
 
@@ -98,7 +112,9 @@ export function useAIComposer() {
         removeContextKind,
         addFiles,
         removeAttachment,
+        isAttachmentSnapshotCurrent,
         clearComposer,
+        clearSentDraft,
         canSendContent,
     }
 }

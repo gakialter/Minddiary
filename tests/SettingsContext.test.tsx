@@ -91,6 +91,81 @@ afterEach(() => {
 })
 
 describe('SettingsContext', () => {
+  const visionValues = [
+    { label: 'boolean true', raw: true, expected: true },
+    { label: 'boolean false', raw: false, expected: false },
+    { label: 'string true', raw: 'true', expected: true },
+    { label: 'string false', raw: 'false', expected: false },
+    { label: 'undefined', raw: undefined, expected: false },
+    { label: 'null', raw: null, expected: false },
+    { label: 'empty string', raw: '', expected: false },
+    { label: 'missing', expected: false },
+  ]
+
+  describe.each(['Electron', 'browser'] as const)('%s vision hydration', runtime => {
+    it.each(visionValues)('normalizes $label to boolean $expected', async value => {
+      mocks.isElectron = runtime === 'Electron'
+      const persisted = {
+        ...mockSettings,
+        aiEndpoint: 'https://custom.example/v1',
+        aiModel: 'custom-vision-model',
+      } as Record<string, unknown>
+      delete persisted.aiVisionEnabled
+      if ('raw' in value) persisted.aiVisionEnabled = value.raw
+      if (mocks.isElectron) {
+        vi.mocked(window.api.settings.getAll).mockResolvedValue(persisted as unknown as SanitizedSettings)
+      } else {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(persisted))
+      }
+
+      const { result } = renderSettingsHook()
+      await waitFor(() => expect(result.current.settingsReady).toBe(true))
+      expect(result.current.settingsData.aiVisionEnabled).toBe(value.expected)
+      let loaded: SanitizedSettings | undefined
+      await act(async () => { loaded = await result.current.settings.getAll() })
+      expect(loaded?.aiVisionEnabled).toBe(value.expected)
+      expect(result.current.settingsData.aiVisionEnabled).toBe(value.expected)
+      expect(window.api.settings.updateAI).not.toHaveBeenCalled()
+    })
+  })
+
+  it('normalizes a later Electron getAll response before returning it or updating consumers', async () => {
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+    for (const [raw, expected] of [['true', true], ['false', false]] as const) {
+      vi.mocked(window.api.settings.getAll).mockResolvedValue({
+        ...settingsFrom(), aiVisionEnabled: raw,
+      })
+      let loaded: SanitizedSettings | undefined
+      await act(async () => { loaded = await result.current.settings.getAll() })
+      expect(loaded?.aiVisionEnabled).toBe(expected)
+      expect(result.current.settingsData.aiVisionEnabled).toBe(expected)
+    }
+  })
+
+  it('defaults a fresh browser configuration to Flash without rewriting a saved removed or UNKNOWN model', async () => {
+    mocks.isElectron = false
+    const fresh = renderSettingsHook()
+    await waitFor(() => expect(fresh.result.current.settingsReady).toBe(true))
+    expect(fresh.result.current.settingsData.aiModel).toBe('deepseek-flash')
+    fresh.unmount()
+    for (const aiModel of ['deepseek-chat', 'deepseek-v4-flash', 'glm-4-flash', 'doubao-pro-128k']) {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({ aiModel, aiEndpoint: 'https://custom.example/v1' }))
+      const saved = renderSettingsHook()
+      await waitFor(() => expect(saved.result.current.settingsReady).toBe(true))
+      expect(saved.result.current.settingsData.aiModel).toBe(aiModel)
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!)).toMatchObject({ aiModel })
+      saved.unmount()
+    }
+  })
+
+  it('hydrates the saved Electron model without a migration write', async () => {
+    vi.mocked(window.api.settings.getAll).mockResolvedValue(settingsFrom({ aiModel: 'kimi-latest', aiEndpoint: 'https://api.moonshot.cn/v1' }))
+    const saved = renderSettingsHook()
+    await waitFor(() => expect(saved.result.current.settingsReady).toBe(true))
+    expect(saved.result.current.settingsData.aiModel).toBe('kimi-latest')
+    expect(window.api.settings.updateAI).not.toHaveBeenCalled()
+  })
   it('throws when useSettings is rendered without SettingsProvider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const suppressWindowError = (event: ErrorEvent) => event.preventDefault()

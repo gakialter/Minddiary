@@ -10,6 +10,7 @@ import type { PendingDiaryInsert } from '../components/Editor'
 import Dashboard from '../components/Dashboard'
 import TagManager from '../components/TagManager'
 import SearchPanel from '../components/SearchPanel'
+import { createSearchSession, type SearchSessionState } from '../utils/searchSession'
 import Pomodoro from '../components/Pomodoro'
 import StudyProgress from '../components/StudyProgress'
 import MistakeBook from '../components/MistakeBook'
@@ -20,6 +21,8 @@ import Settings from '../components/Settings'
 export type DiarySaveOrigin = 'editor-auto' | 'editor-manual'
 export interface DiarySaveOptions {
   origin?: DiarySaveOrigin
+  /** Only the draft revision that started this save may accept its receipt. */
+  isCurrentRevision?: () => boolean
 }
 
 interface ViewRenderProps {
@@ -40,6 +43,8 @@ interface ViewRenderProps {
   onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
   onMistakeFilterIntentApplied?: () => void
   onPomodoroFullscreenChange?: (isActive: boolean) => void
+  searchSession?: SearchSessionState
+  onSearchSessionChange?: (session: SearchSessionState) => void
 }
 
 interface ViewConfig {
@@ -103,7 +108,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   search: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Search size={22} style={{ color: 'var(--accent)' }} /> 搜索</span>,
     render: (props) => (
-      <SearchPanel onSelectEntry={(e) => {
+      <SearchPanel session={props.searchSession} onSessionChange={props.onSearchSessionChange} onSelectEntry={(e) => {
         props.setSelectedDate(e.date)
         props.setActiveView('editor')
       }} />
@@ -153,6 +158,7 @@ interface UseNavigationOptions {
 export function useNavigation({ canAutoFollowToday = true }: UseNavigationOptions = {}) {
   const currentDateKey = useCurrentLocalDateKey()
   const [activeView, setActiveView] = useState('home')
+  const [searchSession, setSearchSession] = useState(createSearchSession)
   const [selectedDate, setSelectedDateState] = useState(currentDateKey)
   const [isFollowingToday, setIsFollowingToday] = useState(true)
 
@@ -182,6 +188,7 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
 
   return {
     activeView,
+    searchSession, setSearchSession,
     setActiveView,
     selectedDate,
     setSelectedDate,

@@ -1145,8 +1145,13 @@ describe('TodayActionSuggestionDialog', () => {
 
     await screen.findByTestId('planning-context-today_tasks')
     expect(screen.getByTestId('today-action-request-explainability')).toHaveTextContent('尚未生成')
+    expect(screen.getByTestId('today-action-request-explainability')).not.toHaveAttribute('open')
+    expect(screen.getByTestId('today-action-provider-usage-disclaimer')).toBeVisible()
     fireEvent.click(screen.getByTestId('ai-plan-generate'))
     await screen.findByDisplayValue('复习函数极限错题')
+
+    expect(screen.getByLabelText('建议类型')).toHaveValue('review')
+    expect(screen.getByRole('option', { name: '复习' })).toHaveValue('review')
 
     const requestSnapshot = screen.getByTestId('today-action-request-context-today_tasks')
     expect(requestSnapshot).toHaveTextContent('本地 0，请求 0')

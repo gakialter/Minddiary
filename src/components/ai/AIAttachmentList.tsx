@@ -73,6 +73,13 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                                 {attachment.status === 'reading' ? '读取中' : formatBytes(attachment.size)}
                                 {attachment.kind === 'pdf' && attachment.pageCount ? ` · ${attachment.pageCount} 页` : ''}
                             </div>
+                            {attachment.kind === 'pdf' && attachment.status === 'ready' && (
+                                <div className="text-muted" style={{ fontSize: 12 }}>
+                                    {attachment.pageCount && attachment.textPageCount !== undefined && attachment.textPageCount < attachment.pageCount
+                                        ? `已读取 ${attachment.textPageCount}/${attachment.pageCount} 页的可提取文字，${attachment.pageCount - attachment.textPageCount} 页未检测到文字`
+                                        : '已读取 PDF 中可提取的文字'}
+                                </div>
+                            )}
                             {attachment.error && (
                                 <div style={{ fontSize: 12, color: 'var(--color-danger-fg)' }}>{attachment.error}</div>
                             )}

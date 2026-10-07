@@ -3,6 +3,7 @@ import { usePomodoroTimer, usePomodoroData, usePomodoroActions } from '../contex
 import { useDiary } from '../contexts/DiaryContext'
 import { coerceBoolean } from '../utils/helpers'
 import { logger } from '../utils/logger'
+import { STUDY_TASK_STATUS_LABELS } from '../utils/studyTaskLabels'
 import { IS_ELECTRON } from '../utils/apiAdapter'
 import { useFocusGuard } from '../hooks/useFocusGuard'
 import FocusGuardNotice from './FocusGuardNotice'
@@ -456,7 +457,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
                 {selectableTasks.map(task => {
                   const subjectName = task.subject_id ? subjectNameById.get(task.subject_id) : undefined
                   const details = [
-                    task.status,
+                    STUDY_TASK_STATUS_LABELS[task.status],
                     subjectName,
                     task.estimate_minutes ? `${task.estimate_minutes}m` : undefined,
                   ].filter(Boolean).join(' · ')

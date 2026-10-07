@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
+import React, { useState, useMemo, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
 import { ClipboardList, Bot, Database, Info, Package, FolderOpen, RefreshCw, ChevronDown, ExternalLink, Search, X, CheckCircle, AlertTriangle, Download, RotateCw, ShieldCheck, Plus, Trash2, Monitor } from 'lucide-react'
-import { AI_PROVIDERS, getKnownModelCapabilities, getProvider, getProviderByModel, getTagColor } from '../data/aiProviders'
+import { AI_PROVIDERS, getKnownModelCapabilities, getProvider, getProviderByEndpoint, getProviderByModel, getTagColor, isRemovedPresetModel, REMOVED_MODEL_MESSAGE } from '../data/aiProviders'
 import type { AIProvider, AIModel } from '../data/aiProviders'
 import CountdownEventsManager from './CountdownEventsManager'
 import type { ActiveAppInfo, CountdownEvent, FocusWhitelistItem } from '../types'
@@ -417,7 +417,7 @@ function ModelCard({ model, active, onClick }: {
           )}
         </div>
         <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-          {model.desc}
+          {model.capabilities?.vision ? '支持图片' : '仅文字'} · {model.desc}
         </span>
       </div>
     </button>
@@ -433,20 +433,20 @@ export function SettingsAI({
     aiModel, setAiModel,
     aiVisionEnabled, setAiVisionEnabled
 }: SettingsAIProps) {
-    // Determine the active provider from the current model or endpoint
+    const customSelectedRef = useRef(false)
+    // The endpoint owns provider identity. A same-named Custom model stays Custom.
     const detectedProvider = useMemo(() => {
-      const byModel = getProviderByModel(aiModel)
-      if (byModel) return byModel.id
-      // Try matching by endpoint
-      const byEndpoint = AI_PROVIDERS.find(p => p.endpoint && aiEndpoint.includes(new URL(p.endpoint).hostname))
-      if (byEndpoint) return byEndpoint.id
-      return 'custom'
+      if (aiEndpoint.trim()) return getProviderByEndpoint(aiEndpoint)?.id ?? 'custom'
+      return getProviderByModel(aiModel)?.id ?? 'custom'
     }, [aiModel, aiEndpoint])
 
     const [activeProviderId, setActiveProviderId] = useState(detectedProvider)
-    const [customModelInput, setCustomModelInput] = useState(
-      activeProviderId === 'custom' ? aiModel : ''
-    )
+    const customConfigRef = useRef({ endpoint: '', model: '' })
+    // Hydration and catalog refresh synchronize presentation only.
+    useEffect(() => {
+      if (!aiEndpoint.trim() && customSelectedRef.current) return
+      setActiveProviderId(detectedProvider)
+    }, [detectedProvider, aiEndpoint])
     const [showModelPicker, setShowModelPicker] = useState(false)
     const modelTriggerRef = useRef<HTMLButtonElement>(null)
     const [modelSearch, setModelSearch] = useState('')
@@ -454,14 +454,21 @@ export function SettingsAI({
     const activeProvider = getProvider(activeProviderId) || AI_PROVIDERS[AI_PROVIDERS.length - 1]!
 
     const handleSelectProvider = (providerId: string) => {
+      if (providerId === activeProviderId) return
+      customSelectedRef.current = providerId === 'custom'
+      if (activeProviderId === 'custom') customConfigRef.current = { endpoint: aiEndpoint, model: aiModel }
       setActiveProviderId(providerId)
       const provider = getProvider(providerId)
       if (provider && provider.endpoint) {
         setAiEndpoint(provider.endpoint)
       }
-      // Auto-select first recommended model
+      if (providerId === 'custom') {
+        setAiEndpoint(customConfigRef.current.endpoint)
+        setAiModel(customConfigRef.current.model)
+      }
+      // Only an explicit switch chooses a new model; labels are presentation.
       if (provider && provider.id !== 'custom') {
-        const recommended = provider.models.find(m => m.tag === '推荐') || provider.models[0]
+        const recommended = provider.models.find(m => m.recommended) || provider.models[0]
         if (recommended) {
           setAiModel(recommended.id)
         }
@@ -472,7 +479,6 @@ export function SettingsAI({
 
 
     const handleCustomModelChange = (value: string) => {
-      setCustomModelInput(value)
       setAiModel(value)
     }
 
@@ -615,7 +621,7 @@ export function SettingsAI({
                           id="settings-ai-custom-model"
                           type="text" className="input w-full"
                           placeholder="输入自定义模型名称，如 gpt-4o"
-                          value={customModelInput}
+                          value={aiModel}
                           onChange={e => handleCustomModelChange(e.target.value)}
                         />
                         <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
@@ -743,6 +749,9 @@ export function SettingsAI({
                 </div>
 
                 {/* ── Vision capability ── */}
+                {isRemovedPresetModel(aiModel, aiEndpoint) && (
+                  <p role="alert" className="text-sm">{REMOVED_MODEL_MESSAGE}</p>
+                )}
                 <div style={{
                   padding: '10px 12px',
                   borderRadius: 'var(--radius-sm)',
@@ -766,7 +775,7 @@ export function SettingsAI({
                     </label>
                   ) : (
                     <div className="text-xs text-secondary">
-                      当前预设模型：{currentCapabilities?.vision ? '支持图片输入' : '未声明图片输入能力'}。图片发送由模型能力边界控制。
+                      当前模型：{currentCapabilities?.vision ? '支持图片' : '仅文字'}
                     </div>
                   )}
                 </div>

@@ -412,3 +412,134 @@ export function validateEntryUpdatePayload(payload: unknown): Partial<NewEntry> 
     validateEntryFields(record, false);
     return payload as Partial<NewEntry>;
 }
+
+// First Slice validates data descriptors before reading any renderer property.
+function firstSliceObject(value: unknown, required: string[], optional: string[] = []): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) throw new Error('Invalid First Slice payload');
+    const keys = Reflect.ownKeys(value);
+    if (!required.every(key => keys.includes(key)) || keys.some(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return typeof key !== 'string' || ![...required, ...optional].includes(key)
+            || !descriptor || !('value' in descriptor) || !descriptor.enumerable;
+    })) throw new Error('Invalid First Slice payload');
+    return value as Record<string, unknown>;
+}
+function firstSliceText(value: unknown, max: number): string {
+    if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error('Invalid First Slice text');
+    return value;
+}
+function firstSliceDate(value: unknown): string {
+    const text = firstSliceText(value, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || text.startsWith('0000')
+        || !Number.isFinite(Date.parse(text)) || new Date(text).toISOString().slice(0, 10) !== text) throw new Error('Invalid First Slice date');
+    return text;
+}
+export function validateFirstSliceEvidence(value: unknown): import('../src/types/api').EvidenceRequest {
+    const input = firstSliceObject(value, ['kind', 'subject'], ['periodA', 'periodB']);
+    const subject = firstSliceObject(input.subject, ['by'], ['id', 'name']);
+    if (subject.by === 'id') {
+        firstSliceObject(subject, ['by', 'id']);
+        if (typeof subject.id !== 'number' || !Number.isSafeInteger(subject.id) || subject.id <= 0) throw new Error('Invalid subject');
+    } else if (subject.by === 'exact_name') {
+        firstSliceObject(subject, ['by', 'name']);
+        firstSliceText(subject.name, 500);
+    } else throw new Error('Invalid subject');
+    if (input.kind === 'subject_progress') firstSliceObject(input, ['kind', 'subject']);
+    else if (input.kind === 'focus_comparison') {
+        firstSliceObject(input, ['kind', 'subject', 'periodA', 'periodB']);
+        const a = firstSliceObject(input.periodA, ['startDate', 'endDate']);
+        const b = firstSliceObject(input.periodB, ['startDate', 'endDate']);
+        const aStart = firstSliceDate(a.startDate), aEnd = firstSliceDate(a.endDate);
+        const bStart = firstSliceDate(b.startDate), bEnd = firstSliceDate(b.endDate);
+        if (aStart > aEnd || bStart > bEnd || !(aEnd < bStart || bEnd < aStart)) throw new Error('Invalid periods');
+    } else throw new Error('Invalid evidence kind');
+    return structuredClone(input) as import('../src/types/api').EvidenceRequest;
+}
+export function validateFirstSliceIntent(value: unknown): import('../src/types/api').FirstSliceRestrictionIntent {
+    const input = firstSliceObject(value, ['lifetime', 'target', 'purpose', 'object', 'destination']);
+    const target = firstSliceObject(input.target, ['category', 'operation']);
+    if (!(target.category === 'diary' && (target.operation === 'use' || target.operation === 'disclose'))
+        && !(target.category === 'all-outbound' && target.operation === 'disclose')) throw new Error('Invalid restriction target');
+    const pairs: Record<string, string> = { request: 'this_question', session: 'this_conversation', durable_preference: 'aipanel_default' };
+    if (typeof input.lifetime !== 'string' || !Object.prototype.hasOwnProperty.call(pairs, input.lifetime) || pairs[input.lifetime] !== input.purpose
+        || input.object !== 'category' || !(input.destination === 'all' || input.destination === 'current_provider')) throw new Error('Invalid restriction scope');
+    return structuredClone(input) as import('../src/types/api').FirstSliceRestrictionIntent;
+}
+export const firstSliceValidators = {
+    openSession(value: unknown): Record<string, never> {
+        firstSliceObject(value, []);
+        return {};
+    },
+    closeSession(value: unknown): import('../src/types/api').FirstSliceSessionInput {
+        const input = firstSliceObject(value, ['session']);
+        return { session: firstSliceText(input.session, 200) };
+    },
+    regenerate(value: unknown): import('../src/types/api').FirstSliceRequestInput {
+        const input = firstSliceObject(value, ['session', 'requestHandle']);
+        return { session: firstSliceText(input.session, 200), requestHandle: firstSliceText(input.requestHandle, 200) };
+    },
+    cancel(value: unknown): import('../src/types/api').FirstSliceSessionInput | import('../src/types/api').FirstSliceRequestInput {
+        const input = firstSliceObject(value, ['session'], ['requestHandle']);
+        return Object.prototype.hasOwnProperty.call(input, 'requestHandle') ? this.regenerate(input) : this.closeSession(input);
+    },
+    resolveEvidence(value: unknown): import('../src/types/api').FirstSliceResolveInput {
+        const input = firstSliceObject(value, ['session', 'request'], ['userInput', 'requestHandle']);
+        const session = firstSliceText(input.session, 200);
+        const request = validateFirstSliceEvidence(input.request);
+        if (Object.prototype.hasOwnProperty.call(input, 'requestHandle')) {
+            firstSliceObject(input, ['session', 'request', 'requestHandle']);
+            return { session, request, requestHandle: firstSliceText(input.requestHandle, 200) };
+        }
+        firstSliceObject(input, ['session', 'request', 'userInput']);
+        return { session, request, userInput: firstSliceText(input.userInput, 30_000) };
+    },
+    send(value: unknown): import('../src/types/api').FirstSliceSendInput {
+        const input = firstSliceObject(value, ['session', 'kind', 'userInput'], ['requestHandle', 'share', 'acceptLimited', 'imageDataUrls', 'textAttachments']);
+        const session = firstSliceText(input.session, 200), userInput = firstSliceText(input.userInput, 30_000);
+        if (input.kind === 'chat') {
+            firstSliceObject(input, ['session', 'kind', 'userInput'], ['imageDataUrls', 'textAttachments']);
+            let textAttachments: import('../src/types/api').FirstSliceTextAttachment[] | undefined;
+            if (Object.prototype.hasOwnProperty.call(input, 'textAttachments')) {
+                const texts = input.textAttachments;
+                if (!Array.isArray(texts) || texts.length < 1 || texts.length > 5
+                    || Reflect.ownKeys(texts).length !== texts.length + 1) throw new Error('Invalid text attachments');
+                let totalChars = 0;
+                textAttachments = Array.from({ length: texts.length }, (_, index) => {
+                    const descriptor = Object.getOwnPropertyDescriptor(texts, String(index));
+                    if (!descriptor || !('value' in descriptor)) throw new Error('Invalid text attachment');
+                    const attachment = firstSliceObject(descriptor.value, ['kind', 'name', 'text']);
+                    if (attachment.kind !== 'pdf' && attachment.kind !== 'text-file') throw new Error('Invalid text attachment kind');
+                    const name = firstSliceText(attachment.name, 255);
+                    if (/[/\\:\u0000-\u001f\u007f]/.test(name) || name === '.' || name === '..') throw new Error('Invalid attachment filename');
+                    const text = firstSliceText(attachment.text, 20_000);
+                    totalChars += text.length;
+                    if (totalChars > 20_000) throw new Error('Text attachments exceed send budget');
+                    return { kind: attachment.kind, name, text };
+                });
+            }
+            const result = { session, kind: 'chat' as const, userInput, ...(textAttachments ? { textAttachments } : {}) };
+            if (!Object.prototype.hasOwnProperty.call(input, 'imageDataUrls')) return result;
+            const images = input.imageDataUrls;
+            if (!Array.isArray(images) || images.length < 1 || images.length > 3
+                || Reflect.ownKeys(images).length !== images.length + 1) throw new Error('Invalid images');
+            if (images.length + (textAttachments?.length ?? 0) > 5) throw new Error('Too many attachments');
+            const imageDataUrls = Array.from({ length: images.length }, (_, index) => {
+                const descriptor = Object.getOwnPropertyDescriptor(images, String(index));
+                if (!descriptor || !('value' in descriptor) || typeof descriptor.value !== 'string') throw new Error('Invalid image');
+                return descriptor.value as string;
+            });
+            // Reuse MIME, byte/count limits and final-user-only request policy.
+            validateAiRequestMessages([{ role: 'system', content: 'Image input validation' }, { role: 'user', content: [
+                { type: 'text', text: userInput }, ...imageDataUrls.map(url => ({ type: 'image_url' as const, image_url: { url } })),
+            ] }]);
+            return { ...result, imageDataUrls };
+        }
+        firstSliceObject(input, ['session', 'kind', 'userInput', 'requestHandle', 'share', 'acceptLimited']);
+        if (input.kind !== 'focus_explanation' || typeof input.share !== 'boolean' || typeof input.acceptLimited !== 'boolean') throw new Error('Invalid disclosure decision');
+        return { session, kind: 'focus_explanation', userInput, requestHandle: firstSliceText(input.requestHandle, 200), share: input.share, acceptLimited: input.acceptLimited };
+    },
+    restrict(value: unknown): import('../src/types/api').FirstSliceRestrictInput {
+        const input = firstSliceObject(value, ['session', 'userInput', 'intent']);
+        return { session: firstSliceText(input.session, 200), userInput: firstSliceText(input.userInput, 30_000), intent: validateFirstSliceIntent(input.intent) };
+    },
+};

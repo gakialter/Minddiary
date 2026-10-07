@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Coffee, Zap, X } from 'lucide-react'
+import { STUDY_TASK_STATUS_LABELS } from '../utils/studyTaskLabels'
+import type { StudyTaskStatus } from '../types'
 
 interface PomodoroAlertProps {
   visible: boolean
@@ -13,7 +15,7 @@ interface PomodoroAlertProps {
     id: number
     title: string
     subjectName: string | null
-    status: string
+    status: StudyTaskStatus
     duration: number
     relatedChapterId?: number | null
     chapterTitle?: string | null
@@ -191,7 +193,7 @@ export default function PomodoroAlert({
               <div className="text-xs text-muted" style={{ marginBottom: 4 }}>绑定任务</div>
               <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{taskSettlement.title}</div>
               <div className="text-xs" style={{ marginTop: 4, color: 'var(--text-secondary)' }}>
-                {taskSettlement.subjectName || '未选择科目'} · {taskSettlement.status} · {taskSettlement.duration} 分钟
+                {taskSettlement.subjectName || '未选择科目'} · {STUDY_TASK_STATUS_LABELS[taskSettlement.status]} · {taskSettlement.duration} 分钟
               </div>
             </div>
             {pendingReviewEntryCreation ? (

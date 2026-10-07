@@ -70,6 +70,16 @@ describe('AI attachment policy', () => {
     ])).toContain(String(AI_ATTACHMENT_LIMITS.maxExtractedTextChars))
   })
 
+  it('rejects ready but empty content and checks the aggregate text budget without truncation', () => {
+    expect(getReadyAttachmentError([makeAttachment('pdf', { extractedText: '  ' })])).toContain('没有可发送')
+    expect(getReadyAttachmentError([makeAttachment('image')])).toContain('没有可发送')
+    expect(getReadyAttachmentError([
+      makeAttachment('pdf', { extractedText: 'a'.repeat(10_000) }),
+      makeAttachment('text-file', { extractedText: 'b'.repeat(10_001) }),
+    ])).toContain('20001')
+    expect(getReadyAttachmentError([makeAttachment('pdf', { extractedText: 'a'.repeat(20_000) })])).toBeNull()
+  })
+
   it('persists only attachment metadata and marks it non-reusable', () => {
     const meta = attachmentToMeta(makeAttachment('image', {
       name: 'photo.png',

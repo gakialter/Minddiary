@@ -5,6 +5,7 @@ import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
 import { showToast } from './Toast'
 import TemplateManager from './TemplateManager'
+import TemplateApplyDialog from './TemplateApplyDialog'
 import TagBadge from './TagBadge'
 import { Bot, ImagePlus, X, ChevronDown, ChevronUp, LayoutTemplate, Tags as TagsIcon } from 'lucide-react'
 import MarkdownRenderer from './common/MarkdownRenderer'
@@ -13,6 +14,7 @@ import DiaryWritingSurface, { type DiaryWritingHandle, type DiaryFormatState } f
 import { logger } from '../utils/logger'
 import { buildDiarySummaryPrompt, SYSTEM_PROMPT } from '../utils/promptTemplates'
 import type { DiaryEntry, AIMessage, DiaryTemplate, Tag } from '../types'
+import type { DiarySaveOptions } from '../hooks/useNavigation'
 
 // dom-to-image-more is only needed for share card export; lazy-load it on demand
 const getDomToImage = () => import('dom-to-image-more').then(m => m.default || m)
@@ -29,7 +31,7 @@ export interface PendingDiaryInsert {
 
 interface EditorProps {
   entry: DiaryEntry | null
-  onSave: (data: { title: string; content: string; tags: number[] }, options?: { origin?: 'editor-auto' | 'editor-manual' }) => Promise<unknown>
+  onSave: (data: { title: string; content: string; tags: number[] }, options?: DiarySaveOptions) => Promise<unknown>
   loading: boolean
   pendingInsert?: PendingDiaryInsert | null
   onPendingInsertApplied?: (id: number) => void
@@ -54,6 +56,11 @@ const isSameSummaryRequestContext = (a: SummaryRequestContext, b: SummaryRequest
   a.content === b.content
 )
 
+// Assigning the first database id still belongs to the same diary session.
+const isSameDiary = (a: DiaryEntry | null, b: DiaryEntry | null) => (
+  a?.date === b?.date && (!a?.id || !b?.id || a.id === b.id)
+)
+
 function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState(entry?.title || '')
@@ -67,13 +74,26 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   const [summaryExpanded, setSummaryExpanded] = useState(true)
   const [showTemplateManager, setShowTemplateManager] = useState(false)
   const [quickTemplates, setQuickTemplates] = useState<DiaryTemplate[]>([])
+  const [pendingTemplate, setPendingTemplate] = useState<{ content: string; date: string | undefined } | null>(null)
   const [availableTags, setAvailableTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const isDirty = useRef(false)
   const entryRef = useRef<DiaryEntry | null>(null)
+  const currentEntryRef = useRef(entry)
+  currentEntryRef.current = entry
+  const revisionRef = useRef(0)
+  const saveGenerationRef = useRef(0)
   const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
   const writingRef = useRef<DiaryWritingHandle>(null)
+  const polishSession = useRef({ date: entry?.date, id: entry?.id, version: 0 })
+  if (polishSession.current.date !== entry?.date || polishSession.current.id !== entry?.id) {
+    // Only a first save (0 -> database id) promotes the current editing session.
+    // Other id/date transitions still dismiss the previous selection's review.
+    const promoted = entry && polishSession.current.date === entry.date && polishSession.current.id === 0 && entry.id > 0
+    polishSession.current = { date: entry?.date, id: entry?.id,
+      version: polishSession.current.version + (promoted ? 0 : 1) }
+  }
   const [formatState, setFormatState] = useState<DiaryFormatState>({ bold: false, underline: false, highlight: false, color: undefined })
   const summaryGenerationRef = useRef(0)
   const activeSummaryGenerationRef = useRef<number | null>(null)
@@ -141,8 +161,16 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
   // Sync from entry prop (only when entry changes reference)
   useEffect(() => {
+    const switchedDiary = !isSameDiary(entry, entryRef.current)
+    if (switchedDiary) {
+      revisionRef.current++
+      saveGenerationRef.current++
+      setSaving(false)
+    }
     if (entry && entry !== entryRef.current) {
       entryRef.current = entry
+      // Metadata/first-id echoes must not replace a newer unsaved draft.
+      if (!switchedDiary && isDirty.current) return
       setTitle(entry.title || '')
       setContent(entry.content || '')
       setSelectedTagIds(entry.tags || [])
@@ -169,6 +197,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
   useEffect(() => () => {
     invalidateSummaryRequest(false)
+    revisionRef.current++
+    saveGenerationRef.current++
   }, [])
 
   useEffect(() => {
@@ -188,22 +218,31 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
   const handleSave = useCallback(async (isManual = false) => {
     if (!entry) return
+    const revision = revisionRef.current
+    const generation = ++saveGenerationRef.current
+    const isCurrentSave = () => (
+      generation === saveGenerationRef.current && isSameDiary(entry, currentEntryRef.current)
+    )
+    const isCurrentRevision = () => isCurrentSave() && revision === revisionRef.current
     setSaving(true)
     try {
       const saved = await onSave(
         { title, content, tags: selectedTagIds },
-        { origin: isManual ? 'editor-manual' : 'editor-auto' },
+        { origin: isManual ? 'editor-manual' : 'editor-auto', isCurrentRevision },
       )
       if (saved === null) {
         throw new Error('Save returned null')
       }
-      setDirtyState(false)
-      if (isManual) showToast('保存成功', 'success')
+      if (isCurrentRevision()) {
+        setDirtyState(false)
+        if (isManual) showToast('保存成功', 'success')
+      }
     } catch (err) {
       logger.error('Save failed:', err)
-      showToast('保存失败', 'error')
+      if (isCurrentSave()) showToast('保存失败', 'error')
+    } finally {
+      if (isCurrentSave()) setSaving(false)
     }
-    setSaving(false)
   }, [entry, title, content, selectedTagIds, onSave, setDirtyState])
 
   const handleAiSummary = useCallback(async () => {
@@ -272,18 +311,21 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   }, [handleSave])
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    revisionRef.current++
     setTitle(e.target.value)
     setDirtyState(true)
   }
 
   // Every writing transaction publishes canonical Markdown to the save/AI state.
   const handleContentChange = useCallback((newValue: string) => {
+    revisionRef.current++
     setContent(newValue)
     setWordCount(calculateWordCount(newValue))
     setDirtyState(true)
   }, [setDirtyState])
 
   const handleTagToggle = (tagId: number) => {
+    revisionRef.current++
     setSelectedTagIds(prev =>
       prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
     )
@@ -292,6 +334,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
   const handleClearTags = () => {
     if (selectedTagIds.length === 0) return
+    revisionRef.current++
     setSelectedTagIds([])
     setDirtyState(true)
   }
@@ -309,7 +352,18 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   }, [handleSave])
 
   const handleTemplateInsert = (templateContent: string) => {
-    writingRef.current?.replace(templateContent)
+    writingRef.current?.applyTemplate(templateContent, () => {
+      setPendingTemplate({ content: templateContent, date: entry?.date })
+    })
+  }
+
+  useEffect(() => { setPendingTemplate(null) }, [entry?.date])
+
+  const applyPendingTemplate = (replace: boolean) => {
+    if (!pendingTemplate || pendingTemplate.date !== entry?.date) return
+    if (replace) writingRef.current?.replace(pendingTemplate.content)
+    else writingRef.current?.appendTemplate(pendingTemplate.content)
+    setPendingTemplate(null)
   }
 
   const saveState = saving ? 'saving' : loading ? 'loading' : isDirty.current ? 'dirty' : entry ? 'saved' : 'idle'
@@ -422,9 +476,9 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
           <DiaryWritingSurface
             key={entry?.date ?? 'new'}
             ref={writingRef}
-            identity={`${entry?.date ?? 'new'}:${entry?.id ?? ''}`}
+            identity={`${entry?.date ?? 'new'}:${polishSession.current.version}`}
             polishChat={diary.ai.chat}
-            value={entry !== entryRef.current ? entry?.content || '' : content}
+            value={entry !== entryRef.current && (!isSameDiary(entry, entryRef.current) || !isDirty.current) ? entry?.content || '' : content}
             onChange={handleContentChange}
             onFormatState={setFormatState}
           />
@@ -532,6 +586,10 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
         onClose={() => setShowTemplateManager(false)}
         onInsert={handleTemplateInsert}
       />
+      {pendingTemplate && pendingTemplate.date === entry?.date && (
+        <TemplateApplyDialog onInsert={() => applyPendingTemplate(false)}
+          onReplace={() => applyPendingTemplate(true)} onClose={() => setPendingTemplate(null)} />
+      )}
       <ShareCard ref={shareCardRef} diary={entry} pomodoros={pomodoros} />
     </div>
   )

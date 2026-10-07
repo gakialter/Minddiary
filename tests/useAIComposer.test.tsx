@@ -49,6 +49,31 @@ function createDeferred<T>() {
 }
 
 describe('useAIComposer', () => {
+  it('removes only the deleted attachment error and preserves other file and request errors', async () => {
+    readerMocks.readAIComposerFile.mockImplementation(async (file: File, _existing: AIComposerAttachment[], id?: string) => ({
+      ...makeReadyAttachment(file, id), kind: 'pdf', status: 'error', error: `failure ${file.name}`,
+    }))
+    const { result } = renderHook(() => useAIComposer())
+    await act(async () => { await result.current.addFiles([makeImage('one.pdf'), makeImage('two.pdf')]) })
+    expect(result.current.error).toContain('one.pdf')
+    act(() => result.current.removeAttachment('pending-one.pdf'))
+    expect(result.current.error).toContain('two.pdf')
+    act(() => { result.current.setError('real request error'); result.current.removeAttachment('pending-two.pdf') })
+    expect(result.current.error).toBe('real request error')
+    act(() => { result.current.setError(null); result.current.setInput('text question') })
+    expect(result.current.error).toBeNull()
+    expect(result.current.canSendContent).toBe(true)
+  })
+  it('clears only the sent draft and preserves text and images added while awaiting the reply', async () => {
+    const { result } = renderHook(() => useAIComposer())
+    await act(async () => { result.current.setInput('sent question'); await result.current.addFiles([makeImage('sent.png')]) })
+    await act(async () => { result.current.setInput('next question'); await result.current.addFiles([makeImage('next.png')]) })
+    act(() => result.current.clearSentDraft('sent question', ['pending-sent.png']))
+    expect(result.current.input).toBe('next question')
+    expect(result.current.attachments.map(item => item.name)).toEqual(['next.png'])
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:sent.png')
+    expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:next.png')
+  })
   let revokeObjectURL: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
