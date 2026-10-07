@@ -9,6 +9,7 @@ import {
 import { writeDateRolloverEvidence } from '../helpers/dateRolloverEvidence';
 
 const projectRoot = path.resolve(__dirname, '..', '..');
+const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as { version: string };
 
 function findPackagedExecutable(): string {
   const executablePath = process.platform === 'win32'
@@ -35,7 +36,7 @@ test('runs the packaged diagnostic harness without exposing secrets or paths', a
     expect(run.result).toMatchObject({
       schemaVersion: 1,
       scenario: 'sqlite-read-write',
-      applicationVersion: '1.19.1',
+      applicationVersion: packageJson.version,
       electronVersion: '42.6.1',
       platform: process.platform,
       arch: process.arch,

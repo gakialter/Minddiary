@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
@@ -11,6 +12,7 @@ import {
 
 const electronPath = require('electron') as string;
 const projectRoot = path.resolve(__dirname, '..', '..');
+const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as { version: string };
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -27,7 +29,7 @@ test('runs the source-tree diagnostic harness against a disposable profile', asy
     expect(run.result).toMatchObject({
       schemaVersion: 1,
       scenario: 'sqlite-read-write',
-      applicationVersion: '1.19.1',
+      applicationVersion: packageJson.version,
       electronVersion: '42.6.1',
       isPackaged: false,
       sandbox: true,
