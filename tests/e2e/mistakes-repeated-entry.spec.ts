@@ -481,7 +481,7 @@ test.describe('repeated mistake entry and editing', () => {
         { ...validMistake, question: '本批次第二条非法记录', mastered: 2 },
       ]
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const preflightError = /导入失败: 错题第 2 项字段无效：mistake mastered must be a boolean or 0\/1/
+        const preflightError = /导入失败: 错题第 2 项：字段无效：mistake mastered must be a boolean or 0\/1/
         await importJsonBackup(
           page,
           `MindDiary_Backup_invalid_attempt_${attempt}.json`,

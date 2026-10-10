@@ -149,7 +149,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 960, height: 600 }]) 
       await page.keyboard.press('Escape')
       await expect(floating).toBeHidden()
       await expect(body).toBeFocused()
-      expect(await body.evaluate(element => getComputedStyle(element.closest('.cm-editor')!).boxShadow)).not.toBe('none')
+      await expect.poll(() => body.evaluate(element => getComputedStyle(element.closest('.cm-editor')!).boxShadow)).not.toBe('none')
       expect(errors).toEqual([])
     })
   }
