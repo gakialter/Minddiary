@@ -218,8 +218,10 @@ test('runs the unpacked packaged app with hardened runtime and persisted local d
 
     const settingsPage = session.page.locator('.settings-page')
     const primaryDateInput = session.page.getByLabel('目标日期').first()
-    const initialExamDate = await session.page.evaluate(() => window.api.settings.getAll().then(settings => settings.examDate))
-    await expect(primaryDateInput).toHaveValue(initialExamDate)
+    await expect.poll(async () => {
+      const storedDate = await session?.page.evaluate(() => window.api.settings.getAll().then(settings => settings.examDate))
+      return Boolean(storedDate) && await primaryDateInput.inputValue() === storedDate
+    }).toBe(true)
 
     const sentinelExamDate = '2099-12-31'
     await primaryDateInput.fill(sentinelExamDate)

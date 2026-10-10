@@ -196,9 +196,10 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await expect(page.getByTestId('ai-suggestion-suggestion-1')).toBeVisible()
       await expect(page.getByTestId('ai-suggestion-suggestion-2')).toBeVisible()
 
-      await page.getByLabel('任务名称').nth(0).fill(todayFinalTitle)
-      await page.getByLabel('建议理由').nth(0).fill(todayFinalReason)
-      await page.getByLabel('优先顺序').nth(0).selectOption('medium')
+      const firstTodayCandidate = page.getByTestId('ai-suggestion-suggestion-1')
+      await firstTodayCandidate.getByLabel('任务名称').fill(todayFinalTitle)
+      await firstTodayCandidate.getByLabel('建议理由').fill(todayFinalReason)
+      await firstTodayCandidate.getByLabel('优先顺序').selectOption('medium')
       await page.getByRole('checkbox', { name: `选择 ${todayUnselectedTitle}` }).uncheck()
 
       await page.evaluate(storageKey => {
@@ -249,7 +250,7 @@ test.describe('Phase C2 Planning History through Electron', () => {
       expect(tasksAfterConfirmation).toHaveLength(2)
 
       await page.getByTestId('ai-plan-generate').click()
-      await expect(page.getByLabel('任务名称')).toHaveCount(1)
+      await expect(page.getByRole('dialog', { name: '今日建议' }).getByLabel('任务名称')).toHaveCount(1)
       await expect(page.getByTestId('ai-suggestion-suggestion-1').getByLabel('任务名称')).toHaveValue(todayGenerationBTitle)
       expect(provider.requestCount()).toBe(2)
 
@@ -260,7 +261,7 @@ test.describe('Phase C2 Planning History through Electron', () => {
 
       await page.getByTestId('open-ai-today-action-suggestions').click()
       await expect(page.getByRole('dialog', { name: '今日建议' })).toBeVisible()
-      await expect(page.getByLabel('任务名称')).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: '今日建议' }).getByLabel('任务名称')).toHaveCount(0)
       await expect(page.getByText('生成后会在这里显示可编辑的候选任务。')).toBeVisible()
       expect(provider.requestCount()).toBe(2)
       await page.getByLabel('关闭建议').click()
@@ -430,7 +431,7 @@ test.describe('Phase C2 Planning History through Electron', () => {
 
       await page.getByTestId('open-daily-review-agent').click()
       await expect(page.getByRole('dialog', { name: '每日回顾' })).toBeVisible()
-      await expect(page.getByLabel('任务名称')).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: '每日回顾' }).getByLabel('任务名称')).toHaveCount(0)
       expect(provider.requestCount()).toBe(1)
       await page.getByLabel('关闭回顾').click()
 

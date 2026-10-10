@@ -302,7 +302,7 @@ test.describe('UX-04 AI text draft navigation through production Electron', () =
       await expectNoAutomaticSend(page, fixture, 3)
 
       page.once('dialog', dialog => void dialog.accept())
-      await page.getByRole('button', { name: '清空历史', exact: true }).click()
+      await page.getByRole('button', { name: '清空历史和草稿', exact: true }).click()
       await expect(composer()).toHaveValue('')
       await expect.poll(async () => await history(page)).toEqual([])
       await navigate(page, '今日安排')

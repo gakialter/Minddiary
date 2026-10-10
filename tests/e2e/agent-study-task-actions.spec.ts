@@ -79,7 +79,7 @@ async function openAndGenerateCandidate(page: Page, expectedTitle = candidateTit
   await page.getByTestId('open-ai-today-action-suggestions').click()
   await expect(page.getByRole('dialog', { name: '今日建议' })).toBeVisible()
   await page.getByTestId('ai-plan-generate').click()
-  const suggestionTitle = page.getByLabel('任务名称')
+  const suggestionTitle = page.getByTestId('ai-suggestion-suggestion-1').getByLabel('任务名称')
   const feedbackPreview = page.getByTestId('today-action-feedback-preview')
   await expect(suggestionTitle.or(feedbackPreview)).toBeVisible()
   if (await feedbackPreview.isVisible()) {

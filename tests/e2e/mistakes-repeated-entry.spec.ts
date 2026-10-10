@@ -174,10 +174,19 @@ async function createMistake(page: Page, question: string, answer: string, notes
   await submitForm(page)
 }
 
-async function importJsonBackup(page: Page, name: string, content: string): Promise<void> {
+async function importJsonBackup(page: Page, name: string, content: string, preflightError?: RegExp): Promise<void> {
   const chooserPromise = page.waitForEvent('filechooser')
   await page.getByRole('button', { name: '合并导入 JSON' }).click()
   const chooser = await chooserPromise
+  if (preflightError) {
+    await chooser.setFiles({
+      name,
+      mimeType: 'application/json',
+      buffer: Buffer.from(content, 'utf8'),
+    })
+    await expect(page.getByText(preflightError)).toBeVisible()
+    return
+  }
   const dialogPromise = page.waitForEvent('dialog')
   await chooser.setFiles({
     name,
@@ -472,14 +481,14 @@ test.describe('repeated mistake entry and editing', () => {
         { ...validMistake, question: '本批次第二条非法记录', mastered: 2 },
       ]
       for (let attempt = 1; attempt <= 2; attempt++) {
+        const preflightError = /导入失败: 错题第 2 项字段无效：mistake mastered must be a boolean or 0\/1/
         await importJsonBackup(
           page,
           `MindDiary_Backup_invalid_attempt_${attempt}.json`,
           JSON.stringify(invalidExport),
+          preflightError,
         )
-        const invalidPayloadToast = page.getByText(
-          /导入失败: 第 2 道错题导入失败: mistake mastered must be a boolean or 0\/1/,
-        )
+        const invalidPayloadToast = page.getByText(preflightError)
         await expect(invalidPayloadToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
@@ -495,12 +504,14 @@ test.describe('repeated mistake entry and editing', () => {
         { ...validMistake, question: '科目批次第二条非法记录', subject_id: 999_999 },
       ]
       for (let attempt = 1; attempt <= 2; attempt++) {
+        const preflightError = /导入失败: 错题第 2 项引用的科目 ID 999999 不在本文件科目中/
         await importJsonBackup(
           page,
           `MindDiary_Backup_invalid_subject_attempt_${attempt}.json`,
           JSON.stringify(invalidSubjectExport),
+          preflightError,
         )
-        const invalidSubjectToast = page.getByText(/导入失败: 第 2 道错题导入失败: 引用的科目不存在/)
+        const invalidSubjectToast = page.getByText(preflightError)
         await expect(invalidSubjectToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
