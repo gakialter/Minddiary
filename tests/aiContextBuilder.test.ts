@@ -120,7 +120,7 @@ describe('AI context builder primary countdown', () => {
 
     const [section] = await buildAIContextSections(['exam-countdown'], deps)
 
-    expect(section?.label).toBe('主目标倒计时')
+    expect(section?.label).toBe('目标倒数')
     expect(section?.content).toContain('主目标名称：论文提交')
     expect(section?.content).toContain('主目标日期：2027-01-15')
     expect(section?.content).not.toContain('考试日期')

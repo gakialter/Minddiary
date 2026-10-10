@@ -132,6 +132,6 @@ describe('Dashboard', () => {
     expect(screen.getByText('单位：分钟')).toBeInTheDocument()
     expect(screen.getByText(`${today}，有日记记录`)).toBeInTheDocument()
     expect(screen.getByText(new RegExp(`^${today}，.+，45 分钟$`))).toBeInTheDocument()
-    expect(screen.getByText('每个方格仅表示当天有无日记记录，不代表时长或强度。')).toBeInTheDocument()
+    expect(screen.getByText('方格仅表示当天是否有日记记录，不代表时长或强度。')).toBeInTheDocument()
   })
 })

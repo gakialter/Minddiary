@@ -133,7 +133,7 @@ describe('Focus Guard platform hint', () => {
         render(<Settings />)
       })
 
-      const manualInput = screen.getByLabelText('应用名称或进程名')
+      const manualInput = screen.getByLabelText('应用名或进程名')
       const manualAddBtn = screen.getByRole('button', { name: '手动添加' })
 
       await act(async () => {
