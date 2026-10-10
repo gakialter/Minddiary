@@ -73,7 +73,7 @@ describe('SearchPanel diary results', () => {
     const selectEntry = vi.fn()
     const panel = render(<SearchPanel session={session} onSessionChange={remember} onSelectEntry={selectEntry} />)
     await waitFor(() => expect(mocks.entriesGetAll).toHaveBeenCalled())
-    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '定义域' } })
+    fireEvent.change(screen.getByLabelText('搜索内容'), { target: { value: '定义域' } })
     fireEvent.change(screen.getByLabelText('心情'), { target: { value: 'happy' } })
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-05-01' } })
     fireEvent.change(screen.getByLabelText('标签'), { target: { value: '1' } })
@@ -86,7 +86,7 @@ describe('SearchPanel diary results', () => {
       makeEntry({ id: 4, title: '不符合筛选', content: '定义域更新', mood: 'sad' }),
     ])
     const returned = render(<SearchPanel session={session} onSessionChange={remember} />)
-    expect(screen.getByLabelText('关键词')).toHaveValue('定义域')
+    expect(screen.getByLabelText('搜索内容')).toHaveValue('定义域')
     expect(screen.getByLabelText('心情')).toHaveValue('happy')
     expect(screen.getByLabelText('开始日期')).toHaveValue('2026-05-01')
     await waitFor(() => expect(screen.getByLabelText('标签')).toHaveValue('1'))
@@ -96,7 +96,7 @@ describe('SearchPanel diary results', () => {
     expect(mocks.entriesSearch).toHaveBeenCalledTimes(2)
     returned.unmount()
     render(<SearchPanel />)
-    expect(screen.getByLabelText('关键词')).toHaveValue('')
+    expect(screen.getByLabelText('搜索内容')).toHaveValue('')
   })
   beforeEach(() => {
     vi.clearAllMocks()
@@ -214,13 +214,13 @@ describe('SearchPanel diary results', () => {
 
     render(<SearchPanel />)
 
-    expect(screen.getByLabelText('关键词')).toHaveAttribute('id', 'diary-search-query')
+    expect(screen.getByLabelText('搜索内容')).toHaveAttribute('id', 'diary-search-query')
     expect(screen.getByLabelText('心情')).toHaveAttribute('id', 'diary-search-mood')
     expect(screen.getByLabelText('开始日期')).toHaveAttribute('id', 'diary-search-start-date')
     expect(screen.getByLabelText('结束日期')).toHaveAttribute('id', 'diary-search-end-date')
     expect(screen.getByLabelText('标签')).toHaveAttribute('id', 'diary-search-tag')
-    expect(await screen.findByText('开始搜索你的记忆')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('开始搜索你的记忆')
+    expect(await screen.findByText('输入关键词，或按心情、日期、标签筛选日记。')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('输入关键词，或按心情、日期、标签筛选日记。')
   })
 
   it('provides a native keyboard-reachable open action using the existing navigation callback', async () => {
@@ -252,7 +252,7 @@ describe('SearchPanel diary results', () => {
     const result = await screen.findByTestId('search-result-2')
     fireEvent.click(within(result).getByRole('button', { name: '删除日记 可删除日记' }))
 
-    expect(window.confirm).toHaveBeenCalledWith('确认删除这篇日记吗？此操作不可恢复。')
+    expect(window.confirm).toHaveBeenCalledWith('删除这篇日记？删除后无法恢复。')
     expect(mocks.entriesDelete).not.toHaveBeenCalled()
     expect(mocks.showToast).not.toHaveBeenCalledWith('日记已删除', 'success')
     expect(onSelectEntry).not.toHaveBeenCalled()
@@ -270,7 +270,7 @@ describe('SearchPanel diary results', () => {
     const result = await screen.findByTestId('search-result-2')
     fireEvent.click(within(result).getByRole('button', { name: '删除日记 可删除日记' }))
 
-    expect(window.confirm).toHaveBeenCalledWith('确认删除这篇日记吗？此操作不可恢复。')
+    expect(window.confirm).toHaveBeenCalledWith('删除这篇日记？删除后无法恢复。')
     await waitFor(() => {
       expect(mocks.entriesDelete).toHaveBeenCalledWith(2)
     })
@@ -291,7 +291,7 @@ describe('SearchPanel diary results', () => {
     fireEvent.click(within(result).getByRole('button', { name: '删除日记 可删除日记' }))
 
     await waitFor(() => {
-      expect(mocks.showToast).toHaveBeenCalledWith('删除日记失败', 'error')
+      expect(mocks.showToast).toHaveBeenCalledWith('未能删除日记，请重试。', 'error')
     })
     expect(screen.getByTestId('search-result-2')).toBeInTheDocument()
   })

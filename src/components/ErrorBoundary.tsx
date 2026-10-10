@@ -124,7 +124,7 @@ ${errorInfo?.componentStack}
               marginBottom: 'var(--space-md)',
               color: 'var(--text-primary)'
             }}>
-              糟糕，应用遇到了问题
+              应用出错
             </h1>
 
             {/* Description */}
@@ -134,7 +134,7 @@ ${errorInfo?.componentStack}
               marginBottom: 'var(--space-xl)',
               lineHeight: 1.6
             }}>
-              应用运行时发生了意外错误。不用担心，你的数据都已安全保存在浏览器中。
+              应用运行时出错；未保存的内容可能丢失。
             </p>
 
             {/* Error Details (Development Only) */}
@@ -153,7 +153,7 @@ ${errorInfo?.componentStack}
                   color: 'var(--text-secondary)',
                   marginBottom: 'var(--space-sm)'
                 }}>
-                  开发模式：查看错误详情
+                  开发模式：错误详情
                 </summary>
                 <div style={{
                   fontFamily: 'var(--font-mono)',
@@ -206,7 +206,7 @@ ${errorInfo?.componentStack}
               marginTop: 'var(--space-xl)',
               lineHeight: 1.5
             }}>
-              如果问题持续出现，尝试清除浏览器缓存或检查控制台是否有错误信息。
+              请尝试重新加载。
             </p>
           </div>
         </div>

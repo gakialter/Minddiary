@@ -123,12 +123,12 @@ export default function CountdownEventsManager({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
       <div>
-        <div className="text-sm font-semibold" style={{ marginBottom: 8 }}>主目标</div>
+        <div className="text-sm font-semibold" style={{ marginBottom: 8 }}>主要目标</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-sm)' }}>
           <label style={{ ...fieldLabelStyle, marginBottom: 0 }}>
             <span>名称</span>
             <input
-              aria-label="主目标名称"
+              aria-label="目标名称"
               aria-invalid={Boolean(primaryTitleError)}
               aria-describedby={primaryTitleError ? 'primary-countdown-title-error' : undefined}
               type="text"
@@ -143,7 +143,7 @@ export default function CountdownEventsManager({
           <label style={{ ...fieldLabelStyle, marginBottom: 0 }}>
             <span>日期</span>
             <input
-              aria-label="主目标日期"
+              aria-label="目标日期"
               aria-invalid={Boolean(primaryDateError)}
               aria-describedby={primaryDateError ? 'primary-countdown-date-error' : undefined}
               type="date"
@@ -164,24 +164,24 @@ export default function CountdownEventsManager({
           </div>
         )}
         <div className="text-xs text-muted" style={{ marginTop: 6 }}>
-          主目标会显示在关键日期和倒计时中；旧版 examDate 日期数据会继续兼容。
+          主要目标会显示在日期列表和倒计时中。
         </div>
       </div>
 
       <div>
         <div className="text-sm font-semibold" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <CalendarDays size={15} style={{ color: 'var(--accent)' }} />
-          关键日期管理
+          管理重要日期
         </div>
         <div className="text-xs text-muted" style={{ marginBottom: 'var(--space-sm)', lineHeight: 1.6 }}>
-          添加考试、论文提交、报名、假期或其他关键节点，让每日看板帮你保持长期节奏。
+          添加考试、论文、报名、假期等重要日期。
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--space-sm)', alignItems: 'end' }}>
           <label style={{ ...fieldLabelStyle, gridColumn: '1 / -1', marginBottom: 0 }}>
             <span>标题</span>
             <input
-              aria-label="关键日期标题"
+              aria-label="日期标题"
               type="text"
               className="input w-full"
               placeholder="暑假开始"
@@ -192,7 +192,7 @@ export default function CountdownEventsManager({
           <label style={{ ...fieldLabelStyle, marginBottom: 0 }}>
             <span>日期</span>
             <input
-              aria-label="关键日期日期"
+              aria-label="目标日期"
               type="date"
               className="input w-full"
               value={date}
@@ -202,7 +202,7 @@ export default function CountdownEventsManager({
           <label style={{ ...fieldLabelStyle, marginBottom: 0 }}>
             <span>类型</span>
             <select
-              aria-label="关键日期类型"
+              aria-label="日期类型"
               className="input w-full"
               value={type}
               onChange={(e) => setType(e.target.value as CountdownEventType)}
@@ -227,7 +227,7 @@ export default function CountdownEventsManager({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
         {normalizedEvents.length === 0 ? (
           <div className="text-sm text-muted" style={{ padding: 'var(--space)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
-            还没有设置关键日期，可以添加考试、论文、报名或自定义目标。
+            还没有重要日期，可添加考试、论文、报名、假期或自定义目标。
           </div>
         ) : (
           normalizedEvents.map(event => (

@@ -30,40 +30,40 @@ export interface AIQuickPromptViewModel extends AIQuickPromptTemplate {
 export const AI_CONTEXT_LABELS: Record<AIContextKind, string> = {
     'current-diary': '今日日记',
     'mistake-patterns': '错题规律',
-    'unmastered-mistakes': '未掌握错题',
+    'unmastered-mistakes': '未掌握',
     'study-overview': '学习概况',
-    'exam-countdown': '主目标倒计时',
-    'recent-reflection': '近期复盘',
+    'exam-countdown': '目标倒数',
+    'recent-reflection': '近期回顾',
 }
 
 export const AI_QUICK_PROMPT_TEMPLATES: AIQuickPromptTemplate[] = [
     {
         id: 'daily-summary',
-        label: '总结今日日记',
+        label: '日记总结',
         draft: '请总结我今天的学习内容、主要收获、仍未解决的问题，并给出下一步建议。',
         contextKinds: ['current-diary'],
     },
     {
         id: 'mistake-patterns',
-        label: '错题规律分析',
+        label: '错题规律',
         draft: '请分析我近期错题中反复出现的薄弱点，并给出三个优先改进方向。',
         contextKinds: ['mistake-patterns'],
     },
     {
         id: 'quiz-me',
-        label: '考考我',
+        label: '错题测验',
         draft: '请根据我尚未掌握的错题出一道题考我。先只出题，不要立即给答案。',
         contextKinds: ['unmastered-mistakes'],
     },
     {
         id: 'mental-massage',
-        label: '心理按摩',
+        label: '状态调整',
         draft: '请根据我当前的学习状态，给出克制、具体、可以立即执行的调整建议，不要使用空泛鼓励。',
         contextKinds: ['recent-reflection'],
     },
     {
         id: 'sprint-plan',
-        label: '制定复习冲刺',
+        label: '冲刺计划',
         draft: '请根据剩余时间和当前学习情况，为我制定一份现实、可执行的阶段复习计划。',
         contextKinds: ['exam-countdown', 'study-overview'],
     },

@@ -119,15 +119,19 @@ MindDiary 将隐私与数据自主置于最高优先级：
 
 ## 版本信息
 
-### v1.20.0（发布准备完成）
+### v1.21.0
 
-v1.20.0 已通过本地发布验证，尚未发布到 GitHub Releases。本版本在 v1.19.1 基础上加入图片与 PDF 文字附件输入、可编辑的 AI 润色候选、Provider 目录更新，以及若干编辑和 AI 稳定性修复。PDF 仅读取可提取文字，不支持扫描版 OCR 或 PDF 页面视觉理解。
+v1.21.0 新增日记“清除格式”、应用内学习助手文字草稿和今日任务恢复为待办，并改进保存、导出、API Key 保存与 JSON 合并导入的可靠性。更新说明与数据备份限制见 [v1.21.0 发布说明](./RELEASE_NOTES.md)，正式安装包由 [GitHub Release](https://github.com/gakialter/Minddiary/releases/tag/v1.21.0) 提供。
+
+### v1.20.0
+
+v1.20.0 已发布到 [GitHub Releases](https://github.com/gakialter/Minddiary/releases/tag/v1.20.0)。本版本在 v1.19.1 基础上加入图片与 PDF 文字附件输入、可编辑的 AI 润色候选、Provider 目录更新，以及若干编辑和 AI 稳定性修复。PDF 仅读取可提取文字，不支持扫描版 OCR 或 PDF 页面视觉理解。
 
 自定义 Provider 的图片能力配置在 renderer 重载和应用进程重启后保持有效。Windows 安装包尚未签名；macOS、SmartScreen 与人工安装验收边界见发布说明。
 
-### 最新已发布版本：v1.19.1
+### v1.19.1
 
-GitHub Releases 上的最新已发布版本仍为 v1.19.1（SQLite Schema 8），在 v1.19.0 的重大架构与交互升级基础上，重点巩固了表单状态一致性与使用稳定性：
+v1.19.1（SQLite Schema 8）在 v1.19.0 的重大架构与交互升级基础上，重点巩固了表单状态一致性与使用稳定性：
 
 - **C8 UI/UX 体验升级**：重构并统一了「今日执行」、错题本、番茄钟、AI 助手及次级工作区的大地色现代栅格视觉与紧凑桌面窗口交互。
 - **独立日常复盘（Daily Review）**：错题本新增科目每日题量配额与不放回轮次机制，支持跨日续做与手动轮次流转，与 SM-2 到期复习互不干扰。
@@ -135,20 +139,20 @@ GitHub Releases 上的最新已发布版本仍为 v1.19.1（SQLite Schema 8）�
 - **AI 选区局部润色**：日记选中文字即刻唤起表达润色、精简、纠正语病与原意改写，原文变动自动失效，支持一键撤销应用。
 - **错题本状态同步加固**：修复错题编辑表单在异步状态更新与格式工具栏快速交互时受控字段可能回退的问题，移除挂载时的冗余数据加载。
 
-👉 [查看 v1.20.0 发布说明](./RELEASE_NOTES.md) · [查看历史全部 Releases](https://github.com/gakialter/Minddiary/releases)
+👉 [查看 v1.20.0 发布说明](https://github.com/gakialter/Minddiary/releases/tag/v1.20.0) · [查看历史全部 Releases](https://github.com/gakialter/Minddiary/releases)
 
 ---
 
 ## 下载与安装
 
-请前往 [GitHub Releases Latest](https://github.com/gakialter/Minddiary/releases/latest) 下载最新已发布版本 v1.19.1 的正式安装包。v1.20.0 已完成本地发布准备，尚无可下载的远端资产。
+请前往 [GitHub Releases Latest](https://github.com/gakialter/Minddiary/releases/latest) 下载最新正式安装包；v1.21.0 对应以下文件名。
 
 ### Windows
-- **安装版**：`MindDiary-Setup-1.19.1.exe`（支持自动更新，保留本地学习数据）
-- **便携版**：`MindDiary-Portable-1.19.1.exe`（运行即用）
+- **安装版**：`MindDiary-Setup-1.21.0.exe`（支持自动更新，保留本地学习数据）
+- **便携版**：`MindDiary-Portable-1.21.0.exe`（运行即用）
 
 ### macOS
-- **Apple Silicon (ARM64)**：`MindDiary-1.19.1-arm64.dmg` / `MindDiary-1.19.1-arm64-mac.zip`（支持 macOS 12.0+）
+- **Apple Silicon (ARM64)**：`MindDiary-1.21.0-arm64.dmg` / `MindDiary-1.21.0-arm64-mac.zip`（支持 macOS 12.0+）
 
 > [!NOTE]
 > Windows 未签名版本首次运行可能触发 SmartScreen 提示，点击「更多信息 → 仍要运行」即可；macOS 安装包当前为 Ad-hoc 签名，首次打开如遇提示请前往「系统设置 → 隐私与安全性」允许运行。

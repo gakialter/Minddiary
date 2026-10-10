@@ -108,7 +108,7 @@ export default function AIComposer({
                                 background: 'var(--color-surface-subtle)',
                                 textAlign: 'center',
                             }}>
-                                松开后添加到本次 AI 请求，不会自动发送。
+                                松开后加入本次问题草稿；点击发送前不会传给 AI。
                             </div>
                         )}
                         {error && (
@@ -122,7 +122,7 @@ export default function AIComposer({
                     <button
                         type="button"
                         className="button button-secondary"
-                        aria-label="添加 AI 附件"
+                        aria-label="添加附件"
                         title="添加附件"
                         onClick={() => fileInputRef.current?.click()}
                         style={{
@@ -186,8 +186,8 @@ export default function AIComposer({
                             className="button button-secondary"
                             style={{ width: 40, height: 40, borderRadius: 'var(--radius-control)', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             onClick={onCancel}
-                            aria-label="取消 AI 请求"
-                            title="取消请求"
+                            aria-label="停止请求"
+                            title="停止请求"
                         >
                             <X size={18} aria-hidden />
                         </button>
@@ -208,8 +208,8 @@ export default function AIComposer({
                             }}
                             onClick={() => onSend(input)}
                             disabled={!canSend}
-                            aria-label="发送 AI 请求"
-                            title="发送"
+                            aria-label="发送问题"
+                            title="发送问题"
                         >
                             <Send size={18} aria-hidden />
                         </button>
@@ -217,7 +217,7 @@ export default function AIComposer({
                 </div>
             </div>
             <div id="ai-composer-help" className="ai-composer__help">
-                Enter 发送，Shift+Enter 换行。
+                回车发送，Shift+回车换行
                 附件仅在你点击发送后传给当前配置的 AI 服务商；MindDiary 不会把附件写入数据库或聊天历史。
             </div>
         </div>

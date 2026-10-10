@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle, XCircle, Check, Upload } from 'lucide-react'
 import { generateMarkdown, generateJSON, generatePdfHtml, parseMindDiaryJsonSnapshot } from '../utils/exportUtils'
 import { useDiary } from '../contexts/DiaryContext'
 import { getLocalDateKey } from '../utils/dateKey'
 import { logger } from '../utils/logger'
 import { Download, FileDown, FileText, FileJson } from 'lucide-react'
+import { useModalFocus } from '../hooks/useModalFocus'
 
 interface ExportFormat {
     id: string
@@ -20,7 +21,7 @@ const FORMATS: ExportFormat[] = [
         id: 'pdf',
         icon: <FileDown size={28} style={{ color: 'var(--text-secondary)' }} />,
         label: 'PDF 报告',
-        desc: '带排版的可打印学习报告，中文字体原生渲染',
+        desc: '导出带排版的 PDF 学习报告，可保存或打印。',
         ext: '.pdf',
         filter: [{ name: 'PDF 文件', extensions: ['pdf'] }],
     },
@@ -28,15 +29,15 @@ const FORMATS: ExportFormat[] = [
         id: 'markdown',
         icon: <FileText size={28} style={{ color: 'var(--text-secondary)' }} />,
         label: 'Markdown',
-        desc: '含 YAML Frontmatter，兼容 Obsidian / Notion 导入',
+        desc: '导出日记正文、日期、标题和心情，保存为 .md 文件。',
         ext: '.md',
         filter: [{ name: 'Markdown 文件', extensions: ['md'] }],
     },
     {
         id: 'json',
         icon: <FileJson size={28} style={{ color: 'var(--text-secondary)' }} />,
-        label: 'JSON 全站备份',
-        desc: '包含日记、科目、错题的完整数据快照，可用于恢复',
+        label: 'JSON 数据快照',
+        desc: '含日记、科目、章节和错题数据；不含图片文件、设置和专注记录。',
         ext: '.json',
         filter: [{ name: 'JSON 文件', extensions: ['json'] }],
     },
@@ -52,8 +53,26 @@ export default function ExportModal({ onClose }: ExportModalProps) {
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const [message, setMessage] = useState('')
     const importInputRef = useRef<HTMLInputElement | null>(null)
+    const pendingFocusRef = useRef<HTMLButtonElement | null>(null)
+    const wasPendingRef = useRef(false)
+    const pending = status === 'loading'
+    const requestClose = () => { if (!pending) onClose() }
+    const modalRef = useModalFocus(requestClose)
+
+    useEffect(() => {
+        // Loading disables every control. Keep focus on the dialog surface
+        // until Save As / file I/O settles, then offer a visible retry target.
+        if (pending) {
+            wasPendingRef.current = true
+            modalRef.current?.focus()
+        } else if (wasPendingRef.current) {
+            wasPendingRef.current = false
+            pendingFocusRef.current?.focus()
+        }
+    }, [pending, modalRef])
 
     const handleExport = async () => {
+        if (pending) return
         setStatus('loading')
         setMessage('')
 
@@ -70,7 +89,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
 
             if (!entries?.length) {
                 setStatus('error')
-                setMessage('暂无日记记录，请先写几篇日记再导出。')
+                setMessage('还没有日记，写下日记后即可导出。')
                 return
             }
 
@@ -104,7 +123,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
             }
 
             setStatus('success')
-            setMessage(`已成功导出到：${savePath}`)
+            setMessage(`已导出到：${savePath}`)
         } catch (err: unknown) {
             logger.error('Export failed:', err)
             setStatus('error')
@@ -113,7 +132,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
     }
 
     const handleImportFile = async (file: File | null | undefined) => {
-        if (!file) return
+        if (!file || pending) return
         setStatus('loading')
         setMessage('')
         try {
@@ -214,7 +233,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
 
     return (
         <div
-            onClick={onClose}
+            onClick={requestClose}
             style={{
                 position: 'fixed', inset: 0,
                 background: 'rgba(0,0,0,0.55)',
@@ -224,6 +243,12 @@ export default function ExportModal({ onClose }: ExportModalProps) {
             }}
         >
             <div
+                ref={modalRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="export-modal-title"
+                aria-busy={pending}
+                tabIndex={-1}
                 onClick={e => e.stopPropagation()}
                 style={{
                     width: 480, background: 'var(--bg-primary)',
@@ -240,11 +265,14 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                     <div>
-                        <h2 style={{ fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><Download size={18} style={{ color: 'var(--text-primary)' }} /> 导出数据</h2>
-                        <p className="text-muted text-sm mt-1">选择格式，一键导出全部日记</p>
+                        <h2 id="export-modal-title" style={{ fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><Download size={18} style={{ color: 'var(--text-primary)' }} /> 导出数据</h2>
+                        <p className="text-muted text-sm mt-1">选择格式，导出全部日记；JSON 还含科目、章节和错题。</p>
                     </div>
                     <button
-                        onClick={onClose}
+                        type="button"
+                        aria-label="关闭导出"
+                        onClick={requestClose}
+                        disabled={pending}
                         style={{
                             width: 32, height: 32, borderRadius: '50%',
                             border: 'none', background: 'var(--bg-tertiary)',
@@ -255,10 +283,11 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                 </div>
 
                 {/* Format selector */}
-                <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div role="radiogroup" aria-label="导出格式" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {FORMATS.map(fmt => (
                         <label
                             key={fmt.id}
+                            className="export-modal-format"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 14,
                                 padding: '14px 16px', borderRadius: 12, cursor: 'pointer',
@@ -271,9 +300,11 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                                 type="radio"
                                 name="export-format"
                                 value={fmt.id}
+                                aria-label={fmt.label}
                                 checked={selectedFormat === fmt.id}
+                                disabled={pending}
                                 onChange={() => { setSelectedFormat(fmt.id); setStatus('idle'); setMessage('') }}
-                                style={{ display: 'none' }}
+                                className="sr-only"
                             />
                             <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32 }}>{fmt.icon}</span>
                             <div style={{ flex: 1 }}>
@@ -320,7 +351,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                     <button
                         className="button button-secondary"
                         style={{ borderRadius: 12 }}
-                        onClick={onClose}
+                        onClick={requestClose}
                         disabled={status === 'loading'}
                     >
                         取消
@@ -328,7 +359,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                     <button
                         className="button button-primary"
                         style={{ borderRadius: 12, minWidth: 110 }}
-                        onClick={handleExport}
+                        onClick={event => { pendingFocusRef.current = event.currentTarget; void handleExport() }}
                         disabled={status === 'loading'}
                     >
                         {status === 'loading'
@@ -338,7 +369,7 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                                     borderTopColor: 'white', borderRadius: '50%',
                                     animation: 'spin 0.8s linear infinite', display: 'inline-block',
                                 }} />
-                                导出中…
+                                正在导出…
                             </span>
                             : '导出文件'}
                     </button>
@@ -352,15 +383,15 @@ export default function ExportModal({ onClose }: ExportModalProps) {
                     <button
                         className="button button-secondary"
                         style={{ borderRadius: 12 }}
-                        onClick={() => importInputRef.current?.click()}
+                        onClick={event => { pendingFocusRef.current = event.currentTarget; importInputRef.current?.click() }}
                         disabled={status === 'loading'}
-                        title="导入 MindDiary JSON 快照"
+                        title="导入 MindDiary JSON 数据快照；将新增记录，同日的日记可能使导入失败，已导入部分不会自动撤销。"
                     >
                         <Upload size={15} /> 导入 JSON
                     </button>
                 </div>
             </div>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`.export-modal-format:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
     )
 }

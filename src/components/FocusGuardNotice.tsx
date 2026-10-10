@@ -41,10 +41,10 @@ export default function FocusGuardNotice({
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-            当前应用不在专注白名单：{appName}
+            名单外应用：{appName}
           </div>
           <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-muted)' }}>
-            回到学习相关窗口，或将它加入本次专注白名单。
+            切回学习窗口，或将此应用加入专注白名单。
           </div>
         </div>
         <button
@@ -85,7 +85,7 @@ export default function FocusGuardNotice({
           style={{ fontSize: 12, padding: '5px 10px', borderRadius: 999 }}
           onClick={() => onIgnore(app)}
         >
-          本次忽略 5 分钟
+          忽略此应用5分钟
         </button>
         <button
           type="button"

@@ -5,7 +5,7 @@ import { defaultKeymap, history, undo, redo, undoDepth, redoDepth } from '@codem
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import MarkdownRenderer from '../src/components/common/MarkdownRenderer'
-import { activeFormats, diaryMarkdown, formatTransaction, inlineEditTransactions, inlineInteraction, inlineResolver, rangeField, previewField, structureInteraction, structureField } from '../src/components/common/diaryEditorState'
+import { activeFormats, clearFormatContinuation, clearFormatTransaction, diaryMarkdown, finishFormattedSelection, formatContinuationField, formatTransaction, inlineEditTransactions, inlineInteraction, inlineResolver, rangeField, previewField, structureInteraction, structureField } from '../src/components/common/diaryEditorState'
 import type { DiaryFormat, MarkdownColorKey } from '../src/utils/markdownDialect'
 
 const create = (doc: string, anchor = 0, head = anchor) => EditorState.create({ doc,
@@ -331,6 +331,228 @@ function select(doc: string, text: string, reverse = false) {
   expect(from).toBeGreaterThanOrEqual(0)
   return create(doc, reverse ? from + text.length : from, reverse ? from : from + text.length)
 }
+
+describe('formatted selection continuation and clear formatting', () => {
+  it('clears a plain selection as a harmless no-op, while incomplete syntax fails closed', () => {
+    const state = create('abc', 0, 3)
+    const spec = clearFormatTransaction(state)
+    expect(spec).not.toBeNull()
+    const next = state.update(spec!).state
+    expect(next.doc.toString()).toBe('abc')
+    expect(next.selection.eq(state.selection)).toBe(true)
+    expect(undoDepth(next)).toBe(0)
+    expect(clearFormatTransaction(create('++未闭合', 2, 5))).toBeNull()
+  })
+  it.each([
+    ['bold', '**今天很重要**'], ['underline', '++今天很重要++'],
+    ['highlight', '==今天很重要=='], ['color', '{color:blue}今天很重要{/color}'],
+  ] as const)('finishes %s at the logical end in either selection direction', (kind, formatted) => {
+    for (const reverse of [false, true]) {
+      const original = '今天很重要'
+      const { view, close } = productionView(original, reverse ? original.length : 0, reverse ? 0 : original.length)
+      try {
+        const before = view.state.selection
+        view.dispatch(formatTransaction(view.state, kind, kind === 'color' ? 'blue' : undefined)!)
+        const selected = view.state.selection
+        expect(selected.main.anchor > selected.main.head).toBe(reverse)
+        view.dispatch({ ...view.state.replaceSelection(' '), userEvent: 'input.type' })
+        expect(view.state.doc.toString()).toBe(formatted + ' ')
+        expect(view.state.selection.main).toMatchObject({ anchor: formatted.length + 1, head: formatted.length + 1 })
+        expect(activeFormats(view.state)).toEqual({ bold: false, underline: false, highlight: false, color: undefined })
+        expect(view.state.field(formatContinuationField)).toBeNull()
+        expect(undoDepth(view.state)).toBe(2)
+        undo(view)
+        expect(view.state.doc.toString()).toBe(formatted)
+        expect(view.state.selection.eq(selected)).toBe(true)
+        // Undo never restores the temporary intent.
+        expect(finishFormattedSelection(view.state)).toBeNull()
+        undo(view)
+        expect(view.state.doc.toString()).toBe(original)
+        expect(view.state.selection.eq(before)).toBe(true)
+        redo(view); redo(view)
+        expect(view.state.selection.main.head).toBe(formatted.length + 1)
+        view.dispatch({ ...view.state.replaceSelection('继续写'), userEvent: 'input.type' })
+        expect(view.state.doc.toString()).toBe(formatted + ' 继续写')
+        expect(view.contentDOM.textContent).toBe(original + ' 继续写')
+      } finally { close() }
+    }
+  })
+
+  it.each([false, true])('stacks bold, underline and color, toggles outer bold, then finishes (reverse=%s)', reverse => {
+    const { view, close } = productionView('abc', reverse ? 3 : 0, reverse ? 0 : 3)
+    try {
+      for (const kind of ['bold', 'underline', 'color'] as const) {
+        view.dispatch(formatTransaction(view.state, kind, kind === 'color' ? 'blue' : undefined)!)
+        expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('abc')
+      }
+      expect(view.state.doc.toString()).toBe('**++{color:blue}abc{/color}++**')
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      expect(view.state.doc.toString()).toBe('++{color:blue}abc{/color}++')
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch(finishFormattedSelection(view.state)!)
+      expect(view.state.doc.toString()).toBe('**++{color:blue}abc{/color}++** ')
+      expect(view.state.selection.main.head).toBe(view.state.doc.length)
+    } finally { close() }
+  })
+
+  it('keeps toggling ON then OFF eligible, but leaves an ordinary selection replacement unchanged', () => {
+    const { view, close } = productionView('abc', 0, 3)
+    try {
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch({ ...view.state.replaceSelection(' '), userEvent: 'input.type' })
+      expect(view.state.doc.toString()).toBe('abc ')
+      view.dispatch({ selection: { anchor: 0, head: 3 } })
+      view.dispatch({ ...view.state.replaceSelection(' '), userEvent: 'input.type' })
+      expect(view.state.doc.toString()).toBe('  ')
+    } finally { close() }
+  })
+
+  it('inserts between adjacent wrappers without crossing the next opening token', () => {
+    const { view, close } = productionView('abc++def++', 0, 3)
+    try {
+      view.dispatch(formatTransaction(view.state, 'bold')!)
+      view.dispatch(finishFormattedSelection(view.state)!)
+      expect(view.state.doc.toString()).toBe('**abc** ++def++')
+      expect(view.state.selection.main.head).toBe(8)
+      expect(activeFormats(view.state).underline).toBe(false)
+    } finally { close() }
+  })
+
+  it('preserves surrounding independently existing formatting for a supported inner color selection', () => {
+    const { view, close } = productionView('**abcdef**', 4, 6)
+    try {
+      view.dispatch(formatTransaction(view.state, 'color', 'blue')!)
+      view.dispatch(finishFormattedSelection(view.state)!)
+      expect(view.state.doc.toString()).toBe('**ab{color:blue}cd{/color} ef**')
+      expect(activeFormats(view.state).bold).toBe(true)
+      expect(activeFormats(view.state).color).toBeUndefined()
+    } finally { close() }
+  })
+
+  it.each(['selection', 'sync', 'composition', 'pointer', 'escape', 'clear-effect', 'other-input'])('invalidates temporary intent on %s', action => {
+    const { view, close } = productionView('abc', 0, 3)
+    try {
+      view.dispatch(formatTransaction(view.state, 'underline')!)
+      expect(finishFormattedSelection(view.state)).not.toBeNull()
+      if (action === 'selection') view.dispatch({ selection: { anchor: 3 } })
+      if (action === 'sync') view.dispatch({ changes: { from: 3, insert: 'X' }, annotations: Transaction.addToHistory.of(false) })
+      if (action === 'composition') view.contentDOM.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      if (action === 'pointer') view.contentDOM.dispatchEvent(new MouseEvent('mousedown', { button: 2, bubbles: true }))
+      if (action === 'escape') view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      if (action === 'clear-effect') view.dispatch({ effects: clearFormatContinuation.of(null) })
+      if (action === 'other-input') view.dispatch({ ...view.state.replaceSelection('x'), userEvent: 'input.type' })
+      expect(finishFormattedSelection(view.state)).toBeNull()
+    } finally { close() }
+  })
+
+  it('does not intercept composition-space or pasted space and does not restore intent on redo', () => {
+    for (const userEvent of ['input.type.compose', 'input.type.compose.start', 'input.paste']) {
+      const { view, close } = productionView('abc', 0, 3)
+      try {
+        view.dispatch(formatTransaction(view.state, 'underline')!)
+        view.dispatch({ ...view.state.replaceSelection(' '), userEvent })
+        expect(view.state.doc.toString()).not.toBe('++abc++ ')
+        expect(finishFormattedSelection(view.state)).toBeNull()
+        undo(view); redo(view)
+        expect(finishFormattedSelection(view.state)).toBeNull()
+      } finally { close() }
+    }
+  })
+
+  it('keeps collapsed-caret formatting independent, including spaces within intentional underline/color input', () => {
+    for (const kind of ['bold', 'underline', 'highlight', 'color'] as const) {
+      const { view, close } = productionView('')
+      try {
+        view.dispatch(formatTransaction(view.state, kind, kind === 'color' ? 'blue' : undefined)!)
+        expect(finishFormattedSelection(view.state)).toBeNull()
+        view.dispatch({ ...view.state.replaceSelection('two words'), userEvent: 'input.type' })
+        const formatted = view.state.doc.toString()
+        expect(activeFormats(view.state)[kind]).toBeTruthy()
+        expect(formatted).toContain('two words')
+        expect(view.contentDOM.textContent).toBe('two words')
+      } finally { close() }
+    }
+  })
+
+  it.each(['underline', 'color'] as const)('keeps individually typed spaces inside intentional caret %s', kind => {
+    const { view, close } = productionView('')
+    try {
+      view.dispatch(formatTransaction(view.state, kind, kind === 'color' ? 'blue' : undefined)!)
+      for (const text of ['two', ' ', 'words']) view.dispatch({ ...view.state.replaceSelection(text), userEvent: 'input.type' })
+      expect(view.contentDOM.textContent).toBe('two words')
+      expect(activeFormats(view.state)[kind]).toBeTruthy()
+      expect(finishFormattedSelection(view.state)).toBeNull()
+    } finally { close() }
+  })
+
+  it.each([
+    '**abc**', '++abc++', '==abc==', '{color:blue}abc{/color}',
+    '**++{color:blue}abc{/color}++**', '**=={color:green}abc{/color}==**',
+  ])('clears supported full %s losslessly in one undo/redo action', original => {
+    for (const reverse of [false, true]) {
+      const doc = `左 ${original} 右`
+      const start = doc.indexOf('abc')
+      const { view, close } = productionView(doc, reverse ? start + 3 : start, reverse ? start : start + 3)
+      try {
+        const before = view.state.selection
+        const spec = clearFormatTransaction(view.state)
+        expect(spec).not.toBeNull()
+        view.dispatch(spec!)
+        const selected = view.state.selection
+        expect(view.state.doc.toString()).toBe('左 abc 右')
+        expect(view.contentDOM.textContent).toBe('左 abc 右')
+        expect(selected.main.anchor > selected.main.head).toBe(reverse)
+        expect(view.state.sliceDoc(selected.main.from, selected.main.to)).toBe('abc')
+        expect(undoDepth(view.state)).toBe(1)
+        undo(view)
+        expect(view.state.doc.toString()).toBe(doc)
+        expect(view.state.selection.eq(before)).toBe(true)
+        redo(view)
+        expect(view.state.doc.toString()).toBe('左 abc 右')
+        expect(view.state.selection.eq(selected)).toBe(true)
+      } finally { close() }
+    }
+  })
+
+  it.each([
+    ['**abcdef**', '**ab**cd**ef**'], ['++abcdef++', '++ab++cd++ef++'],
+    ['==abcdef==', '==ab==cd==ef=='], ['{color:red}abcdef{/color}', '{color:red}ab{/color}cd{color:red}ef{/color}'],
+  ])('clears only the supported partial selection in %s', (doc, expected) => {
+    const state = select(doc, 'cd', true)
+    const tr = clearFormatTransaction(state)
+    expect(tr).not.toBeNull()
+    const next = state.update(tr!).state
+    expect(next.doc.toString()).toBe(expected)
+    expect(next.sliceDoc(next.selection.main.from, next.selection.main.to)).toBe('cd')
+    expect(next.selection.main.anchor).toBeGreaterThan(next.selection.main.head)
+    expect(rendered(expected).textContent).toBe('abcdef')
+  })
+
+  it.each(['**++abcdef++**', '**=={color:blue}abcdef{/color}==**', '++**abcdef**++', '**abcdef** plain'])('fails closed for unsafe/mixed selection in %s', doc => {
+    const state = doc.endsWith(' plain') ? create(doc, 3, doc.length) : select(doc, 'cd')
+    expect(clearFormatTransaction(state)).toBeNull()
+    expect(state.doc.toString()).toBe(doc)
+    expect(undoDepth(state)).toBe(0)
+  })
+
+  it('rejects a whole outer span containing heterogeneous inner formatting atomically', () => {
+    const doc = '**a ++b++ c**'
+    const state = create(doc, 2, doc.length - 2)
+    expect(clearFormatTransaction(state)).toBeNull()
+    expect(state.doc.toString()).toBe(doc)
+    expect(undoDepth(state)).toBe(0)
+  })
+
+  it.each(['## **abc**', '- **abc**', '**[abc](https://example.com)**', '**`abc`**'])('preserves unrelated structure while clearing a complete supported wrapper in %s', doc => {
+    // Select the complete bold wrapper; links/code keep their canonical syntax.
+    const from = doc.indexOf('**'), to = doc.lastIndexOf('**') + 2
+    const state = create(doc, from, to)
+    const spec = clearFormatTransaction(state)
+    expect(spec).not.toBeNull()
+    expect(state.update(spec!).state.doc.toString()).toBe(doc.split('**').join(''))
+  })
+})
 
 describe('formatting correctness: canonical nesting and selection scope', () => {
   it.each([

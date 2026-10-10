@@ -98,7 +98,7 @@ export default function FocusZenMode({
       tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label="Zen 全屏专注模式"
+      aria-label="全屏专注"
       data-testid="focus-zen-mode"
       onMouseMove={revealControls}
       style={{
@@ -223,7 +223,7 @@ export default function FocusZenMode({
               cursor: canFinishEarly && !isFinishingEarly ? 'pointer' : 'not-allowed',
             }}
           >
-            <Square size={16} /> {isFinishingEarly ? '正在保存...' : '提前结束并保存'}
+            <Square size={16} /> {isFinishingEarly ? '正在保存…' : '提前结束并保存'}
           </button>
         )}
       </div>

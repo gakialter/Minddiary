@@ -27,11 +27,11 @@ import {
   type DiaryTaskSettlementResult,
 } from './utils/diaryTaskSettlement'
 import type { DiaryEntry, Mistake, MoodId } from './types'
-import type { PendingDiaryInsert } from './components/Editor'
+import type { EditorSaveHandler, PendingDiaryInsert } from './components/Editor'
 import type { MistakeFilterIntent } from './components/MistakeBook'
 import type { DiarySaveOptions } from './hooks/useNavigation'
 
-const POMODORO_FULLSCREEN_NAVIGATION_MESSAGE = '请先退出番茄钟全屏模式再切换页面'
+const POMODORO_FULLSCREEN_NAVIGATION_MESSAGE = '请先退出专注计时全屏，再切换页面。'
 
 interface ViewErrorFallbackProps {
   error?: Error | null
@@ -43,8 +43,8 @@ const ViewErrorFallback = ({ error, resetErrorBoundary }: ViewErrorFallbackProps
     <div style={{ marginBottom: 'var(--space)', color: 'var(--text-muted)' }}>
       <Frown size={48} strokeWidth={1.5} />
     </div>
-    <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>该区域加载失败</h3>
-    <p style={{ marginBottom: 'var(--space-lg)', fontSize: 13 }}>{error?.message || '发生了未知的渲染错误'}</p>
+    <h3 style={{ color: 'var(--text-primary)', marginBottom: 'var(--space)' }}>内容加载失败，请重试。</h3>
+    <p style={{ marginBottom: 'var(--space-lg)', fontSize: 13 }}>{error?.message || '暂时无法显示内容，请重试。'}</p>
     <button className="button button-primary" onClick={resetErrorBoundary}>
       <RotateCcw size={16} /> 重试
     </button>
@@ -66,12 +66,18 @@ function AppContent() {
   const diary = useDiary()
   const { isDarkMode } = diary
   const [isEditorDirty, setIsEditorDirty] = useState(false)
+  const editorSaveRef = useRef<EditorSaveHandler | null>(null)
+  const navigationRequestRef = useRef(0)
+  const focusActionRequestRef = useRef(0)
+  const registerEditorSave = useCallback((save: EditorSaveHandler | null) => {
+    editorSaveRef.current = save
+  }, [])
 
   // ─── Navigation (extracted hook) ───
   const {
     activeView, setActiveView,
     selectedDate, setSelectedDate,
-    changeDate, viewTitle, searchSession, setSearchSession,
+    changeDate, viewTitle, searchSession, setSearchSession, aiTextDraft,
   } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
   const mainRef = useRef<HTMLElement>(null)
@@ -112,36 +118,54 @@ function AppContent() {
         if (!disposed) setBreakReviewMistake(mistake ?? null)
       }).catch(error => {
         logger.error('Failed to check break review:', error)
-        if (!disposed) showToast('暂时无法检查待复习错题，可稍后从错题本重试。', 'info')
+        if (!disposed) showToast('暂时无法检查待复习错题，请到错题本重试。', 'info')
       })
     })
     return () => { disposed = true; setOnBreakStart(null) }
   }, [currentDateKey, diary.mistakes, setOnBreakStart])
 
-  const navigateToView = useCallback((view: string) => {
+  const navigateToView = useCallback((view: string, afterNavigation?: () => void, isCurrentIntent?: () => boolean) => {
     if (isPomodoroFullscreenActive && view !== activeView) {
       showToast(POMODORO_FULLSCREEN_NAVIGATION_MESSAGE, 'info')
       return false
     }
-    setActiveView(view)
+    const request = ++navigationRequestRef.current
+    const navigate = () => {
+      if (request !== navigationRequestRef.current || isCurrentIntent?.() === false) return
+      setActiveView(view)
+      afterNavigation?.()
+    }
+    if (activeView === 'editor' && isEditorDirty) {
+      if (!editorSaveRef.current) return false
+      void editorSaveRef.current().then(saved => { if (saved) navigate() })
+    } else {
+      navigate()
+    }
     return true
-  }, [activeView, isPomodoroFullscreenActive, setActiveView])
+  }, [activeView, isEditorDirty, isPomodoroFullscreenActive, setActiveView])
 
   const handleWriteFocusDiary = useCallback(() => {
-    if (!navigateToView('editor')) return
-    setPendingDiaryInsert({
-      id: Date.now(),
-      date: currentDateKey,
-      content: buildFocusReflectionTemplate(alertState.subjectName),
-    })
-    setSelectedDate(currentDateKey)
-    dismissAlert()
+    const request = ++focusActionRequestRef.current
+    navigateToView('editor', () => {
+      setPendingDiaryInsert({
+        id: Date.now(),
+        date: currentDateKey,
+        content: buildFocusReflectionTemplate(alertState.subjectName),
+      })
+      setSelectedDate(currentDateKey)
+      dismissAlert()
+    }, () => request === focusActionRequestRef.current)
   }, [alertState.subjectName, currentDateKey, dismissAlert, navigateToView, setSelectedDate])
 
   const handleAddFocusMistake = useCallback(() => {
-    if (!navigateToView('mistakes')) return
-    dismissAlert()
+    const request = ++focusActionRequestRef.current
+    navigateToView('mistakes', dismissAlert, () => request === focusActionRequestRef.current)
   }, [dismissAlert, navigateToView])
+
+  const handleCloseFocusAlert = useCallback(() => {
+    focusActionRequestRef.current++
+    dismissAlert()
+  }, [dismissAlert])
 
   const handlePendingDiaryInsertApplied = useCallback((id: number) => {
     setPendingDiaryInsert(current => current?.id === id ? null : current)
@@ -188,7 +212,7 @@ function AppContent() {
 
   const handleDiaryTaskSettled = useCallback(async (_result: DiaryTaskSettlementResult) => {
     diary.requestDataRefresh()
-    showToast('日记已保存，任务已完成', 'success')
+    showToast('日记已保存，任务已完成。', 'success')
   }, [diary])
 
   // ─── Global keyboard shortcuts (extracted hook) ───
@@ -256,11 +280,26 @@ function AppContent() {
     }
   }
 
+  const getOrCreateEntry = useCallback((date: string, loadRequest: number, data: Partial<DiaryEntry>): Promise<DiaryEntry> => {
+    const creation = entryCreationRef.current
+    if (creation?.date === date && creation.loadRequest === loadRequest) return creation.promise
+    const promise: Promise<DiaryEntry> = diary.entries.create({
+      date, title: data.title || '', content: data.content || '', mood: data.mood ?? null,
+      ...(data.images ? { images: data.images } : {}),
+    }).catch(error => {
+      if (entryCreationRef.current?.promise === promise) entryCreationRef.current = null
+      throw error
+    })
+    entryCreationRef.current = { date, loadRequest, promise }
+    return promise
+  }, [diary.entries])
+
   // saveEntry receives Partial<DiaryEntry>. Tags are stripped out and saved
   // separately via setEntryTags after the entry itself is persisted.
   // Metadata-only changes (such as mood) leave the editor draft untouched.
   // When `tags` is absent (undefined), setEntryTags is deliberately skipped.
   const saveEntry = async (updated: Partial<DiaryEntry>, options?: DiarySaveOptions): Promise<DiaryEntry | null> => {
+    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate) return null
     const date = selectedDate
     const loadRequest = loadRequestId.current
     const savesDraft = updated.title !== undefined || updated.content !== undefined || updated.tags !== undefined
@@ -282,20 +321,7 @@ function AppContent() {
           const created = await creation.promise
           saved = await diary.entries.update(created.id, entryData)
         } else {
-          const promise = diary.entries.create({
-            date,
-            title: entryData.title || '',
-            content: entryData.content || '',
-            mood: entryData.mood ?? null,
-            ...(entryData.images ? { images: entryData.images } : {}),
-          })
-          entryCreationRef.current = { date, loadRequest, promise }
-          try {
-            saved = await promise
-          } catch (error) {
-            if (entryCreationRef.current?.promise === promise) entryCreationRef.current = null
-            throw error
-          }
+          saved = await getOrCreateEntry(date, loadRequest, entryData)
         }
       }
       if (saved) {
@@ -333,25 +359,27 @@ function AppContent() {
   }
 
   const ensureEntryId = useCallback(async () => {
+    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate) return null
     if (entry?.id) return entry.id
+    const loadRequest = loadRequestId.current
     try {
-      const saved = await diary.entries.create({
-        date: selectedDate,
-        title: entry?.title || '',
-        content: entry?.content || '',
-        mood: entry?.mood ?? null,
-      })
-      const tagIds = entry?.tags || saved.tags || []
-      setEntry({ ...saved, tags: tagIds })
+      const saved = await getOrCreateEntry(selectedDate, loadRequest, entry)
+      if (selectedDateRef.current !== selectedDate || loadRequestId.current !== loadRequest) return null
+      setEntry(current => current?.date === selectedDate && (!current.id || current.id === saved.id)
+        ? { ...current, id: saved.id, created_at: saved.created_at }
+        : current)
       return saved.id
     } catch (error) {
       logger.error('Failed to create entry before image upload:', error)
       return null
     }
-  }, [diary.entries, entry, selectedDate])
+  }, [entry, getOrCreateEntry, loading, selectedDate])
 
   // ─── View rendering (data-driven) ───
   const renderView = () => {
+    if (activeView === 'editor' && (loading || !entry || entry.date !== selectedDate)) {
+      return <p role="status" style={{ padding: 'var(--space)', color: 'var(--text-muted)' }}>正在打开日记…</p>
+    }
     const config = VIEW_CONFIG[activeView] || VIEW_CONFIG.editor!
     return config.render({
       entry, saveEntry, loading,
@@ -363,11 +391,13 @@ function AppContent() {
       pendingDiaryInsert,
       onPendingDiaryInsertApplied: handlePendingDiaryInsertApplied,
       onEditorDirtyChange: setIsEditorDirty,
+      onRegisterEditorSave: registerEditorSave,
       mistakeFilterIntent: pendingMistakeFilter,
       onMistakeFilterIntent: handleMistakeFilterIntent,
       onMistakeFilterIntentApplied: handleMistakeFilterIntentApplied,
       onPomodoroFullscreenChange: setIsPomodoroFullscreenActive,
       searchSession, onSearchSessionChange: setSearchSession,
+      aiTextDraft,
     })
   }
 
@@ -400,7 +430,7 @@ function AppContent() {
               </div>
             </div>
             <div className="shell-page-actions">
-              {activeView === 'editor' && entry && (
+              {activeView === 'editor' && !loading && entry?.date === selectedDate && (
                 <div className="shell-page-mood">
                   <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ mood })} />
                 </div>
@@ -412,7 +442,7 @@ function AppContent() {
                 title="导出数据"
               >
                 <Download size={14} aria-hidden="true" />
-                <span>导出</span>
+                <span>导出数据</span>
               </button>
             </div>
           </header>
@@ -454,7 +484,7 @@ function AppContent() {
         completionKind={alertState.completionKind}
         duration={alertState.duration}
         todayTotal={alertState.todayTotal}
-        onClose={dismissAlert}
+        onClose={handleCloseFocusAlert}
         showSettlementActions={alertState.showSettlementActions}
         taskSettlement={alertState.taskSettlement}
         settlementError={alertState.settlementError}

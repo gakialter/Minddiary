@@ -38,7 +38,7 @@ export default function Welcome({ onStart }: WelcomeProps) {
                         color: 'var(--text-primary)',
                         margin: 0
                     }}>
-                        建立今天的学习节奏
+                        安排好今天的学习节奏
                     </h1>
                     <p style={{
                         fontSize: 15,
@@ -46,7 +46,7 @@ export default function Welcome({ onStart }: WelcomeProps) {
                         color: 'var(--text-secondary)',
                         margin: 0
                     }}>
-                        MindDiary 把专注、复盘和错题整理连成一个闭环，帮你持续推进而不是间歇性努力。
+                        安排专注、复盘和错题整理，帮助你稳步推进学习。
                     </p>
                 </div>
 
@@ -73,9 +73,9 @@ export default function Welcome({ onStart }: WelcomeProps) {
                     borderTop: '1px solid var(--border-light)',
                     width: '100%'
                 }}>
-                    <ProofItem icon={<Zap size={14} />} label="沉浸式编辑" />
-                    <ProofItem icon={<Bot size={14} />} label="AI 伴学" />
-                    <ProofItem icon={<Shield size={14} />} label="本地存储" />
+                    <ProofItem icon={<Zap size={14} />} label="专注写作" />
+                    <ProofItem icon={<Bot size={14} />} label="学习助手" />
+                    <ProofItem icon={<Shield size={14} />} label="本机保存" />
                 </div>
             </div>
         </div>

@@ -221,7 +221,7 @@ describe('MistakeReviewModal', () => {
       expect(mocks.requestDataRefresh).toHaveBeenCalledTimes(1)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /再来一题/ }))
+    fireEvent.click(screen.getByRole('button', { name: /再做一题/ }))
 
     await waitFor(() => {
       expect(mocks.getRandomDue).toHaveBeenCalledTimes(2)

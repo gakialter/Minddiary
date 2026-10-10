@@ -287,7 +287,7 @@ export default function StudyProgress() {
                             <Target size={18} />
                         </span>
                         <div>
-                            <h2 id="study-progress-overview-title" className="study-progress__overview-title">备考总进度</h2>
+                            <h2 id="study-progress-overview-title" className="study-progress__overview-title">学习进度</h2>
                             <p className="study-progress__overview-help">按科目查看章节进展与今日学习证据。</p>
                         </div>
                     </div>
@@ -301,7 +301,7 @@ export default function StudyProgress() {
                                 setForm({ name: '', total_chapters: '', color: '#0F766E' })
                             }}
                         >
-                            <PlusCircle size={16} aria-hidden="true" /> 新增科目
+                            <PlusCircle size={16} aria-hidden="true" /> 添加科目
                         </button>
                     )}
                 </div>
@@ -313,7 +313,7 @@ export default function StudyProgress() {
                 <div
                     className="study-progress__track study-progress__track--overall"
                     role="progressbar"
-                    aria-label="总体章节进度"
+                    aria-label="总进度"
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Number(overallProgress)}
@@ -336,7 +336,7 @@ export default function StudyProgress() {
                     <div className="study-progress__form-fields">
                         <div className="study-progress__form-row">
                             <div className="workspace-field study-progress__name-field">
-                                <label htmlFor="study-progress-subject-name">科目名称</label>
+                                <label htmlFor="study-progress-subject-name">科目名</label>
                                 <input
                                     id="study-progress-subject-name"
                                     className="input w-full"
@@ -347,7 +347,7 @@ export default function StudyProgress() {
                                 />
                             </div>
                             <div className="workspace-field study-progress__chapter-count-field">
-                                <label htmlFor="study-progress-subject-total">汇总章节数</label>
+                                <label htmlFor="study-progress-subject-total">章节总数</label>
                                 <input
                                     id="study-progress-subject-total"
                                     className="input w-full"
@@ -468,7 +468,7 @@ export default function StudyProgress() {
                                             <strong className="study-progress__complete-copy">全部章节已完成</strong>
                                         )
                                     ) : (
-                                        <>汇总模式：可继续用 +/- 更新，或展开添加详细章节。</>
+                                        <>可按数量记录，也可添加章节明细。</>
                                     )}
                                 </p>
 
@@ -478,7 +478,7 @@ export default function StudyProgress() {
                                         <dd>{subject.studyTime} 分钟</dd>
                                     </div>
                                     <div>
-                                        <dt>未清错题</dt>
+                                        <dt>未掌握</dt>
                                         <dd className="study-progress__metric-danger">{subject.mistakeCount - subject.masteredCount}</dd>
                                     </div>
                                     <div>
@@ -495,8 +495,8 @@ export default function StudyProgress() {
                                                 className="button button-secondary study-progress__summary-control"
                                                 onClick={() => void updateSummaryProgress(subject, -1)}
                                                 disabled={!!subjectActionPending || (subject.completed_chapters || 0) <= 0}
-                                                title="汇总进度减一"
-                                                aria-label={`${subject.name}汇总进度减一`}
+                                                title={`减少 ${subject.name} 的完成章节数`}
+                                                aria-label={`减少 ${subject.name} 的完成章节数`}
                                             >
                                                 −
                                             </button>
@@ -505,14 +505,14 @@ export default function StudyProgress() {
                                                 className="button button-primary study-progress__summary-control"
                                                 onClick={() => void updateSummaryProgress(subject, 1)}
                                                 disabled={!!subjectActionPending || (subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
-                                                title="汇总进度加一"
-                                                aria-label={`${subject.name}汇总进度加一`}
+                                                title={`增加 ${subject.name} 的完成章节数`}
+                                                aria-label={`增加 ${subject.name} 的完成章节数`}
                                             >
                                                 +
                                             </button>
                                         </div>
                                     ) : (
-                                        <span className="study-progress__auto-summary">详细章节自动汇总进度</span>
+                                        <span className="study-progress__auto-summary">章节明细会自动更新科目进度</span>
                                     )}
                                     <button
                                         type="button"
@@ -520,7 +520,7 @@ export default function StudyProgress() {
                                         onClick={() => setExpandedSubjectId(expanded ? null : subject.id)}
                                         aria-expanded={expanded}
                                         aria-controls={`study-progress-chapters-${subject.id}`}
-                                        title={expanded ? '收起章节管理' : '管理章节'}
+                                        title={expanded ? '收起章节' : '管理章节'}
                                         data-testid={`manage-chapters-${subject.id}`}
                                     >
                                         {expanded
@@ -552,8 +552,8 @@ export default function StudyProgress() {
                 {!loading && subjectMetrics.length === 0 && !showForm && (
                     <div className="workspace-empty study-progress__empty">
                         <Library size={44} aria-hidden="true" />
-                        <h3>还没有科目</h3>
-                        <p>先创建科目，再添加详细章节或使用汇总进度记录备考进展。</p>
+                        <h3>暂无科目</h3>
+                        <p>创建科目后，可添加章节或记录完成数量。</p>
                     </div>
                 )}
             </section>

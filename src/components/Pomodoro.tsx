@@ -96,7 +96,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
   const handleFocusViolation = useCallback((app: ActiveAppInfo) => {
     setFocusViolation(app)
     const appLabel = app.name || app.processName || app.executable || 'unknown'
-    void notification.show('专注提醒', `当前应用不在专注白名单：${appLabel}`)
+    void notification.show('专注提醒', `未在名单：${appLabel}`)
       .catch(error => {
         logger.warn('[focusGuard] Failed to show violation notification:', error instanceof Error ? error.message : String(error))
       })
@@ -222,7 +222,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
     const elapsedSeconds = Math.max(0, Math.floor(preview.elapsedSeconds))
     const roundedMinutes = preview.roundedMinutes
     const confirmed = window.confirm(
-      `本次已有效专注 ${formatElapsedForConfirmation(elapsedSeconds)}，将按 ${roundedMinutes} 分钟计入统计。确定提前结束并保存吗？`,
+      `本次已专注 ${formatElapsedForConfirmation(elapsedSeconds)}，将按 ${roundedMinutes} 分钟计入统计。确定提前结束并保存吗？`,
     )
     if (!confirmed) return
 
@@ -290,16 +290,16 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
   if (isWidget) {
     return (
       <>
-      <div className="pomodoro-mini" data-testid="pomodoro-widget" data-dock={placement.dock} data-dragging={placement.isDragging} aria-label="番茄钟">
-        <span className="pomodoro-mini__handle" aria-hidden="true" title="拖拽选择左侧或右侧停靠" {...placement.handleProps}><GripVertical size={16} /></span>
-        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : '开始计时'} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
+      <div className="pomodoro-mini" data-testid="pomodoro-widget" data-dock={placement.dock} data-dragging={placement.isDragging} aria-label="专注计时">
+        <span className="pomodoro-mini__handle" aria-hidden="true" title="拖动调整左右停靠位置" {...placement.handleProps}><GripVertical size={16} /></span>
+        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : '开始或继续计时'} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
           {isRunning ? <Pause size={16} /> : <Play size={16} />}
         </button>
-        <button type="button" className="button button-secondary pomodoro-mini__open" aria-label="打开番茄钟" onClick={onExpand}>
+        <button type="button" className="button button-secondary pomodoro-mini__open" aria-label="打开专注计时" onClick={onExpand}>
           <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatTime(timeLeft)}</span>
           <Maximize2 size={14} aria-hidden="true" />
         </button>
-        <div role="group" aria-label="番茄钟停靠位置" className="pomodoro-mini__docks">
+        <div role="group" aria-label="专注计时停靠位置" className="pomodoro-mini__docks">
           <button type="button" className="button button-secondary button-icon" aria-label="停靠左下角" aria-pressed={placement.dock === 'bottom-left'} onClick={() => placement.setDock('bottom-left')}><PanelLeft size={14} /></button>
           <button type="button" className="button button-secondary button-icon" aria-label="停靠右下角" aria-pressed={placement.dock === 'bottom-right'} onClick={() => placement.setDock('bottom-right')}><PanelRight size={14} /></button>
         </div>
@@ -315,7 +315,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
     <div className="workspace-page workspace-page--wide pomodoro-page" data-testid="pomodoro-timer">
 
       {/* Mode Switcher */}
-      <div className="pomodoro-page__modes" role="group" aria-label="计时模式">
+      <div className="pomodoro-page__modes" role="group" aria-label="计时方式">
         {Object.values(dynamicModes).map(m => {
           const isCurrentMode = mode.id === m.id
           const shouldLockModeSwitch = hasActiveTimerSession && isFocusMode
@@ -401,8 +401,8 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
               disabled={timerControlsDisabled}
               style={{ width: 44, height: 44, borderRadius: 'var(--radius-control)', padding: 0, cursor: timerControlsDisabled ? 'not-allowed' : 'pointer' }}
               onClick={handleResetTimer}
-              title="重置"
-              aria-label="重置番茄钟"
+              title="重置计时（如有未保存记录，将一并放弃）"
+              aria-label="重置计时（如有未保存记录，将一并放弃）"
             >
               <RotateCcw size={18} />
             </button>
@@ -411,10 +411,10 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
                 className="button button-secondary"
                 data-testid="pomodoro-finish-countdown-btn"
                 disabled={!canFinishCountdownSession}
-                title={canFinishCountdownSession ? '提前结束并保存当前实际专注时长' : '至少专注 1 分钟后可保存'}
+                title={canFinishCountdownSession ? '提前结束并保存当前实际专注时长' : '至少专注1分钟后可保存'}
                 onClick={() => { void handleFinishCountdownFocusSession() }}
               >
-                <Square size={16} /> {isSavingInterruptedFocus ? '正在保存...' : '提前结束并保存'}
+                <Square size={16} /> {isSavingInterruptedFocus ? '正在保存…' : '提前结束并保存'}
               </button>
             )}
             {isStopwatchMode && (
@@ -422,7 +422,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
                 className="button button-secondary"
                 data-testid="pomodoro-finish-stopwatch-btn"
                 disabled={!canSaveStopwatchSession}
-                title={canSaveStopwatchSession ? '结束并保存本次正计时' : '至少专注 1 分钟后可保存'}
+                title={canSaveStopwatchSession ? '结束并保存本次正计时' : '至少专注1分钟后可保存'}
                 onClick={() => { void finishStopwatchSession() }}
               >
                 <Square size={16} /> 结束并保存
@@ -434,7 +434,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
               style={{ minWidth: 150, height: 44, borderRadius: 'var(--radius-control)' }}
               onClick={() => { void enterZenMode() }}
             >
-              <Maximize2 size={18} /> 进入全屏专注
+              <Maximize2 size={18} /> 全屏专注
             </button>
           </div>
 
@@ -453,7 +453,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
                 onChange={(event) => selectFocusTask(event.target.value ? Number(event.target.value) : null)}
                 disabled={hasActiveTimerSession || timerControlsDisabled}
               >
-                <option value="">不绑定今日任务</option>
+                <option value="">不关联今日任务</option>
                 {selectableTasks.map(task => {
                   const subjectName = task.subject_id ? subjectNameById.get(task.subject_id) : undefined
                   const details = [
@@ -502,9 +502,9 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
               disabled={!isFocusMode}
             >
               {isFocusMode ? (
-                <option value="">选择专注科目（可选）</option>
+                <option value="">选择专注科目</option>
               ) : (
-                <option value="">休息中...</option>
+                <option value="">正在休息…</option>
               )}
               {subjects.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
@@ -515,7 +515,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
           {/* Today Stats */}
           <div className="workspace-section pomodoro-page__stats" data-testid="pomodoro-stats">
             <div className="flex items-center justify-between" style={{ marginBottom: 'var(--space-md)' }}>
-              <h3 className="text-base font-semibold">当前进度</h3>
+              <h3 className="text-base font-semibold">今日进度</h3>
               <div className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
                 {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
               </div>

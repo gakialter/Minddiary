@@ -100,8 +100,8 @@ export default function DailyReviewModal({ subjects, subjectId: initialSubjectId
     const canStart = snapshot && (snapshot.status === 'ready' || snapshot.status === 'round_done') && !dailyDone && snapshot.subjectTotal > 0
 
     return createPortal(<div className="c8-review-overlay">
-        <div ref={modalRef} role="dialog" aria-modal="true" aria-label="日常复盘" tabIndex={-1} className="c8-review-dialog daily-review-dialog">
-            <header className="daily-review-header"><h2>日常复盘</h2><button type="button" className="button c8-review-close" aria-label="关闭日常复盘" onClick={onClose}><X size={18} /></button></header>
+        <div ref={modalRef} role="dialog" aria-modal="true" aria-label="错题复习" tabIndex={-1} className="c8-review-dialog daily-review-dialog">
+            <header className="daily-review-header"><h2>错题复习</h2><button type="button" className="button c8-review-close" aria-label="关闭复习" onClick={onClose}><X size={18} /></button></header>
             <div className="c8-review-body">
                 <form className="daily-review-config" onSubmit={event => {
                     event.preventDefault()
@@ -111,19 +111,19 @@ export default function DailyReviewModal({ subjects, subjectId: initialSubjectId
                         {!subjects.length && <option value={0}>暂无科目</option>}
                         {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
                     </select></label>
-                    <label>每日题量<input className="input" type="number" min="1" step="1" required value={quota} disabled={busy} onChange={event => setQuota(event.target.value)} /></label>
+                    <label>每日题数<input className="input" type="number" min="1" step="1" required value={quota} disabled={busy} onChange={event => setQuota(event.target.value)} /></label>
                     <button className="button button-secondary" type="submit" disabled={busy || !subjectId}>保存</button>
                 </form>
                 {snapshot && <p className="text-muted">本科目共 {snapshot.subjectTotal} 题{snapshot.quota !== null && ` · 每日 ${snapshot.quota} 题 · 预计约 ${snapshot.estimatedDays} 天 / 轮`}</p>}
-                {error && <div role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => void execute({ kind: 'get', subjectId, date: getLocalDateKey() }, true)} disabled={busy}>重新读取进度</button></div>}
-                {snapshot?.status === 'unconfigured' && <p>设置每日题量，保存后即可开始。包含本科目全部错题。</p>}
-                {snapshot?.status === 'round_done' && <p role="status">本轮已完成 · {snapshot.roundTotal} / {snapshot.roundTotal}。{dailyDone ? '今日目标也已完成。' : '可开始下一轮。'}</p>}
-                {snapshot?.status === 'daily_done' && <p role="status">今日目标已完成，明天从本轮剩余题目继续。</p>}
-                {snapshot?.subjectTotal === 0 && <p>本科目暂无错题，添加后可开始新一轮。</p>}
+                {error && <div role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => void execute({ kind: 'get', subjectId, date: getLocalDateKey() }, true)} disabled={busy}>刷新进度</button></div>}
+                {snapshot?.status === 'unconfigured' && <p>设置每日题数并保存后开始复习，包含本科目全部错题。</p>}
+                {snapshot?.status === 'round_done' && <p role="status">本轮已完成 · {snapshot.roundTotal} / {snapshot.roundTotal}。{dailyDone ? '今天的复习目标也完成了。' : '可以开始下一轮。'}</p>}
+                {snapshot?.status === 'daily_done' && <p role="status">今天的目标已完成；剩余题目明天继续。</p>}
+                {snapshot?.subjectTotal === 0 && <p>这个科目还没有错题；添加后即可开始。</p>}
                 {item && <article className="daily-review-content" key={`${snapshot.roundId}-${item.id}`}>
                     <h3>题目</h3><div className="content-selectable"><Latex>{item.question}</Latex></div>
                     <div className="daily-review-images">{images(item.image_path, '题目')}</div>
-                    {revealed && <><h3>答案</h3><div className="content-selectable"><Latex>{item.answer || '暂无答案'}</Latex></div>
+                    {revealed && <><h3>答案</h3><div className="content-selectable"><Latex>{item.answer || '还没有答案'}</Latex></div>
                         <div className="daily-review-images">{images(item.answer_image_path, '答案')}</div>
                         {item.notes && <><h3>备注</h3><MarkdownRenderer>{item.notes}</MarkdownRenderer></>}
                     </>}
@@ -136,10 +136,10 @@ export default function DailyReviewModal({ subjects, subjectId: initialSubjectId
                     <span>本轮：{snapshot.roundCompleted} / {snapshot.roundTotal}</span><span>剩余：{snapshot.remaining}</span>
                 </div>}
                 <div className="daily-review-actions">
-                    <button type="button" className="button button-secondary" onClick={onClose}>{dailyDone ? '结束今日复盘' : '返回错题本'}</button>
-                    {canStart && <button type="button" className="button button-primary" disabled={busy || !!error} onClick={() => void execute({ kind: 'start', subjectId, date: getLocalDateKey(), previousRoundId: snapshot.roundId })}>{snapshot.roundId ? '开始下一轮' : '开始本轮'}</button>}
+                    <button type="button" className="button button-secondary" onClick={onClose}>{dailyDone ? '结束今日复盘' : '回错题本'}</button>
+                    {canStart && <button type="button" className="button button-primary" disabled={busy || !!error} onClick={() => void execute({ kind: 'start', subjectId, date: getLocalDateKey(), previousRoundId: snapshot.roundId })}>{snapshot.roundId ? '下一轮' : '开始复习'}</button>}
                     {item && !revealed && <button type="button" className="button button-primary" disabled={busy || !!error} onClick={() => setRevealed(true)}>查看答案</button>}
-                    {item && revealed && snapshot.roundId && <button type="button" className="button button-primary" disabled={busy || !!error} onClick={() => void execute({ kind: 'complete', subjectId, date: getLocalDateKey(), roundId: snapshot.roundId!, mistakeId: item.id })}>完成本题 / 下一题</button>}
+                    {item && revealed && snapshot.roundId && <button type="button" className="button button-primary" disabled={busy || !!error} onClick={() => void execute({ kind: 'complete', subjectId, date: getLocalDateKey(), roundId: snapshot.roundId!, mistakeId: item.id })}>完成本题并进入下一题</button>}
                 </div>
             </footer>
         </div>

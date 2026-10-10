@@ -52,6 +52,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [taskLoading, setTaskLoading] = useState(true)
   const [taskMutating, setTaskMutating] = useState(false)
   const taskMutationLockedRef = useRef(false)
+  const taskLoadGenerationRef = useRef(0)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
@@ -69,7 +70,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
 
   const config = useDashboardMasterState(data)
 
-  const loadTaskSources = useCallback(async (todayTasks: StudyTask[]) => {
+  const loadTaskSources = useCallback(async (todayTasks: StudyTask[], isCurrent: () => boolean) => {
     try {
       const nextSubjects = await subjectsAPI.getAll()
       const subjectIds = Array.from(new Set(
@@ -82,10 +83,12 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
         [subjectId, await subjectChaptersAPI.getBySubject(subjectId)] as const
       )))
 
+      if (!isCurrent()) return
       setSubjects(nextSubjects)
       setChaptersBySubject(Object.fromEntries(chapterEntries))
       setTaskSourcesAvailable(true)
     } catch {
+      if (!isCurrent()) return
       setSubjects([])
       setChaptersBySubject({})
       setTaskSourcesAvailable(false)
@@ -93,28 +96,35 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   }, [subjectChaptersAPI, subjectsAPI])
 
   const loadTasks = useCallback(async ({ throwOnError = false }: { throwOnError?: boolean } = {}) => {
+    const generation = ++taskLoadGenerationRef.current
+    const isCurrent = () => generation === taskLoadGenerationRef.current
     setTaskLoading(true)
     setTaskError(null)
     try {
       const todayTasks = await tasksAPI.getByDate(todayDate)
+      if (!isCurrent()) return
       setTasks(todayTasks)
-      await loadTaskSources(todayTasks)
+      await loadTaskSources(todayTasks, isCurrent)
     } catch (taskLoadError) {
+      if (!isCurrent()) return
       const message = taskLoadError instanceof Error ? taskLoadError.message : String(taskLoadError)
       setTaskError(message)
       if (throwOnError) throw new Error(message)
     } finally {
-      setTaskLoading(false)
+      if (isCurrent()) setTaskLoading(false)
     }
   }, [loadTaskSources, tasksAPI, todayDate])
 
   useEffect(() => {
     void loadTasks()
+    return () => { taskLoadGenerationRef.current += 1 }
   }, [loadTasks, dataRefreshVersion])
 
   const persistTaskChange = async (operation: () => Promise<unknown>) => {
     if (taskMutationLockedRef.current) return false
     taskMutationLockedRef.current = true
+    taskLoadGenerationRef.current += 1
+    setTaskLoading(false)
     setTaskMutating(true)
     setTaskError(null)
     try {
@@ -207,6 +217,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     estimateMinutes = parsedEstimate
 
     taskMutationLockedRef.current = true
+    taskLoadGenerationRef.current += 1
+    setTaskLoading(false)
     setTaskMutating(true)
     setTaskError(null)
     try {
@@ -393,8 +405,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           >
             <div className="today-action__section-heading today-action__section-heading--compact">
               <div>
-                <p className="today-action__eyebrow">今日学习状态</p>
-                <h2 id="today-action-overview-title">今日概览</h2>
+                <p className="today-action__eyebrow">学习状态</p>
+                <h2 id="today-action-overview-title">今日进展</h2>
               </div>
               <time className="today-action__date" dateTime={todayDate}>{todayDate}</time>
             </div>
@@ -410,11 +422,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 <dt>今日专注</dt>
                 <dd>
                   <strong>{executionSummary.focusMinutes} 分钟</strong>
-                  <span>全部专注会话</span>
+                  <span>今天所有专注计时的累计时长</span>
                 </dd>
               </div>
               <div data-testid="overview-chapters" className="today-action__overview-item">
-                <dt>章节推进</dt>
+                <dt>章节进度</dt>
                 <dd>
                   <strong>{executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}</strong>
                   <span>已完成 / 今日章节</span>
@@ -424,7 +436,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 <dt>今日复盘</dt>
                 <dd>
                   <strong>{diaryStatusLabel}</strong>
-                  <span>按今日日记内容判断</span>
+                  <span>今天没有日记、只有草稿，或已有正文</span>
                 </dd>
               </div>
             </dl>
@@ -438,9 +450,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           >
             <div className="today-action__section-heading">
               <div>
-                <p className="today-action__eyebrow">当前执行</p>
+                <p className="today-action__eyebrow">当前任务</p>
                 <h2 id="today-action-queue-title">
-                  今日行动队列
+                  今日任务
                 </h2>
                 <p className="today-action__queue-summary">
                   待开始 {taskStatusCounts.todo} · 进行中 {taskStatusCounts.doing} · 已完成 {taskStatusCounts.done} · 已跳过 {taskStatusCounts.skipped}
@@ -456,13 +468,13 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
 
             <form className="today-action__task-create" aria-label="添加今日任务" onSubmit={handleManualTaskSubmit}>
               <label className="today-action__field today-action__field--title" htmlFor="today-task-title">
-                <span>任务标题</span>
+                <span>任务名称</span>
                 <input
                   id="today-task-title"
                   data-testid="task-title-input"
                   value={newTaskTitle}
                   onChange={event => setNewTaskTitle(event.target.value)}
-                  placeholder="添加一个今日任务"
+                  placeholder="输入任务名称"
                   className="input"
                 />
               </label>
@@ -481,7 +493,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 </select>
               </label>
               <label className="today-action__field" htmlFor="today-task-estimate">
-                <span>预计分钟数</span>
+                <span>预计用时（分钟）</span>
                 <input
                   id="today-task-estimate"
                   data-testid="task-estimate-input"
@@ -499,7 +511,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 type="submit"
                 disabled={taskMutating || !newTaskTitle.trim()}
               >
-                新增
+                添加
               </button>
             </form>
 
@@ -514,7 +526,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                     disabled={taskMutating}
                     onClick={() => setReviewPickerOpen(true)}
                   >
-                    生成今日错题复习任务
+                    选择复习错题
                   </button>
                 )}
                 {!data.todayEntry && !hasDiaryTask && (
@@ -524,7 +536,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                     className="button today-action__quiet-action"
                     disabled={taskMutating}
                     onClick={() => createSuggestedTask('diary', {
-                      title: '写今日学习沉淀',
+                      title: '记录今日收获',
                       description: '记录今天的有效专注、错题收获和明日第一步。',
                       type: 'diary',
                       planned_date: todayDate,
@@ -532,7 +544,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                       source: 'dashboard',
                     })}
                   >
-                    生成今日学习沉淀任务
+                    添加收获任务
                   </button>
                 )}
               </div>
@@ -541,7 +553,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
             <div className="today-action__task-list">
               {tasks.length === 0 ? (
                 <p className="today-action__empty-queue" role="status">
-                  今天还没有行动任务，可以先添加一个最小可执行动作。
+                  今天还没任务，先加一件容易开始的事。
                 </p>
               ) : tasks.map(task => (
                 <div
@@ -594,7 +606,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                           data-testid={`task-edit-save-${task.id}`}
                           disabled={taskMutating}
                         >
-                          {taskMutating ? '保存中...' : '保存'}
+                          {taskMutating ? '保存中' : '保存'}
                         </button>
                       </div>
                     </form>
@@ -650,6 +662,17 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                         )}
                       </div>
                       <div className="today-action__task-actions" role="group" aria-label={`${task.title} 的操作`}>
+                        {(task.status === 'done' || task.status === 'skipped') && (
+                          <button
+                            data-testid={`task-restore-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action"
+                            disabled={taskMutating}
+                            onClick={() => persistTaskChange(() => tasksAPI.update(task.id, { status: 'todo' }))}
+                          >
+                            恢复待开始
+                          </button>
+                        )}
                         <button
                           data-testid={`task-edit-${task.id}`}
                           type="button"
@@ -704,7 +727,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
             <div className="today-action__section-heading">
               <div>
                 <p className="today-action__eyebrow">复盘与计划</p>
-                <h2 id="today-action-followup-title">完成今天的学习闭环</h2>
+                <h2 id="today-action-followup-title">复盘与计划</h2>
               </div>
             </div>
 
@@ -739,13 +762,13 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                     disabled={taskMutating}
                     onClick={() => setDailyReviewAgentOpenDate(todayDate)}
                   >
-                    打开每日复盘
+                    每日回顾
                   </button>
                 </div>
 
                 <div className="today-action__workflow-row">
                   <div>
-                    <strong>AI 规划今日行动</strong>
+                    <strong>AI 今日建议</strong>
                     <span>生成结果是建议，仍需由你确认。</span>
                   </div>
                   <button
@@ -755,13 +778,13 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                     disabled={taskMutating}
                     onClick={() => setAiSuggestionOpen(true)}
                   >
-                    打开 AI 规划
+                    打开 AI 建议
                   </button>
                 </div>
 
                 <div className="today-action__workflow-row today-action__workflow-row--quiet">
                   <div>
-                    <strong>最近 AI 规划</strong>
+                    <strong>AI 计划记录</strong>
                     <span>查看既有规划记录与执行反馈。</span>
                   </div>
                   <button
@@ -779,8 +802,8 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           <section className="today-action__evidence" aria-labelledby="today-action-evidence-title">
             <div className="today-action__section-heading">
               <div>
-                <p className="today-action__eyebrow">支持依据</p>
-                <h2 id="today-action-evidence-title">为什么这样安排</h2>
+                <p className="today-action__eyebrow">建议依据</p>
+                <h2 id="today-action-evidence-title">安排原因</h2>
               </div>
               <p className="today-action__section-note">指标用于解释当前建议，不替代你的判断。</p>
             </div>
@@ -788,27 +811,27 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
             <div className="today-action__trust-band" role="group" aria-label="今日推荐支持指标">
               <TrustMetric
                 value={commanderMetrics.riskPoolCount}
-                label="72 小时风险池"
-                hint={commanderMetrics.riskPoolCount > 0 ? `待处理 ${commanderMetrics.riskPoolCount} 个` : '当前无明显风险'}
+                label="今日待复习"
+                hint={commanderMetrics.riskPoolCount > 0 ? `${commanderMetrics.riskPoolCount} 道，含已到期及未设复习日期` : '当前无待复习错题'}
                 accent={commanderMetrics.riskPoolCount > 0 ? 'danger' : 'default'}
               />
               <TrustMetric
-                value={commanderMetrics.lockedKnowledgeGrowth > 0 ? `+${commanderMetrics.lockedKnowledgeGrowth}` : commanderMetrics.lockedKnowledgeGrowth}
-                label="稳定记忆净增"
-                hint="近 7 天口径"
+                value={commanderMetrics.lockedKnowledgeGrowth > 0 ? `${commanderMetrics.lockedKnowledgeGrowth}` : commanderMetrics.lockedKnowledgeGrowth}
+                label="错题筛选数"
+                hint="统计更新日期不早于7天前，且复习参数达到2.5或已标记掌握的错题；起始日计入，可能包含未复习记录，不代表实际熟悉。"
                 accent={commanderMetrics.lockedKnowledgeGrowth > 0 ? 'success' : 'default'}
               />
               <TrustMetric
                 value={`${commanderMetrics.focusConversionRate}%`}
-                label="有效专注转化率"
-                hint="专注时长与沉淀产出比"
+                label="学习记录估算"
+                hint="按正文超过20字的日记数、当日更新错题数和专注次数粗略估算，最高100%；有记录而无专注次数时也为100%，不代表真实学习效率。"
                 accent="default"
               />
             </div>
 
             <dl data-testid="task-focus-loop-metrics" className="today-action__focus-metrics">
               <div>
-                <dt>计划预计</dt>
+                <dt>预计用时 / 任务专注时长</dt>
                 <dd>{plannedTaskMinutes}m / {taskFocus.focusedMinutes}m</dd>
               </div>
               <div>
@@ -820,7 +843,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 <dd>{taskFocus.effectiveTaskCount > 0 ? `${taskFocus.focusCoverageRate}%` : '暂无任务'}</dd>
               </div>
               <div>
-                <dt>任务专注</dt>
+                <dt>任务专注时长</dt>
                 <dd>{taskFocus.focusedMinutes}m</dd>
               </div>
               <div data-warning={taskFocus.unclosedTaskTitles.length > 0 ? 'true' : 'false'}>
@@ -844,7 +867,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                 aria-expanded={showDetails}
                 aria-controls="today-action-system-evidence"
               >
-                {showDetails ? '收起系统依据' : '查看系统依据'}
+                {showDetails ? '收起说明' : '查看依据'}
                 {showDetails
                   ? <ChevronUp size={16} aria-hidden="true" />
                   : <ChevronDown size={16} aria-hidden="true" />}
@@ -852,17 +875,16 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
 
               {showDetails && (
                 <div id="today-action-system-evidence" className="today-action__details-content">
-                  <h3>系统依据</h3>
+                  <h3>建议依据</h3>
                   <p data-testid="dashboard-state-explanation">{config.explanation}</p>
                   <p>
-                    系统当前连续诊断天数：<strong>{data.streakDays} 天</strong>。<br />
-                    如果持续保持有效产出，您的专注转化率和长期稳定记忆净增量将会同步上涨。
-                    我们不再关注单一番茄钟的绝对时长，而是专注衡量您实际「带走」了多少。
+                    连续记录天数：<strong>{data.streakDays} 天</strong>。<br />
+                    连续天数按有日记或专注记录的日期统计。错题筛选数和学习记录估算仅反映记录情况，不代表净增、真实效率或学习提升。
                   </p>
 
                   <div className="today-action__details-actions">
                     <button className="button" onClick={() => setActiveView('dashboard')}>
-                      打开全局图表与分析报表
+                      查看统计
                     </button>
 
                     {examDaysDiff !== null && (

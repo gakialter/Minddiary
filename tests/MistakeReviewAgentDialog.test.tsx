@@ -10,8 +10,8 @@ describe('MistakeReviewAgentDialog Component', () => {
     entry.focus()
     const onClose = vi.fn()
     const { container, unmount } = render(<MistakeReviewAgentDialog onClose={onClose} />)
-    const dialog = screen.getByRole('dialog', { name: 'AI 错题复习规划' })
-    const close = screen.getByRole('button', { name: '关闭 AI 错题复习规划' })
+    const dialog = screen.getByRole('dialog', { name: '错题建议' })
+    const close = screen.getByRole('button', { name: '关闭建议' })
     expect(close).toHaveFocus()
     expect(container).not.toContainElement(dialog)
     expect(entry.inert).toBe(true)
@@ -149,7 +149,7 @@ describe('MistakeReviewAgentDialog Component', () => {
     )
 
     await screen.findByTestId('mistake-review-empty')
-    expect(screen.getByText('暂无到期错题或未生成建议')).toBeInTheDocument()
+    expect(screen.getByText('暂无建议')).toBeInTheDocument()
   })
 
   it('renders unsupported presentation when browser fallback reports unsupported', async () => {
@@ -170,7 +170,7 @@ describe('MistakeReviewAgentDialog Component', () => {
     )
 
     await screen.findByTestId('mistake-review-unsupported')
-    expect(screen.getByText('AI 复习规划不可用')).toBeInTheDocument()
+    expect(screen.getByText('暂不可用')).toBeInTheDocument()
   })
 
   it('renders error state when AI call fails and allows retry', async () => {
@@ -504,7 +504,7 @@ describe('MistakeReviewAgentDialog Component', () => {
 
     // Click retry button on the card
     const retryBtn = screen.getByTestId('mistake-review-confirm-btn-0')
-    expect(retryBtn).toHaveTextContent('重试')
+    expect(retryBtn).toHaveTextContent('核对任务创建结果')
     fireEvent.click(retryBtn)
 
     await screen.findByText('P1 复习牛顿第二定律')

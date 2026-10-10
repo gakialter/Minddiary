@@ -85,8 +85,8 @@ describe('TagManager styled tags', () => {
   it('exposes the selected preset color without relying on color alone', async () => {
     render(<TagManager />)
 
-    const initialColor = await screen.findByRole('button', { name: '专属识别色：#0F766E' })
-    const nextColor = screen.getByRole('button', { name: '专属识别色：#2F8F6B' })
+    const initialColor = await screen.findByRole('button', { name: '标签颜色：#0F766E' })
+    const nextColor = screen.getByRole('button', { name: '标签颜色：#2F8F6B' })
 
     expect(initialColor).toHaveAttribute('aria-pressed', 'true')
     expect(nextColor).toHaveAttribute('aria-pressed', 'false')

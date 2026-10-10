@@ -309,7 +309,7 @@ export default function MistakeReviewAgentDialog({
       className="c8-review-overlay"
       data-testid="mistake-review-agent-dialog"
     >
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="AI 错题复习规划" tabIndex={-1} className="c8-review-dialog" style={{ maxWidth: 680, maxHeight: '90vh' }}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="错题建议" tabIndex={-1} className="c8-review-dialog" style={{ maxWidth: 680, maxHeight: '90vh' }}>
         {/* Header */}
         <div
           style={{
@@ -323,7 +323,7 @@ export default function MistakeReviewAgentDialog({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Sparkles size={20} style={{ color: 'var(--accent, #3b82f6)' }} />
             <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>
-              AI 错题复习规划
+              错题建议
             </h3>
             <span
               style={{
@@ -341,7 +341,7 @@ export default function MistakeReviewAgentDialog({
             type="button"
             className="button c8-review-close"
             data-testid="mistake-review-close-btn"
-            aria-label="关闭 AI 错题复习规划"
+            aria-label="关闭建议"
             onClick={onClose}
           >
             <X size={20} />
@@ -373,7 +373,7 @@ export default function MistakeReviewAgentDialog({
             >
               <Loader2 className="animate-spin" size={32} style={{ color: 'var(--accent, #3b82f6)' }} />
               <p style={{ margin: 0, fontSize: '0.875rem' }}>
-                正在分析到期错题并生成复习规划建议...
+                正在整理到期错题并生成复习建议…
               </p>
             </div>
           )}
@@ -391,9 +391,9 @@ export default function MistakeReviewAgentDialog({
               }}
             >
               <AlertCircle size={36} style={{ color: 'var(--warning, #f59e0b)' }} />
-              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>AI 复习规划不可用</h4>
+              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>暂不可用</h4>
               <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary, #6b7280)', maxWidth: 400 }}>
-                当前环境不支持 AI 规划或未配置 AI 服务端点。你可以使用上方「开始复习」按钮继续手动复习。
+                当前无法使用 AI 建议；你仍可点击上方“开始复习”手动复习。
               </p>
             </div>
           )}
@@ -411,9 +411,9 @@ export default function MistakeReviewAgentDialog({
               }}
             >
               <BookOpen size={36} style={{ color: 'var(--text-secondary, #9ca3af)' }} />
-              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>暂无到期错题或未生成建议</h4>
+              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>暂无建议</h4>
               <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary, #6b7280)', maxWidth: 380 }}>
-                今天没有到期需复习的错题，或所有到期错题已有今日活跃任务。
+                当前没有可显示的复习建议。
               </p>
               <button
                 type="button"
@@ -422,7 +422,7 @@ export default function MistakeReviewAgentDialog({
                 onClick={loadSuggestions}
                 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}
               >
-                <RefreshCw size={14} /> 刷新检查
+                <RefreshCw size={14} /> 重新检查今日到期错题
               </button>
             </div>
           )}
@@ -441,10 +441,10 @@ export default function MistakeReviewAgentDialog({
             >
               <AlertCircle size={36} style={{ color: 'var(--danger, #ef4444)' }} />
               <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--danger, #ef4444)' }}>
-                生成复习建议遇到问题
+                生成失败
               </h4>
               <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary, #6b7280)', maxWidth: 420 }}>
-                {errorMessage || '服务请求失败，请稍后重试。'}
+                {errorMessage || '请求失败，请稍后重试。'}
               </p>
               <button
                 type="button"
@@ -453,7 +453,7 @@ export default function MistakeReviewAgentDialog({
                 onClick={loadSuggestions}
                 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}
               >
-                <RefreshCw size={14} /> 重试
+                <RefreshCw size={14} /> 重试生成复习建议
               </button>
             </div>
           )}
@@ -473,7 +473,7 @@ export default function MistakeReviewAgentDialog({
                   alignItems: 'center',
                 }}
               >
-                <span>AI 为你挑选了以下值得今天优先复习的错题（最多 4 项）：</span>
+                <span>以下是今天优先复习的错题建议，最多 4 项。</span>
                 <button
                   type="button"
                   className="button button-secondary"
@@ -542,7 +542,7 @@ export default function MistakeReviewAgentDialog({
                               fontWeight: 500,
                             }}
                           >
-                            {candidate.overdue_days > 0 ? `已逾期 ${candidate.overdue_days} 天` : '今日到期'}
+                            {candidate.overdue_days > 0 ? `已逾期 ${candidate.overdue_days} 天` : '今天到期'}
                           </span>
                           <span
                             style={{
@@ -584,7 +584,7 @@ export default function MistakeReviewAgentDialog({
                               fontWeight: 500,
                             }}
                           >
-                            <CheckCircle2 size={16} /> 已添加
+                            <CheckCircle2 size={16} /> 已加入
                           </span>
                         ) : (
                           <button
@@ -602,7 +602,7 @@ export default function MistakeReviewAgentDialog({
                             }}
                           >
                             {isCreating && <Loader2 className="animate-spin" size={14} />}
-                            {isUncertain ? '重试' : '加入今日规划'}
+                            {isUncertain ? '核对任务创建结果' : '添加今日复习任务'}
                           </button>
                         )}
                       </div>
@@ -618,7 +618,7 @@ export default function MistakeReviewAgentDialog({
                         borderRadius: 6,
                       }}
                     >
-                      <span style={{ fontWeight: 500, color: 'var(--text-primary, #111827)' }}>理由：</span>
+                      <span style={{ fontWeight: 500, color: 'var(--text-primary, #111827)' }}>原因</span>
                       {candidate.reason}
                     </div>
 
@@ -634,7 +634,7 @@ export default function MistakeReviewAgentDialog({
                         }}
                       >
                         <AlertCircle size={14} />
-                        创建失败：{cardState.error}
+                        添加失败：{cardState.error}
                       </div>
                     )}
 
@@ -650,7 +650,7 @@ export default function MistakeReviewAgentDialog({
                         }}
                       >
                         <AlertCircle size={14} />
-                        结果不确定，请点击重试以核对并恢复任务。
+                        结果待查；点击“核对任务创建结果”可核对并恢复任务。
                       </div>
                     )}
                   </div>

@@ -126,7 +126,7 @@ describe('Pomodoro Component', () => {
     const onExpand = vi.fn()
     render(<PomodoroProvider><Pomodoro isWidget onExpand={onExpand} isCollapsed={false} /></PomodoroProvider>)
     await flushAsyncWork()
-    const handle = screen.getByTitle('拖拽选择左侧或右侧停靠')
+    const handle = screen.getByTitle('拖动调整左右停靠位置')
     handle.setPointerCapture = vi.fn()
     handle.hasPointerCapture = vi.fn(() => true)
     handle.releasePointerCapture = vi.fn()
@@ -152,12 +152,15 @@ describe('Pomodoro Component', () => {
     pointer('pointerdown', 100)
     pointer('pointerup', 102)
     expect(onExpand).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '开始计时' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始或继续计时' }))
     await flushAsyncWork()
     act(() => vi.advanceTimersByTime(1000))
     expect(screen.getByText('24:59')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '暂停计时' }))
-    fireEvent.click(screen.getByRole('button', { name: '打开番茄钟' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始或继续计时' }))
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByText('24:58')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '打开专注计时' }))
     expect(onExpand).toHaveBeenCalledTimes(1)
   })
 
@@ -186,7 +189,7 @@ describe('Pomodoro Component', () => {
     expect(screen.getByText('25:00')).toBeInTheDocument()
     
     // Should have draggable title
-    expect(screen.getByTitle('拖拽选择左侧或右侧停靠')).toBeInTheDocument()
+    expect(screen.getByTitle('拖动调整左右停靠位置')).toBeInTheDocument()
     expect(screen.queryByTestId('pomodoro-enter-zen-btn')).not.toBeInTheDocument()
   })
 
@@ -1095,6 +1098,13 @@ describe('Pomodoro Component', () => {
   it('warns before resetting an active countdown but resets idle immediately', async () => {
     const confirmMock = vi.mocked(window.confirm)
     await renderPomodoro()
+
+    expect(screen.getByTestId('pomodoro-reset-btn')).toBe(
+      screen.getByRole('button', { name: '重置计时（如有未保存记录，将一并放弃）' }),
+    )
+    expect(screen.getByTestId('pomodoro-reset-btn')).toHaveAttribute(
+      'title', '重置计时（如有未保存记录，将一并放弃）',
+    )
 
     fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
     expect(confirmMock).not.toHaveBeenCalled()

@@ -27,8 +27,10 @@
 .diary-live-preview .md-color-blue { color: color-mix(in srgb, var(--md-color-blue) 65%, var(--color-text-primary)); }
 .diary-live-preview .md-color-purple { color: color-mix(in srgb, var(--md-color-purple) 65%, var(--color-text-primary)); }
 .diary-live-preview .md-color-gray { color: color-mix(in srgb, var(--md-color-gray) 65%, var(--color-text-primary)); }
-[data-diary-format] .format-toolbar__button[aria-pressed="true"] { background: var(--color-control-selected-bg); box-shadow: inset 0 -2px var(--color-control-selected-border); }
-.color-picker__swatch[aria-pressed="true"] { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+[data-diary-format] .format-toolbar__button.format-toolbar__button--selected { background: var(--color-control-selected-bg); color: var(--color-control-selected-fg); border-color: var(--color-control-selected-border); box-shadow: inset 0 -2px var(--color-control-selected-border); }
+.color-picker__trigger { position: relative; }
+.color-picker__current-color { position: absolute; right: 7px; bottom: 3px; width: 16px; height: 3px; border: 1px solid var(--color-surface-raised); border-radius: var(--radius-pill); box-shadow: 0 0 0 1px var(--color-border-default); }
+.color-picker__swatch[aria-pressed="true"], .color-picker__swatch--selected { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 .color-picker__clear { grid-column: 1 / -1; padding: 4px 6px; border: 0; border-top: 1px solid var(--color-border-subtle); background: transparent; color: var(--color-text-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .color-picker__clear:hover { background: var(--color-surface-interactive); }
 .color-picker--editable .color-picker__popover { display: grid; grid-template-columns: repeat(4, 26px); }

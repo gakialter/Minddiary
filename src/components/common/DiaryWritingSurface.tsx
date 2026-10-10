@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Annotation, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands'
-import { activeFormats, diaryMarkdown, formatTransaction, inlineEditTransactions, inlineInteraction, previewField, rangeField, structureInteraction } from './diaryEditorState'
+import { activeFormats, clearFormatContinuation, clearFormatTransaction, diaryMarkdown, formatContinuationField, formatTransaction, inlineEditTransactions, inlineInteraction, previewField, rangeField, structureInteraction } from './diaryEditorState'
 import FormatToolbar from './FormatToolbar'
 import type { DiaryFormat, MarkdownColorKey } from '../../utils/markdownDialect'
 import './DiaryWritingSurface.css'
@@ -15,6 +15,7 @@ import type { AIMessage, AIResponse } from '../../types'
 export type DiaryFormatState = ReturnType<typeof activeFormats>
 export interface DiaryWritingHandle {
   format: (kind: DiaryFormat, color?: MarkdownColorKey | null) => void
+  clearFormat: () => void
   append: (text: string, onApplied: () => void) => () => void
   replace: (text: string) => void
   appendTemplate: (text: string) => void
@@ -80,12 +81,34 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
 
   const format = (kind: DiaryFormat, color?: MarkdownColorKey | null) => {
     const view = viewRef.current
-    if (!view || view.compositionStarted) return
+    if (!view) return
+    if (view.compositionStarted) { view.dispatch({ effects: clearFormatContinuation.of(null) }); return }
     const transaction = formatTransaction(view.state, kind, color)
     if (transaction) {
       view.dispatch(transaction)
       setNotice('')
-    } else setNotice('这段文字包含不同格式，请缩小选区后再试。')
+    } else {
+      view.dispatch({ effects: clearFormatContinuation.of(null) })
+      setNotice('格式不同，请选少一些文字再试。')
+    }
+    view.focus()
+  }
+
+  const clearFormat = () => {
+    const view = viewRef.current
+    if (!view) return
+    if (view.compositionStarted || view.state.selection.main.empty) {
+      view.dispatch({ effects: clearFormatContinuation.of(null) })
+      return
+    }
+    const transaction = clearFormatTransaction(view.state)
+    if (transaction) {
+      view.dispatch(transaction)
+      setNotice('')
+    } else {
+      view.dispatch({ effects: clearFormatContinuation.of(null) })
+      setNotice('无法清除格式，请选少一些文字再试。')
+    }
     view.focus()
   }
 
@@ -102,7 +125,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
     }
     return afterComposition(run)
   }
-  useImperativeHandle(ref, () => ({ format,
+  useImperativeHandle(ref, () => ({ format, clearFormat,
     append: (text, onApplied) => edit(current => current.trim() ? `${current.trimEnd()}\n\n${text}\n` : `${text}\n`, onApplied),
     replace: text => edit(() => text),
     appendTemplate: text => edit(current => `${current}${current.endsWith('\n\n') ? '' : current.endsWith('\n') ? '\n' : '\n\n'}${text}`),
@@ -142,7 +165,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
       state: EditorState.create({
       doc: latest.current.value,
       extensions: [diaryMarkdown, history(), rangeField, structureInteraction, previewField, inlineInteraction,
-        EditorView.lineWrapping, placeholder('写下今天的考研日记…'),
+        EditorView.lineWrapping, placeholder('写下当天的学习和生活…'),
         EditorView.contentAttributes.of({ id: 'editor-diary-content', 'aria-label': '日记正文',
           'aria-multiline': 'true', 'data-testid': 'diary-content-input', spellcheck: 'false' }),
         keymap.of([
@@ -167,6 +190,11 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
           locate()
         }),
         EditorView.domEventObservers({
+          blur: event => {
+            if (!(event.relatedTarget instanceof Element) || !event.relatedTarget.closest('[data-diary-format]')) {
+              view.dispatch({ effects: clearFormatContinuation.of(null) })
+            }
+          },
           compositionstart: () => { setPosition(null); polishRef.current.invalidate(); setPolishMenu(false) },
           compositionend: locate,
         }),
@@ -176,7 +204,12 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
     publishState(view.state)
     window.addEventListener('resize', locate)
     window.addEventListener('scroll', locate, true)
-    document.addEventListener('focusin', locate)
+    const focusChanged = () => {
+      if (!view.hasFocus && !document.activeElement?.closest('[data-diary-format]')
+        && view.state.field(formatContinuationField)) view.dispatch({ effects: clearFormatContinuation.of(null) })
+      locate()
+    }
+    document.addEventListener('focusin', focusChanged)
     return () => {
       disposed = true
       cancelAnimationFrame(queueFrame.current)
@@ -185,11 +218,15 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
       queued.current = []
       window.removeEventListener('resize', locate)
       window.removeEventListener('scroll', locate, true)
-      document.removeEventListener('focusin', locate)
+      document.removeEventListener('focusin', focusChanged)
       view.destroy()
       viewRef.current = undefined
     }
   }, [])
+
+  useLayoutEffect(() => {
+    viewRef.current?.dispatch({ effects: clearFormatContinuation.of(null) })
+  }, [props.identity])
 
   useLayoutEffect(() => {
     const view = viewRef.current
@@ -223,11 +260,12 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
         }
       }}>
       {!polishMenu && <FormatToolbar active={formats} onBold={() => format('bold')} onUnderline={() => format('underline')}
-        onHighlight={() => format('highlight')} onColor={color => format('color', color)} onClearColor={() => format('color', null)} />
+        onHighlight={() => format('highlight')} onColor={color => format('color', color)} onClearColor={() => format('color', null)}
+        onClearFormat={clearFormat} />
       }
       <button type="button" className="format-toolbar__button" aria-label="AI 润色" aria-expanded={polishMenu}
         onMouseDown={e => e.preventDefault()} onClick={() => setPolishMenu(open => !open)}>AI</button>
-      {polishMenu && <div className="diary-polish-menu" role="group" aria-label="选择润色动作"
+      {polishMenu && <div className="diary-polish-menu" role="group" aria-label="修改方式"
         style={{ position: 'fixed', left: position.left, top: Math.min(position.top + 38, innerHeight - 176) }}>
         {(Object.keys(polishActions) as PolishAction[]).map(action => <button key={action} type="button"
           onMouseDown={e => e.preventDefault()} onClick={() => { setPolishMenu(false); void polish.run(action) }}>{polishActions[action].label}</button>)}

@@ -267,7 +267,7 @@ describe('App diary save flow', () => {
   it('sets tags after a new diary receives its saved entry id', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByTestId('save-new-entry'))
+    fireEvent.click(await screen.findByTestId('save-new-entry'))
 
     await waitFor(() => {
       expect(mocks.entries.create).toHaveBeenCalled()
@@ -303,7 +303,7 @@ describe('App diary save flow', () => {
 
     render(<App />)
 
-    fireEvent.click(screen.getByTestId('manual-save-effective-entry'))
+    fireEvent.click(await screen.findByTestId('manual-save-effective-entry'))
 
     expect(await screen.findByRole('dialog', { name: '日记已保存' })).toBeInTheDocument()
     expect(screen.getByText('写今日学习沉淀')).toBeInTheDocument()
@@ -315,7 +315,7 @@ describe('App diary save flow', () => {
         status: 'done',
       })
       expect(mocks.requestDataRefresh).toHaveBeenCalled()
-      expect(mocks.showToast).toHaveBeenCalledWith('日记已保存，任务已完成', 'success')
+      expect(mocks.showToast).toHaveBeenCalledWith('日记已保存，任务已完成。', 'success')
     })
     expect(screen.getByText('日记已保存，任务已完成')).toBeInTheDocument()
   })
@@ -334,7 +334,7 @@ describe('App diary save flow', () => {
 
     render(<App />)
 
-    fireEvent.click(screen.getByTestId('auto-save-effective-entry'))
+    fireEvent.click(await screen.findByTestId('auto-save-effective-entry'))
 
     await waitFor(() => {
       expect(mocks.entries.create).toHaveBeenCalled()

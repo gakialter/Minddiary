@@ -45,7 +45,7 @@ describe('applyTextFormat', () => {
     it('inserts placeholder when no text is selected', () => {
       const el = makeTextarea('hello ', 6, 6)
       const result = applyTextFormat(el, FORMAT_BOLD)
-      expect(result).toBe('hello **粗体文本**')
+      expect(result).toBe('hello **加粗文字**')
       // Placeholder should be selected
       expect(el.selectionStart).toBe(8)
       expect(el.selectionEnd).toBe(12)
@@ -76,7 +76,7 @@ describe('applyTextFormat', () => {
     it('inserts placeholder when no text is selected', () => {
       const el = makeTextarea('', 0, 0)
       const result = applyTextFormat(el, FORMAT_HIGHLIGHT)
-      expect(result).toBe('==高亮文本==')
+      expect(result).toBe('==高亮文字==')
       expect(el.selectionStart).toBe(2)
       expect(el.selectionEnd).toBe(6)
     })
@@ -94,7 +94,7 @@ describe('applyTextFormat', () => {
     it('inserts placeholder when no text is selected', () => {
       const el = makeTextarea('text', 4, 4)
       const result = applyTextFormat(el, FORMAT_UNDERLINE)
-      expect(result).toBe('text++下划线文本++')
+      expect(result).toBe('text++下划线文字++')
       expect(el.selectionStart).toBe(6)
       expect(el.selectionEnd).toBe(11)
     })
@@ -146,7 +146,7 @@ describe('applyTextFormat', () => {
   it('handles empty textarea', () => {
     const el = makeTextarea('', 0, 0)
     const result = applyTextFormat(el, FORMAT_BOLD)
-    expect(result).toBe('**粗体文本**')
+    expect(result).toBe('**加粗文字**')
   })
 })
 
@@ -177,6 +177,61 @@ describe('FormatToolbar', () => {
     expect(screen.getByLabelText('加粗')).toBeInTheDocument()
     expect(screen.getByLabelText('高亮')).toBeInTheDocument()
     expect(screen.getByLabelText('下划线')).toBeInTheDocument()
+  })
+
+  it('uses natural format titles without exposing Markdown markers', () => {
+    render(
+      <FormatToolbar
+        onBold={vi.fn()}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('format-bold')).toHaveAttribute('title', '加粗')
+    expect(screen.getByTestId('format-highlight')).toHaveAttribute('title', '高亮')
+    expect(screen.getByTestId('format-underline')).toHaveAttribute('title', '下划线')
+  })
+
+  it('adds a stable selected class for active formatting controls', () => {
+    render(
+      <FormatToolbar
+        active={{ bold: true, highlight: false, underline: true }}
+        onBold={vi.fn()}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('format-bold')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('format-bold')).toHaveClass('format-toolbar__button--selected')
+    expect(screen.getByTestId('format-underline')).toHaveClass('format-toolbar__button--selected')
+    expect(screen.getByTestId('format-highlight')).not.toHaveClass('format-toolbar__button--selected')
+  })
+
+  it('shows an accessible clear-format action only when provided', () => {
+    const onClearFormat = vi.fn()
+    const { rerender } = render(
+      <FormatToolbar onBold={vi.fn()} onHighlight={vi.fn()} onUnderline={vi.fn()} />,
+    )
+    expect(screen.queryByTestId('format-clear')).not.toBeInTheDocument()
+
+    rerender(
+      <FormatToolbar onBold={vi.fn()} onHighlight={vi.fn()} onUnderline={vi.fn()} onClearFormat={onClearFormat} />,
+    )
+    const clear = screen.getByTestId('format-clear')
+    expect(clear).toHaveAttribute('title', '清除格式')
+    expect(clear).toHaveAttribute('aria-label', '清除格式')
+    fireEvent.mouseDown(clear, { button: 0 })
+    fireEvent.click(clear, { detail: 1 })
+    expect(onClearFormat).toHaveBeenCalledTimes(1)
+  })
+
+  it('activates clear format once through native keyboard behavior', () => {
+    const onClearFormat = vi.fn()
+    render(
+      <FormatToolbar onBold={vi.fn()} onHighlight={vi.fn()} onUnderline={vi.fn()} onClearFormat={onClearFormat} />,
+    )
+    activateNativeButtonWithKeyboard(screen.getByTestId('format-clear') as HTMLButtonElement, 'Enter')
+    expect(onClearFormat).toHaveBeenCalledTimes(1)
   })
 
   it('fires onBold callback on mousedown', () => {
@@ -307,6 +362,25 @@ describe('FormatToolbar', () => {
     )
     expect(screen.getByTestId('format-color')).toBeInTheDocument()
   })
+
+  it('marks the active color and exposes its current color description', () => {
+    render(
+      <FormatToolbar
+        active={{ bold: false, highlight: false, underline: false, color: 'green' }}
+        onBold={vi.fn()}
+        onHighlight={vi.fn()}
+        onUnderline={vi.fn()}
+        onColor={vi.fn()}
+        onClearColor={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByTestId('format-color')
+    expect(trigger).toHaveAttribute('aria-label', '文字颜色')
+    expect(trigger).toHaveAttribute('aria-pressed', 'true')
+    expect(trigger).toHaveClass('format-toolbar__button--selected')
+    expect(trigger).toHaveAccessibleDescription('当前颜色：绿色')
+    expect(trigger.querySelector('.color-picker__current-color')).toBeInTheDocument()
+  })
 })
 
 // ─── ColorPickerButton component tests ──────────────────────────────────────
@@ -414,5 +488,19 @@ describe('ColorPickerButton', () => {
     expect(screen.getByLabelText('红色')).toBeInTheDocument()
     expect(screen.getByLabelText('蓝色')).toBeInTheDocument()
     expect(screen.getByLabelText('灰色')).toBeInTheDocument()
+  })
+
+  it('clears the active color from the keyboard and restores trigger focus', () => {
+    const onClearColor = vi.fn()
+    render(<ColorPickerButton onSelectColor={vi.fn()} currentColor="green" onClearColor={onClearColor} />)
+    const trigger = screen.getByTestId('format-color') as HTMLButtonElement
+
+    trigger.focus()
+    activateNativeButtonWithKeyboard(trigger, 'Enter')
+    activateNativeButtonWithKeyboard(screen.getByRole('button', { name: '清除颜色' }) as HTMLButtonElement, 'Enter')
+
+    expect(onClearColor).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('color-picker-popover')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })

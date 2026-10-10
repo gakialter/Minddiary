@@ -21,8 +21,8 @@ interface PlanningHistoryDialogProps {
 }
 
 const ENTRY_POINT_LABELS = {
-  today_action: '今日行动',
-  daily_review: '每日复盘',
+  today_action: '今日建议',
+  daily_review: '每日回顾',
 } as const
 
 const CATEGORY_LABELS: Readonly<Record<string, string>> = {
@@ -33,34 +33,34 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   today_entry: '今日日记',
   chapters: '章节进度',
   focus_history: '专注历史',
-  candidate_date_tasks: '目标日期任务',
+  candidate_date_tasks: '目标任务',
   pomodoro: '今日专注',
 }
 
 const PREPARATION_LABELS: Readonly<Record<PlanningContextPreparation, string>> = {
-  prepared: '本地已准备',
-  prepared_empty: '本地没有相应记录',
-  source_unavailable: '来源暂不可用',
-  not_integrated: '当前版本尚未接入',
-  preparation_failed: '本地准备失败',
+  prepared: '已准备',
+  prepared_empty: '没有记录',
+  source_unavailable: '暂不可用',
+  not_integrated: '暂未支持',
+  preparation_failed: '准备失败',
 }
 
 const DISPOSITION_LABELS: Readonly<Record<PlanningContextDisposition, string>> = {
-  included: '已加入本次请求',
-  included_empty: '以空记录加入本次请求',
-  partially_included: '部分加入本次请求',
-  excluded: '未加入本次请求',
+  included: '已加入',
+  included_empty: '无记录加入',
+  partially_included: '部分加入',
+  excluded: '未加入',
 }
 
 const REASON_LABELS: Readonly<Record<PlanningContextReasonCode, string>> = {
-  included_required: '规划所需的基础信息',
-  included_available: '本地来源可用并已加入',
-  included_empty: '请求保留了该类别，但没有相应记录',
-  limit_applied: '已应用本地请求数量上限',
-  no_record: '本地没有相应记录',
-  source_unavailable: '本地来源暂不可用',
-  not_integrated: '当前版本尚未接入该来源',
-  preparation_failed: '本地准备该来源时失败',
+  included_required: '规划需要的基础信息',
+  included_available: '本机信息已加入',
+  included_empty: '保留此类信息，但没有记录',
+  limit_applied: '本次信息已按请求数量上限截取。',
+  no_record: '本机没有记录',
+  source_unavailable: '本机信息暂不可用',
+  not_integrated: '当前版本尚未接入该信息来源。',
+  preparation_failed: '本机信息准备失败',
 }
 
 const TYPE_LABELS: Readonly<Record<PlanningCandidateSnapshot['type'], string>> = {
@@ -78,21 +78,21 @@ const PRIORITY_LABELS: Readonly<Record<PlanningCandidateSnapshot['priority'], st
 }
 
 const OUTCOME_LABELS: Readonly<Record<PlanningCandidateOutcomeKind, string>> = {
-  created: '已创建任务',
-  replayed: '已确认该任务已存在，使用既有结果',
-  uncertain: '结果尚无法确认',
-  conflict: '确认内容与既有操作冲突，未创建任务',
-  deleted: '关联任务后来已删除',
-  integrity_error: '完整性检查未通过',
+  created: '已添加任务',
+  replayed: '任务已存在，本次未重复添加',
+  uncertain: '结果待核实',
+  conflict: '内容冲突，未添加任务',
+  deleted: '关联任务已删除',
+  integrity_error: '未通过完整性检查',
   date_mismatch: '确认日期已失效，未创建任务',
-  validation_error: '确认内容未通过校验，未创建任务',
+  validation_error: '内容未通过检查，未添加任务',
 }
 
 const CLOSE_REASON_LABELS: Readonly<Record<PlanningRunCloseReason, string>> = {
-  dialog_closed: '已关闭规划窗口',
+  dialog_closed: '已关闭窗口',
   regenerated: '已开始重新生成',
-  date_rollover: '已观察到日期切换',
-  app_closed: '已正常关闭应用',
+  date_rollover: '日期已切换',
+  app_closed: '应用已关闭',
 }
 
 const EDIT_FIELD_ORDER = [
@@ -110,7 +110,7 @@ const EDIT_FIELD_LABELS: Readonly<Record<keyof PlanningCandidateSnapshot, string
   title: '标题',
   description: '说明',
   type: '类型',
-  estimateMinutes: '预计时间',
+  estimateMinutes: '预计时长',
   priority: '优先级',
   subjectId: '科目',
   relatedMistakeId: '关联错题',
@@ -188,7 +188,7 @@ function CandidateDetail({ candidate }: { candidate: PlanningRunCandidateRecord 
       )}
       {editFields.length > 0 && (
         <div className="mt-3 rounded-lg p-3 text-xs" style={{ background: 'var(--bg-secondary)' }}>
-          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>最终净修改</p>
+          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>修改详情</p>
           <ul className="mt-1 space-y-1" style={{ color: 'var(--text-secondary)' }}>
             {editFields.map(field => (
               <li key={field}>
@@ -199,10 +199,10 @@ function CandidateDetail({ candidate }: { candidate: PlanningRunCandidateRecord 
         </div>
       )}
       {candidate.userDisposition === 'unselected' && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>本次未选择</p>
+        <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>未选择</p>
       )}
       {candidate.userDisposition === 'selected_unconfirmed' && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>已选择，未确认创建</p>
+        <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>已选择，尚未添加</p>
       )}
       {candidate.userDisposition === 'confirmed' && (
         <div className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -251,9 +251,9 @@ function CandidateDetail({ candidate }: { candidate: PlanningRunCandidateRecord 
                   )}
                   {candidate.executionAttribution.focus.state === 'available' && (
                     candidate.executionAttribution.focus.totalDurationMinutes !== null && candidate.executionAttribution.focus.totalDurationMinutes > 0 ? (
-                      <p>已累计专注 {candidate.executionAttribution.focus.totalDurationMinutes} 分钟（{candidate.executionAttribution.focus.sessionCount} 次专注）</p>
+                      <p>累计专注 {candidate.executionAttribution.focus.totalDurationMinutes} 分钟（{candidate.executionAttribution.focus.sessionCount} 次专注）</p>
                     ) : (
-                      <p>暂无显式绑定专注记录</p>
+                      <p>暂无关联专注记录</p>
                     )
                   )}
                   {candidate.executionAttribution.focus.state === 'corrupt_data' && (
@@ -362,7 +362,7 @@ export default function PlanningHistoryDialog({ planningRunsAPI, onClose }: Plan
         <header className="flex items-center justify-between gap-4 px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
           <div>
             <h2 id="planning-history-title" className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>最近 AI 规划</h2>
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>仅展示本地保存的最小规划记录，不用于继续旧规划。</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>本机可查看，不能继续旧计划。</p>
           </div>
           <button
             type="button"
@@ -402,14 +402,14 @@ export default function PlanningHistoryDialog({ planningRunsAPI, onClose }: Plan
                         {ENTRY_POINT_LABELS[run.entryPoint]} · {run.planningDate}
                       </span>
                       <span className="mt-1 block text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {formatPlanningTime(run.createdAt)} · {run.generationResultKind === 'valid_empty' ? '无候选建议' : `${run.candidates.length} 个保留候选`}
+                        {formatPlanningTime(run.createdAt)} · {run.generationResultKind === 'valid_empty' ? '没有建议' : `${run.candidates.length} 个保留候选`}
                       </span>
                     </button>
                     <button
                       type="button"
                       className="mt-2 inline-flex items-center gap-1 text-xs"
                       style={{ color: 'var(--danger)' }}
-                      aria-label="删除这次规划"
+                      aria-label="删除记录"
                       disabled={mutating}
                       onClick={() => { void deleteRun(run) }}
                     >
@@ -428,9 +428,9 @@ export default function PlanningHistoryDialog({ planningRunsAPI, onClose }: Plan
                 <div data-testid="planning-history-detail" className="space-y-5">
                   <section>
                     <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{ENTRY_POINT_LABELS[selectedRun.entryPoint]}</h3>
-                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>规划时间：{formatPlanningTime(selectedRun.createdAt)}</p>
-                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>规划日期：{selectedRun.planningDate}</p>
-                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>目标日期：{selectedRun.targetDate}</p>
+                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>生成时间 {formatPlanningTime(selectedRun.createdAt)}</p>
+                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>计划日期 {selectedRun.planningDate}</p>
+                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>目标日期 {selectedRun.targetDate}</p>
                     <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {selectedRun.closeReason === null
                         ? '上次规划未记录结束状态'
@@ -439,7 +439,7 @@ export default function PlanningHistoryDialog({ planningRunsAPI, onClose }: Plan
                   </section>
 
                   <section>
-                    <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>本次请求上下文</h3>
+                    <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>本次参考</h3>
                     <ul className="mt-2 space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {selectedRun.contextSummary.map(item => (
                         <li key={item.category}>
@@ -450,9 +450,9 @@ export default function PlanningHistoryDialog({ planningRunsAPI, onClose }: Plan
                   </section>
 
                   <section>
-                    <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>保留候选</h3>
-                    {selectedRun.generationResultKind === 'valid_empty' && <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>本次生成了有效空候选集。</p>}
-                    {selectedRun.generationResultKind === 'candidate_set' && selectedRun.candidates.length === 0 && <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>本次候选均未保留。</p>}
+                    <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>保留建议</h3>
+                    {selectedRun.generationResultKind === 'valid_empty' && <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>本次没有生成可用建议。</p>}
+                    {selectedRun.generationResultKind === 'candidate_set' && selectedRun.candidates.length === 0 && <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>本次没有建议通过检查并保留下来。</p>}
                     <div className="mt-2 space-y-3">
                       {selectedRun.candidates.map(candidate => <CandidateDetail key={candidate.id} candidate={candidate} />)}
                     </div>

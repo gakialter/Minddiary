@@ -1594,8 +1594,8 @@ ipcMain.handle('settings:selectBackupFolder', async () => {
 ipcMain.handle('settings:selectBackupFile', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile'],
-        title: 'Select automatic backup ZIP',
-        buttonLabel: 'Select',
+        title: '选择自动备份 ZIP',
+        buttonLabel: '选择文件',
         filters: [{ name: 'MindDiary automatic backup', extensions: ['zip'] }],
     });
     if (result.canceled || !result.filePaths[0]) return null;

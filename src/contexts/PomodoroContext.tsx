@@ -356,7 +356,7 @@ const MODES: Record<string, PomodoroMode> = {
   WORK: { id: 'work', label: '专注', time: 25 * 60, color: 'var(--accent)' },
   SHORT_BREAK: { id: 'short_break', label: '短休', time: 5 * 60, color: 'var(--success)' },
   LONG_BREAK: { id: 'long_break', label: '长休', time: 15 * 60, color: 'var(--info)' },
-  STOPWATCH: { id: 'stopwatch', label: '正计时', time: MAX_POMODORO_MODE_SECONDS, color: 'var(--info)' }
+  STOPWATCH: { id: 'stopwatch', label: '累计计时', time: MAX_POMODORO_MODE_SECONDS, color: 'var(--info)' }
 }
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
@@ -595,10 +595,14 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     } catch (e) { logger.error(e) }
   }, [currentDateKey, pomodoroAPI])
 
+  const taskLoadGenerationRef = useRef(0)
   const loadTodayTasks = useCallback(async (dateKey = currentDateKey) => {
+    const generation = ++taskLoadGenerationRef.current
+    const isCurrent = () => generation === taskLoadGenerationRef.current && dateKey === todayDateKeyRef.current
     setTaskError(null)
     try {
       const tasks = await tasksAPI.getByDate(dateKey)
+      if (!isCurrent()) return
       setTodayTasks(tasks || [])
       todayTasksRef.current = tasks || []
 
@@ -614,10 +618,13 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         setSelectedTaskIdState(null)
       }
     } catch (error) {
+      if (!isCurrent()) return
       logger.error(error)
       setTaskError(error instanceof Error ? error.message : String(error))
     }
   }, [currentDateKey, setActiveTaskSnapshot, tasksAPI])
+
+  useEffect(() => () => { taskLoadGenerationRef.current += 1 }, [])
 
   const setSelectedSubject = useCallback<React.Dispatch<React.SetStateAction<number | null>>>((nextSubjectAction) => {
     manualSubjectOverrideRef.current = true
@@ -786,7 +793,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const settleFocusTask = useCallback(async ({ completeTask, completeChapter = false, reviewText }: FocusTaskSettlementOptions) => {
     if (taskSettlementInFlightRef.current) return false
     if (completeChapter && !completeTask) {
-      setAlertState(current => ({ ...current, settlementError: '完成章节时必须同时完成任务。' }))
+      setAlertState(current => ({ ...current, settlementError: '要完成章节，请同时完成关联任务。' }))
       return false
     }
     const settlement = alertState.taskSettlement
@@ -815,7 +822,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         setAlertState(current => ({
           ...current,
           taskSettlement: null,
-          settlementError: '绑定任务已不存在，专注记录已保留。可直接关闭本次结算。',
+          settlementError: '关联任务不存在，专注记录已保留。可关闭本次结算。',
           isSettlingTask: false,
           pendingReviewEntryCreation: null,
         }))
@@ -834,7 +841,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             setAlertState(current => ({
               ...current,
               taskSettlement: null,
-              settlementError: '绑定任务已不存在，专注记录已保留。可直接关闭本次结算。',
+              settlementError: '关联任务不存在，专注记录已保留。可关闭本次结算。',
               isSettlingTask: false,
               pendingReviewEntryCreation: null,
             }))
@@ -1031,7 +1038,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             pendingReviewEntryCreation: null,
           })
         }
-        await notificationAPI.show('番茄钟完成！', '干得漂亮，休息几分钟吧～')
+        await notificationAPI.show('专注完成', '干得漂亮，休息几分钟吧～')
       } catch (e) { logger.error(e) }
       // Fire break-start callback so App can show BreakReviewModal
       if (onBreakStartRef.current) {
@@ -1056,7 +1063,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           pendingReviewEntryCreation: null,
         })
       }
-      await notificationAPI.show('休息结束', '精力充沛，继续加油！').catch(() => { })
+      await notificationAPI.show('休息时间结束，可以继续专注了。', '精力充沛，继续加油！').catch(() => { })
       setIdleMode(dynamicModes.WORK!)
     }
     } finally {
@@ -1596,7 +1603,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           pendingReviewEntryCreation: null,
         })
       }
-      await notificationAPI.show('正计时已保存', '本次专注已记录到学习统计。').catch(() => { })
+      await notificationAPI.show('正计时已保存', '本次专注已计入学习统计。').catch(() => { })
       clearActiveSessionState()
       setIdleMode(dynamicModes.STOPWATCH!)
       return true

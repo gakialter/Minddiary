@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { createHash } from 'crypto'
 import { fileURLToPath } from 'url'
 import { JSON_SCHEMA, load as parseYaml } from 'js-yaml'
 
@@ -140,6 +141,21 @@ function resolveReleaseAsset(releaseDir: string, assetPath: string, context: str
   return resolved
 }
 
+function getAssetSha512(assetPath: string): string {
+  const hash = createHash('sha512')
+  const descriptor = fs.openSync(assetPath, 'r')
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  try {
+    let bytesRead: number
+    while ((bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, bytesRead))
+    }
+  } finally {
+    fs.closeSync(descriptor)
+  }
+  return hash.digest('base64')
+}
+
 function findFilesByExtension(root: string, extension: string): string[] {
   if (!fs.existsSync(root)) return []
 
@@ -210,10 +226,6 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
   const latestSha512 = getRequiredString(latest, 'sha512', latestFilename)
   const releaseDate = getRequiredString(latest, 'releaseDate', latestFilename)
 
-  if (latestSha512.length === 0) {
-    throw new ReleaseMetadataError(`Missing ${latestFilename} sha512`)
-  }
-
   if (Number.isNaN(Date.parse(releaseDate))) {
     throw new ReleaseMetadataError(`${latestFilename} releaseDate is not a valid date: ${releaseDate}`)
   }
@@ -228,6 +240,13 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
     )
   }
 
+  const primarySha512 = getAssetSha512(installerPath)
+  if (latestSha512 !== primarySha512) {
+    throw new ReleaseMetadataError(
+      `${latestFilename} sha512 does not match asset SHA512: ${latestPathValue}`,
+    )
+  }
+
   const allowedMetadataAssets = platform === 'win'
     ? new Set([expectedPrimaryAsset])
     : new Set([
@@ -235,6 +254,7 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
         `MindDiary-${packageVersion}-arm64.dmg`,
       ])
 
+  let includesPrimaryAsset = false
   files.forEach((fileEntry, index) => {
     if (!isRecord(fileEntry)) {
       throw new ReleaseMetadataError(`${latestFilename} files[${index}] must be an object`)
@@ -249,7 +269,7 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
         `${latestFilename} files[${index}].url must point to an allowlisted root release asset: ${filePath}`,
       )
     }
-    getRequiredString(fileEntry, 'sha512', `${latestFilename} files[${index}]`)
+    const fileSha512 = getRequiredString(fileEntry, 'sha512', `${latestFilename} files[${index}]`)
     const expectedSize = getRequiredPositiveSafeInteger(
       fileEntry,
       'size',
@@ -266,7 +286,20 @@ function validateLatestYml(latest: Record<string, unknown>, releaseDir: string, 
         `${latestFilename} files[${index}] size ${expectedSize} does not match asset size ${actualSize}: ${filePath}`,
       )
     }
+    const actualSha512 = resolvedAsset === installerPath ? primarySha512 : getAssetSha512(resolvedAsset)
+    if (fileSha512 !== actualSha512) {
+      throw new ReleaseMetadataError(
+        `${latestFilename} files[${index}] sha512 does not match asset SHA512: ${filePath}`,
+      )
+    }
+    if (filePath === expectedPrimaryAsset) includesPrimaryAsset = true
   })
+
+  if (!includesPrimaryAsset) {
+    throw new ReleaseMetadataError(
+      `${latestFilename} files must include the primary update asset ${expectedPrimaryAsset}`,
+    )
+  }
 
   if (platform === 'mac') {
     validateRequiredMacArtifacts(releaseDir)

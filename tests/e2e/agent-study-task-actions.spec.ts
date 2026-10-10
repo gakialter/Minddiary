@@ -77,9 +77,9 @@ async function configureMockAI(page: Page, endpoint: string): Promise<void> {
 
 async function openAndGenerateCandidate(page: Page, expectedTitle = candidateTitle): Promise<void> {
   await page.getByTestId('open-ai-today-action-suggestions').click()
-  await expect(page.getByRole('dialog', { name: 'AI 规划今日行动' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '今日建议' })).toBeVisible()
   await page.getByTestId('ai-plan-generate').click()
-  const suggestionTitle = page.getByLabel('建议标题')
+  const suggestionTitle = page.getByLabel('任务名称')
   const feedbackPreview = page.getByTestId('today-action-feedback-preview')
   await expect(suggestionTitle.or(feedbackPreview)).toBeVisible()
   if (await feedbackPreview.isVisible()) {
@@ -195,7 +195,7 @@ test.describe('confirmed study task actions through Electron', () => {
         completed: false,
       }])
       expect(await getTasksForDate(page, today)).toEqual([])
-      await page.getByLabel('关闭 AI 今日行动建议').click()
+      await page.getByLabel('关闭建议').click()
       expect(await getTasksForDate(page, today)).toEqual([])
 
       await openAndGenerateCandidate(page)
@@ -216,7 +216,7 @@ test.describe('confirmed study task actions through Electron', () => {
         }),
       ])
 
-      await page.getByLabel('关闭 AI 今日行动建议').click()
+      await page.getByLabel('关闭建议').click()
       await openAndGenerateCandidate(page, staleCandidateTitle)
       expect(readChapterProgressFromProviderRequest(providerRequests[2])).toEqual([{
         subject_ref: `subject:${seededChapter.subjectId}`,

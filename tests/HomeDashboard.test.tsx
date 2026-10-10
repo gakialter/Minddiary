@@ -440,9 +440,9 @@ describe('HomeDashboard Component - Commander Engine', () => {
     })
 
     expect(screen.getByRole('heading', { level: 2, name: /今天有 6 个高风险知识点待抢救/ })).toBeInTheDocument()
-    expect(screen.getByText('72 小时风险池')).toBeInTheDocument()
-    expect(screen.getByText('稳定记忆净增')).toBeInTheDocument()
-    expect(screen.getByText('有效专注转化率')).toBeInTheDocument()
+    expect(screen.getByText('今日待复习')).toBeInTheDocument()
+    expect(screen.getByText('错题筛选数')).toBeInTheDocument()
+    expect(screen.getByText('学习记录估算')).toBeInTheDocument()
   })
 
   it('opens recent AI planning history and explains browser fallback availability', async () => {
@@ -504,7 +504,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
     const overview = await screen.findByTestId('today-execution-overview')
-    expect(overview).toHaveTextContent('今日概览')
+    expect(overview).toHaveTextContent('今日进展')
     expect(screen.getByTestId('overview-tasks')).toHaveTextContent('1 / 3')
     expect(screen.getByTestId('overview-focus')).toHaveTextContent('45 分钟')
     expect(screen.getByTestId('overview-chapters')).toHaveTextContent('1 / 2')
@@ -749,13 +749,13 @@ describe('HomeDashboard Component - Commander Engine', () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
     const metrics = await screen.findByTestId('task-focus-loop-metrics')
-    expect(metrics).toHaveTextContent('计划预计')
+    expect(metrics).toHaveTextContent('预计用时 / 任务专注时长')
     expect(metrics).toHaveTextContent('0m / 65m')
     expect(metrics).toHaveTextContent('任务完成率')
     expect(metrics).toHaveTextContent('50%')
     expect(metrics).toHaveTextContent('专注覆盖率')
     expect(metrics).toHaveTextContent('75%')
-    expect(metrics).toHaveTextContent('任务专注')
+    expect(metrics).toHaveTextContent('任务专注时长')
     expect(metrics).toHaveTextContent('65m')
     expect(metrics).toHaveTextContent('Math problem set、English reading')
   })
@@ -803,7 +803,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
       fireEvent.click(screen.getByText('全选可创建项'))
     })
     await act(async () => {
-      fireEvent.click(screen.getByText('创建任务'))
+      fireEvent.click(screen.getByTestId('review-task-create-selected'))
     })
     await waitFor(() => {
       expect(mockTasksCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -824,7 +824,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
 
     await waitFor(() => {
       expect(mockTasksCreate).toHaveBeenCalledWith(expect.objectContaining({
-        title: '写今日学习沉淀',
+        title: '记录今日收获',
         type: 'diary',
         source: 'dashboard',
       }))
@@ -902,9 +902,9 @@ describe('HomeDashboard Component - Commander Engine', () => {
   it('creates a manual task from the lightweight queue form', async () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
-    const titleInput = await screen.findByLabelText('任务标题')
+    const titleInput = await screen.findByLabelText('任务名称')
     const typeSelect = screen.getByLabelText('任务类型')
-    const estimateInput = screen.getByLabelText('预计分钟数')
+    const estimateInput = screen.getByLabelText('预计用时（分钟）')
     expect(titleInput).toBe(screen.getByTestId('task-title-input'))
     expect(typeSelect).toBe(screen.getByTestId('task-type-select'))
     expect(estimateInput).toBe(screen.getByTestId('task-estimate-input'))
@@ -1074,6 +1074,138 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(await screen.findByTestId('task-edit-55')).toBeEnabled()
     expect(screen.getByTestId('task-edit-56')).toBeEnabled()
     expect(screen.getByTestId('task-edit-57')).toBeEnabled()
+  })
+
+  it.each(['done', 'skipped'] as const)('UX-03 restores a %s chapter task with only its status changed', async status => {
+    const original = makeTask({ id: 61, title: '恢复章节任务', description: '保留原任务说明', status,
+      type: 'focus', subject_id: 7, related_chapter_id: 70, related_entry_id: 9,
+      related_mistake_id: 8, source: 'ai', estimate_minutes: 35 })
+    mockTasksGetByDate.mockResolvedValue([original])
+    mockTasksUpdate.mockImplementation(async (id, patch) => {
+      const restored = { ...original, ...patch }
+      mockTasksGetByDate.mockResolvedValue([restored])
+      return restored
+    })
+    mockSubjectsGetAll.mockResolvedValue([{ id: 7, name: '数学', color: '#2563eb' }])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([{ id: 70, subject_id: 7, title: '函数' }])
+    pomodoroMocks.timer.hasActiveTimerSession = true
+    const unrelatedFocus = makeTask({ id: 99, title: '正在专注另一任务', status: 'doing' })
+    pomodoroMocks.data.selectedTask = unrelatedFocus
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    const restoreButton = await screen.findByTestId('task-restore-61')
+    expect(restoreButton).toHaveAccessibleName('恢复待开始')
+    expect(await screen.findByTestId('task-source-61')).toHaveTextContent('数学 · 函数')
+    fireEvent.click(restoreButton)
+
+    await waitFor(() => expect(screen.getByTestId('task-status-61')).toHaveTextContent('待开始'))
+    expect(mockTasksUpdate).toHaveBeenCalledExactlyOnceWith(61, { status: 'todo' })
+    expect(screen.getByTestId('daily-action-queue')).toHaveTextContent('待开始 1 · 进行中 0 · 已完成 0 · 已跳过 0')
+    expect(screen.getByTestId('overview-tasks')).toHaveTextContent('0 / 1')
+    expect(screen.getByTestId('task-source-61')).toHaveTextContent('数学 · 函数')
+    expect(screen.getByText('保留原任务说明')).toBeInTheDocument()
+    expect(screen.getByText('AI 建议')).toBeInTheDocument()
+    expect(screen.getByText('关联日记 #9')).toBeInTheDocument()
+    expect(screen.getByText('关联错题 #8')).toBeInTheDocument()
+    expect(screen.getByText('专注学习 · 35 分钟')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-restore-61')).not.toBeInTheDocument()
+    expect(mockTasksCreate).not.toHaveBeenCalled()
+    expect(mockTasksDelete).not.toHaveBeenCalled()
+    expect(mockRequestDataRefresh).toHaveBeenCalledTimes(1)
+    expect(pomodoroMocks.data.selectedTask).toBe(unrelatedFocus)
+    expect(pomodoroMocks.selectFocusTask).not.toHaveBeenCalled()
+    expect(pomodoroMocks.setMode).not.toHaveBeenCalled()
+    expect(mockSetActiveView).not.toHaveBeenCalled()
+  })
+
+  it('UX-03 offers restoration only for done and skipped tasks', async () => {
+    mockTasksGetByDate.mockResolvedValue(['todo', 'doing', 'done', 'skipped'].map((status, index) =>
+      makeTask({ id: 70 + index, status: status as StudyTask['status'] })))
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    expect(await screen.findByTestId('task-restore-72')).toBeEnabled()
+    expect(screen.getByTestId('task-restore-73')).toBeEnabled()
+    expect(screen.queryByTestId('task-restore-70')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-restore-71')).not.toBeInTheDocument()
+  })
+
+  it('UX-03 locks duplicate restore clicks and competing mutations while persistence is pending', async () => {
+    const original = makeTask({ id: 74, status: 'done' })
+    const pending = createDeferredTask()
+    mockTasksGetByDate.mockResolvedValue([original])
+    mockTasksUpdate.mockReturnValue(pending.promise)
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    const button = await screen.findByTestId('task-restore-74')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    fireEvent.click(screen.getByTestId('task-delete-74'))
+    expect(mockTasksUpdate).toHaveBeenCalledTimes(1)
+    expect(mockTasksDelete).not.toHaveBeenCalled()
+    expect(button).toBeDisabled()
+    mockTasksGetByDate.mockResolvedValue([{ ...original, status: 'todo' }])
+    await act(async () => { pending.resolve({ ...original, status: 'todo' }) })
+    expect(screen.getByTestId('task-status-74')).toHaveTextContent('待开始')
+  })
+
+  it('UX-03 preserves a closed task and permits retry after restore fails', async () => {
+    const original = makeTask({ id: 75, status: 'skipped' })
+    mockTasksGetByDate.mockResolvedValue([original])
+    mockTasksUpdate.mockRejectedValueOnce(new Error('数据库暂时不可用'))
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    fireEvent.click(await screen.findByTestId('task-restore-75'))
+    expect(await screen.findByTestId('task-error')).toHaveTextContent('数据库暂时不可用')
+    expect(screen.getByTestId('task-status-75')).toHaveTextContent('已跳过')
+    expect(screen.getByTestId('task-restore-75')).toBeEnabled()
+    expect(mockRequestDataRefresh).not.toHaveBeenCalled()
+    mockTasksUpdate.mockImplementationOnce(async () => {
+      mockTasksGetByDate.mockResolvedValue([{ ...original, status: 'todo' }])
+      return { ...original, status: 'todo' }
+    })
+    fireEvent.click(screen.getByTestId('task-restore-75'))
+    await waitFor(() => expect(screen.getByTestId('task-status-75')).toHaveTextContent('待开始'))
+    expect(mockTasksUpdate).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId('task-error')).not.toBeInTheDocument()
+  })
+
+  it('UX-03 ignores an older in-flight list after the restored task refresh resolves', async () => {
+    const original = makeTask({ id: 76, status: 'done' })
+    let resolveStale!: (tasks: StudyTask[]) => void
+    const stale = new Promise<StudyTask[]>(resolve => { resolveStale = resolve })
+    mockTasksGetByDate.mockResolvedValueOnce([original]).mockReturnValueOnce(stale)
+      .mockResolvedValue([{ ...original, status: 'todo' }])
+    mockTasksUpdate.mockResolvedValue({ ...original, status: 'todo' })
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    await screen.findByTestId('task-restore-76')
+    mockUseDiary.mockReturnValue({ ...mockUseDiary.mock.results[mockUseDiary.mock.results.length - 1]!.value, dataRefreshVersion: 1 })
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+    await waitFor(() => expect(mockTasksGetByDate).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByTestId('task-restore-76'))
+    await waitFor(() => expect(screen.getByTestId('task-status-76')).toHaveTextContent('待开始'))
+    await act(async () => { resolveStale([original]) })
+    expect(screen.getByTestId('task-status-76')).toHaveTextContent('待开始')
+    expect(screen.queryByTestId('task-restore-76')).not.toBeInTheDocument()
+    expect(screen.getByTestId('overview-tasks')).toHaveTextContent('0 / 1')
+  })
+
+  it('UX-03 releases background loading after restore fails and allows retry', async () => {
+    const original = makeTask({ id: 77, status: 'done' })
+    let resolveStale!: (tasks: StudyTask[]) => void
+    const stale = new Promise<StudyTask[]>(resolve => { resolveStale = resolve })
+    mockTasksGetByDate.mockResolvedValueOnce([original]).mockReturnValueOnce(stale)
+      .mockResolvedValue([{ ...original, status: 'todo' }])
+    mockTasksUpdate.mockRejectedValueOnce(new Error('restore failed'))
+      .mockResolvedValueOnce({ ...original, status: 'todo' })
+    const view = render(<HomeDashboard setActiveView={mockSetActiveView} />)
+    await screen.findByTestId('task-restore-77')
+    mockUseDiary.mockReturnValue({ ...mockUseDiary.mock.results[mockUseDiary.mock.results.length - 1]!.value, dataRefreshVersion: 1 })
+    view.rerender(<HomeDashboard setActiveView={mockSetActiveView} />)
+    await waitFor(() => expect(mockTasksGetByDate).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByTestId('task-restore-77'))
+    expect(await screen.findByTestId('task-error')).toHaveTextContent('restore failed')
+    await act(async () => { resolveStale([original]) })
+    expect(screen.queryByText('同步中...')).not.toBeInTheDocument()
+    expect(screen.getByTestId('task-restore-77')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('task-restore-77'))
+    await waitFor(() => expect(screen.getByTestId('task-status-77')).toHaveTextContent('待开始'))
   })
 
   it('completes, skips, and deletes action queue tasks', async () => {

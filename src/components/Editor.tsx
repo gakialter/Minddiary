@@ -29,6 +29,8 @@ export interface PendingDiaryInsert {
   date?: string
 }
 
+export type EditorSaveHandler = () => Promise<boolean>
+
 interface EditorProps {
   entry: DiaryEntry | null
   onSave: (data: { title: string; content: string; tags: number[] }, options?: DiarySaveOptions) => Promise<unknown>
@@ -36,6 +38,7 @@ interface EditorProps {
   pendingInsert?: PendingDiaryInsert | null
   onPendingInsertApplied?: (id: number) => void
   onDirtyChange?: (isDirty: boolean) => void
+  onRegisterSave?: (save: EditorSaveHandler | null) => void
 }
 
 interface SummaryRequestContext {
@@ -61,7 +64,7 @@ const isSameDiary = (a: DiaryEntry | null, b: DiaryEntry | null) => (
   a?.date === b?.date && (!a?.id || !b?.id || a.id === b.id)
 )
 
-function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange }: EditorProps) {
+function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange, onRegisterSave }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState(entry?.title || '')
   const [content, setContent] = useState(entry?.content || '')
@@ -83,6 +86,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   currentEntryRef.current = entry
   const revisionRef = useRef(0)
   const saveGenerationRef = useRef(0)
+  const pendingSaveRef = useRef<{ entry: DiaryEntry; revision: number; promise: Promise<boolean> } | null>(null)
   const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
   const writingRef = useRef<DiaryWritingHandle>(null)
@@ -216,38 +220,72 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
     applied()
   }, [entry, onPendingInsertApplied, pendingInsert, setDirtyState])
 
-  const handleSave = useCallback(async (isManual = false) => {
-    if (!entry) return
+  const handleSave = useCallback((isManual = false): Promise<boolean> => {
+    if (!entry || loading) return Promise.resolve(false)
     const revision = revisionRef.current
+    const pending = pendingSaveRef.current
+    // Autosave and navigation can wait for the same receipt without invalidating it.
+    // An explicit manual save retains its own task-settlement behavior.
+    if (!isManual && pending?.revision === revision && isSameDiary(pending.entry, entry)) return pending.promise
     const generation = ++saveGenerationRef.current
     const isCurrentSave = () => (
       generation === saveGenerationRef.current && isSameDiary(entry, currentEntryRef.current)
     )
     const isCurrentRevision = () => isCurrentSave() && revision === revisionRef.current
-    setSaving(true)
-    try {
-      const saved = await onSave(
-        { title, content, tags: selectedTagIds },
-        { origin: isManual ? 'editor-manual' : 'editor-auto', isCurrentRevision },
-      )
-      if (saved === null) {
-        throw new Error('Save returned null')
+    const promise = (async () => {
+      setSaving(true)
+      try {
+        const saved = await onSave(
+          { title, content, tags: selectedTagIds },
+          { origin: isManual ? 'editor-manual' : 'editor-auto', isCurrentRevision },
+        )
+        if (saved === null) {
+          throw new Error('Save returned null')
+        }
+        if (isCurrentRevision()) {
+          setDirtyState(false)
+          if (isManual) showToast('已保存', 'success')
+          return true
+        }
+        return false
+      } catch (err) {
+        logger.error('Save failed:', err)
+        if (isCurrentSave()) showToast('保存失败，请重试。', 'error')
+        return false
+      } finally {
+        if (isCurrentSave()) setSaving(false)
       }
-      if (isCurrentRevision()) {
-        setDirtyState(false)
-        if (isManual) showToast('保存成功', 'success')
+    })()
+    pendingSaveRef.current = { entry, revision, promise }
+    void promise.then(() => {
+      if (pendingSaveRef.current?.promise === promise) pendingSaveRef.current = null
+    })
+    return promise
+  }, [entry, loading, title, content, selectedTagIds, onSave, setDirtyState])
+
+  const latestSaveRef = useRef(handleSave)
+  latestSaveRef.current = handleSave
+  useEffect(() => {
+    onRegisterSave?.(async () => {
+      if (!isDirty.current) return true
+      const revision = revisionRef.current
+      const diaryEntry = currentEntryRef.current
+      let saved = await latestSaveRef.current()
+      // A manual save of this revision may supersede the receipt navigation awaits.
+      while (!saved && revision === revisionRef.current && isSameDiary(diaryEntry, currentEntryRef.current)) {
+        if (!isDirty.current) return true
+        const pending = pendingSaveRef.current
+        if (!pending || pending.revision !== revision || !isSameDiary(diaryEntry, pending.entry)) return false
+        saved = await pending.promise
       }
-    } catch (err) {
-      logger.error('Save failed:', err)
-      if (isCurrentSave()) showToast('保存失败', 'error')
-    } finally {
-      if (isCurrentSave()) setSaving(false)
-    }
-  }, [entry, title, content, selectedTagIds, onSave, setDirtyState])
+      return saved
+    })
+    return () => onRegisterSave?.(null)
+  }, [onRegisterSave])
 
   const handleAiSummary = useCallback(async () => {
     if (!content.trim()) {
-      showToast('请先写点内容再让 AI 总结吧！', 'info')
+      showToast('先写下内容，再生成总结。', 'info')
       return
     }
     if (hasActiveSummaryRequest()) return
@@ -269,12 +307,12 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
         showToast(result.error, 'error')
       } else {
         setAiSummary(result.content || '')
-        showToast('AI 汇总完成！', 'success')
+        showToast('日记总结已生成。', 'success')
       }
     } catch (e) {
       if (!isCurrentSummaryRequest(generation, requestContext)) return
       logger.error(e)
-      showToast('AI 请求失败，请检查网络', 'error')
+      showToast('AI 汇总未完成，请稍后重试。', 'error')
     } finally {
       if (isCurrentSummaryRequest(generation, requestContext)) {
         activeSummaryGenerationRef.current = null
@@ -368,14 +406,14 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
 
   const saveState = saving ? 'saving' : loading ? 'loading' : isDirty.current ? 'dirty' : entry ? 'saved' : 'idle'
   const saveStateLabel = saving
-    ? '保存中…'
+    ? '正在保存…'
     : loading
-      ? '加载中…'
+      ? '正在打开…'
       : isDirty.current
-        ? '未保存'
+        ? '尚未保存'
         : entry
           ? '已保存'
-          : '等待输入'
+          : '尚未填写'
 
   return (
     <div className="editor-workspace content-selectable">
@@ -389,7 +427,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
             id="editor-diary-title"
             type="text"
             className="editor-document__title"
-            placeholder="日记标题（可选）"
+            placeholder="标题可以不填"
             value={title}
             onChange={handleTitleChange}
           />
@@ -400,6 +438,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
             <FormatToolbar
               active={formatState}
               onClearColor={() => writingRef.current?.format('color', null)}
+              onClearFormat={() => writingRef.current?.clearFormat()}
               onBold={() => writingRef.current?.format('bold')}
               onHighlight={() => writingRef.current?.format('highlight')}
               onUnderline={() => writingRef.current?.format('underline')}
@@ -421,7 +460,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
             </div>
           </div>
 
-          <div className="editor-commandbar__secondary" aria-label="编辑器辅助操作">
+          <div className="editor-commandbar__secondary" aria-label="日记工具">
             {quickTemplates.map(tpl => (
               <button
                 key={tpl.id}
@@ -437,7 +476,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               type="button"
               className="editor-utility-button"
               onClick={() => setShowTemplateManager(true)}
-              title="管理自定义模板"
+              title="管理模板"
             >
               <LayoutTemplate size={14} aria-hidden="true" />
               管理模板
@@ -448,10 +487,10 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               className="editor-utility-button editor-utility-button--ai"
               onClick={handleAiSummary}
               disabled={summaryLoading || !content.trim()}
-              title="AI 分析并汇总今日日记"
+              title="总结这篇日记的内容"
             >
               <Bot size={14} aria-hidden="true" />
-              {summaryLoading ? '汇总中…' : 'AI 汇总'}
+              {summaryLoading ? '正在总结…' : '总结日记'}
             </button>
             <button
               type="button"
@@ -460,7 +499,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               disabled={sharing}
             >
               <ImagePlus size={14} aria-hidden="true" />
-              {sharing ? '生成中…' : '分享'}
+              {sharing ? '正在生成…' : '保存为图片'}
             </button>
           </div>
         </section>
@@ -469,7 +508,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
           <label className="editor-visually-hidden" htmlFor="editor-diary-content">日记正文</label>
           {!content.trim() && (
             <div className="editor-writing-canvas__empty" aria-hidden="true">
-              <strong>今天最值得记住的是什么？</strong>
+              <strong>这天有什么值得记下？</strong>
               <span>从一件具体的小事开始写。</span>
             </div>
           )}
@@ -491,12 +530,12 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
                 <TagsIcon size={14} aria-hidden="true" />
                 标签
               </h2>
-              <p>用于稍后在“搜索”中按主题回顾。</p>
+              <p>用标签分类，方便以后查找。</p>
             </div>
             {selectedTagIds.length > 0 && (
               <button type="button" className="editor-metadata__clear" onClick={handleClearTags}>
                 <X size={12} aria-hidden="true" />
-                清空
+                清除已选标签
               </button>
             )}
           </div>
@@ -518,7 +557,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               })}
             </div>
           ) : (
-            <p className="editor-metadata__empty">还没有可选标签，请先到“标签管理”创建。</p>
+            <p className="editor-metadata__empty">还没有标签，去“标签”里添加。</p>
           )}
         </section>
 
@@ -538,7 +577,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
                 <span className="editor-ai-summary__label">
                   <strong>AI 辅助摘要</strong>
                   <small id="editor-ai-summary-provenance">
-                    {summaryLoading ? '正在分析 · 仅供参考' : '由模型生成 · 仅供参考'}
+                    {summaryLoading ? '正在总结，仅供参考' : '由学习助手生成，仅供参考'}
                   </small>
                 </span>
                 {summaryExpanded
@@ -549,7 +588,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
                 type="button"
                 className="editor-ai-summary__close"
                 onClick={clearAiSummary}
-                aria-label="关闭 AI 摘要"
+                aria-label="关闭总结"
                 title="关闭 AI 摘要"
               >
                 <X size={14} aria-hidden="true" />
@@ -560,7 +599,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
                 {summaryLoading && !aiSummary && (
                   <div className="editor-ai-summary__loading" role="status" aria-live="polite">
                     <span className="editor-ai-summary__spinner" aria-hidden="true" />
-                    小研正在分析你的日记…
+                    学习助手正在整理日记…
                   </div>
                 )}
                 {aiSummary && <MarkdownRenderer>{aiSummary}</MarkdownRenderer>}
@@ -572,11 +611,11 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
         <footer className="editor-document__footer">
           <div>
             <strong>实时预览 · Markdown</strong>
-            <span>选中文字设置格式；移入格式内可编辑 Markdown 标记。</span>
+            <span>选中文字可设置格式；移入格式内容后可编辑 Markdown 标记。</span>
           </div>
           <div className="editor-document__shortcuts">
             <span>保存 <kbd>Ctrl/⌘ S</kbd></span>
-            <span>命令面板 <kbd>Ctrl/⌘ K</kbd></span>
+            <span>快捷菜单 <kbd>Ctrl/⌘ K</kbd></span>
           </div>
         </footer>
       </section>

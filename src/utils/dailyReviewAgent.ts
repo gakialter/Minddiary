@@ -408,15 +408,15 @@ export function buildDailyReviewContextPreview(context: DailyReviewSafeContext):
       source: 'today_tasks',
       label: '今日任务',
       included: true,
-      reason: context.todayTasks.length > 0 ? '用于形成今日执行的确定性复盘摘要。' : '今天没有已计划任务。',
+      reason: context.todayTasks.length > 0 ? '用于整理今日任务、错题和专注记录。' : '今天没有已计划任务。',
       count: context.todayTasks.length,
     },
     {
       source: 'candidate_date_tasks',
-      label: '次日活跃任务',
+      label: '次日待开始或进行中的任务',
       included: true,
       reason: activeTasks.length > 0
-        ? '用于检查次日候选重复、重复错题复习和剩余时长。'
+        ? '用于检查重复任务、错题复习和剩余时间。'
         : '次日没有待办或进行中的任务。',
       count: activeTasks.length,
       warnings: activeTasks.length > 0
@@ -429,14 +429,14 @@ export function buildDailyReviewContextPreview(context: DailyReviewSafeContext):
       included: context.pomodoro.available,
       reason: context.pomodoro.available
         ? `使用今日 ${context.pomodoro.total_minutes} 分钟、${context.pomodoro.session_count} 次专注的汇总。`
-        : '今日专注统计暂不可用；仍可显示其他本地依据。',
+        : '专注统计暂不可用；其他本机记录仍可查看。',
       count: context.pomodoro.session_count,
     },
     {
       source: 'subjects',
       label: '科目进度',
       included: true,
-      reason: context.subjects.length > 0 ? '用于限制候选只能关联现有科目。' : '当前没有科目，候选不会关联科目。',
+      reason: context.subjects.length > 0 ? '建议任务只可关联已有科目。' : '当前没有科目，候选不会关联科目。',
       count: context.subjects.length,
     },
     {
@@ -444,7 +444,7 @@ export function buildDailyReviewContextPreview(context: DailyReviewSafeContext):
       label: '今日日记',
       included: Boolean(context.todayEntry),
       reason: context.todayEntry
-        ? '仅使用日期、标题、心情和字数；不使用或发送日记正文。'
+        ? '只用日期、标题、心情、字数；不发送正文。'
         : '今天尚无日记。',
       count: context.todayEntry ? 1 : 0,
     },
@@ -453,7 +453,7 @@ export function buildDailyReviewContextPreview(context: DailyReviewSafeContext):
       label: '截至次日到期的错题',
       included: true,
       reason: context.dueMistakes.length > 0
-        ? '用于限定可关联的次日错题复习候选。'
+        ? '建议任务只能关联符合条件的到期错题。'
         : '截至次日没有可关联的到期错题。',
       count: context.dueMistakes.length,
       warnings: context.dueMistakeTotal > context.dueMistakes.length

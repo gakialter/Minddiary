@@ -127,8 +127,8 @@ function extractOperationId(text: string): string {
 }
 
 async function assertNoWorkflowResumed(page: Page, expectedProviderRequests: number, provider: MockProvider): Promise<void> {
-  await expect(page.getByRole('dialog', { name: 'AI 规划今日行动' })).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: '每日复盘' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '今日建议' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '每日回顾' })).toHaveCount(0)
   expect(provider.requestCount()).toBe(expectedProviderRequests)
 }
 
@@ -191,14 +191,14 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await seedManualTask(page, today, 'E2E Today 既有本地任务')
 
       await page.getByTestId('open-ai-today-action-suggestions').click()
-      await expect(page.getByRole('dialog', { name: 'AI 规划今日行动' })).toBeVisible()
+      await expect(page.getByRole('dialog', { name: '今日建议' })).toBeVisible()
       await page.getByTestId('ai-plan-generate').click()
       await expect(page.getByTestId('ai-suggestion-suggestion-1')).toBeVisible()
       await expect(page.getByTestId('ai-suggestion-suggestion-2')).toBeVisible()
 
-      await page.getByLabel('建议标题').nth(0).fill(todayFinalTitle)
+      await page.getByLabel('任务名称').nth(0).fill(todayFinalTitle)
       await page.getByLabel('建议理由').nth(0).fill(todayFinalReason)
-      await page.getByLabel('建议优先级').nth(0).selectOption('medium')
+      await page.getByLabel('优先顺序').nth(0).selectOption('medium')
       await page.getByRole('checkbox', { name: `选择 ${todayUnselectedTitle}` }).uncheck()
 
       await page.evaluate(storageKey => {
@@ -217,6 +217,7 @@ test.describe('Phase C2 Planning History through Electron', () => {
       )
       const confirmedOutcome = page.getByTestId('today-action-confirmed-outcome-suggestion-1')
       await expect(confirmedOutcome).toContainText('已创建任务')
+      await confirmedOutcome.getByText('技术详情', { exact: true }).click()
       const operationId = extractOperationId(await confirmedOutcome.innerText())
       const capturedPendingMarker = await page.evaluate(() => (
         Reflect.get(globalThis, '__minddiaryCapturedPendingMarker') as unknown
@@ -248,8 +249,8 @@ test.describe('Phase C2 Planning History through Electron', () => {
       expect(tasksAfterConfirmation).toHaveLength(2)
 
       await page.getByTestId('ai-plan-generate').click()
-      await expect(page.getByLabel('建议标题')).toHaveCount(1)
-      await expect(page.getByTestId('ai-suggestion-suggestion-1').getByLabel('建议标题')).toHaveValue(todayGenerationBTitle)
+      await expect(page.getByLabel('任务名称')).toHaveCount(1)
+      await expect(page.getByTestId('ai-suggestion-suggestion-1').getByLabel('任务名称')).toHaveValue(todayGenerationBTitle)
       expect(provider.requestCount()).toBe(2)
 
       await application.close()
@@ -258,11 +259,11 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await assertNoWorkflowResumed(page, 2, provider)
 
       await page.getByTestId('open-ai-today-action-suggestions').click()
-      await expect(page.getByRole('dialog', { name: 'AI 规划今日行动' })).toBeVisible()
-      await expect(page.getByLabel('建议标题')).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: '今日建议' })).toBeVisible()
+      await expect(page.getByLabel('任务名称')).toHaveCount(0)
       await expect(page.getByText('生成后会在这里显示可编辑的候选任务。')).toBeVisible()
       expect(provider.requestCount()).toBe(2)
-      await page.getByLabel('关闭 AI 今日行动建议').click()
+      await page.getByLabel('关闭建议').click()
 
       await page.getByRole('button', { name: '最近 AI 规划' }).click()
       await expect(page.getByRole('dialog', { name: '最近 AI 规划' })).toBeVisible()
@@ -281,20 +282,20 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await expect(detail).toContainText(`标题：${todayOriginalTitle} → ${todayFinalTitle}`)
       await expect(detail).toContainText(`说明：${todayOriginalReason} → ${todayFinalReason}`)
       await expect(detail).toContainText('优先级：高优先级 → 中优先级')
-      await expect(detail).toContainText('本次未选择')
-      await expect(detail).toContainText('已创建任务')
+      await expect(detail).toContainText('未选择')
+      await expect(detail).toContainText('已添加任务')
       await expect(detail).toContainText(`当前任务：${todayFinalTitle}（todo）`)
-      await expect(detail).toContainText('已加入本次请求')
-      await expect(detail).toContainText('未加入本次请求')
+      await expect(detail).toContainText('已加入')
+      await expect(detail).toContainText('未加入')
       await expect(detail).toContainText('已观察结束：已开始重新生成')
       await expect(detail).not.toContainText('操作 ID')
       await expect(detail).not.toContainText('planning-history.v1')
 
       await generationBRow.getByRole('button').first().click()
       await expect(detail).toContainText(todayGenerationBTitle)
-      await expect(detail).toContainText('已观察结束：已正常关闭应用')
+      await expect(detail).toContainText('已观察结束：应用已关闭')
 
-      await generationBRow.getByRole('button', { name: '删除这次规划' }).click()
+      await generationBRow.getByRole('button', { name: '删除记录' }).click()
       await expect(rows).toHaveCount(1)
       expect(await getTasksForDate(page, today)).toHaveLength(2)
 
@@ -408,7 +409,7 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await seedManualTask(page, today, 'E2E Daily Review 今日假数据')
 
       await page.getByTestId('open-daily-review-agent').click()
-      await expect(page.getByRole('dialog', { name: '每日复盘' })).toBeVisible()
+      await expect(page.getByRole('dialog', { name: '每日回顾' })).toBeVisible()
       await page.getByTestId('daily-review-generate').click()
       await expect(page.getByTestId('daily-review-candidate-daily-review-candidate-1')).toBeVisible()
       await expect(page.getByTestId('daily-review-candidate-daily-review-candidate-2')).toBeVisible()
@@ -428,27 +429,27 @@ test.describe('Phase C2 Planning History through Electron', () => {
       await assertNoWorkflowResumed(page, 1, provider)
 
       await page.getByTestId('open-daily-review-agent').click()
-      await expect(page.getByRole('dialog', { name: '每日复盘' })).toBeVisible()
-      await expect(page.getByLabel('候选任务标题')).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: '每日回顾' })).toBeVisible()
+      await expect(page.getByLabel('任务名称')).toHaveCount(0)
       expect(provider.requestCount()).toBe(1)
-      await page.getByLabel('关闭每日复盘').click()
+      await page.getByLabel('关闭回顾').click()
 
       await page.getByRole('button', { name: '最近 AI 规划' }).click()
       const rows = page.getByTestId('planning-history-row')
       await expect(rows).toHaveCount(1)
-      await expect(rows).toContainText(`每日复盘 · ${today}`)
+      await expect(rows).toContainText(`每日回顾 · ${today}`)
       await rows.getByRole('button').first().click()
       const detail = page.getByTestId('planning-history-detail')
-      await expect(detail).toContainText(`规划日期：${today}`)
-      await expect(detail).toContainText(`目标日期：${tomorrow}`)
+      await expect(detail).toContainText(`计划日期 ${today}`)
+      await expect(detail).toContainText(`目标日期 ${tomorrow}`)
       await expect(detail).toContainText(dailyConfirmedTitle)
       await expect(detail).toContainText(dailyUnselectedTitle)
-      await expect(detail).toContainText('本次未选择')
-      await expect(detail).toContainText('已创建任务')
+      await expect(detail).toContainText('未选择')
+      await expect(detail).toContainText('已添加任务')
       await expect(detail).toContainText(`当前任务：${dailyConfirmedTitle}（todo）`)
-      await expect(detail).toContainText('本次请求上下文')
-      await expect(detail).toContainText('已加入本次请求')
-      await expect(detail).toContainText('已观察结束：已正常关闭应用')
+      await expect(detail).toContainText('本次参考')
+      await expect(detail).toContainText('已加入')
+      await expect(detail).toContainText('已观察结束：应用已关闭')
       await expect(detail).not.toContainText('操作 ID')
       expect(await getTasksForDate(page, tomorrow)).toHaveLength(1)
       expect(provider.requestCount()).toBe(1)

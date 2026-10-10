@@ -6,7 +6,7 @@ import type { DiaryEntry } from '../types'
 import HomeDashboard from '../components/HomeDashboard'
 import Calendar from '../components/Calendar'
 import Editor from '../components/Editor'
-import type { PendingDiaryInsert } from '../components/Editor'
+import type { EditorSaveHandler, PendingDiaryInsert } from '../components/Editor'
 import Dashboard from '../components/Dashboard'
 import TagManager from '../components/TagManager'
 import SearchPanel from '../components/SearchPanel'
@@ -17,6 +17,7 @@ import MistakeBook from '../components/MistakeBook'
 import type { MistakeFilterIntent } from '../components/MistakeBook'
 import AIPanel from '../components/AIPanel'
 import Settings from '../components/Settings'
+import type { AITextDraft, AITextDraftBinding } from './useAIComposer'
 
 export type DiarySaveOrigin = 'editor-auto' | 'editor-manual'
 export interface DiarySaveOptions {
@@ -39,12 +40,14 @@ interface ViewRenderProps {
   pendingDiaryInsert?: PendingDiaryInsert | null
   onPendingDiaryInsertApplied?: (id: number) => void
   onEditorDirtyChange?: (isDirty: boolean) => void
+  onRegisterEditorSave?: (save: EditorSaveHandler | null) => void
   mistakeFilterIntent?: MistakeFilterIntent | null
   onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
   onMistakeFilterIntentApplied?: () => void
   onPomodoroFullscreenChange?: (isActive: boolean) => void
   searchSession?: SearchSessionState
   onSearchSessionChange?: (session: SearchSessionState) => void
+  aiTextDraft?: AITextDraftBinding
 }
 
 interface ViewConfig {
@@ -82,6 +85,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
             pendingInsert={props.pendingDiaryInsert}
             onPendingInsertApplied={props.onPendingDiaryInsertApplied}
             onDirtyChange={props.onEditorDirtyChange}
+            onRegisterSave={props.onRegisterEditorSave}
           />
         </div>
         <div style={{
@@ -140,7 +144,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   },
   ai: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={22} style={{ color: 'var(--accent)' }} /> AI 助手</span>,
-    render: (props) => <AIPanel entry={props.entry} />,
+    render: (props) => <AIPanel entry={props.entry} textDraft={props.aiTextDraft} />,
   },
   settings: {
     title: null, // Settings has its own header
@@ -159,6 +163,9 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
   const currentDateKey = useCurrentLocalDateKey()
   const [activeView, setActiveView] = useState('home')
   const [searchSession, setSearchSession] = useState(createSearchSession)
+  // MindDiary has one AI conversation per app instance. Navigation owns only
+  // its unsent text; remounting the app starts a fresh, empty draft.
+  const [aiDraft, setAIDraft] = useState<AITextDraft>({ text: '', revision: 0 })
   const [selectedDate, setSelectedDateState] = useState(currentDateKey)
   const [isFollowingToday, setIsFollowingToday] = useState(true)
 
@@ -189,6 +196,7 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
   return {
     activeView,
     searchSession, setSearchSession,
+    aiTextDraft: { draft: aiDraft, setDraft: setAIDraft },
     setActiveView,
     selectedDate,
     setSelectedDate,

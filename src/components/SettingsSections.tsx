@@ -25,6 +25,7 @@ interface SettingsAIProps {
   aiApiKeyMasked: string | null
   aiApiKeyInput: string; setAiApiKeyInput: (v: string) => void
   aiKeyDirty: boolean; setAiKeyDirty: (v: boolean) => void
+  aiKeySaved: boolean
   clearKeyRequested: boolean; setClearKeyRequested: (v: boolean) => void
   aiModel: string; setAiModel: (v: string) => void
   aiVisionEnabled: boolean; setAiVisionEnabled: (v: boolean) => void
@@ -42,7 +43,7 @@ interface SettingsBackupProps {
 const RESTORE_ZIP_LABEL = '\u6062\u590d\u81ea\u52a8\u5907\u4efd ZIP'
 const RESTORE_ZIP_BUTTON = '\u4ece ZIP \u6062\u590d'
 const RESTORE_ZIP_HELP = '\u6062\u590d\u4f1a\u8986\u76d6\u5f53\u524d\u6570\u636e\u3001\u9644\u4ef6\u548c\u9519\u9898\u56fe\u7247\u3002\u4ec5\u652f\u6301 MindDiary \u751f\u6210\u7684\u81ea\u52a8\u5907\u4efd ZIP\u3002'
-const BACKUP_SCOPE_HELP = '\u6570\u636e\u5168\u90e8\u5b58\u50a8\u5728\u672c\u5730\u3002JSON \u5bfc\u5165\u7528\u4e8e\u624b\u52a8\u5bfc\u51fa\u7684\u5907\u4efd\uff1b\u81ea\u52a8\u5907\u4efd ZIP \u8bf7\u4f7f\u7528\u4e0a\u65b9\u6062\u590d\u5165\u53e3\u3002'
+const BACKUP_SCOPE_HELP = '\u5b66\u4e60\u8bb0\u5f55\u4fdd\u5b58\u5728\u672c\u673a\u3002\u8bbe\u7f6e\u9875 JSON \u5bfc\u5165\u65e5\u8bb0\u3001\u79d1\u76ee\u3001\u6807\u7b7e\u548c\u9519\u9898\uff1b\u4e0d\u4f1a\u5bfc\u5165\u4e13\u6ce8\u8bb0\u5f55\u6216\u8bbe\u7f6e\u3002\u81ea\u52a8\u5907\u4efd ZIP \u8bf7\u7528\u201c\u4ece ZIP \u6062\u590d\u201d\u3002'
 
 function createFocusWhitelistId(): string {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -146,12 +147,12 @@ export function SettingsGeneral({
                     <label htmlFor="settings-theme" style={labelStyle}>主题</label>
                     <select id="settings-theme" className="input w-full" value={theme} onChange={(e) => changeTheme(e.target.value)}>
                         <option value="system">跟随系统</option>
-                        <option value="light">亮色模式</option>
-                        <option value="dark">暗色模式</option>
+                        <option value="light">浅色</option>
+                        <option value="dark">深色</option>
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="settings-pomodoro-minutes" style={labelStyle}>番茄钟时长（分钟）</label>
+                    <label htmlFor="settings-pomodoro-minutes" style={labelStyle}>专注时长（分钟）</label>
                     <input
                         id="settings-pomodoro-minutes"
                         type="number" className="input w-full"
@@ -167,7 +168,7 @@ export function SettingsGeneral({
                             type="checkbox" checked={pomodoroSound}
                             onChange={(e) => setPomodoroSound(e.target.checked)}
                         />
-                        <span className="text-sm">计时结束音效提示</span>
+                        <span className="text-sm">计时结束音效</span>
                     </label>
                     <label className="settings-check-row">
                         <input
@@ -175,7 +176,7 @@ export function SettingsGeneral({
                             type="checkbox" checked={pomodoroAlert}
                             onChange={(e) => setPomodoroAlert(e.target.checked)}
                         />
-                        <span className="text-sm">计时结束弹窗提示（适合看网课时使用）</span>
+                        <span className="text-sm">计时结束弹窗</span>
                     </label>
                 </div>
                 <div>
@@ -185,7 +186,7 @@ export function SettingsGeneral({
                             type="checkbox" checked={autoSave}
                             onChange={(e) => setAutoSave(e.target.checked)}
                         />
-                        <span className="text-sm">启用自动保存</span>
+                        <span className="text-sm">自动保存</span>
                     </label>
                 </div>
             </div>
@@ -248,7 +249,7 @@ export function SettingsFocus({
     return (
         <section className="settings-section" aria-labelledby="settings-focus-title">
             <h2 id="settings-focus-title" className="settings-section__title">
-                <ShieldCheck size={17} aria-hidden="true" /> 专注模式
+                <ShieldCheck size={17} aria-hidden="true" /> 专注提醒
             </h2>
             <div className="settings-section__body">
                 <label className="settings-check-row">
@@ -258,11 +259,11 @@ export function SettingsFocus({
                         onChange={(e) => setFocusGuardEnabled(e.target.checked)}
                         className="settings-checkbox"
                     />
-                    <span className="text-sm font-semibold">启用专注白名单提醒</span>
+                    <span className="text-sm font-semibold">提醒名单外应用</span>
                 </label>
 
                 <div className="settings-help-text">
-                    开启后，番茄钟专注期间只提醒不在白名单内的应用。建议先加入网课、资料、输入法、浏览器或常用学习工具。
+                    开启后，专注时打开名单外应用会收到提醒；可将常用学习工具加入白名单。
                 </div>
 
                 {!isWindowsPlatform && (
@@ -280,7 +281,7 @@ export function SettingsFocus({
                 )}
 
                 <div>
-                    <label htmlFor="focus-guard-interval" style={labelStyle}>检测间隔（秒）</label>
+                    <label htmlFor="focus-guard-interval" style={labelStyle}>检查间隔（秒）</label>
                     <input
                         id="focus-guard-interval"
                         type="number"
@@ -298,7 +299,7 @@ export function SettingsFocus({
 
                 <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div style={{ flex: '1 1 220px' }}>
-                        <label htmlFor="focus-guard-manual-app" style={labelStyle}>应用名称或进程名</label>
+                        <label htmlFor="focus-guard-manual-app" style={labelStyle}>应用名或进程名</label>
                         <input
                             id="focus-guard-manual-app"
                             className="input w-full"
@@ -332,7 +333,7 @@ export function SettingsFocus({
 
                 {focusWhitelist.length === 0 ? (
                     <div className="settings-empty-note">
-                        当前没有白名单，除 MindDiary 外的应用都会触发提醒。
+                        当前白名单为空。专注时，除 MindDiary 外打开任何应用都会提醒。
                     </div>
                 ) : (
                     <div className="settings-compact-list">
@@ -350,7 +351,7 @@ export function SettingsFocus({
                                     />
                                     <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                                         <span className="text-sm" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.name}</span>
-                                        <span className="text-xs text-secondary">{item.processName || item.executable || '仅按应用名称匹配'}</span>
+                                        <span className="text-xs text-secondary">{item.processName || item.executable || '仅按应用名匹配'}</span>
                                     </span>
                                 </label>
                                 <button
@@ -428,7 +429,7 @@ export function SettingsAI({
     aiEndpoint, setAiEndpoint,
     aiApiKeyPresent, aiApiKeyMasked,
     aiApiKeyInput, setAiApiKeyInput,
-    aiKeyDirty, setAiKeyDirty,
+    aiKeyDirty, setAiKeyDirty, aiKeySaved,
     clearKeyRequested, setClearKeyRequested,
     aiModel, setAiModel,
     aiVisionEnabled, setAiVisionEnabled
@@ -499,13 +500,13 @@ export function SettingsAI({
     return (
         <section className="settings-section" aria-labelledby="settings-ai-title">
             <h2 id="settings-ai-title" className="settings-section__title">
-                <Bot size={17} aria-hidden="true" /> AI 助手设置
+                <Bot size={17} aria-hidden="true" /> 学习助手
             </h2>
 
             <div className="settings-section__body">
                 {/* ── Provider Selection ── */}
                 <fieldset className="settings-fieldset">
-                    <legend>选择供应商</legend>
+                    <legend>服务商</legend>
                     <div className="settings-provider-list">
                       {AI_PROVIDERS.map(p => (
                         <ProviderChip
@@ -521,7 +522,7 @@ export function SettingsAI({
                 {/* ── Endpoint ── */}
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label htmlFor="settings-ai-endpoint" style={{ ...labelStyle, marginBottom: 0 }}>API 请求地址</label>
+                      <label htmlFor="settings-ai-endpoint" style={{ ...labelStyle, marginBottom: 0 }}>API 地址</label>
                       {activeProvider.website && (
                         <a
                           href={activeProvider.website}
@@ -544,7 +545,7 @@ export function SettingsAI({
                         marginTop: 'var(--space-sm)'
                     }}>
                         <Info size={14} style={{ color: 'var(--accent)' }} aria-hidden="true" />
-                        <span>填写真实有效的 API 端点地址，留空将无法使用对应模型。</span>
+                        <span>填写服务商的 API 地址；留空无法使用对应模型。</span>
                     </div>
                     <input
                         id="settings-ai-endpoint"
@@ -596,8 +597,13 @@ export function SettingsAI({
                                 type="password" className="input w-full"
                                 placeholder={clearKeyRequested ? 'Key 将在保存时清除' : '输入新 API Key（留空保持不变）'}
                                 value={aiApiKeyInput}
-                                onChange={(e) => { setAiApiKeyInput(e.target.value); setAiKeyDirty(true) }}
+                                onChange={(e) => { setAiApiKeyInput(e.target.value); setAiKeyDirty(true); setClearKeyRequested(false) }}
                             />
+                            {aiKeyDirty && !clearKeyRequested && (
+                                <p className="text-xs text-secondary" role="status" style={{ marginTop: 'var(--space-sm)' }}>
+                                    {aiKeySaved ? 'API Key 已保存；可继续修改。' : aiApiKeyInput.trim() ? '新 API Key 尚未保存。' : 'API Key 未保存；留空保持现有 Key。'}
+                                </p>
+                            )}
                             {clearKeyRequested && (
                                 <button
                                     type="button"
@@ -625,7 +631,7 @@ export function SettingsAI({
                           onChange={e => handleCustomModelChange(e.target.value)}
                         />
                         <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
-                          指定使用的模型名称，将直接传递给 API
+                          模型名称会直接用于 API 请求。
                         </div>
                       </div>
                     ) : (
@@ -694,7 +700,7 @@ export function SettingsAI({
                                   <input
                                     id="settings-model-search"
                                     type="text"
-                                    placeholder="搜索模型..."
+                                    placeholder="搜索模型"
                                     value={modelSearch}
                                     onChange={e => setModelSearch(e.target.value)}
                                     style={{
@@ -769,7 +775,7 @@ export function SettingsAI({
                       <span>
                         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>此模型支持图片输入</span>
                         <span className="text-xs text-secondary">
-                          仅在你确认当前自定义 OpenAI-compatible 模型支持图片时开启。关闭时，图片附件不会被发送。
+                          仅当你确认自定义模型兼容 OpenAI 格式且支持图片时开启；关闭后不发送图片附件。
                         </span>
                       </span>
                     </label>
@@ -784,7 +790,7 @@ export function SettingsAI({
                   padding: '8px 12px', borderRadius: 'var(--radius-sm)',
                   background: 'var(--bg-tertiary)'
                 }}>
-                    留空则不启用 AI 功能。所有接口均兼容 OpenAI 格式，只需填写对应的 Endpoint 和 Key 即可使用。
+                    填写 API 地址、API Key 和模型名称；自定义服务需兼容 OpenAI 格式。
                 </div>
             </div>
         </section>
@@ -809,19 +815,19 @@ export function SettingsBackup({
                             onChange={(e) => setAutoBackup(e.target.checked)}
                             className="settings-checkbox"
                         />
-                        <span className="text-sm font-semibold">开启静默自动备份</span>
+                        <span className="text-sm font-semibold">自动备份</span>
                     </label>
                     <div className="text-xs text-secondary" style={{ marginBottom: 'var(--space-sm)' }}>
-                        开启后，每24小时及启动时自动在指定目录生成 ZIP 灾备包（数据库 + 附件）。
+                        开启后，启动时及每天零点自动备份到所选目录；ZIP 包含数据库和附件。
                     </div>
 
                     <fieldset className="settings-dependent-field" disabled={!autoBackup}>
-                        <label htmlFor="settings-backup-path" style={labelStyle}>自动备份目录</label>
+                        <label htmlFor="settings-backup-path" style={labelStyle}>备份目录</label>
                         <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
                             <input
                                 id="settings-backup-path"
                                 type="text" className="input" style={{ flex: 1, fontSize: 12 }}
-                                placeholder="选择文件夹..."
+                                placeholder="选择备份文件夹…"
                                 value={backupPath}
                                 readOnly
                             />
@@ -829,7 +835,7 @@ export function SettingsBackup({
                                 if (!(window as any).api?.settings?.selectBackupFolder) return showToast('此功能仅在客户端可用', 'error')
                                 const path = await (window as any).api.settings.selectBackupFolder()
                                 if (path) setBackupPath(path)
-                            }}>选择</button>
+                            }}>选择目录</button>
                         </div>
                     </fieldset>
                 </div>
@@ -844,7 +850,7 @@ export function SettingsBackup({
                 <div>
                     <label style={labelStyle}>导入数据</label>
                     <button type="button" className="button button-secondary w-full" onClick={importData}>
-                        <FolderOpen size={15} aria-hidden="true" /> 从 JSON 导入
+                        <FolderOpen size={15} aria-hidden="true" /> 合并导入 JSON
                     </button>
                 </div>
                 <div>
@@ -899,10 +905,10 @@ export function SettingsAbout({
                     <span className="text-secondary">当前版本：</span> <span>v{version}</span>
                 </div>
                 <div className="text-sm">
-                    <span className="text-secondary">存储：</span> <span>SQLite 本地数据库</span>
+                    <span className="text-secondary">保存方式：</span> <span>本机保存</span>
                 </div>
                 <div className="text-sm">
-                    <span className="text-secondary">隐私：</span> <span>学习数据完全本地存储；AI 与更新检查仅在配置或触发时联网</span>
+                    <span className="text-secondary">联网说明</span> <span>学习数据保存在本机；使用 AI 时，请求内容会发送给所选服务商；配置更新源后，应用启动会联网检查更新。</span>
                 </div>
                 <div
                     data-testid="current-release-notes"
@@ -927,7 +933,7 @@ export function SettingsAbout({
                             onClick={installUpdate}
                             data-testid="update-install-btn"
                         >
-                            <RotateCw size={15} aria-hidden="true" /> 重启安装 v{updateStatus.version}
+                            <RotateCw size={15} aria-hidden="true" /> 重启以安装 v{updateStatus.version}
                         </button>
                     ) : (
                         <button
@@ -938,7 +944,7 @@ export function SettingsAbout({
                             data-testid="update-check-btn"
                         >
                             {isChecking
-                                ? <><RefreshCw size={15} className="settings-spinner" aria-hidden="true" /> 正在检查...</>
+                                ? <><RefreshCw size={15} className="settings-spinner" aria-hidden="true" /> 正在检查更新…</>
                                 : status === 'error'
                                     ? <><RefreshCw size={15} aria-hidden="true" /> 重试</>
                                     : <><RefreshCw size={15} aria-hidden="true" /> 检查更新</>}
@@ -958,14 +964,14 @@ export function SettingsAbout({
                         {status === 'checking' && (
                             <span className="text-xs" style={{ color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <RefreshCw size={12} className="settings-spinner" aria-hidden="true" />
-                                正在连接更新服务器...
+                                正在连接更新服务…
                             </span>
                         )}
 
                         {status === 'available' && (
                             <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <Download size={12} aria-hidden="true" />
-                                发现新版本 v{updateStatus.version}，正在准备下载...
+                                发现新版本 v{updateStatus.version}，正在准备下载…
                             </span>
                         )}
 
@@ -981,7 +987,7 @@ export function SettingsAbout({
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span className="text-xs" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <Download size={12} aria-hidden="true" />
-                                        正在下载... {updateStatus.percent ?? 0}%
+                                        正在下载… {updateStatus.percent ?? 0}%
                                     </span>
                                     {updateStatus.bytesPerSecond != null && updateStatus.bytesPerSecond > 0 && (
                                         <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -1016,7 +1022,7 @@ export function SettingsAbout({
                         {status === 'downloaded' && (
                             <span className="text-xs" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <CheckCircle size={12} aria-hidden="true" />
-                                新版本 v{updateStatus.version} 已下载完毕，重启即可安装
+                                新版本 v{updateStatus.version} 已下载，重启即可安装。
                             </span>
                         )}
 
@@ -1064,7 +1070,7 @@ export function SettingsAbout({
                                 {updateStatus.releaseNotes}
                             </div>
                         ) : (
-                            <div className="text-xs text-secondary">暂时无法获取更新日志</div>
+                            <div className="text-xs text-secondary">暂时无法获取更新内容</div>
                         )}
                     </div>
                 )}

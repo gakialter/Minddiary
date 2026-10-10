@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.20.0', () => {
-    expect(packageJson.version).toBe('1.20.0')
-    expect(packageLock.version).toBe('1.20.0')
-    expect(packageLock.packages['']?.version).toBe('1.20.0')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.20.0')
+  it('locks every current release version surface to v1.21.0', () => {
+    expect(packageJson.version).toBe('1.21.0')
+    expect(packageLock.version).toBe('1.21.0')
+    expect(packageLock.packages['']?.version).toBe('1.21.0')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.21.0')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -77,12 +77,12 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).not.toContain('macOS 已 notarize')
   })
 
-  it('records the schema 5 to 8 compatibility boundary without claiming no migration', () => {
-    expect(releaseNotes).toContain('正式发布的 v1.17.1 使用 Schema 5')
-    expect(releaseNotes).toContain('6 → 7')
-    expect(releaseNotes).toContain('5 → 6 → 7 → 8')
-    expect(releaseNotes).toContain('subject_daily_review_state')
-    expect(releaseNotes).not.toContain('不新增 migration')
+  it('records the unchanged schema and JSON backup limitations', () => {
+    expect(releaseNotes).toContain('CURRENT_SCHEMA_VERSION = 8')
+    expect(releaseNotes).toContain('不新增数据库迁移')
+    expect(releaseNotes).toContain('整次导入不支持自动回滚')
+    expect(releaseNotes).toContain('再次导入会继续新增错题')
+    expect(releaseNotes).toContain('不能替代完整 ZIP 备份')
     expect(releaseNotes).not.toContain('计划作为')
     expect(releaseNotes).not.toContain('release-prep')
     expect(releaseNotes).not.toContain('30192295231')
@@ -166,16 +166,16 @@ describe('release workflow Windows signing policy', () => {
   })
 
   it('keeps the unsigned Windows installer warning in release notes', () => {
-    expect(releaseNotes).toContain('## Windows 安装包说明')
-    expect(releaseNotes).toContain('未配置签名凭据时，workflow 会明确生成 unsigned Windows assets')
+    expect(releaseNotes).toContain('## 安装说明')
+    expect(releaseNotes).toContain('未配置签名凭据时安装包未签名')
     expect(releaseNotes).toContain('Unknown Publisher')
-    expect(releaseNotes).toContain('Windows SmartScreen')
-    expect(releaseNotes).toContain('代码签名不等于已经建立 SmartScreen reputation')
+    expect(releaseNotes).toContain('SmartScreen 提示')
+    expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
   })
 
   it('keeps published release notes free of release-prep-only state', () => {
-    expect(releaseNotes).toContain('Tag-triggered Release workflow 生成 ARM64 DMG、ZIP 和 update metadata')
-    expect(releaseNotes).toContain('使用 ad-hoc signing，不是 Developer ID 签名，也未进行 Apple notarization')
+    expect(releaseNotes).toContain('macOS 安装包面向 Apple silicon')
+    expect(releaseNotes).toContain('采用 ad-hoc 签名，未进行 Apple notarization')
     expect(releaseNotes).not.toContain('PR exact-head CI 门槛将在')
     expect(releaseNotes).not.toContain('release-prep exact-head CI 将在')
     expect(releaseNotes).not.toContain('本文件仅记录 release-prep 状态')

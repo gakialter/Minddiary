@@ -76,7 +76,7 @@ describe('Calendar Component', () => {
     })
   }
 
-  it('1. 有日记但无专注记录时，仍显示 mood 和"已记录"', async () => {
+  it('1. 有日记但无专注记录时，仍显示 mood 和"已写日记"', async () => {
     mockGetDatesWithEntries.mockResolvedValue([
       { date: '2023-10-05', mood: 'happy' }
     ])
@@ -87,7 +87,7 @@ describe('Calendar Component', () => {
     // Calendar cell mood + Legend mood = 2 instances of mood-icon-happy
     const happyIcons = screen.getAllByTestId('mood-icon-happy')
     expect(happyIcons.length).toBeGreaterThanOrEqual(2)
-    expect(await screen.findByText('已记录')).toBeInTheDocument()
+    expect(await screen.findByText('已写日记', { selector: '.workspace-calendar__recorded' })).toBeInTheDocument()
   })
 
   it('2. 无日记但有 30 分钟专注记录时，显示 level 1 标记', async () => {
@@ -100,8 +100,8 @@ describe('Calendar Component', () => {
     
     // Check if 30m badge is rendered — use findByText for async safety
     expect(await screen.findByText('30m')).toBeInTheDocument()
-    // It should not show '已记录'
-    expect(screen.queryByText('已记录')).not.toBeInTheDocument()
+    // The calendar cell should not show '已写日记'; the legend is outside this selector.
+    expect(screen.queryByText('已写日记', { selector: '.workspace-calendar__recorded' })).not.toBeInTheDocument()
   })
 
   it('3. 60 分钟显示 level 2', async () => {
@@ -139,7 +139,7 @@ describe('Calendar Component', () => {
     // Both should exist — calendar cell + legend = 2+ instances
     const calmIcons = screen.getAllByTestId('mood-icon-calm')
     expect(calmIcons.length).toBeGreaterThanOrEqual(2)
-    expect(await screen.findByText('已记录')).toBeInTheDocument()
+    expect(await screen.findByText('已写日记', { selector: '.workspace-calendar__recorded' })).toBeInTheDocument()
     // The focus level marker is a small circle (since mood takes center), so we don't see "45m" text
     // The test confirms no "45m" text is rendered when mood is present
     expect(screen.queryByText('45m')).not.toBeInTheDocument()
@@ -159,7 +159,7 @@ describe('Calendar Component', () => {
 
     // Wrap the click + subsequent async effect in act
     await act(async () => {
-      fireEvent.click(screen.getByText('下个月 →'))
+      fireEvent.click(screen.getByText('下个月'))
     })
 
     // Wait for the async effect triggered by month change

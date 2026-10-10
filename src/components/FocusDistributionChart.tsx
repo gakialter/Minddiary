@@ -37,7 +37,7 @@ const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: 'week', label: '近 7 天' },
   { key: 'month', label: '近 30 天' },
   { key: 'single', label: '单日' },
-  { key: 'custom', label: '范围' },
+  { key: 'custom', label: '自选范围' },
 ]
 
 function addDays(date: Date, days: number): Date {
@@ -162,7 +162,7 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
     return (
       <div className="focus-distribution__date-range">
         <label className="focus-distribution__date-control">
-          开始
+          开始日期
           <input
             className="input"
             data-testid="focus-range-start"
@@ -172,7 +172,7 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
           />
         </label>
         <label className="focus-distribution__date-control">
-          结束
+          结束日期
           <input
             className="input"
             data-testid="focus-range-end"
@@ -199,7 +199,7 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
         </div>
 
         <div className="focus-distribution__controls">
-          <div className="focus-distribution__range-options" role="group" aria-label="专注分布时间范围">
+          <div className="focus-distribution__range-options" role="group" aria-label="专注统计日期范围">
             {RANGE_OPTIONS.map(opt => (
               <button
                 type="button"
@@ -254,7 +254,7 @@ export default function FocusDistributionChart({ pomodoro, dataRefreshVersion }:
             选定时间范围内暂无专注记录
           </p>
           <p>
-            完成一次番茄或正计时后，这里会显示你的专注分布
+            保存一次专注记录后，这里会显示各科用时。
           </p>
         </div>
       ) : (

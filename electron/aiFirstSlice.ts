@@ -723,7 +723,7 @@ export function createFirstSliceIpcHandlers(options: {
         } finally { s.inFlight.delete(id); }
     }
     const buildChat = (userInput: string, history: { role: 'user' | 'assistant'; content: string }[], discipline?: string, imageDataUrls?: string[], textAttachments?: FirstSliceTextAttachment[]) => {
-        const messages = buildAIConversation({ userInput, history, selectedContextKinds: [], contextSections: [], attachments: [], imageDataUrls, textAttachments }).messages;
+        const messages = buildAIConversation({ userInput, history, selectedContextKinds: [], contextSections: [], imageDataUrls, textAttachments }).messages;
         if (discipline) messages[0] = { role: 'system', content: `${messages[0]!.content}\n${discipline}` };
         return messages;
     };

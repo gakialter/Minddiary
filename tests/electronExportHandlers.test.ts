@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +22,14 @@ function makeExistingFileStat() {
 
 function makeDirectoryStat() {
     return { isDirectory: () => true };
+}
+
+function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((fulfill) => {
+        resolve = fulfill;
+    });
+    return { promise, resolve };
 }
 
 function createTestHandlers() {
@@ -189,7 +199,11 @@ describe('Electron export path authorization', () => {
         await handlers.showSaveDialog(null, { title: 'Export PDF' });
         await handlers.toPDF(null, { htmlContent: '<html></html>', savePath: PDF_PATH });
 
-        const tmpPath = path.win32.join(TEMP_DIR, 'minddiary_export_tmp.html');
+        const tempWrite = writeFile.mock.calls[0];
+        if (!tempWrite) throw new Error('Temporary HTML was not written');
+        const tmpPath = tempWrite[0];
+        expect(path.win32.dirname(tmpPath)).toBe(TEMP_DIR);
+        expect(path.win32.extname(tmpPath)).toBe('.html');
         expect(writeFile).toHaveBeenNthCalledWith(1, tmpPath, '<html></html>', 'utf-8');
         expect(writeFile).toHaveBeenNthCalledWith(2, path.win32.resolve(PDF_PATH), Buffer.from('pdf'));
         expect(BrowserWindow).toHaveBeenCalledTimes(1);
@@ -228,7 +242,9 @@ describe('Electron export path authorization', () => {
         if (!openHandler || !navigate || !redirect) throw new Error('Print-window handlers were not registered');
         expect(openHandler({ url: 'https://external.test/' })).toEqual({ action: 'deny' });
 
-        const documentUrl = pathToFileURL(path.win32.join(TEMP_DIR, 'minddiary_export_tmp.html')).href;
+        const tempWrite = fixture.writeFile.mock.calls[0];
+        if (!tempWrite) throw new Error('Temporary HTML was not written');
+        const documentUrl = pathToFileURL(tempWrite[0]).href;
         for (const handler of [navigate, redirect]) {
             const allowed = { preventDefault: vi.fn() };
             handler(allowed, `${documentUrl}#page-2`);
@@ -238,6 +254,87 @@ describe('Electron export path authorization', () => {
                 handler(blocked, target);
                 expect(blocked.preventDefault).toHaveBeenCalledOnce();
             }
+        }
+    });
+
+    it('keeps overlapping PDF exports isolated until each print window has loaded its own HTML', async () => {
+        const tempRoot = path.resolve(os.tmpdir());
+        const tempDir = await fs.promises.mkdtemp(path.join(tempRoot, 'minddiary-export-test-'));
+        const savePaths = [path.join(tempDir, 'A.pdf'), path.join(tempDir, 'B.pdf')] as const;
+        const html = ['<html><body>Diary A</body></html>', '<html><body>Diary B</body></html>'] as const;
+        const loadStarted = [deferred(), deferred()] as const;
+        const releaseLoad = [deferred(), deferred()] as const;
+        const loadedPaths: [string, string] = ['', ''];
+        const loadedHtml: [string, string] = ['', ''];
+        const close = [vi.fn(), vi.fn()] as const;
+        const completions: Promise<PromiseSettledResult<void>[]>[] = [];
+        let windowCount = 0;
+        const BrowserWindow = vi.fn(function MockBrowserWindow() {
+            const index = windowCount++;
+            if (index !== 0 && index !== 1) throw new Error('Unexpected extra print window');
+            return {
+                loadFile: vi.fn(async (filepath: string) => {
+                    loadedPaths[index] = filepath;
+                    loadStarted[index].resolve();
+                    await releaseLoad[index].promise;
+                    loadedHtml[index] = await fs.promises.readFile(filepath, 'utf-8');
+                }),
+                close: close[index],
+                isDestroyed: () => false,
+                webContents: {
+                    on: vi.fn(),
+                    setWindowOpenHandler: vi.fn(),
+                    printToPDF: vi.fn(async () => Buffer.from(`PDF:${loadedHtml[index]}`)),
+                },
+            };
+        });
+        const showSaveDialog = vi.fn()
+            .mockResolvedValueOnce({ canceled: false, filePath: savePaths[0] })
+            .mockResolvedValueOnce({ canceled: false, filePath: savePaths[1] });
+        const handlers = createExportHandlers({
+            app: { getPath: () => tempDir },
+            BrowserWindow,
+            dialog: { showSaveDialog },
+            fs,
+            path,
+            getMainWindow: () => ({ id: 1 }),
+        });
+
+        try {
+            for (const index of [0, 1] as const) {
+                await handlers.showSaveDialog(null, { title: 'Export PDF' });
+                // Observe rejection immediately while the other window is still waiting to load.
+                completions.push(Promise.allSettled([
+                    handlers.toPDF(null, { htmlContent: html[index], savePath: savePaths[index] }),
+                ]));
+                await loadStarted[index].promise;
+            }
+
+            releaseLoad[0].resolve();
+            const firstResult = await completions[0];
+            const secondSourceAfterFirstCleanup = await fs.promises.readFile(loadedPaths[1], 'utf-8')
+                .catch((error: unknown) => error);
+            releaseLoad[1].resolve();
+            const secondResult = await completions[1];
+
+            expect(await fs.promises.readFile(savePaths[0], 'utf-8')).toBe(`PDF:${html[0]}`);
+            expect(firstResult).toEqual([{ status: 'fulfilled', value: undefined }]);
+            expect(secondResult).toEqual([{ status: 'fulfilled', value: undefined }]);
+            expect(secondSourceAfterFirstCleanup).toBe(html[1]);
+            expect(await fs.promises.readFile(savePaths[1], 'utf-8')).toBe(`PDF:${html[1]}`);
+            expect(new Set(loadedPaths).size).toBe(2);
+            expect(loadedHtml).toEqual(html);
+            for (const index of [0, 1] as const) {
+                expect(close[index]).toHaveBeenCalledOnce();
+                await expect(fs.promises.stat(loadedPaths[index])).rejects.toMatchObject({ code: 'ENOENT' });
+            }
+        } finally {
+            for (const gate of releaseLoad) gate.resolve();
+            await Promise.all(completions);
+            if (path.dirname(path.resolve(tempDir)) !== tempRoot || !path.basename(tempDir).startsWith('minddiary-export-test-')) {
+                throw new Error('Refusing to remove an unexpected export-test directory');
+            }
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
         }
     });
 

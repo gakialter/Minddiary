@@ -16,19 +16,19 @@ export interface TextFormat {
 export const FORMAT_BOLD: TextFormat = {
   prefix: '**',
   suffix: '**',
-  placeholder: '粗体文本',
+  placeholder: '加粗文字',
 }
 
 export const FORMAT_HIGHLIGHT: TextFormat = {
   prefix: '==',
   suffix: '==',
-  placeholder: '高亮文本',
+  placeholder: '高亮文字',
 }
 
 export const FORMAT_UNDERLINE: TextFormat = {
   prefix: '++',
   suffix: '++',
-  placeholder: '下划线文本',
+  placeholder: '下划线文字',
 }
 
 /**
@@ -104,7 +104,7 @@ export function useTextFormat(
       applyFormat({
         prefix: `{color:${colorKey}}`,
         suffix: '{/color}',
-        placeholder: '彩色文本',
+        placeholder: '彩色文字',
       })
     },
     [applyFormat],

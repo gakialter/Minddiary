@@ -94,26 +94,26 @@ describe('Settings Component', () => {
     expect(screen.getByDisplayValue('30')).toBeInTheDocument()
     expect(screen.getByDisplayValue('C:\\Backups')).toBeInTheDocument()
 
-    expect(screen.getByLabelText('计时结束音效提示')).toBeChecked()
-    expect(screen.getByLabelText('计时结束弹窗提示（适合看网课时使用）')).toBeChecked()
-    expect(screen.getByLabelText('启用自动保存')).not.toBeChecked()
-    expect(screen.getByLabelText('开启静默自动备份')).toBeChecked()
+    expect(screen.getByLabelText('计时结束音效')).toBeChecked()
+    expect(screen.getByLabelText('计时结束弹窗')).toBeChecked()
+    expect(screen.getByLabelText('自动保存')).not.toBeChecked()
+    expect(screen.getByLabelText('自动备份')).toBeChecked()
     expect(screen.getByLabelText('主题')).toHaveValue('system')
-    expect(screen.getByLabelText('番茄钟时长（分钟）')).toHaveValue(30)
-    expect(screen.getByLabelText('API 请求地址')).toHaveValue('https://api.mock.com')
-    expect(screen.getByLabelText('自动备份目录')).toHaveValue('C:\\Backups')
+    expect(screen.getByLabelText('专注时长（分钟）')).toHaveValue(30)
+    expect(screen.getByLabelText('API 地址')).toHaveValue('https://api.mock.com')
+    expect(screen.getByLabelText('备份目录')).toHaveValue('C:\\Backups')
   })
 
   it('disables backup directory controls when automatic backup is off', async () => {
     await act(async () => { render(<Settings />) })
-    const directory = screen.getByLabelText('自动备份目录')
-    const chooseDirectory = screen.getByRole('button', { name: '选择' })
+    const directory = screen.getByLabelText('备份目录')
+    const chooseDirectory = screen.getByRole('button', { name: '选择目录' })
     expect(chooseDirectory).toBeEnabled()
-    fireEvent.click(screen.getByLabelText('开启静默自动备份'))
+    fireEvent.click(screen.getByLabelText('自动备份'))
     expect(directory).toBeDisabled()
     expect(chooseDirectory).toBeDisabled()
     expect(screen.getByRole('button', { name: '导出为 JSON' })).toBeEnabled()
-    fireEvent.click(screen.getByLabelText('开启静默自动备份'))
+    fireEvent.click(screen.getByLabelText('自动备份'))
     expect(directory).toBeEnabled()
     expect(chooseDirectory).toBeEnabled()
   })
@@ -210,7 +210,7 @@ describe('Settings Component', () => {
     expect(screen.queryByText('当前模型已不可用，请重新选择模型。')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
     fireEvent.click(screen.getByRole('button', { name: '自定义' }))
-    expect(screen.getByLabelText('API 请求地址')).toHaveValue('https://custom.example/v1')
+    expect(screen.getByLabelText('API 地址')).toHaveValue('https://custom.example/v1')
     expect(screen.getByLabelText('模型名称')).toHaveValue('deepseek-chat')
     expect(screen.getByRole('checkbox', { name: /此模型支持图片输入/ })).toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
@@ -263,15 +263,15 @@ describe('Settings Component', () => {
       render(<Settings />)
     })
 
-    expect(screen.getByText('专注模式')).toBeInTheDocument()
-    expect(screen.getByText(/当前没有白名单/)).toBeInTheDocument()
+    expect(screen.getByText('专注提醒')).toBeInTheDocument()
+    expect(screen.getByText(/当前白名单为空/)).toBeInTheDocument()
 
     settingsApi.updateGeneral.mockClear()
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('启用专注白名单提醒'))
-      fireEvent.change(screen.getByLabelText('检测间隔（秒）'), { target: { value: '10' } })
-      fireEvent.change(screen.getByLabelText('应用名称或进程名'), { target: { value: 'chrome.exe' } })
+      fireEvent.click(screen.getByLabelText('提醒名单外应用'))
+      fireEvent.change(screen.getByLabelText('检查间隔（秒）'), { target: { value: '10' } })
+      fireEvent.change(screen.getByLabelText('应用名或进程名'), { target: { value: 'chrome.exe' } })
       fireEvent.click(screen.getByRole('button', { name: '手动添加' }))
     })
 
@@ -335,9 +335,9 @@ describe('Settings Component', () => {
     settingsApi.updateGeneral.mockClear()
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('关键日期标题'), { target: { value: '报名开始' } })
-      fireEvent.change(screen.getByLabelText('关键日期日期'), { target: { value: '2026-09-01' } })
-      fireEvent.change(screen.getByLabelText('关键日期类型'), { target: { value: 'deadline' } })
+      fireEvent.change(screen.getByLabelText('日期标题'), { target: { value: '报名开始' } })
+      fireEvent.change(screen.getByLabelText('目标日期', { selector: 'input:not([aria-invalid])' }), { target: { value: '2026-09-01' } })
+      fireEvent.change(screen.getByLabelText('日期类型'), { target: { value: 'deadline' } })
       fireEvent.click(screen.getByRole('button', { name: /添加日期/ }))
     })
     await act(async () => {
@@ -396,14 +396,14 @@ describe('Settings Component', () => {
       render(<Settings />)
     })
 
-    const primaryTitle = screen.getByLabelText('主目标名称')
+    const primaryTitle = screen.getByLabelText('目标名称')
     expect(primaryTitle).toHaveValue('考研初试')
     settingsApi.updateGeneral.mockClear()
 
     await act(async () => {
       fireEvent.change(primaryTitle, { target: { value: '  公务员考试  ' } })
       fireEvent.blur(primaryTitle)
-      fireEvent.change(screen.getByLabelText('主目标日期'), { target: { value: '2027-01-10' } })
+      fireEvent.change(screen.getByLabelText('目标日期', { selector: 'input[aria-invalid]' }), { target: { value: '2027-01-10' } })
       await vi.advanceTimersByTimeAsync(500)
     })
 
@@ -424,8 +424,8 @@ describe('Settings Component', () => {
 
     settingsApi.updateGeneral.mockClear()
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('关键日期标题'), { target: { value: '论文提交' } })
-      fireEvent.change(screen.getByLabelText('关键日期日期'), { target: { value: '2026-11-01' } })
+      fireEvent.change(screen.getByLabelText('日期标题'), { target: { value: '论文提交' } })
+      fireEvent.change(screen.getByLabelText('目标日期', { selector: 'input:not([aria-invalid])' }), { target: { value: '2026-11-01' } })
       fireEvent.click(screen.getByRole('button', { name: /添加日期/ }))
     })
     await act(async () => {
@@ -447,7 +447,7 @@ describe('Settings Component', () => {
     })
     settingsApi.updateGeneral.mockClear()
 
-    const primaryTitle = screen.getByLabelText('主目标名称')
+    const primaryTitle = screen.getByLabelText('目标名称')
     for (const invalidTitle of ['', '   ', '目'.repeat(41)]) {
       await act(async () => {
         fireEvent.change(primaryTitle, { target: { value: invalidTitle } })
@@ -465,13 +465,13 @@ describe('Settings Component', () => {
     await act(async () => {
       render(<Settings />)
     })
-    const primaryTitle = screen.getByLabelText('主目标名称')
+    const primaryTitle = screen.getByLabelText('目标名称')
     fireEvent.change(primaryTitle, { target: { value: '' } })
     expect(screen.getByRole('alert')).toHaveTextContent('主目标名称不能为空')
     expect(screen.getByRole('button', { name: /保存设置/ })).toBeDisabled()
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '重置' }))
+      fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
     })
 
     expect(primaryTitle).toHaveValue('考研初试')
@@ -538,16 +538,16 @@ describe('Settings Component', () => {
     expect(screen.getByText('已是最新版本')).toBeInTheDocument()
   })
 
-  it('shows the bundled current release notes and v1.20.0 in browser fallback', async () => {
+  it('shows the bundled current release notes and v1.21.0 in browser fallback', async () => {
     ;(window as any).api = undefined
     await act(async () => {
       render(<Settings />)
     })
 
     expect(screen.getByText('当前版本：')).toBeInTheDocument()
-    expect(screen.getByText('v1.20.0')).toBeInTheDocument()
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('PNG、JPEG、WebP')
-    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('日记选区润色')
+    expect(screen.getByText('v1.21.0')).toBeInTheDocument()
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('清除格式')
+    expect(screen.getByTestId('current-release-notes')).toHaveTextContent('文字草稿')
   })
 
   it('shows remote release notes and release date when an update is available', async () => {
@@ -577,7 +577,7 @@ describe('Settings Component', () => {
       statusCallback({ status: 'available', version: '1.12.0' })
     })
 
-    expect(screen.getByText('暂时无法获取更新日志')).toBeInTheDocument()
+    expect(screen.getByText('暂时无法获取更新内容')).toBeInTheDocument()
   })
 
   it('renders remote release note HTML as inert text', async () => {
@@ -614,7 +614,7 @@ describe('Settings Component', () => {
     })
     const installBtn = screen.getByTestId('update-install-btn')
     expect(installBtn).toBeInTheDocument()
-    expect(installBtn.textContent).toContain('重启安装')
+    expect(installBtn.textContent).toContain('重启以安装')
     expect(installBtn.textContent).toContain('1.9.0')
   })
 

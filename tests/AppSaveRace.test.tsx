@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   dirty: vi.fn(),
   navigation: vi.fn(),
   renderEntry: vi.fn(),
+  renderSave: vi.fn(),
+  renderEnsureId: vi.fn(),
+  setSelectedDate: vi.fn(),
+  dismissAlert: vi.fn(),
   entries: { getByDate: vi.fn(), create: vi.fn(), update: vi.fn() },
   tags: { getAll: vi.fn(), getEntryTags: vi.fn(), setEntryTags: vi.fn() },
   pomodoro: { getDailyTotal: vi.fn() },
@@ -34,35 +38,48 @@ vi.mock('../src/contexts/DiaryContext', () => ({
 vi.mock('../src/contexts/PomodoroContext', () => ({
   PomodoroProvider: ({ children }: { children: ReactNode }) => children,
   usePomodoroData: () => ({ alertState: { visible: false } }),
-  usePomodoroActions: () => ({ setOnBreakStart: mocks.noop, dismissAlert: mocks.noop }),
+  usePomodoroActions: () => ({ setOnBreakStart: mocks.noop, dismissAlert: mocks.dismissAlert }),
 }))
 vi.mock('../src/hooks/useGlobalKeyboard', () => ({ useGlobalKeyboard: vi.fn() }))
 vi.mock('../src/hooks/useNavigation', async () => {
   const { default: RealEditor } = await import('../src/components/Editor')
+  const { useState } = await import('react')
   type RenderProps = {
     entry: DiaryEntry | null
     saveEntry: ComponentProps<typeof Editor>['onSave']
     loading: boolean
     onEditorDirtyChange?: (dirty: boolean) => void
+    onRegisterEditorSave?: ComponentProps<typeof Editor>['onRegisterSave']
+    ensureEntryId: () => Promise<number | null>
   }
   return {
     useNavigation: (options: { canAutoFollowToday: boolean }) => {
+      const [activeView, setActiveView] = useState('editor')
       mocks.navigation(options)
       return {
-        activeView: 'editor', selectedDate: mocks.selectedDate, viewTitle: '写日记',
-        setActiveView: mocks.noop, setSelectedDate: mocks.noop, changeDate: mocks.noop,
+        activeView, selectedDate: mocks.selectedDate, viewTitle: '写日记',
+        setActiveView, setSelectedDate: mocks.setSelectedDate, changeDate: mocks.noop,
       }
     },
     VIEW_CONFIG: { editor: { title: '写日记', render: (props: RenderProps) => {
       mocks.renderEntry(props.entry)
+      mocks.renderSave(props.saveEntry)
+      mocks.renderEnsureId(props.ensureEntryId)
       return <RealEditor entry={props.entry} onSave={props.saveEntry} loading={props.loading}
+        onRegisterSave={props.onRegisterEditorSave}
         onDirtyChange={dirty => { mocks.dirty(dirty); props.onEditorDirtyChange?.(dirty) }} />
-    } } },
+    } }, search: { render: () => <div>Search view</div> }, calendar: { render: () => <div>Calendar view</div> } },
   }
 })
 vi.mock('../src/components/Layout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }))
 vi.mock('../src/components/ErrorBoundary', () => ({ default: ({ children }: { children: ReactNode }) => children }))
-vi.mock('../src/components/Sidebar', () => ({ default: () => null }))
+vi.mock('../src/components/Sidebar', () => ({ default: ({ onViewChange }: { onViewChange: (view: string) => void }) => (
+  <nav>
+    <button onClick={() => onViewChange('search')}>Search nav</button>
+    <button onClick={() => onViewChange('editor')}>Editor nav</button>
+    <button onClick={() => onViewChange('calendar')}>Calendar nav</button>
+  </nav>
+) }))
 vi.mock('../src/components/Countdown', () => ({ default: () => null }))
 vi.mock('../src/components/MoodPicker', () => ({
   default: ({ mood, onChange }: { mood: MoodId | null; onChange: (mood: MoodId | null) => void }) => (
@@ -75,7 +92,9 @@ vi.mock('../src/components/Welcome', () => ({ default: () => null }))
 vi.mock('../src/components/CommandPalette', () => ({ default: () => null }))
 vi.mock('../src/components/ExportModal', () => ({ default: () => null }))
 vi.mock('../src/components/BreakReviewModal', () => ({ default: () => null }))
-vi.mock('../src/components/PomodoroAlert', () => ({ default: () => null }))
+vi.mock('../src/components/PomodoroAlert', () => ({ default: ({ onWriteDiary, onClose }: { onWriteDiary: () => void; onClose: () => void }) => (
+  <div><button onClick={onWriteDiary}>Focus diary</button><button onClick={onClose}>Close focus alert</button></div>
+) }))
 vi.mock('../src/components/TemplateManager', () => ({ default: () => null }))
 vi.mock('../src/components/Toast', () => ({ showToast: mocks.showToast, ToastContainer: () => null }))
 
@@ -131,6 +150,168 @@ describe('App + Editor save acknowledgements', () => {
   })
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
+  it('persists a draft before navigation cancels its two-second autosave', async () => {
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValue(pending.promise)
+    await mount()
+    edit('Draft before debounce')
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    expect(mocks.entries.update).toHaveBeenCalledWith(9, { title: 'Diary', content: 'Draft before debounce' })
+    expect(body()).toBe('Draft before debounce')
+    expect(screen.queryByText('Search view')).not.toBeInTheDocument()
+    await finish(pending, saved('Draft before debounce'))
+    expect(screen.getByText('Search view')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Editor nav' }))
+    await waitFor(() => expect(body()).toBe('Draft before debounce'))
+  })
+
+  it('keeps the editor and draft when saving for navigation fails, then allows retry', async () => {
+    const pending = deferred<DiaryEntry>(), retry = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValueOnce(pending.promise).mockReturnValueOnce(retry.promise)
+    await mount()
+    edit('Keep on failure')
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    await act(async () => { pending.reject(new Error('Disk unavailable')); await pending.promise.catch(() => {}) })
+    expect(body()).toBe('Keep on failure')
+    expectDirty(true)
+    expect(screen.queryByText('Search view')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    await finish(retry, saved('Keep on failure'))
+    expect(screen.getByText('Search view')).toBeInTheDocument()
+  })
+
+  it('keeps a newer draft when the navigation save acknowledges an older revision', async () => {
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValue(pending.promise)
+    await mount()
+    edit('Revision A')
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    edit('Revision B')
+    await finish(pending, saved('Revision A'))
+    expect(body()).toBe('Revision B')
+    expectDirty(true)
+    expect(screen.queryByText('Search view')).not.toBeInTheDocument()
+  })
+
+  it('joins a pending save for navigation and honors only the latest navigation request', async () => {
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValue(pending.promise)
+    await mount()
+    edit('Already saving'); saveNow()
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar nav' }))
+    vi.useFakeTimers()
+    await act(async () => { vi.advanceTimersByTime(2000) })
+    vi.useRealTimers()
+    expect(mocks.entries.update).toHaveBeenCalledTimes(1)
+    await finish(pending, saved('Already saving'))
+    expect(screen.getByText('Calendar view')).toBeInTheDocument()
+    expect(screen.queryByText('Search view')).not.toBeInTheDocument()
+  })
+
+  it('continues navigation through a newer manual save of the same draft', async () => {
+    const automatic = deferred<DiaryEntry>(), manual = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValueOnce(automatic.promise).mockReturnValueOnce(manual.promise)
+    await mount()
+    edit('Same draft')
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    saveNow()
+    await finish(automatic, saved('Same draft'))
+    expect(body()).toBe('Same draft')
+    await finish(manual, saved('Same draft'))
+    expect(screen.getByText('Search view')).toBeInTheDocument()
+    expect(mocks.showToast).toHaveBeenCalledWith('已保存', 'success')
+  })
+
+  it('cancels a delayed focus diary action when the alert closes before saving finishes', async () => {
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.update.mockReturnValue(pending.promise)
+    await mount()
+    edit('Preserve before focus reflection')
+    fireEvent.click(screen.getByRole('button', { name: 'Focus diary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close focus alert' }))
+    await finish(pending, saved('Preserve before focus reflection'))
+    expect(body()).toBe('Preserve before focus reflection')
+    expect(mocks.setSelectedDate).not.toHaveBeenCalled()
+    expect(mocks.dismissAlert).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for a first create before leaving without duplicating the new entry', async () => {
+    mocks.entries.getByDate.mockResolvedValue(null)
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.create.mockReturnValue(pending.promise)
+    await mount('')
+    edit('First draft'); saveNow()
+    fireEvent.click(screen.getByRole('button', { name: 'Search nav' }))
+    expect(mocks.entries.create).toHaveBeenCalledTimes(1)
+    await finish(pending, saved('First draft', { id: 42, title: '' }))
+    expect(screen.getByText('Search view')).toBeInTheDocument()
+    expect(mocks.entries.update).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Editor nav' }))
+    await waitFor(() => expect(body()).toBe('First draft'))
+  })
+
+  it('does not expose the old diary for editing while the newly selected date loads', async () => {
+    const pending = deferred<DiaryEntry>()
+    const mounted = await mount()
+    mocks.entries.getByDate.mockReturnValue(pending.promise)
+    mocks.selectedDate = '2026-05-13'
+    mounted.rerender(<App />)
+    expect(screen.queryByTestId('diary-content-input')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /设置开心/ })).not.toBeInTheDocument()
+    saveNow()
+    expect(mocks.entries.update).not.toHaveBeenCalled()
+    await finish(pending, saved('Loaded date', { id: 10, date: mocks.selectedDate }))
+    await waitFor(() => expect(body()).toBe('Loaded date'))
+    edit('New date edited'); saveNow()
+    expect(mocks.entries.update).toHaveBeenCalledWith(10, { title: 'Diary', content: 'New date edited' })
+  })
+
+  it('rejects a stale save callback both during and after loading a different date', async () => {
+    const pending = deferred<DiaryEntry>()
+    const mounted = await mount()
+    const oldSave = mocks.renderSave.mock.lastCall![0] as ComponentProps<typeof Editor>['onSave']
+    const draft = { title: 'Wrong date', content: 'Must not update old id', tags: [] }
+    mocks.entries.getByDate.mockReturnValue(pending.promise)
+    mocks.selectedDate = '2026-05-13'
+    mounted.rerender(<App />)
+    await expect(oldSave(draft)).resolves.toBeNull()
+    await finish(pending, saved('Loaded date', { id: 10, date: mocks.selectedDate }))
+    await expect(oldSave(draft)).resolves.toBeNull()
+    expect(mocks.entries.create).not.toHaveBeenCalled()
+    expect(mocks.entries.update).not.toHaveBeenCalled()
+    expect(mocks.tags.setEntryTags).not.toHaveBeenCalled()
+  })
+
+  it.each(['image-first', 'editor-first'] as const)('shares the initial entry id across image upload and draft save when %s', async order => {
+    mocks.entries.getByDate.mockResolvedValue(null)
+    const creation = deferred<DiaryEntry>(), update = deferred<DiaryEntry>()
+    mocks.entries.create.mockReturnValue(creation.promise)
+    mocks.entries.update.mockReturnValue(update.promise)
+    await mount('')
+    const ensureId = mocks.renderEnsureId.mock.lastCall![0] as () => Promise<number | null>
+    let imageEntryId!: Promise<number | null>
+    if (order === 'image-first') {
+      act(() => { imageEntryId = ensureId() })
+      edit('Draft with image'); saveNow()
+    } else {
+      edit('Draft with image'); saveNow()
+      act(() => { imageEntryId = ensureId() })
+    }
+    expect(mocks.entries.create).toHaveBeenCalledTimes(1)
+    await finish(creation, saved(order === 'image-first' ? '' : 'Draft with image', { id: 42, title: '' }))
+    await expect(imageEntryId).resolves.toBe(42)
+    if (order === 'image-first') {
+      expect(mocks.entries.update).toHaveBeenCalledWith(42, { title: '', content: 'Draft with image' })
+      await finish(update, saved('Draft with image', { id: 42, title: '' }))
+    } else {
+      expect(mocks.entries.update).not.toHaveBeenCalled()
+    }
+    expect(appEntry()).toEqual(expect.objectContaining({ id: 42, content: 'Draft with image' }))
+    expect(body()).toBe('Draft with image')
+    expectDirty(false)
+  })
+
   it('acknowledges the current revision as saved and clears App dirty state', async () => {
     const pending = deferred<DiaryEntry>()
     mocks.entries.update.mockReturnValue(pending.promise)
@@ -153,7 +334,7 @@ describe('App + Editor save acknowledgements', () => {
     expect(body()).toBe('Revision B')
     expect(appEntry().content).toBe(original.content)
     expectDirty(true)
-    expect(screen.getByText('未保存')).toBeInTheDocument()
+    expect(screen.getByText('尚未保存')).toBeInTheDocument()
     saveNow()
     expect(mocks.entries.update).toHaveBeenNthCalledWith(2, 9, { title: 'Diary', content: 'Revision B' })
     await finish(b, saved('Revision B'))
@@ -220,7 +401,7 @@ describe('App + Editor save acknowledgements', () => {
     edit('Revision A'); saveNow()
     await act(async () => { pending.reject(new Error('Persistence failed')); await pending.promise.catch(() => {}) })
     expect(body()).toBe('Revision A')
-    expect(screen.getByText('未保存')).toBeInTheDocument()
+    expect(screen.getByText('尚未保存')).toBeInTheDocument()
     expectDirty(true)
   })
 
@@ -279,7 +460,7 @@ describe('App + Editor save acknowledgements', () => {
     await act(async () => { first.reject(new Error('Create failed')); await first.promise.catch(() => {}) })
     expect(body()).toBe('Revision B')
     expectDirty(true)
-    expect(screen.getByText('未保存')).toBeInTheDocument()
+    expect(screen.getByText('尚未保存')).toBeInTheDocument()
     saveNow()
     expect(mocks.entries.create).toHaveBeenCalledTimes(2)
     expect(mocks.entries.create).toHaveBeenLastCalledWith(expect.objectContaining({ content: 'Revision B' }))
@@ -305,10 +486,10 @@ describe('App + Editor save acknowledgements', () => {
     act(() => { editor.focus(); editor.dispatch({ selection: { anchor: 0, head: 5 } }) })
     const ai = await screen.findByRole('button', { name: 'AI 润色' })
     fireEvent.mouseDown(ai, { button: 0 }); fireEvent.click(ai)
-    const polish = screen.getByRole('button', { name: '润色表达' })
+    const polish = screen.getByRole('button', { name: '写得通顺' })
     fireEvent.mouseDown(polish, { button: 0 }); fireEvent.click(polish)
     await screen.findByText('Polished')
-    fireEvent.click(screen.getByRole('button', { name: '应用' }))
+    fireEvent.click(screen.getByRole('button', { name: '替换选中文字' }))
     expect(body()).toBe('Polished body')
     await finish(pending, saved('Entry body'))
     expect(body()).toBe('Polished body')

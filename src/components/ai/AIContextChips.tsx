@@ -30,8 +30,8 @@ export default function AIContextChips({ contextKinds, onRemove }: AIContextChip
                     <button
                         type="button"
                         className="ai-local-action"
-                        aria-label={`移除上下文 ${AI_CONTEXT_LABELS[kind]}`}
-                        title={`移除 ${AI_CONTEXT_LABELS[kind]}`}
+                        aria-label={`移除资料：${AI_CONTEXT_LABELS[kind]}`}
+                        title={`移除资料：${AI_CONTEXT_LABELS[kind]}`}
                         onClick={() => onRemove(kind)}
                         style={{
                             border: 'none',

@@ -140,9 +140,9 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
              回到今天
            </button>
         </div>
-        <nav className="workspace-calendar__month-nav" aria-label="月份切换">
-           <button type="button" className="button button-secondary" onClick={prevMonth}>← 上个月</button>
-           <button type="button" className="button button-secondary" onClick={nextMonth}>下个月 →</button>
+        <nav className="workspace-calendar__month-nav" aria-label="切换月份">
+           <button type="button" className="button button-secondary" onClick={prevMonth}>上个月</button>
+           <button type="button" className="button button-secondary" onClick={nextMonth}>下个月</button>
         </nav>
       </header>
 
@@ -198,7 +198,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                         )}
                       </div>
                     )}
-                    {hasDiary && <span className="workspace-calendar__recorded">已记录</span>}
+                    {hasDiary && <span className="workspace-calendar__recorded">已写日记</span>}
                     {!hasDiary && focusLevel > 0 && (
                       <div className="workspace-calendar__focus-summary">
                          <span className="workspace-calendar__focus-badge" data-level={focusLevel}>
@@ -207,7 +207,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                       </div>
                     )}
                     {!hasDiary && focusLevel === 0 && date.getDay() !== 0 && date.getDay() !== 6 && (
-                      <span className="workspace-calendar__add-hint">点击添加</span>
+                      <span className="workspace-calendar__add-hint">写日记</span>
                     )}
                   </>
                 )}
@@ -219,10 +219,10 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
 
       {/* Legend */}
       <aside className="workspace-calendar__legend" aria-label="日历图例">
-        <h3 className="workspace-calendar__legend-title">图例</h3>
+        <h3 className="workspace-calendar__legend-title">标记说明</h3>
         <div className="workspace-calendar__legend-item">
           <span aria-hidden="true"><MoodIcon mood="default" size={24} /></span>
-          <span>有日记</span>
+          <span>已写日记</span>
         </div>
         {MOODS.map(m => (
           <div key={m.id} className="workspace-calendar__legend-item">
@@ -232,15 +232,15 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
         ))}
         <div className="workspace-calendar__legend-item workspace-calendar__legend-item--focus">
           <span className="workspace-calendar__focus-dot" data-level="1" aria-hidden="true" />
-          <span>专注 30m+</span>
+          <span>专注至少30分钟</span>
         </div>
         <div className="workspace-calendar__legend-item">
           <span className="workspace-calendar__focus-dot" data-level="2" aria-hidden="true" />
-          <span>专注 60m+</span>
+          <span>专注至少60分钟</span>
         </div>
         <div className="workspace-calendar__legend-item">
           <span className="workspace-calendar__focus-dot" data-level="3" aria-hidden="true" />
-          <span>专注 120m+</span>
+          <span>专注至少120分钟</span>
         </div>
       </aside>
     </section>

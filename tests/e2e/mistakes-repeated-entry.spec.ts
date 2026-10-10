@@ -176,7 +176,7 @@ async function createMistake(page: Page, question: string, answer: string, notes
 
 async function importJsonBackup(page: Page, name: string, content: string): Promise<void> {
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: '从 JSON 导入' }).click()
+  await page.getByRole('button', { name: '合并导入 JSON' }).click()
   const chooser = await chooserPromise
   const dialogPromise = page.waitForEvent('dialog')
   await chooser.setFiles({

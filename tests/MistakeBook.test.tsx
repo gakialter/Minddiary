@@ -123,7 +123,7 @@ describe('MistakeBook Component', () => {
 
     // Should render the labels based on mastered status
     // Phase 1 changed labels to include SM-2 review scheduling
-    expect(screen.getByText(/今日待复习/)).toBeInTheDocument()
+    expect(screen.getByText(/今日复习/)).toBeInTheDocument()
     // "已掌握" appears in both the stats header and the card label
     expect(screen.getAllByText(/已掌握/).length).toBeGreaterThanOrEqual(1)
     
@@ -1328,10 +1328,10 @@ describe('MistakeBook Component', () => {
     const manualBtn = screen.getByTestId('mistake-start-review-btn')
 
     expect(aiBtn).toBeInTheDocument()
-    expect(aiBtn).toHaveTextContent('AI 复习规划')
+    expect(aiBtn).toHaveTextContent('AI 复习建议')
     expect(manualBtn).toBeInTheDocument()
     expect(manualBtn).toHaveTextContent('到期复习')
-    expect(screen.getByRole('button', { name: '日常复盘' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '错题复习' })).toBeInTheDocument()
 
     // Click AI review button
     fireEvent.click(aiBtn)

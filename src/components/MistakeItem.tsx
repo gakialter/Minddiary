@@ -58,16 +58,16 @@ export function MistakeItem({
                     {m.mastered
                         ? <span style={{ fontSize: 12, color: 'var(--color-success-fg)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 已掌握</span>
                         : dueForReview
-                            ? <span style={{ fontSize: 12, color: 'var(--color-warning-fg)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日待复习</span>
+                            ? <span style={{ fontSize: 12, color: 'var(--color-warning-fg)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={13} /> 今日复习</span>
                             : <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}><CheckCircle2 size={13} /> 下次复习: {m.next_review_date}</span>
                     }
                 </div>
                 <div className="workspace-action-row">
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
                         onClick={() => toggleMastered(m.id)}
-                        aria-label={m.mastered ? "撤销掌握，重新加入计划" : "标记为已彻底掌握"}
+                        aria-label={m.mastered ? "取消掌握" : "标记掌握"}
                     >
-                        {m.mastered ? <><Undo2 size={13} aria-hidden /> 重新加入计划</> : <><CheckCircle2 size={13} aria-hidden /> 彻底掌握</>}
+                        {m.mastered ? <><Undo2 size={13} aria-hidden /> 取消掌握</> : <><CheckCircle2 size={13} aria-hidden /> 标记掌握</>}
                     </button>
                     <button className="button button-secondary" style={{ padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         onClick={() => handleEdit(m)}

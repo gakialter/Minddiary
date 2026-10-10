@@ -39,8 +39,8 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                                 src={attachment.previewUrl!}
                                 alt={attachment.name}
                                 onPreview={onPreview}
-                                ariaLabel={`预览附件 ${attachment.name}`}
-                                title={`预览 ${attachment.name}`}
+                                ariaLabel={`预览附件：${attachment.name}`}
+                                title={`预览附件：${attachment.name}`}
                                 buttonStyle={{ width: 42, height: 42, borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}
                                 imageStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
@@ -70,14 +70,14 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                                 {attachment.name}
                             </div>
                             <div className="text-muted" role={attachment.status === 'reading' ? 'status' : undefined} style={{ fontSize: 12 }}>
-                                {attachment.status === 'reading' ? '读取中' : formatBytes(attachment.size)}
-                                {attachment.kind === 'pdf' && attachment.pageCount ? ` · ${attachment.pageCount} 页` : ''}
+                                {attachment.status === 'reading' ? '正在读取' : formatBytes(attachment.size)}
+                                {attachment.kind === 'pdf' && attachment.pageCount ? ` · ${attachment.pageCount}页` : ''}
                             </div>
                             {attachment.kind === 'pdf' && attachment.status === 'ready' && (
                                 <div className="text-muted" style={{ fontSize: 12 }}>
                                     {attachment.pageCount && attachment.textPageCount !== undefined && attachment.textPageCount < attachment.pageCount
                                         ? `已读取 ${attachment.textPageCount}/${attachment.pageCount} 页的可提取文字，${attachment.pageCount - attachment.textPageCount} 页未检测到文字`
-                                        : '已读取 PDF 中可提取的文字'}
+                                        : '已读取可提取文字'}
                                 </div>
                             )}
                             {attachment.error && (
@@ -87,8 +87,8 @@ export default function AIAttachmentList({ attachments, onRemove, onPreview }: A
                         <button
                             type="button"
                             className="ai-local-action"
-                            aria-label={`删除附件 ${attachment.name}`}
-                            title={`删除 ${attachment.name}`}
+                            aria-label={`移除附件：${attachment.name}`}
+                            title={`移除附件：${attachment.name}`}
                             onClick={() => onRemove(attachment.id)}
                             style={{
                                 border: 'none',

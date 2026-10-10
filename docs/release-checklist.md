@@ -57,7 +57,9 @@ The checks require:
 - `version` equals `package.json.version`.
 - `path` points to the versioned root Windows Setup asset or root macOS update ZIP, never an unpacked directory.
 - every metadata file entry points to an allowlisted root installer, DMG, or ZIP.
-- top-level and file-entry `sha512` values are present.
+- `files` includes the primary update asset named by `path` (Windows Setup or macOS update ZIP).
+- top-level and every file-entry `sha512` exactly match the referenced asset's base64 SHA512 digest.
+- every file-entry `size` is a positive safe integer and matches the referenced asset's byte size.
 - `releaseDate` is present and parseable.
 - packaged `app-update.yml` targets GitHub owner `gakialter` and repository `Minddiary`.
 

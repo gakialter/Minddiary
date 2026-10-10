@@ -27,7 +27,7 @@ export function useDiaryPolish(viewRef: React.MutableRefObject<EditorView | unde
     const previous = original && current.current?.target === original ? current.current : null
     const next: PolishReview = { target, action, loading: !!target, stale: false, error: '',
       candidate: previous?.candidate ?? '', candidateReady: previous?.candidateReady ?? false }
-    if (!target) next.error = '请选择一段连续正文后再使用 AI 润色。'
+    if (!target) next.error = '请先选中一段连续正文。'
     else if (!polishTargetMatches(view.state, latest.current.identity, target)) { next.stale = true; next.loading = false }
     publish(next)
     if (!target || next.stale) return
@@ -41,7 +41,7 @@ export function useDiaryPolish(viewRef: React.MutableRefObject<EditorView | unde
       publish({ ...next, loading: false, candidate, candidateReady: true })
     } catch (error) {
       if (token !== generation.current) return
-      publish({ ...current.current!, loading: false, error: error instanceof Error ? error.message : 'AI 请求失败，请检查网络。' })
+      publish({ ...current.current!, loading: false, error: error instanceof Error ? error.message : 'AI 润色请求未完成，请稍后重试。' })
     }
   }
   const editCandidate = (candidate: string) => {
@@ -54,7 +54,7 @@ export function useDiaryPolish(viewRef: React.MutableRefObject<EditorView | unde
     let tr
     try { tr = polishTransaction(view.state, latest.current.identity, next.target, next.candidate) }
     catch (error) {
-      publish({ ...next, error: error instanceof Error ? error.message : '候选文本无效，请修改后再应用。' })
+      publish({ ...next, error: error instanceof Error ? error.message : '修改稿无效，请修改后再替换选中文字。' })
       return
     }
     if (!tr) { invalidate(); return }

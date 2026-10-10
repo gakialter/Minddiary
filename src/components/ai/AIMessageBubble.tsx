@@ -64,7 +64,7 @@ export default function AIMessageBubble({
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {message.attachments.map(attachment => (
                             <span key={`${attachment.kind}-${attachment.name}`} style={{ fontSize: 12 }}>
-                                附件：{attachment.name}（{attachment.kind}，内容未持久化）
+                                附件：{attachment.name}（{attachment.kind}；内容不会保存）
                             </span>
                         ))}
                     </div>
@@ -82,7 +82,7 @@ export default function AIMessageBubble({
                 <button
                     type="button"
                     className="ai-local-action"
-                    aria-label={isUser ? '复制用户消息' : '复制 AI 回复'}
+                    aria-label={isUser ? '复制消息' : '复制回复'}
                     title="复制"
                     onClick={() => onCopy(message.content)}
                     style={{ border: 'none', background: 'transparent', padding: 0, color: 'inherit', cursor: 'pointer', display: 'flex' }}
@@ -93,8 +93,8 @@ export default function AIMessageBubble({
                     <button
                         type="button"
                         className="ai-local-action"
-                        aria-label="重新生成 AI 回复"
-                        title={regenerateDisabledReason || '重新生成'}
+                        aria-label="再次发送原问题"
+                        title={regenerateDisabledReason || '再次发送原问题'}
                         disabled={Boolean(regenerateDisabledReason)}
                         onClick={onRegenerate}
                         style={{
