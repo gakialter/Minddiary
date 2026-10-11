@@ -881,7 +881,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     <div className="flex flex-col gap-sm">
                         <label htmlFor="mistake-form-subject">科目</label>
                         <select id="mistake-form-subject" className="input" value={form.subject_id}
-                            onChange={e => setForm(f => ({ ...f, subject_id: e.target.value }))}>
+                            onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, subject_id: value }))
+                            }}>
                             <option value="">选择科目</option>
                             {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
@@ -889,14 +892,20 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         <textarea id="mistake-form-question"
                             ref={questionTextareaRef}
                             className="input" placeholder="问题 / 知识点" rows={3}
-                            value={form.question} onChange={e => setForm(f => ({ ...f, question: e.target.value }))}
+                            value={form.question} onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, question: value }))
+                            }}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('question', '题目图片', '在查看答案前显示', form.question_image_paths)}
                         <label htmlFor="mistake-form-answer">答案解析</label>
                         <textarea id="mistake-form-answer"
                             className="input" placeholder="答案 / 解析" rows={3}
-                            value={form.answer} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))}
+                            value={form.answer} onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, answer: value }))
+                            }}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('answer', '答案图片', '查看答案后显示', form.answer_image_paths)}
@@ -911,7 +920,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             <textarea id="mistake-form-notes"
                                 ref={notesTextareaRef}
                                 className="input" placeholder="备注（可选）" rows={2}
-                                value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                                value={form.notes} onChange={e => {
+                                    const value = e.target.value
+                                    setForm(f => ({ ...f, notes: value }))
+                                }}
                                 style={{ resize: 'vertical', marginTop: 'var(--space-xs)' }}
                                 data-testid="mistake-notes-textarea"
                             />

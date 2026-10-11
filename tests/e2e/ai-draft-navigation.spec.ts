@@ -329,7 +329,7 @@ test.describe('UX-04 AI text draft navigation through production Electron', () =
     } finally { await cleanup(apps, profile, fixture, bodyFailed) }
   })
 
-  test('drops image, TXT, PDF and context on navigation and sends the restored text without hidden attachment material', async ({}, testInfo) => {
+  test('retains visible image, TXT and PDF drafts on navigation and sends text only after explicit attachment removal without local context', async ({}, testInfo) => {
     const fixture = await createFixture()
     const profile = createDisposableElectronProfile(profilePrefix)
     const apps: OwnedElectron[] = []
@@ -354,16 +354,19 @@ test.describe('UX-04 AI text draft navigation through production Electron', () =
       await expect(page.getByText('已读取可提取文字', { exact: true })).toBeVisible({ timeout: 20_000 })
       await expect(page.getByText('正在读取', { exact: true })).toHaveCount(0)
       await page.getByRole('button', { name: '状态调整', exact: true }).click()
-      await expect(page.getByRole('button', { name: '移除资料：近期回顾', exact: true })).toBeVisible()
+      await expect(page.locator('#ai-composer-input')).toHaveValue('请先让我在对话中说明当前的学习状态和遇到的困难，再只根据我提供的内容，给出克制、具体、可以立即执行的调整建议。')
+      await expect(page.getByRole('button', { name: /^移除资料：/ })).toHaveCount(0)
       const question = `Explain the geometric meaning of a tangent. UX04_ATTACHMENT_DRAFT_${id}`
       await page.locator('#ai-composer-input').fill(question)
       const privateDraft = await assertPrivateDraft(page, app, [question, textMarker, pdfMarker, imageName, textName, pdfName, imageBase64])
       await navigate(page, '今日安排')
       await navigate(page, '学习助手')
       await expect(page.locator('#ai-composer-input')).toHaveValue(question)
-      await expect(page.locator('.ai-attachments')).toHaveCount(0)
+      for (const name of [imageName, textName, pdfName]) await expect(page.getByRole('button', { name: `移除附件：${name}`, exact: true })).toBeVisible()
       await expect(page.getByRole('button', { name: /^移除资料：/ })).toHaveCount(0)
       await expectNoAutomaticSend(page, fixture, 0)
+      for (const name of [imageName, textName, pdfName]) await page.getByRole('button', { name: `移除附件：${name}`, exact: true }).click()
+      await expect(page.locator('.ai-attachments')).toHaveCount(0)
       await send(page, fixture)
       await expect(page.getByText(reply, { exact: true }).last()).toBeVisible()
       await expect(page.locator('#ai-composer-input')).toHaveValue('')
@@ -375,7 +378,7 @@ test.describe('UX-04 AI text draft navigation through production Electron', () =
       expect(request).not.toMatch(/blob:|file:\/\/|[A-Za-z]:\\\\|\/tmp\//)
       const privateAfterSend = await assertPrivateDraft(page, app, [textMarker, pdfMarker, imageName, textName, pdfName, imageBase64])
       expect((await history(page)).map(message => message.role)).toEqual(['user', 'assistant'])
-      await receipt(testInfo, page, { realFileReaders: ['image/png', 'text/plain', 'application/pdf'], extractedPdfReady: true, navigationRestoresTextOnly: true, navigationRequests: 0, explicitTextOnlyRequest: true, requestCount: fixture.requests.length, privateDraft, privateAfterSend })
+      await receipt(testInfo, page, { realFileReaders: ['image/png', 'text/plain', 'application/pdf'], extractedPdfReady: true, navigationRestoresTextAndVisibleAttachments: true, explicitAttachmentRemoval: true, navigationRequests: 0, explicitTextOnlyRequest: true, requestCount: fixture.requests.length, privateDraft, privateAfterSend })
       bodyFailed = false
     } finally { await cleanup(apps, profile, fixture, bodyFailed) }
   })

@@ -296,7 +296,7 @@ test('saves rotated API keys through Settings and uses the current credential af
         await sendLocalAIRequest(page, randomUUID());
         await expectLatestAuthMatch(fixture, requestCount);
 
-        // The dedicated clear action removes the key; a later send must not reach the fixture.
+        // The dedicated clear action removes the key and disables sending until configured.
         await navigate(page, '设置');
         await page.getByRole('button', { name: '清除 Key', exact: true }).click();
         await expect(page.getByRole('button', { name: '取消清除', exact: true })).toBeHidden({ timeout: 10_000 });
@@ -305,8 +305,9 @@ test('saves rotated API keys through Settings and uses the current credential af
         await navigate(page, '学习助手');
         requestCount = fixture.authMatches.length;
         await page.locator('#ai-composer-input').fill(`Synthetic credential persistence check ${randomUUID()}`);
-        await page.getByRole('button', { name: '发送问题', exact: true }).click();
-        await expect(page.getByRole('status').filter({ hasText: '请求未发出' })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole('button', { name: '发送问题', exact: true })).toBeDisabled();
+        await expect(page.getByRole('status').filter({ hasText: 'AI 尚未配置，缺少：API 密钥。' })).toBeVisible();
+        expect(await page.evaluate(async () => (await window.api.settings.getAll()).aiApiKeyPresent)).toBe(false);
         await expect.poll(() => fixture.authMatches.length, { timeout: 3_000 }).toBe(requestCount);
         const authenticationEvidencePath = testInfo.outputPath('credential-authentication-categories.json');
         writeFileSync(authenticationEvidencePath, JSON.stringify({

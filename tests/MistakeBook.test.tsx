@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
+import { startTransition, Suspense } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import MistakeBook from '../src/components/MistakeBook'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
@@ -1247,6 +1248,57 @@ describe('MistakeBook Component', () => {
     fireEvent.mouseDown(screen.getByTestId('format-bold'))
     expect(notes).toHaveValue('**当前**备注')
     expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'ready_to_save')
+  })
+
+  it('keeps edited notes when a queued form update defers the input updater', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(1))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const diary = DiaryContextModule.useDiary()
+    let suspendForm = false
+    let resumeForm!: () => void
+    const pendingForm = new Promise<void>(resolve => { resumeForm = resolve })
+    mockUseDiary.mockImplementation(() => {
+      if (suspendForm) throw pendingForm
+      return diary
+    })
+    await act(async () => {
+      render(<Suspense fallback={<div>Loading</div>}><MistakeBook /></Suspense>)
+    })
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: '编辑错题' })[0]!)
+    })
+
+    const answer = screen.getByPlaceholderText('答案 / 解析')
+    const notes = screen.getByPlaceholderText('备注（可选）') as HTMLTextAreaElement
+    expect(notes).toHaveValue('basic')
+
+    // Suspend the pending render to exercise replay after controlled DOM restore.
+    // The first update keeps the next updater from being computed eagerly.
+    suspendForm = true
+    await act(async () => {
+      startTransition(() => {
+        fireEvent.change(answer, { target: { value: '当前答案' } })
+        fireEvent.change(notes, { target: { value: '当前备注' } })
+      })
+    })
+    await act(async () => {
+      suspendForm = false
+      resumeForm()
+      await pendingForm
+    })
+    expect(answer).toHaveValue('当前答案')
+    expect(notes).toHaveValue('当前备注')
+
+    notes.setSelectionRange(0, 2)
+    fireEvent.mouseDown(screen.getByTestId('format-bold'))
+    expect(notes).toHaveValue('**当前**备注')
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId('mistake-form'))
+    })
+    expect(mistakesApi.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      answer: '当前答案',
+      notes: '**当前**备注',
+    }))
   })
 
   it('retains all text after a failed save and allows a successful retry', async () => {
