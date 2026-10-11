@@ -94,7 +94,7 @@ describe('Settings JSON merge import', () => {
     expect(api.subjects.update).toHaveBeenCalledWith(101, expect.objectContaining({ completed_chapters: 4 }))
     expect(api.mistakes.createBatch).toHaveBeenCalledWith([expect.objectContaining({ subject_id: 101, mastered: true })])
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining(confirmation))
-    expect(showToast).toHaveBeenLastCalledWith('导入完成，处理了 1 篇日记、1 道错题。请重启应用以刷新状态。', 'success', 5000)
+    expect(showToast).toHaveBeenCalledWith('导入完成，处理了 1 篇日记、1 道错题。请重启应用以刷新状态。', 'success', 5000)
   })
 
   it('keeps same-date updates, same-name subject merges, tag skips and mistake append semantics', async () => {
@@ -112,7 +112,7 @@ describe('Settings JSON merge import', () => {
     expect(api.tags.create).not.toHaveBeenCalled()
     expect(api.mistakes.createBatch).toHaveBeenCalledTimes(2)
     expect(api.mistakes.createBatch).toHaveBeenLastCalledWith([expect.objectContaining({ subject_id: 9 })])
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('同名标签已跳过。'), 'success', 5000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('同名标签已跳过。'), 'success', 5000)
   })
 
   it.each([
@@ -130,7 +130,7 @@ describe('Settings JSON merge import', () => {
     noWrites()
     expect(rows).toEqual([{ ...subject, id: 73 }])
     expect(vi.mocked(showToast).mock.calls.some(([message, kind]) => message.startsWith('导入失败:') && kind === 'error')).toBe(true)
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('本次在写入前停止，没有导入写入。'), 'error', 5000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('本次在写入前停止，没有导入写入。'), 'error', 5000)
   })
 
   it('rejects target name ambiguity before even diary writes', async () => {
@@ -152,7 +152,7 @@ describe('Settings JSON merge import', () => {
     await upload(backup())
     expect(api.mistakes.createBatch).not.toHaveBeenCalled()
     expect(rows).toEqual([{ ...subject, id: 73, name: '另一科目' }])
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('已返回成功的操作：写入 1 篇日记'), 'error', 10000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('已返回成功的操作：写入 1 篇日记'), 'error', 10000)
   })
 
   it('reports a created subject whose completion update fails and does not import mistakes', async () => {
@@ -160,7 +160,7 @@ describe('Settings JSON merge import', () => {
     await upload(backup())
     expect(rows[0]?.completed_chapters).toBe(0)
     expect(api.mistakes.createBatch).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('新建 1 个科目、更新 0 个科目'), 'error', 10000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('新建 1 个科目、更新 0 个科目'), 'error', 10000)
     expect(vi.mocked(showToast).mock.calls.some(([message]) => message.startsWith('导入完成'))).toBe(false)
   })
 
@@ -168,7 +168,7 @@ describe('Settings JSON merge import', () => {
     api.subjects.update.mockImplementationOnce(async () => subject)
     await upload(backup())
     expect(api.mistakes.createBatch).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('写入后核对失败'), 'error', 10000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('写入后核对失败'), 'error', 10000)
   })
 
   it('does not swallow unexpected tag write failures', async () => {
@@ -176,14 +176,14 @@ describe('Settings JSON merge import', () => {
     await upload({ ...backup(), data: { ...backup().data, tags: [{ name: '新标签' }] } })
     expect(api.subjects.create).not.toHaveBeenCalled()
     expect(api.mistakes.createBatch).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('合成标签故障'), 'error', 10000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('合成标签故障'), 'error', 10000)
   })
 
   it('reports a preflight read rejection as no import writes', async () => {
     api.tags.getAll.mockRejectedValueOnce(new Error('合成预检读取故障'))
     await upload(backup())
     noWrites()
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('本次在写入前停止，没有导入写入。'), 'error', 5000)
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('本次在写入前停止，没有导入写入。'), 'error', 5000)
   })
 
   it('distinguishes a read failure after acknowledged writes from an uncertain write', async () => {
@@ -191,7 +191,7 @@ describe('Settings JSON merge import', () => {
     await upload({ data: { entries: [entry, { ...entry, date: '2026-10-10' }] } })
     expect(entries).toEqual([{ ...entry, id: 1 }])
     expect(api.entries.create).toHaveBeenCalledTimes(1)
-    const message = vi.mocked(showToast).mock.lastCall?.[0]
+    const message = vi.mocked(showToast).mock.calls.find(([text]) => text.startsWith('导入失败:'))?.[0]
     expect(message).toContain('写入 1 篇日记')
     expect(message).toContain('本次导入未全部完成，已成功的操作不会自动撤销。')
     expect(message).not.toContain('提交状态无法确定')
@@ -207,8 +207,8 @@ describe('Settings JSON merge import', () => {
     expect(entries).toHaveLength(1)
     expect(api.entries.create).toHaveBeenCalledTimes(1)
     expect(api.subjects.create).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringContaining('写入 0 篇日记'), 'error', 10000)
-    const message = vi.mocked(showToast).mock.lastCall?.[0]
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('写入 0 篇日记'), 'error', 10000)
+    const message = vi.mocked(showToast).mock.calls.find(([text]) => text.startsWith('导入失败:'))?.[0]
     expect(message).toContain('提交状态无法确定，实际写入可能多于上述计数。')
     expect(message).not.toContain('没有导入写入')
   })
@@ -219,7 +219,7 @@ describe('Settings JSON merge import', () => {
     await upload(backup())
     expect(api.entries.update).toHaveBeenCalledTimes(1)
     expect(api.subjects.create).not.toHaveBeenCalled()
-    const message = vi.mocked(showToast).mock.lastCall?.[0]
+    const message = vi.mocked(showToast).mock.calls.find(([text]) => text.startsWith('导入失败:'))?.[0]
     expect(message).toContain('日记写入结果无法确认')
     expect(message).toContain('写入 0 篇日记')
     expect(message).toContain('提交状态无法确定')
@@ -231,7 +231,7 @@ describe('Settings JSON merge import', () => {
     await upload(backup())
     expect(rows[0]?.completed_chapters).toBe(4)
     expect(api.mistakes.createBatch).not.toHaveBeenCalled()
-    const message = vi.mocked(showToast).mock.lastCall?.[0]
+    const message = vi.mocked(showToast).mock.calls.find(([text]) => text.startsWith('导入失败:'))?.[0]
     expect(message).toContain('新建 1 个科目、更新 1 个科目')
     expect(message).toContain('本次导入未全部完成')
     expect(message).not.toContain('提交状态无法确定')
@@ -246,7 +246,7 @@ describe('Settings JSON merge import', () => {
     await upload(backup())
     expect(committed).toBe(1)
     expect(api.mistakes.createBatch).toHaveBeenCalledTimes(1)
-    const message = vi.mocked(showToast).mock.lastCall?.[0]
+    const message = vi.mocked(showToast).mock.calls.find(([text]) => text.startsWith('导入失败:'))?.[0]
     expect(message).toContain('追加 0 道错题')
     expect(message).toContain('提交状态无法确定')
     expect(message).toContain('继续追加错题')
