@@ -27,18 +27,20 @@ const dailyReviewHarness = vi.hoisted(() => ({
 const localDateMocks = vi.hoisted(() => ({
   currentDateKey: '2026-05-31',
 }))
+const settingsMocks = { examDate: '2026-12-25' }
 
 const pomodoroMocks = vi.hoisted(() => ({
   timer: { hasActiveTimerSession: false, dynamicModes: { WORK: { id: 'work', label: '专注', time: 1500, color: '#000' } } },
   data: { selectedTask: null as StudyTask | null },
   selectFocusTask: vi.fn(),
+  startFocusTask: vi.fn(),
   setMode: vi.fn(),
 }))
 
 vi.mock('../src/contexts/PomodoroContext', () => ({
   usePomodoroTimer: () => pomodoroMocks.timer,
   usePomodoroData: () => pomodoroMocks.data,
-  usePomodoroActions: () => ({ selectFocusTask: pomodoroMocks.selectFocusTask, setMode: pomodoroMocks.setMode }),
+  usePomodoroActions: () => ({ selectFocusTask: pomodoroMocks.selectFocusTask, setMode: pomodoroMocks.setMode, startFocusTask: pomodoroMocks.startFocusTask }),
 }))
 let mockHookState: {
   data: TodayDashboardData
@@ -172,6 +174,7 @@ describe('HomeDashboard Component - Commander Engine', () => {
   beforeEach(() => {
     dailyReviewHarness.onCreated = undefined
     localDateMocks.currentDateKey = '2026-05-31'
+    settingsMocks.examDate = '2026-12-25'
     mockTasksGetByDate.mockResolvedValue([])
     mockTasksFind.mockResolvedValue([])
     mockTasksCreate.mockResolvedValue(makeTask())
@@ -183,9 +186,10 @@ describe('HomeDashboard Component - Commander Engine', () => {
     mockSubjectsGetAll.mockResolvedValue([])
     mockSubjectChaptersGetBySubject.mockResolvedValue([])
     pomodoroMocks.timer.hasActiveTimerSession = false
+    pomodoroMocks.startFocusTask.mockResolvedValue(true)
     pomodoroMocks.data.selectedTask = null
     mockUseDiary.mockReturnValue({
-      settingsData: { examDate: '2026-12-25' },
+      settingsData: settingsMocks,
       tasks: {
         getByDate: mockTasksGetByDate,
         find: mockTasksFind,
@@ -445,6 +449,16 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('学习记录估算')).toBeInTheDocument()
   })
 
+  it('labels a cold start as missing learning records instead of fatigue', async () => {
+    mockHookState = { ...mockHookState, data: EMPTY_DATA, loading: false, error: null }
+    mockTasksGetByDate.mockResolvedValue([])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByText('当前状态：尚无学习记录')).toBeInTheDocument()
+    expect(screen.queryByText(/疲劳预警/)).not.toBeInTheDocument()
+  })
+
   it('opens recent AI planning history and explains browser fallback availability', async () => {
     render(<HomeDashboard setActiveView={mockSetActiveView} />)
 
@@ -607,6 +621,50 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(pomodoroMocks.selectFocusTask).not.toHaveBeenCalled()
     expect(pomodoroMocks.setMode).not.toHaveBeenCalled()
     expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro')
+  })
+
+  it('starts focus for a task and navigates only after the start succeeds', async () => {
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 33, title: '读完第一章', status: 'todo' })])
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '开始专注：读完第一章' }))
+
+    await waitFor(() => expect(pomodoroMocks.startFocusTask).toHaveBeenCalledWith(33))
+    await waitFor(() => expect(mockSetActiveView).toHaveBeenCalledWith('pomodoro'))
+  })
+
+  it('keeps the user on Home when task focus fails and reports the error', async () => {
+    pomodoroMocks.startFocusTask.mockResolvedValue(false)
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 34, title: '背单词' })])
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '开始专注：背单词' }))
+
+    expect(await screen.findByTestId('task-error')).toHaveTextContent('无法为“背单词”开始专注')
+    expect(mockSetActiveView).not.toHaveBeenCalledWith('pomodoro')
+  })
+
+  it('disables task focus while another timer session is active', async () => {
+    pomodoroMocks.timer.hasActiveTimerSession = true
+    mockTasksGetByDate.mockResolvedValue([makeTask({ id: 35, title: '另一项任务', status: 'doing' })])
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByRole('button', { name: '开始专注：另一项任务' })).toBeDisabled()
+    expect(pomodoroMocks.startFocusTask).not.toHaveBeenCalled()
+  })
+
+  it('offers first task, subject, and target date setup from the empty Home state', async () => {
+    mockHookState = { ...mockHookState, data: EMPTY_DATA, loading: false, error: null }
+    settingsMocks.examDate = ''
+    mockSubjectsGetAll.mockResolvedValue([])
+    mockTasksGetByDate.mockResolvedValue([])
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByTestId('home-first-task-entry')).toBeInTheDocument()
+    expect(screen.getByTestId('task-title-input')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '创建科目' }))
+    expect(mockSetActiveView).toHaveBeenCalledWith('progress')
+    expect(screen.getByTestId('home-target-date-prompt')).toHaveTextContent('设置日期')
   })
 
   it('opens today editor from the review recommendation after setting today date', async () => {

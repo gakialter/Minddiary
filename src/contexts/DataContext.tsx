@@ -131,7 +131,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             tasksRef,
             pomodoroSessionsRef,
             subjectChaptersRef,
-        }),
+        }, requestDataRefresh),
         subjectChapters: createSubjectChaptersApi(subjectsRef, subjectChaptersRef, saveToLocal, tasksRef),
         pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
         tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef),
@@ -142,7 +142,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         ai: createAiApi(),
         attachments: createAttachmentsApi(),
         templates: createTemplatesApi(),
-    }), [saveToLocal])
+    }), [requestDataRefresh, saveToLocal])
 
     const value = useMemo((): DataContextValue => ({
         dataReady: initialized,

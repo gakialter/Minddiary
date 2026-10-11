@@ -32,7 +32,10 @@ interface ViewRenderProps {
   loading: boolean
   selectedDate: string
   setSelectedDate: (date: string) => void
+  selectEntry: (entry: DiaryEntry) => void
   changeDate: (date: string) => void
+  changeEntry?: (entry: DiaryEntry) => void
+  currentDateKey?: string
   setActiveView: (view: string) => void
   isSidebarCollapsed: boolean
   ImageGallery: React.ComponentType<{ entryId?: number; ensureEntryId?: () => Promise<number | null> }> | null
@@ -68,6 +71,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
     render: (props) => (
       <HomeDashboard
         setActiveView={props.setActiveView}
+        selectedDate={props.selectedDate}
         setSelectedDate={props.setSelectedDate}
         onMistakeFilterIntent={props.onMistakeFilterIntent}
       />
@@ -86,6 +90,9 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
             onPendingInsertApplied={props.onPendingDiaryInsertApplied}
             onDirtyChange={props.onEditorDirtyChange}
             onRegisterSave={props.onRegisterEditorSave}
+            onChangeDate={props.changeDate}
+            onSelectEntry={props.changeEntry}
+            todayDate={props.currentDateKey}
           />
         </div>
         <div style={{
@@ -113,7 +120,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Search size={22} style={{ color: 'var(--accent)' }} /> 搜索</span>,
     render: (props) => (
       <SearchPanel session={props.searchSession} onSessionChange={props.onSearchSessionChange} onSelectEntry={(e) => {
-        props.setSelectedDate(e.date)
+        props.selectEntry(e)
         props.setActiveView('editor')
       }} />
     ),
@@ -144,7 +151,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   },
   ai: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={22} style={{ color: 'var(--accent)' }} /> AI 助手</span>,
-    render: (props) => <AIPanel entry={props.entry} textDraft={props.aiTextDraft} />,
+    render: (props) => <AIPanel entry={props.entry} textDraft={props.aiTextDraft} onOpenSettings={() => props.setActiveView('settings')} />,
   },
   settings: {
     title: null, // Settings has its own header
@@ -167,28 +174,40 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
   // its unsent text; remounting the app starts a fresh, empty draft.
   const [aiDraft, setAIDraft] = useState<AITextDraft>({ text: '', revision: 0 })
   const [selectedDate, setSelectedDateState] = useState(currentDateKey)
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null)
   const [isFollowingToday, setIsFollowingToday] = useState(true)
 
   useEffect(() => {
     if (isFollowingToday && canAutoFollowToday) {
       setSelectedDateState(currentDateKey)
+      setSelectedEntryId(null)
     }
   }, [canAutoFollowToday, currentDateKey, isFollowingToday])
 
   const setSelectedDate = useCallback((date: string) => {
     setSelectedDateState(date)
+    setSelectedEntryId(null)
     setIsFollowingToday(date === currentDateKey)
   }, [currentDateKey])
 
   const changeDate = useCallback((date: string) => {
     setSelectedDateState(date)
+    setSelectedEntryId(null)
     setIsFollowingToday(date === currentDateKey)
     setActiveView('editor')
   }, [currentDateKey])
 
+  const selectEntry = useCallback((entry: DiaryEntry) => {
+    setSelectedDateState(entry.date)
+    setSelectedEntryId(entry.id)
+    // A search result identifies a saved record, even when its date is today.
+    setIsFollowingToday(false)
+  }, [])
+
   const returnToToday = useCallback(() => {
     setIsFollowingToday(true)
     setSelectedDateState(currentDateKey)
+    setSelectedEntryId(null)
   }, [currentDateKey])
 
   const viewTitle = VIEW_CONFIG[activeView]?.title || ''
@@ -199,6 +218,8 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
     aiTextDraft: { draft: aiDraft, setDraft: setAIDraft },
     setActiveView,
     selectedDate,
+    selectedEntryId,
+    selectEntry,
     setSelectedDate,
     changeDate,
     currentDateKey,

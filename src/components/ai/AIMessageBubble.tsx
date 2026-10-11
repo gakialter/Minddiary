@@ -1,5 +1,5 @@
 import { Copy, RotateCcw } from 'lucide-react'
-import MarkdownRenderer from '../common/MarkdownRenderer'
+import AIResponseMarkdown from './AIResponseMarkdown'
 import type { PersistedAIAttachmentMeta } from '../../utils/aiAttachmentPolicy'
 
 export interface AIChatMessage {
@@ -44,7 +44,7 @@ export default function AIMessageBubble({
                 {isUser ? (
                     <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
                 ) : (
-                    <MarkdownRenderer className="ai-message-content">{message.content}</MarkdownRenderer>
+                    <AIResponseMarkdown>{message.content}</AIResponseMarkdown>
                 )}
                 {message.contextLabels && message.contextLabels.length > 0 && (
                     <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>

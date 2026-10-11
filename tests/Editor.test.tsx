@@ -3,6 +3,7 @@ import { redo, undo } from '@codemirror/commands'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Editor from '../src/components/Editor'
+import { getLocalDateKey } from '../src/utils/dateKey'
 import { finishFormattedSelection, formatContinuationField } from '../src/components/common/diaryEditorState'
 import type { AIMessage, AIResponse, DiaryEntry, Tag } from '../src/types'
 
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   getDailyTotal: vi.fn(),
   templatesGetAll: vi.fn(),
   aiChat: vi.fn(),
+  entries: { getAll: vi.fn() },
 }))
 
 const createDeferred = <T,>() => {
@@ -37,6 +39,7 @@ const createDeferred = <T,>() => {
 
 vi.mock('../src/contexts/DiaryContext', () => ({
   useDiary: () => ({
+    entries: mocks.entries,
     tags: {
       getAll: mocks.tagsGetAll,
     },
@@ -80,6 +83,26 @@ describe('Editor tag selection', () => {
     mocks.getDailyTotal.mockResolvedValue(0)
     mocks.templatesGetAll.mockResolvedValue([])
     mocks.aiChat.mockResolvedValue({ content: '' })
+  })
+
+  it('exposes history navigation and selects the exact diary among same-day records', async () => {
+    const other = { ...entry, id: 12, title: '另一篇' }
+    mocks.entries.getAll.mockResolvedValue([other, entry])
+    const onSelectEntry = vi.fn()
+    const onChangeDate = vi.fn()
+    render(<Editor entry={entry} onSave={vi.fn()} loading={false} todayDate="2026-05-13"
+      onSelectEntry={onSelectEntry} onChangeDate={onChangeDate} />)
+    const select = await screen.findByRole('combobox', { name: '当天 2 篇' })
+    expect(select).toHaveValue('9')
+    expect(screen.getByText('第 1 篇 · Entry title')).toBeInTheDocument()
+    expect(mocks.entries.getAll).toHaveBeenCalledWith({ startDate: entry.date, endDate: entry.date })
+    fireEvent.change(select, { target: { value: '12' } })
+    expect(onSelectEntry).toHaveBeenCalledWith(other)
+    expect(screen.getByText(/历史日期/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('选择日期'), { target: { value: '2026-05-10' } })
+    expect(onChangeDate).toHaveBeenCalledWith('2026-05-10')
+    fireEvent.click(screen.getByRole('button', { name: '回到今天' }))
+    expect(onChangeDate).toHaveBeenLastCalledWith(getLocalDateKey(new Date()))
   })
 
   it('saves selected tag ids after selecting and removing tags', async () => {
@@ -1044,20 +1067,34 @@ describe('Editor AI selection polish', () => {
     expect(writingView().state.doc.toString()).toBe(entry.content)
     fireEvent.compositionEnd(screen.getByTestId('diary-content-input'))
     changeContent('New body')
-    expect(screen.getByRole('alert')).toHaveTextContent('原文或选区已变化')
+    expect(screen.getByRole('alert')).toHaveTextContent('原文或日记已变化')
     expect(screen.getByRole('button', { name: '替换选中文字' })).toBeDisabled()
     expect(writingView().state.doc.toString()).toBe('New body')
   })
-  it.each(['target', 'outside', 'selection'])('invalidates pending result after %s change', async kind => {
+  it.each(['target', 'outside'])('invalidates pending result after %s document change', async kind => {
     const pending = createDeferred<AIResponse>()
     mocks.aiChat.mockReturnValue(pending.promise)
     render(<Editor entry={entry} onSave={vi.fn()} loading={false} />)
     await openPolish()
-    act(() => writingView().dispatch(kind === 'selection' ? { selection: { anchor: 8 } } : { changes: { from: kind === 'target' ? 1 : 9, insert: 'x' } }))
+    act(() => writingView().dispatch({ changes: { from: kind === 'target' ? 1 : 9, insert: 'x' } }))
     await act(async () => pending.resolve({ content: 'Old candidate' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('原文或选区已变化')
+    expect(screen.getByRole('alert')).toHaveTextContent('原文或日记已变化')
     expect(screen.getByRole('button', { name: '替换选中文字' })).toBeDisabled()
     expect(screen.queryByText('Old candidate')).toBeNull()
+  })
+  it('keeps a pending result when only the selection moves and applies the captured range', async () => {
+    const pending = createDeferred<AIResponse>()
+    mocks.aiChat.mockReturnValue(pending.promise)
+    render(<Editor entry={entry} onSave={vi.fn()} loading={false} />)
+    await openPolish()
+    const view = writingView()
+    act(() => view.dispatch({ selection: { anchor: 8 } }))
+    await act(async () => pending.resolve({ content: 'Old candidate' }))
+
+    expect(screen.getByRole('textbox', { name: '修改稿' })).toHaveValue('Old candidate')
+    expect(screen.getByRole('button', { name: '替换选中文字' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '替换选中文字' }))
+    expect(view.state.doc.toString()).toBe('Old candidate body')
   })
   it('regenerates original source and ignores out-of-order responses', async () => {
     const first = createDeferred<AIResponse>(), second = createDeferred<AIResponse>()

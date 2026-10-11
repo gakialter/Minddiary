@@ -1,8 +1,62 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import MarkdownRenderer from '../src/components/common/MarkdownRenderer'
+import { normalizeMarkdownMath } from '../src/utils/aiResponseMath'
 
 describe('MarkdownRenderer', () => {
+  it('renders inline and display math in ordinary learning notes by default', () => {
+    const { container } = render(
+      <MarkdownRenderer>{String.raw`行内 $x^2$。
+
+$$\frac{a}{b}$$`}</MarkdownRenderer>,
+    )
+    expect(container.querySelectorAll('.katex')).toHaveLength(2)
+    expect(container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(container.querySelectorAll('math')).toHaveLength(2)
+  })
+
+  it('keeps Markdown, links, text, color formatting and code intact beside math', () => {
+    const source = '**重点** ==高亮== ++下划线++ {color:blue}蓝色{/color} $x^2$\n\n'
+      + '[文档](https://example.com)\n\n`$x^2$`\n\n```latex\n$$\\frac{a}{b}$$\n```\n\n普通文字，价格 $20。'
+    const { container } = render(<MarkdownRenderer>{source}</MarkdownRenderer>)
+    expect(container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(container.querySelector('strong')?.textContent).toBe('重点')
+    expect(container.querySelector('mark')?.textContent).toBe('高亮')
+    expect(container.querySelector('u')?.textContent).toBe('下划线')
+    expect(container.querySelector('.md-color-blue')?.textContent).toBe('蓝色')
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://example.com')
+    expect(container.querySelectorAll('code')).toHaveLength(2)
+    expect(container.querySelector('pre')?.textContent).toContain('$$\\frac{a}{b}$$')
+    expect(container.textContent).toContain('普通文字，价格 $20。')
+  })
+
+  it('keeps raw HTML and unsafe URLs disabled with math enabled', () => {
+    const source = '<img src=x onerror=alert(1)>\n\n<script>alert(1)</script>\n\n'
+      + '[危险](javascript:alert%281%29)\n\n' + String.raw`$\href{javascript:alert(1)}{危险}$`
+    const { container } = render(<MarkdownRenderer>{source}</MarkdownRenderer>)
+    expect(container.querySelector('img, script, [onerror], a[href^="javascript:"]')).toBeNull()
+  })
+
+  it('leaves invalid math readable and still permits explicit plain Markdown rendering', () => {
+    const { container, rerender } = render(<MarkdownRenderer>{String.raw`$\frac{a}{$`}</MarkdownRenderer>)
+    expect(container.querySelector('.katex-error')?.textContent).toContain('\\frac')
+    rerender(<MarkdownRenderer math={false}>{'$x^2$'}</MarkdownRenderer>)
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.textContent).toContain('$x^2$')
+  })
+
+  it('does not infer bare formulas in user notes or change formula examples in links and code', () => {
+    const { container } = render(<MarkdownRenderer>{String.raw`\frac{a}{b}
+
+[文档](https://example.com/\(x\))
+
+` + '`' + String.raw`$$\frac{a}{b}$$` + '`'}</MarkdownRenderer>)
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.textContent).toContain('\\frac{a}{b}')
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://example.com/(x)')
+    expect(normalizeMarkdownMath(String.raw`[文档](https://example.com/\(x\))`)).toBe(String.raw`[文档](https://example.com/\(x\))`)
+  })
+
   // ── Highlight ==text== ────────────────────────────────────────────────
 
   it('renders ==重点内容== as a <mark> element', () => {

@@ -307,6 +307,25 @@ describe('I3 fixed preload / adapter / IPC / final fetch boundary', () => {
         if(second.kind!=='answer') throw new Error('answer');
         expect((await f.handlers.regenerate(f.owner.event,{session,requestHandle:second.requestHandle})).kind).toBe('answer');
     });
+    it.each([
+        '再给我一道同类型题，只给题目，先不要给答案。',
+        '给我制定一份考前冲刺计划，包含每日任务，不要安排太满。',
+    ])('direct main chat preserves history for output preferences: %s', async userInput => {
+        const f=fixture(),session=await f.open();
+        expect((await f.chat(session,'讲解极限的解题方法')).kind).toBe('answer');
+        f.prepare.mockClear();
+        expect((await f.chat(session,userInput)).kind).toBe('answer');
+        expect(f.prepare).not.toHaveBeenCalled();
+        expect(f.database.setSetting).not.toHaveBeenCalled();
+        const body=JSON.parse(String(f.fetchMock.mock.calls[1]![1]?.body));
+        expect(body.messages[1].content).toBe('讲解极限的解题方法');
+        expect(body.messages[3].content).toBe(userInput);
+    });
+    it('direct main send still refuses data restrictions mixed with output preferences', async () => {
+        const f=fixture(),session=await f.open();
+        expect((await f.chat(session,'只给题目，不要给答案，也不要读取日记。')).kind).toBe('unavailable');
+        expect(f.fetchMock).not.toHaveBeenCalled();
+    });
     it('S2 discipline survives user injection with the same bounded summary, no additional SQL or Provider call', async () => {
         const f=fixture(),session=await f.open(),e=await f.evidence(session);
         const before=f.sql.prepare('SELECT * FROM pomodoro_sessions ORDER BY id').all();

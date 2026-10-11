@@ -23,6 +23,7 @@ export interface DiaryWritingHandle {
 }
 interface Props {
   identity?: string
+  polishPreviousIdentity?: string
   polishChat?: (messages: AIMessage[]) => Promise<AIResponse>
   value: string
   onChange: (value: string) => void
@@ -43,10 +44,10 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
   const queueFrame = useRef(0)
   const toolbarDismissed = useRef(false)
   const [formats, setFormats] = useState<DiaryFormatState>({ bold: false, underline: false, highlight: false, color: undefined })
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  const [position, setPosition] = useState<{ left: number; top: number; colorBelow: boolean } | null>(null)
   const [notice, setNotice] = useState('')
   const [polishMenu, setPolishMenu] = useState(false)
-  const polish = useDiaryPolish(viewRef, props.identity ?? '', props.polishChat)
+  const polish = useDiaryPolish(viewRef, props.identity ?? '', props.polishChat, props.polishPreviousIdentity)
   const polishRef = useRef(polish)
   polishRef.current = polish
   useEffect(() => {
@@ -148,11 +149,17 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
         const start = view.coordsAtPos(selection.from)
         const end = view.coordsAtPos(selection.to)
         const bounds = view.scrollDOM.getBoundingClientRect()
-        // Reserve space above for the compact toolbar and its color popover.
-        if (!start || !end || start.top < Math.max(150, bounds.top) || end.bottom > Math.min(innerHeight - 8, bounds.bottom)) {
+        const visibleTop = Math.max(8, bounds.top)
+        const visibleBottom = Math.min(innerHeight - 8, bounds.bottom)
+        // A valid selection may touch a scrolling edge. Anchor to its visible
+        // end and keep the toolbar onscreen instead of requiring the whole range.
+        if ((!start && !end) || visibleBottom <= visibleTop
+          || (start && start.top > visibleBottom) || (end && end.bottom < visibleTop)) {
           setPosition(null); return
         }
-        setPosition({ left: Math.max(8, Math.min(start.left, innerWidth - 240)), top: start.top - 44 })
+        const anchor = start && start.top >= visibleTop ? start : end ?? start!
+        const top = Math.max(8, Math.min(anchor.top - 44, innerHeight - 48))
+        setPosition({ left: Math.max(8, Math.min(anchor.left, innerWidth - 240)), top, colorBelow: top < 110 })
       })
     }
     const publishState = (state: EditorState) => {
@@ -175,8 +182,10 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
           ...historyKeymap, ...defaultKeymap,
         ]),
         EditorView.updateListener.of(update => {
-          if (update.docChanged || (update.selectionSet && !update.startState.selection.eq(update.state.selection))) {
+          if (update.docChanged) {
             polishRef.current.invalidate()
+          }
+          if (update.docChanged || update.selectionSet) {
             setPolishMenu(false)
           }
           if (update.docChanged && update.transactions.some(tr => tr.docChanged && !tr.annotation(externalSync))) {
@@ -249,7 +258,7 @@ const DiaryWritingSurface = forwardRef<DiaryWritingHandle, Props>(function Diary
   return <>
     <div ref={host} className="diary-live-preview" />
     <div className="diary-format-notice" role="status" aria-live="polite" aria-atomic="true">{notice}</div>
-    {position && createPortal(<div className="diary-selection-toolbar" data-diary-format="true"
+    {position && createPortal(<div className="diary-selection-toolbar" data-diary-format="true" data-color-below={position.colorBelow || undefined}
       style={position} onKeyDown={e => {
         if (e.key === 'Escape') {
           e.preventDefault()

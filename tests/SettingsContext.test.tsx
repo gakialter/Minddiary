@@ -336,12 +336,8 @@ describe('SettingsContext', () => {
     await waitFor(() => expect(result.current.settingsReady).toBe(true))
 
     expect(mocks.loggerError).toHaveBeenCalledWith('[SettingsContext] Ignored malformed browser settings')
-    expect(result.current.settingsData.countdownEvents).toEqual([
-      expect.objectContaining({
-        id: DEFAULT_EXAM_EVENT_ID,
-        title: '考研初试',
-      }),
-    ])
+    expect(result.current.settingsData.countdownEvents).toEqual([])
+    expect(result.current.settingsData.examDate).toBe('')
   })
 
   it('rejects an invalid primary title before calling the Electron settings API', async () => {

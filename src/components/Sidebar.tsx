@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 
 interface SidebarProps {
   activeView: string
@@ -16,6 +17,7 @@ interface NavItem {
 }
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
+  const todayDate = useCurrentLocalDateKey()
   const navItems: NavItem[] = [
     { id: 'home', icon: Home, label: '今日安排' },
     { id: 'editor', icon: PenLine, label: '写日记' },
@@ -65,11 +67,16 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
       <div className="sidebar-footer">
         {!isCollapsed && (
           <div className="sidebar-today">
-            <div className="sidebar-today-label">所选日期</div>
-            <div className="sidebar-today-date">{selectedDate}</div>
+            <div className="sidebar-today-label">今天</div>
+            <div className="sidebar-today-date">{todayDate}</div>
             <div className="sidebar-today-weekday">
-              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
+              {new Date(todayDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
             </div>
+            {selectedDate !== todayDate && (
+              <div className="sidebar-today-weekday">
+                日历所选日期：{selectedDate}（{selectedDate < todayDate ? '历史日记' : '未来日期'}）
+              </div>
+            )}
           </div>
         )}
         <button

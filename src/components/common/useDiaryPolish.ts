@@ -1,28 +1,71 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
 import type { AIMessage, AIResponse } from '../../types'
 import { buildPolishMessages, validatePolishCandidate, type PolishAction } from '../../utils/diaryPolish'
 import { capturePolishTarget, polishTargetMatches, polishTransaction, type PolishTarget } from './diaryPolishTarget'
+import { useDiaryPolishSessions } from './DiaryPolishSessionContext'
 
 export interface PolishReview { target: PolishTarget | null; action: PolishAction; loading: boolean; stale: boolean; error: string; candidate: string; candidateReady: boolean }
 export function useDiaryPolish(viewRef: React.MutableRefObject<EditorView | undefined>, identity: string,
-  chat?: (messages: AIMessage[]) => Promise<AIResponse>) {
+  chat?: (messages: AIMessage[]) => Promise<AIResponse>, previousIdentity?: string) {
+  const sessions = useDiaryPolishSessions()
   const [review, setReview] = useState<PolishReview | null>(null)
   const current = useRef<PolishReview | null>(null)
   const generation = useRef(0)
-  const latest = useRef({ identity, chat })
-  latest.current = { identity, chat }
-  const publish = (next: PolishReview | null) => { current.current = next; setReview(next) }
-  const close = () => { generation.current++; publish(null) }
+  const latest = useRef({ identity, chat, previousIdentity })
+  latest.current = { identity, chat, previousIdentity }
+  const publish = (next: PolishReview | null) => {
+    current.current = next
+    if (next?.target && next.candidateReady) sessions.set(next.target.identity, { ...next, loading: false })
+    setReview(next)
+  }
+  const close = () => { generation.current++; sessions.delete(latest.current.identity); publish(null) }
   const invalidate = () => {
     generation.current++
-    if (current.current) publish({ ...current.current, loading: false, stale: true })
+    // Synchronizing a different record must not expire this record's saved draft.
+    if (current.current?.target?.identity === latest.current.identity) {
+      publish({ ...current.current, loading: false, stale: true })
+    }
   }
-  useLayoutEffect(() => { close(); return () => { generation.current++; current.current = null } }, [identity])
+  useEffect(() => {
+    const promoting = !!previousIdentity && previousIdentity !== identity
+    let keepPendingPromotion = false
+    if (promoting) {
+      const active = current.current
+      if (active?.target?.identity === previousIdentity) {
+        // Keep the captured target object so an in-flight request sees the promoted identity.
+        active.target.identity = identity
+        const view = viewRef.current
+        const matches = !!view && polishTargetMatches(view.state, identity, active.target)
+        const promoted = { ...active, stale: active.stale || !matches, loading: active.loading && matches }
+        keepPendingPromotion = promoted.loading && matches
+        if (active.loading && !matches) generation.current++
+        publish(promoted)
+      } else {
+        generation.current++
+      }
+      const previous = sessions.get(previousIdentity)
+      if (previous?.target) sessions.set(identity, { ...previous, target: { ...previous.target, identity } })
+      sessions.delete(previousIdentity)
+    } else {
+      generation.current++
+    }
+    if (!keepPendingPromotion && !(promoting && current.current?.target?.identity === identity)) {
+      const saved = sessions.get(identity)
+      const view = viewRef.current
+      publish(saved ? { ...saved, stale: saved.stale || !view || !saved.target || !polishTargetMatches(view.state, identity, saved.target) } : null)
+    }
+    return () => {
+      if (latest.current.identity !== identity && latest.current.previousIdentity === identity) return
+      generation.current++
+      current.current = null
+    }
+  }, [identity, previousIdentity, sessions])
   const run = async (action: PolishAction, original?: PolishTarget | null) => {
     const view = viewRef.current
     if (!view || view.compositionStarted) return
     const target = original ?? capturePolishTarget(view.state, latest.current.identity)
+    if (!original) sessions.delete(latest.current.identity)
     const token = ++generation.current
     const previous = original && current.current?.target === original ? current.current : null
     const next: PolishReview = { target, action, loading: !!target, stale: false, error: '',

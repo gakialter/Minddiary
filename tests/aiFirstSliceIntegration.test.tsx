@@ -11,13 +11,26 @@ import { createAiService } from '../electron/aiService'
 import type { ElectronAPI, FirstSliceAPI } from '../src/types/api'
 import type { DiaryEntry } from '../src/types'
 import * as contextBuilder from '../src/utils/aiContextBuilder'
+import * as aiComposer from '../src/hooks/useAIComposer'
+
+const actualUseAIComposer = aiComposer.useAIComposer
+function observeComposer() {
+  let composer!: ReturnType<typeof actualUseAIComposer>
+  vi.spyOn(aiComposer, 'useAIComposer').mockImplementation(binding => {
+    composer = actualUseAIComposer(binding)
+    return composer
+  })
+  // Quick prompts no longer select local records. Exercise manual context
+  // selection through the real hook while keeping its state and safety gate.
+  return () => act(() => composer.setContextKinds(['mistake-patterns']))
+}
 
 const state = vi.hoisted(() => ({ ai: {} as ReturnType<typeof createAiApi>, settingsData: { aiModel: 'fixture-model', aiApiKeyPresent: true, aiEndpoint: 'https://fixture.invalid/v1', aiVisionEnabled: false } }))
 // Control only PDF.js extraction here; composer, reader projection, preload,
 // main validation/coordinator, SQLite and aiService remain the production chain.
 const pdfExtraction = vi.hoisted(() => ({ getDocument: vi.fn(), destroy: vi.fn(async () => undefined) }))
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({ GlobalWorkerOptions: {}, getDocument: pdfExtraction.getDocument }))
-vi.mock('../src/contexts/DiaryContext', () => ({ useDiary: () => ({ ai: state.ai, settingsData: state.settingsData }) }))
+vi.mock('../src/contexts/DiaryContext', () => ({ useDiary: () => ({ isReady: true, ai: state.ai, settingsData: state.settingsData }) }))
 vi.mock('../src/utils/apiAdapter', () => ({ IS_ELECTRON: true }))
 vi.mock('../src/components/common/MarkdownRenderer', () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 const KEY = 'minddiary.ai.chatHistory'
@@ -325,10 +338,13 @@ afterEach(() => { cleanup(); f.sql.close(); vi.restoreAllMocks() })
     expect(f.body()).not.toContain('140')
   })
   it('S2 explanation preserves an unrelated draft, context and attachment without disclosing them', async () => {
+    const selectContext = observeComposer()
     const { container } = render(<AIPanel entry={null} />)
     submit(comparison)
     await screen.findByRole('button', { name: '发送摘要给 AI' })
     fireEvent.click(screen.getByRole('button', { name: /错题规律/ }))
+    expect(screen.queryByRole('button', { name: '移除资料：错题规律' })).toBeNull()
+    selectContext()
     const draft = '这是我准备问的下一个问题'
     fireEvent.change(screen.getByRole('textbox'), { target: { value: draft } })
     const file = new File(['UNSENT_ATTACHMENT_CANARY'], 'unsent.txt', { type: 'text/plain' })
@@ -349,10 +365,13 @@ afterEach(() => { cleanup(); f.sql.close(); vi.restoreAllMocks() })
     expect(f.fetchMock).toHaveBeenCalledTimes(1)
   })
   it('blocked ordinary send removes an outstanding explanation action without sending', async () => {
+    const selectContext = observeComposer()
     render(<AIPanel entry={null} />)
     submit(comparison)
     await screen.findByRole('button', { name: '发送摘要给 AI' })
     fireEvent.click(screen.getByRole('button', { name: /错题规律/ }))
+    expect(screen.queryByRole('button', { name: '移除资料：错题规律' })).toBeNull()
+    selectContext()
     submit('下一个问题')
     await screen.findByText(/当前受控对话暂不支持/)
     expect(screen.queryByRole('button', { name: '发送摘要给 AI' })).toBeNull()

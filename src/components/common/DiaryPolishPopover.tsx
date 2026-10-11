@@ -30,7 +30,7 @@ export default function DiaryPolishPopover({ review, onClose, onRegenerate, onCa
     <div className="diary-polish-review__text">
       {review.target && <><h3>原文</h3><p>{review.target.source}</p></>}
       {review.loading && <p role="status">正在生成；继续修改正文会取消这次结果。</p>}
-      {review.stale && <p role="alert">原文或选区已变化，请重新选择并重新生成。</p>}
+      {review.stale && <p role="alert">原文或日记已变化，请重新选择并重新生成。</p>}
       {review.error && <p role="alert" className="diary-polish-review__request-error">{review.error}</p>}
       {review.candidateReady && <>
         <h3>修改稿</h3>

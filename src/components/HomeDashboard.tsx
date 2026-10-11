@@ -9,7 +9,7 @@ import DailyReviewAgentDialog from './DailyReviewAgentDialog'
 import ReviewTaskPickerDialog from './ReviewTaskPickerDialog'
 import TodayActionSuggestionDialog from './TodayActionSuggestionDialog'
 import PlanningHistoryDialog from './PlanningHistoryDialog'
-import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, ChevronDown, ChevronUp, Timer } from 'lucide-react'
 import { usePomodoroActions, usePomodoroData, usePomodoroTimer } from '../contexts/PomodoroContext'
 import {
   buildTodayExecutionSummary,
@@ -25,11 +25,12 @@ const TASK_ESTIMATE_MINUTES_MAX = 240
 
 interface HomeDashboardProps {
   setActiveView: (view: string) => void
+  selectedDate?: string
   setSelectedDate?: (date: string) => void
   onMistakeFilterIntent?: (intent: 'due') => void
 }
 
-export default function HomeDashboard({ setActiveView, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
+export default function HomeDashboard({ setActiveView, selectedDate, setSelectedDate, onMistakeFilterIntent }: HomeDashboardProps) {
   const { data, error, resolvedDateKey, errorDateKey } = useTodayStats()
   const {
     settingsData,
@@ -51,7 +52,9 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const [taskError, setTaskError] = useState<string | null>(null)
   const [taskLoading, setTaskLoading] = useState(true)
   const [taskMutating, setTaskMutating] = useState(false)
+  const [startingTaskId, setStartingTaskId] = useState<number | null>(null)
   const taskMutationLockedRef = useRef(false)
+  const startTaskLocksRef = useRef(new Set<number>())
   const taskLoadGenerationRef = useRef(0)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
@@ -66,7 +69,7 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
   const todayDate = useCurrentLocalDateKey()
   const { hasActiveTimerSession, dynamicModes } = usePomodoroTimer()
   const { selectedTask: activePomodoroTask } = usePomodoroData()
-  const { selectFocusTask, setMode } = usePomodoroActions()
+  const { selectFocusTask, setMode, startFocusTask } = usePomodoroActions()
 
   const config = useDashboardMasterState(data)
 
@@ -155,6 +158,27 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
       if (hasActiveSuggestionTask(latestTasks, type)) return
       await tasksAPI.create(task)
     })
+  }
+
+  const handleStartTaskFocus = async (task: StudyTask) => {
+    if (hasActiveTimerSession || startTaskLocksRef.current.has(task.id)) return
+    startTaskLocksRef.current.add(task.id)
+    setStartingTaskId(task.id)
+    setTaskError(null)
+    try {
+      const started = await startFocusTask(task.id)
+      if (!started) {
+        setTaskError(`无法为“${task.title}”开始专注，请重试。`)
+        return
+      }
+      setActiveView('pomodoro')
+    } catch (startError) {
+      const message = startError instanceof Error ? startError.message : String(startError)
+      setTaskError(`开始“${task.title}”专注失败：${message}`)
+    } finally {
+      startTaskLocksRef.current.delete(task.id)
+      setStartingTaskId(current => current === task.id ? null : current)
+    }
   }
 
   const handleManualTaskSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -356,6 +380,11 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
     <div className="today-action">
       <div className="today-action__frame">
         <div className="today-action__content">
+          {selectedDate && selectedDate !== todayDate && (
+            <p className="today-action__notice" data-testid="home-date-context">
+              今日安排显示今天（{todayDate}）。日历所选日期为 {selectedDate}；查看或编辑那天的日记，请回到日历。
+            </p>
+          )}
           {hasBackgroundDashboardError && (
             <p
               role="alert"
@@ -367,6 +396,15 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
           )}
 
           <CommanderHero config={config} onActionClick={handleCTA} />
+
+          {!settingsData?.examDate && (
+            <div className="today-action__notice" data-testid="home-target-date-prompt">
+              <span>还没有设置目标日期。</span>
+              <button type="button" className="button today-action__task-action" onClick={() => setActiveView('settings')}>
+                设置日期
+              </button>
+            </div>
+          )}
 
           <section
             data-testid="next-today-action"
@@ -515,6 +553,20 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
               </button>
             </form>
 
+            {tasks.length === 0 && !taskLoading && (
+              <div className="today-action__first-task-entry" data-testid="home-first-task-entry">
+                <p>从一件今天能完成的小事开始。添加后可直接开始专注。</p>
+                {subjects.length === 0 && (
+                  <button type="button" className="button today-action__quiet-action" onClick={() => setActiveView('progress')}>
+                    创建科目
+                  </button>
+                )}
+                <button type="button" className="button today-action__quiet-action" onClick={() => setActiveView('pomodoro')}>
+                  打开专注计时
+                </button>
+              </div>
+            )}
+
             {commanderMetrics.riskPoolCount > 0 || (!data.todayEntry && !hasDiaryTask) ? (
               <div className="today-action__task-suggestions" role="group" aria-label="任务补全建议">
                 <span className="today-action__task-suggestions-label">可选补全</span>
@@ -662,6 +714,19 @@ export default function HomeDashboard({ setActiveView, setSelectedDate, onMistak
                         )}
                       </div>
                       <div className="today-action__task-actions" role="group" aria-label={`${task.title} 的操作`}>
+                        {(task.status === 'todo' || task.status === 'doing') && (
+                          <button
+                            data-testid={`task-start-focus-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action"
+                            aria-label={`开始专注：${task.title}`}
+                            title={hasActiveTimerSession ? '请先结束当前专注，再开始另一项任务。' : undefined}
+                            disabled={taskMutating || hasActiveTimerSession || startingTaskId !== null}
+                            onClick={() => { void handleStartTaskFocus(task) }}
+                          >
+                            {startingTaskId === task.id ? '正在开始…' : <><Timer size={14} aria-hidden="true" /> 开始专注</>}
+                          </button>
+                        )}
                         {(task.status === 'done' || task.status === 'skipped') && (
                           <button
                             data-testid={`task-restore-${task.id}`}

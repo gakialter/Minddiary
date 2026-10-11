@@ -13,6 +13,7 @@ Range.prototype.getBoundingClientRect = () => new DOMRect()
 
 const mocks = vi.hoisted(() => ({
   selectedDate: '2026-05-12',
+  selectedEntryId: null as number | null,
   dirty: vi.fn(),
   navigation: vi.fn(),
   renderEntry: vi.fn(),
@@ -20,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   renderEnsureId: vi.fn(),
   setSelectedDate: vi.fn(),
   dismissAlert: vi.fn(),
-  entries: { getByDate: vi.fn(), create: vi.fn(), update: vi.fn() },
+  entries: { getByDate: vi.fn(), getById: vi.fn(), create: vi.fn(), update: vi.fn() },
   tags: { getAll: vi.fn(), getEntryTags: vi.fn(), setEntryTags: vi.fn() },
   pomodoro: { getDailyTotal: vi.fn() },
   templates: { getAll: vi.fn() },
@@ -57,7 +58,7 @@ vi.mock('../src/hooks/useNavigation', async () => {
       const [activeView, setActiveView] = useState('editor')
       mocks.navigation(options)
       return {
-        activeView, selectedDate: mocks.selectedDate, viewTitle: '写日记',
+        activeView, selectedDate: mocks.selectedDate, selectedEntryId: mocks.selectedEntryId, viewTitle: '写日记',
         setActiveView, setSelectedDate: mocks.setSelectedDate, changeDate: mocks.noop,
       }
     },
@@ -135,9 +136,11 @@ describe('App + Editor save acknowledgements', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.selectedDate = original.date
+    mocks.selectedEntryId = null
     localStorage.clear()
     localStorage.setItem('started', 'true')
     mocks.entries.getByDate.mockReset().mockResolvedValue(original)
+    mocks.entries.getById.mockReset().mockResolvedValue(original)
     mocks.entries.create.mockReset()
     mocks.entries.update.mockReset()
     mocks.tags.getAll.mockResolvedValue([])
@@ -147,6 +150,49 @@ describe('App + Editor save acknowledgements', () => {
     mocks.templates.getAll.mockResolvedValue([])
     mocks.tasks.find.mockResolvedValue([])
     mocks.ai.chat.mockResolvedValue({ content: 'Polished' })
+  })
+
+  it('loads by exact id and rejects an old save callback while switching between same-day records', async () => {
+    mocks.selectedEntryId = original.id
+    const mounted = await mount()
+    expect(mocks.entries.getById).toHaveBeenCalledWith(original.id)
+    expect(mocks.entries.getByDate).not.toHaveBeenCalled()
+    const oldSave = mocks.renderSave.mock.lastCall![0] as ComponentProps<typeof Editor>['onSave']
+    const pending = deferred<DiaryEntry>()
+    mocks.entries.getById.mockReturnValue(pending.promise)
+    mocks.selectedEntryId = 10
+    mounted.rerender(<App />)
+    expect(screen.queryByTestId('diary-content-input')).not.toBeInTheDocument()
+    const oldDraft = { title: 'Stale', content: 'Must not overwrite another same-day diary', tags: [] }
+    await expect(oldSave(oldDraft)).resolves.toBeNull()
+    await finish(pending, saved('Other same-day diary', { id: 10 }))
+    await waitFor(() => expect(body()).toBe('Other same-day diary'))
+    await expect(oldSave(oldDraft)).resolves.toBeNull()
+    edit('Only record 10 changes'); saveNow()
+    expect(mocks.entries.update).toHaveBeenCalledWith(10, expect.objectContaining({ content: 'Only record 10 changes' }))
+    expect(mocks.entries.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'failed'])('does not replace a %s explicit record with a same-day diary or a new entry', async kind => {
+    mocks.selectedEntryId = 10
+    if (kind === 'failed') mocks.entries.getById.mockRejectedValue(new Error('Read failed'))
+    else mocks.entries.getById.mockResolvedValue(null)
+    render(<App />)
+    await screen.findByText('未能打开日记，请重新选择日期或日记。')
+    expect(screen.queryByTestId('diary-content-input')).not.toBeInTheDocument()
+    saveNow()
+    expect(mocks.entries.getByDate).not.toHaveBeenCalled()
+    expect(mocks.entries.create).not.toHaveBeenCalled()
+    expect(mocks.entries.update).not.toHaveBeenCalled()
+  })
+  it('does not create a same-day replacement when date lookup fails', async () => {
+    mocks.entries.getByDate.mockRejectedValue(new Error('Read failed'))
+    render(<App />)
+    await screen.findByText('未能打开日记，请重新选择日期或日记。')
+    expect(screen.queryByTestId('diary-content-input')).not.toBeInTheDocument()
+    saveNow()
+    expect(mocks.entries.create).not.toHaveBeenCalled()
+    expect(mocks.entries.update).not.toHaveBeenCalled()
   })
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 

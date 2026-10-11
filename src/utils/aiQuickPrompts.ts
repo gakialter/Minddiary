@@ -40,32 +40,32 @@ export const AI_QUICK_PROMPT_TEMPLATES: AIQuickPromptTemplate[] = [
     {
         id: 'daily-summary',
         label: '日记总结',
-        draft: '请总结我今天的学习内容、主要收获、仍未解决的问题，并给出下一步建议。',
-        contextKinds: ['current-diary'],
+        draft: '请先让我在对话中提供今天的学习内容、主要收获和待解决的问题，再只根据我提供的内容进行总结，并给出下一步建议。',
+        contextKinds: [],
     },
     {
         id: 'mistake-patterns',
         label: '错题规律',
-        draft: '请分析我近期错题中反复出现的薄弱点，并给出三个优先改进方向。',
-        contextKinds: ['mistake-patterns'],
+        draft: '请先让我在对话中提供错题题目、解题过程和出错原因，再只根据我提供的内容分析反复出现的薄弱点，并给出三个优先改进方向。',
+        contextKinds: [],
     },
     {
         id: 'quiz-me',
         label: '错题测验',
-        draft: '请根据我尚未掌握的错题出一道题考我。先只出题，不要立即给答案。',
-        contextKinds: ['unmastered-mistakes'],
+        draft: '请先让我在对话中提供尚未掌握的题目和解题困难，再只根据我提供的内容出一道类似题考我。先只出题，不要立即给答案。',
+        contextKinds: [],
     },
     {
         id: 'mental-massage',
         label: '状态调整',
-        draft: '请根据我当前的学习状态，给出克制、具体、可以立即执行的调整建议，不要使用空泛鼓励。',
-        contextKinds: ['recent-reflection'],
+        draft: '请先让我在对话中说明当前的学习状态和遇到的困难，再只根据我提供的内容，给出克制、具体、可以立即执行的调整建议。',
+        contextKinds: [],
     },
     {
         id: 'sprint-plan',
         label: '冲刺计划',
-        draft: '请根据剩余时间和当前学习情况，为我制定一份现实、可执行的阶段复习计划。',
-        contextKinds: ['exam-countdown', 'study-overview'],
+        draft: '请先问我考试日期、每天可用时间、复习科目和当前复习情况，再根据我在对话中提供的信息，制定一份现实、可执行的阶段复习计划。',
+        contextKinds: [],
     },
 ]
 

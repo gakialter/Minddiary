@@ -3,6 +3,8 @@ import { Download, Frown, RotateCcw } from 'lucide-react'
 import { DiaryProvider, useDiary } from './contexts/DiaryContext'
 import { PomodoroProvider, usePomodoroData, usePomodoroActions } from './contexts/PomodoroContext'
 import { LocalDateProvider, useCurrentLocalDateKey } from './contexts/LocalDateContext'
+import { AIComposerSessionProvider } from './contexts/AIComposerSessionContext'
+import { DiaryPolishSessionProvider } from './components/common/DiaryPolishSessionContext'
 import { useNavigation, VIEW_CONFIG } from './hooks/useNavigation'
 import { useGlobalKeyboard } from './hooks/useGlobalKeyboard'
 import Layout from './components/Layout'
@@ -76,7 +78,7 @@ function AppContent() {
   // ─── Navigation (extracted hook) ───
   const {
     activeView, setActiveView,
-    selectedDate, setSelectedDate,
+    selectedDate, setSelectedDate, selectedEntryId, selectEntry,
     changeDate, viewTitle, searchSession, setSearchSession, aiTextDraft,
   } = useNavigation({ canAutoFollowToday: !isEditorDirty })
 
@@ -93,6 +95,8 @@ function AppContent() {
   const metadataSaveGenerationRef = useRef(0)
   const selectedDateRef = useRef(selectedDate)
   selectedDateRef.current = selectedDate
+  const selectedEntryIdRef = useRef(selectedEntryId)
+  selectedEntryIdRef.current = selectedEntryId
   // Initial saves share only the creation of an id; later drafts update that id.
   const entryCreationRef = useRef<{ date: string; loadRequest: number; promise: Promise<DiaryEntry> } | null>(null)
   const [isFirstLaunch, setIsFirstLaunch] = useState(() => !localStorage.getItem('started'))
@@ -143,6 +147,13 @@ function AppContent() {
     }
     return true
   }, [activeView, isEditorDirty, isPomodoroFullscreenActive, setActiveView])
+
+  const navigateToDate = useCallback((date: string) => {
+    navigateToView('editor', () => changeDate(date))
+  }, [changeDate, navigateToView])
+  const navigateToEntry = useCallback((selected: DiaryEntry) => {
+    navigateToView('editor', () => selectEntry(selected))
+  }, [navigateToView, selectEntry])
 
   const handleWriteFocusDiary = useCallback(() => {
     const request = ++focusActionRequestRef.current
@@ -232,8 +243,8 @@ function AppContent() {
 
   // ─── Entry loading ───
   useEffect(() => {
-    loadEntry(selectedDate)
-  }, [selectedDate])
+    loadEntry(selectedDate, selectedEntryId)
+  }, [selectedDate, selectedEntryId])
 
   /** Create a blank entry shell for a given date (used when no saved entry exists). */
   const createEmptyEntry = (date: string): DiaryEntry => ({
@@ -252,26 +263,29 @@ function AppContent() {
     }
   }
 
-  const loadEntry = async (date: string) => {
+  const loadEntry = async (date: string, entryId?: number | null) => {
     // Guard against race conditions when the user switches dates rapidly:
     // each call captures a unique requestId; if a newer call has started by the
     // time an older one resolves, the older result is silently discarded.
     const currentRequestId = ++loadRequestId.current
     setLoading(true)
     try {
-      const data = await diary.entries.getByDate(date)
+      const data = entryId ? await diary.entries.getById(entryId) : await diary.entries.getByDate(date)
       if (currentRequestId !== loadRequestId.current) return // stale request
       if (data) {
         const tagIds = await loadEntryTags(data)
         if (currentRequestId !== loadRequestId.current) return // stale after tag fetch
         setEntry({ ...data, tags: tagIds })
       } else {
-        setEntry(createEmptyEntry(date))
+        // A missing explicit record must never fall back to another diary that day.
+        setEntry(entryId ? null : createEmptyEntry(date))
+        if (entryId) showToast('这篇日记已不存在，请重新搜索。', 'info')
       }
     } catch (error) {
       logger.error('Failed to load entry:', error)
       if (currentRequestId === loadRequestId.current) {
-        setEntry(createEmptyEntry(date))
+        setEntry(null)
+        showToast('未能打开日记，请重新选择日期或日记。', 'error')
       }
     } finally {
       if (currentRequestId === loadRequestId.current) {
@@ -299,13 +313,15 @@ function AppContent() {
   // Metadata-only changes (such as mood) leave the editor draft untouched.
   // When `tags` is absent (undefined), setEntryTags is deliberately skipped.
   const saveEntry = async (updated: Partial<DiaryEntry>, options?: DiarySaveOptions): Promise<DiaryEntry | null> => {
-    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate) return null
+    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate
+      || selectedEntryIdRef.current !== selectedEntryId || (selectedEntryId && entry.id !== selectedEntryId)) return null
     const date = selectedDate
     const loadRequest = loadRequestId.current
     const savesDraft = updated.title !== undefined || updated.content !== undefined || updated.tags !== undefined
     const generationRef = savesDraft ? saveGenerationRef : metadataSaveGenerationRef
     const generation = ++generationRef.current
-    const isCurrentDiary = () => selectedDateRef.current === date && loadRequestId.current === loadRequest
+    const isCurrentDiary = () => selectedDateRef.current === date && selectedEntryIdRef.current === selectedEntryId
+      && loadRequestId.current === loadRequest
     const isCurrentRevision = () => (
       isCurrentDiary() && generation === generationRef.current && (options?.isCurrentRevision?.() ?? true)
     )
@@ -359,12 +375,14 @@ function AppContent() {
   }
 
   const ensureEntryId = useCallback(async () => {
-    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate) return null
+    if (loading || !entry || entry.date !== selectedDate || selectedDateRef.current !== selectedDate
+      || selectedEntryIdRef.current !== selectedEntryId || (selectedEntryId && entry.id !== selectedEntryId)) return null
     if (entry?.id) return entry.id
     const loadRequest = loadRequestId.current
     try {
       const saved = await getOrCreateEntry(selectedDate, loadRequest, entry)
-      if (selectedDateRef.current !== selectedDate || loadRequestId.current !== loadRequest) return null
+      if (selectedDateRef.current !== selectedDate || selectedEntryIdRef.current !== selectedEntryId
+        || loadRequestId.current !== loadRequest) return null
       setEntry(current => current?.date === selectedDate && (!current.id || current.id === saved.id)
         ? { ...current, id: saved.id, created_at: saved.created_at }
         : current)
@@ -373,18 +391,26 @@ function AppContent() {
       logger.error('Failed to create entry before image upload:', error)
       return null
     }
-  }, [entry, getOrCreateEntry, loading, selectedDate])
+  }, [entry, getOrCreateEntry, loading, selectedDate, selectedEntryId])
 
   // ─── View rendering (data-driven) ───
   const renderView = () => {
-    if (activeView === 'editor' && (loading || !entry || entry.date !== selectedDate)) {
+    if (activeView === 'editor' && (loading || !entry || entry.date !== selectedDate || (selectedEntryId && entry.id !== selectedEntryId))) {
+      if (!loading && !entry) {
+        return <div style={{ padding: 'var(--space)', color: 'var(--text-muted)' }}>
+          <p role="status">未能打开日记，请重新选择日期或日记。</p>
+          <button className="button button-secondary" onClick={() => navigateToView('calendar')}>选择日期</button>
+        </div>
+      }
       return <p role="status" style={{ padding: 'var(--space)', color: 'var(--text-muted)' }}>正在打开日记…</p>
     }
     const config = VIEW_CONFIG[activeView] || VIEW_CONFIG.editor!
     return config.render({
       entry, saveEntry, loading,
-      selectedDate, setSelectedDate,
-      changeDate, setActiveView: navigateToView,
+      selectedDate, setSelectedDate, selectEntry,
+      changeDate: navigateToDate,
+      changeEntry: navigateToEntry,
+      currentDateKey, setActiveView: navigateToView,
       isSidebarCollapsed,
       ImageGallery,
       ensureEntryId,
@@ -430,7 +456,7 @@ function AppContent() {
               </div>
             </div>
             <div className="shell-page-actions">
-              {activeView === 'editor' && !loading && entry?.date === selectedDate && (
+              {activeView === 'editor' && !loading && entry?.date === selectedDate && (!selectedEntryId || entry.id === selectedEntryId) && (
                 <div className="shell-page-mood">
                   <MoodPicker mood={entry.mood} onChange={(mood: MoodId | null) => saveEntry({ mood })} />
                 </div>
@@ -514,7 +540,11 @@ function App() {
       <DiaryProvider>
         <LocalDateProvider>
           <PomodoroProvider>
-            <AppContent />
+            <AIComposerSessionProvider>
+              <DiaryPolishSessionProvider>
+                <AppContent />
+              </DiaryPolishSessionProvider>
+            </AIComposerSessionProvider>
           </PomodoroProvider>
         </LocalDateProvider>
       </DiaryProvider>

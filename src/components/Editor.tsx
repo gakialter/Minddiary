@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { calculateWordCount } from '../utils/helpers'
+import { getLocalDateKey } from '../utils/dateKey'
 import { useDiary } from '../contexts/DiaryContext'
 import { saveAs } from 'file-saver'
 import ShareCard from './ShareCard'
@@ -39,6 +40,9 @@ interface EditorProps {
   onPendingInsertApplied?: (id: number) => void
   onDirtyChange?: (isDirty: boolean) => void
   onRegisterSave?: (save: EditorSaveHandler | null) => void
+  onChangeDate?: (date: string) => void
+  onSelectEntry?: (entry: DiaryEntry) => void
+  todayDate?: string
 }
 
 interface SummaryRequestContext {
@@ -64,12 +68,27 @@ const isSameDiary = (a: DiaryEntry | null, b: DiaryEntry | null) => (
   a?.date === b?.date && (!a?.id || !b?.id || a.id === b.id)
 )
 
-function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange, onRegisterSave }: EditorProps) {
+function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied, onDirtyChange, onRegisterSave, onChangeDate, onSelectEntry, todayDate }: EditorProps) {
   const diary = useDiary()
   const [title, setTitle] = useState(entry?.title || '')
   const [content, setContent] = useState(entry?.content || '')
   const [wordCount, setWordCount] = useState(() => calculateWordCount(entry?.content || ''))
   const [saving, setSaving] = useState(false)
+  const [dayEntries, setDayEntries] = useState<DiaryEntry[]>([])
+  const [dayEntriesError, setDayEntriesError] = useState(false)
+  useEffect(() => {
+    if (!entry?.date || !onSelectEntry) return
+    let cancelled = false
+    setDayEntries([])
+    setDayEntriesError(false)
+    diary.entries.getAll({ startDate: entry.date, endDate: entry.date }).then(entries => {
+      if (!cancelled) setDayEntries(entries.sort((a, b) => a.id - b.id))
+    }).catch(error => {
+      logger.error('Failed to load same-day diaries:', error)
+      if (!cancelled) setDayEntriesError(true)
+    })
+    return () => { cancelled = true }
+  }, [diary.entries, diary.dataRefreshVersion, entry?.date, entry?.id, entry?.title, onSelectEntry])
   const [sharing, setSharing] = useState(false)
   const [pomodoros, setPomodoros] = useState<PomodoroRecord[]>([])
   const [aiSummary, setAiSummary] = useState<string | null>(null)
@@ -90,13 +109,12 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   const appliedInsertIdsRef = useRef<Set<number>>(new Set())
   const shareCardRef = useRef<HTMLDivElement>(null)
   const writingRef = useRef<DiaryWritingHandle>(null)
-  const polishSession = useRef({ date: entry?.date, id: entry?.id, version: 0 })
+  const polishSession = useRef({ date: entry?.date, id: entry?.id, previousIdentity: undefined as string | undefined })
   if (polishSession.current.date !== entry?.date || polishSession.current.id !== entry?.id) {
-    // Only a first save (0 -> database id) promotes the current editing session.
-    // Other id/date transitions still dismiss the previous selection's review.
+    // A first save promotes the same draft; other records use separate keys.
     const promoted = entry && polishSession.current.date === entry.date && polishSession.current.id === 0 && entry.id > 0
     polishSession.current = { date: entry?.date, id: entry?.id,
-      version: polishSession.current.version + (promoted ? 0 : 1) }
+      previousIdentity: promoted ? `${entry.date}:0` : undefined }
   }
   const [formatState, setFormatState] = useState<DiaryFormatState>({ bold: false, underline: false, highlight: false, color: undefined })
   const summaryGenerationRef = useRef(0)
@@ -421,7 +439,26 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
         <header className="editor-document__header">
           <p className="editor-document__date">
             {entry?.date ? <time dateTime={entry.date}>{entry.date}</time> : '新日记'}
+            {entry?.date && todayDate && `（${entry.date === todayDate ? '今天' : entry.date < todayDate ? '历史日期' : '未来日期'}）`}
           </p>
+          {onChangeDate && entry && (
+            <nav aria-label="日记导航" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <label htmlFor="editor-diary-date">选择日期</label>
+              <input id="editor-diary-date" type="date" value={entry.date}
+                onChange={event => { if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value) && event.target.value !== entry.date) onChangeDate(event.target.value) }} />
+              {todayDate && <button type="button" className="button button-secondary" onClick={() => onChangeDate(getLocalDateKey(new Date()))}>回到今天</button>}
+              {dayEntries.length > 1 && onSelectEntry && <>
+                <label htmlFor="editor-day-entry">当天 {dayEntries.length} 篇</label>
+                <select id="editor-day-entry" value={entry.id} onChange={event => {
+                  const selected = dayEntries.find(item => item.id === Number(event.target.value))
+                  if (selected && selected.id !== entry.id) onSelectEntry(selected)
+                }}>
+                  {dayEntries.map((item, index) => <option key={item.id} value={item.id}>第 {index + 1} 篇 · {item.title || '无标题'}</option>)}
+                </select>
+              </>}
+              {dayEntriesError && <span role="status" className="text-muted">未能查看当天其他日记，请到搜索查找。</span>}
+            </nav>
+          )}
           <label className="editor-visually-hidden" htmlFor="editor-diary-title">日记标题</label>
           <input
             id="editor-diary-title"
@@ -515,7 +552,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
           <DiaryWritingSurface
             key={entry?.date ?? 'new'}
             ref={writingRef}
-            identity={`${entry?.date ?? 'new'}:${polishSession.current.version}`}
+            identity={`${entry?.date ?? 'new'}:${entry?.id ?? 0}`}
+            polishPreviousIdentity={polishSession.current.previousIdentity}
             polishChat={diary.ai.chat}
             value={entry !== entryRef.current && (!isSameDiary(entry, entryRef.current) || !isDirty.current) ? entry?.content || '' : content}
             onChange={handleContentChange}

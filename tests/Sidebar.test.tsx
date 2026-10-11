@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import Sidebar from '../src/components/Sidebar'
+import { getLocalDateKey } from '../src/utils/dateKey'
 
 const destinationNames = [
   '今日安排',
@@ -64,6 +65,22 @@ describe('Sidebar', () => {
     const currentDestination = screen.getByRole('button', { name: '学习统计' })
     expect(currentDestination).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('button', { name: '今日安排' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('shows the actual current date and keeps a different selected diary date as context', () => {
+    renderSidebar()
+    const today = getLocalDateKey(new Date())
+    expect(screen.getByText('今天')).toBeInTheDocument()
+    expect(screen.getByText(today)).toBeInTheDocument()
+    expect(screen.getByText(/日历所选日期：2026-06-21（历史日记|选中日期）/)).toBeInTheDocument()
+  })
+
+  it('shows the actual current date and keeps a different selected diary date as context', () => {
+    renderSidebar()
+    const today = new Date().toLocaleDateString('en-CA')
+    expect(screen.getByText('今天')).toBeInTheDocument()
+    expect(screen.getByText(today)).toBeInTheDocument()
+    expect(screen.getByText('日历所选日期：2026-06-21（历史日记）')).toBeInTheDocument()
   })
 
   it('names the collapse control accurately and exposes its expanded state', () => {

@@ -9,6 +9,7 @@ import {
 import { CalendarDays, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
 import {
   DEFAULT_EXAM_EVENT_ID,
+  DEFAULT_EXAM_TITLE,
   getPrimaryCountdownEvent,
   getPrimaryCountdownTitleError,
   isValidCountdownDate,
@@ -47,10 +48,11 @@ export default function CountdownEventsManager({
 
   const normalizedEvents = normalizeCountdownEvents(events, examDate)
   const primaryEvent = getPrimaryCountdownEvent(normalizedEvents)
-  const primaryTitle = primaryEvent?.title || ''
+  const primaryTitle = primaryEvent?.title || DEFAULT_EXAM_TITLE
   const [primaryTitleDraft, setPrimaryTitleDraft] = useState(primaryTitle)
   const primaryTitleError = getPrimaryCountdownTitleError(primaryTitleDraft)
-  const primaryDateError = isValidCountdownDate(examDate) ? null : '请选择有效的主目标日期'
+  const primaryDateError = isValidCountdownDate(examDate) || (!examDate && !primaryEvent)
+    ? null : '请选择有效的主目标日期'
   const canAdd = title.trim().length > 0 && date.trim().length > 0
 
   useEffect(() => {
@@ -82,7 +84,11 @@ export default function CountdownEventsManager({
   const handleExamDateChange = (value: string) => {
     setExamDate(value)
     if (isValidCountdownDate(value)) {
-      setEvents(currentEvents => normalizeCountdownEvents(currentEvents, value))
+      setEvents(currentEvents => normalizeCountdownEvents(currentEvents, value).map(event => (
+        event.id === DEFAULT_EXAM_EVENT_ID && !primaryEvent && !primaryTitleError
+          ? { ...event, title: primaryTitleDraft.trim() }
+          : event
+      )))
     }
   }
 
@@ -164,7 +170,7 @@ export default function CountdownEventsManager({
           </div>
         )}
         <div className="text-xs text-muted" style={{ marginTop: 6 }}>
-          主要目标会显示在日期列表和倒计时中。
+          {primaryEvent ? '主要目标会显示在日期列表和倒计时中。' : '尚未设置目标日期，可按自己的计划填写。'}
         </div>
       </div>
 

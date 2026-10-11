@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import type { ReactElement } from 'react'
-import { Bot, Coffee, GraduationCap, PenLine, Search, Target, Trash2 } from 'lucide-react'
+import { Bot, Coffee, GraduationCap, PenLine, Search, Settings2, Target, Trash2 } from 'lucide-react'
 import AIComposer from './ai/AIComposer'
 import AIMessageBubble, { type AIChatMessage } from './ai/AIMessageBubble'
 import AIQuickPromptMenu from './ai/AIQuickPromptMenu'
@@ -12,7 +12,7 @@ import {
     AI_QUICK_PROMPT_TEMPLATES,
     type AIQuickPromptViewModel,
 } from '../utils/aiQuickPrompts'
-import { resolveAIModelCapabilities } from '../data/aiProviders'
+import { isRemovedPresetModel, REMOVED_MODEL_MESSAGE, resolveAIModelCapabilities } from '../data/aiProviders'
 import type { DiaryEntry } from '../types'
 import type { EvidenceRequest, FirstSliceSendInput, FirstSliceSendResult, SubjectIdentity } from '../types/api'
 import { classifyFirstSlice, formatFirstSliceAnswer, formatSuppliedFocusAnswer, type FocusSlots } from '../utils/aiFirstSlice'
@@ -20,6 +20,7 @@ import { classifyFirstSlice, formatFirstSliceAnswer, formatSuppliedFocusAnswer, 
 interface AIPanelProps {
     entry: DiaryEntry | null
     textDraft?: AITextDraftBinding
+    onOpenSettings?: () => void
 }
 
 const AI_CHAT_HISTORY_STORAGE_KEY = 'minddiary.ai.chatHistory'
@@ -111,11 +112,12 @@ const iconByPromptId: Record<string, ReactElement> = {
     'sprint-plan': <Target size={18} />,
 }
 
-export default function AIPanel({ entry, textDraft }: AIPanelProps) {
-    const { settingsData, ai: aiAPI } = useDiary()
+export default function AIPanel({ entry, textDraft, onOpenSettings }: AIPanelProps) {
+    const { isReady, settingsData, ai: aiAPI } = useDiary()
     const api = useRef(aiAPI.firstSlice).current
     const composer = useAIComposer(textDraft)
     const [messages, setMessages] = useState<AIChatMessage[]>(() => loadCachedMessages())
+    const cachedMessageCountRef = useRef(messages.length)
     const [loading, setLoading] = useState(false)
     const [preview, setPreview] = useState<PreviewImage | null>(null)
     const [notice, setNotice] = useState('')
@@ -151,22 +153,33 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
         resolveAIModelCapabilities(settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint)
     ), [settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint])
 
+    const missingAISettings = [
+        !settingsData.aiEndpoint?.trim() ? 'API 地址' : '',
+        !settingsData.aiModel?.trim() ? '模型' : '',
+        !settingsData.aiApiKeyPresent ? 'API 密钥' : '',
+    ].filter(Boolean)
+    let endpointValid = false
+    try { endpointValid = ['http:', 'https:'].includes(new URL(settingsData.aiEndpoint).protocol) }
+    catch { /* An invalid local value is a configuration issue, not a network error. */ }
+    const configurationProblem = missingAISettings.length
+        ? `AI 尚未配置，缺少：${missingAISettings.join('、')}。`
+        : !endpointValid ? 'API 地址格式无效，请在设置中填写有效的地址。'
+        : isRemovedPresetModel(settingsData.aiModel, settingsData.aiEndpoint) ? REMOVED_MODEL_MESSAGE : ''
+    const isAIConfigured = !configurationProblem
+
     const hasImageAttachment = composer.attachments.some(attachment => attachment.kind === 'image')
     const modelError = hasImageAttachment && !modelCapabilities.vision
         ? '当前模型不支持图片，请切换支持图片的模型或移除图片。'
         : null
     const composerError = composer.error || modelError
-    const canSend = composer.canSendContent && !loading && !composerError
+    const canSend = composer.canSendContent && !loading && !composerError && isReady && isAIConfigured
 
     const quickPrompts: AIQuickPromptViewModel[] = useMemo(() => (
         AI_QUICK_PROMPT_TEMPLATES.map(template => ({
             ...template,
             icon: iconByPromptId[template.id],
-            disabledReason: template.id === 'daily-summary' && !entry
-                ? '当前日记为空，无法添加到本次问题。'
-                : undefined,
         }))
-    ), [entry?.id])
+    ), [])
 
     const beginRequest = () => {
         const generation = ++generationRef.current
@@ -203,6 +216,7 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
         closeSession(sessionRef.current)
         sessionRef.current = openSession()
         setMessages([])
+        cachedMessageCountRef.current = 0
         composer.clearComposer()
         setNotice('')
     }
@@ -316,6 +330,14 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
             setNotice('当前受控对话暂不支持所选上下文或附件，请移除后再发送；这些材料尚未发送。')
             return
         }
+        if (!isReady) {
+            setNotice('正在读取 AI 配置，请稍后再发送。')
+            return
+        }
+        if (!isAIConfigured) {
+            setNotice(`${configurationProblem}当前问题草稿会保留。`)
+            return
+        }
         if (!userInput.trim() || composer.error || modelError) return
         const imageDataUrls = readyAttachments.filter(attachment => attachment.kind === 'image').map(attachment => attachment.dataUrl!)
         const textAttachments = readyAttachments.filter(attachment => attachment.kind !== 'image').map(attachment => ({
@@ -364,6 +386,14 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
     const explain = async () => {
         const pending = explanation
         if (!pending || hasActiveRequest() || (pending.partial && !acceptLimited)) return
+        if (!isReady) {
+            setNotice('正在读取 AI 配置，请稍后再发送。')
+            return
+        }
+        if (!isAIConfigured) {
+            setNotice(`${configurationProblem}这份本机摘要会保留。`)
+            return
+        }
         setExplanation(null)
         const generation = beginRequest()
         try {
@@ -408,6 +438,9 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
             </div>
 
             <div className="ai-workspace__messages" role="region" aria-label="对话记录" tabIndex={0}>
+                {cachedMessageCountRef.current > 0 && <p className="workspace-help">
+                    先前聊天仅供查看。继续话题时，请在问题中说明。
+                </p>}
                 {messages.length === 0 && (
                     <div className="workspace-empty ai-workspace__empty">
                         <div className="workspace-empty__icon">
@@ -455,6 +488,13 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
                 <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
 
+            {!isReady && <p className="workspace-help" role="status">正在读取 AI 配置…</p>}
+            {isReady && !isAIConfigured && <div className="workspace-help" role="status" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span>{configurationProblem}你的问题草稿会保留。</span>
+                {onOpenSettings && <button className="button button-secondary" type="button" onClick={onOpenSettings}>
+                    <Settings2 size={14} aria-hidden /> 打开设置
+                </button>}
+            </div>}
             {notice && <p role="status" className="workspace-help">{notice}</p>}
             {selection && <div role="group" aria-label="选择科目">
                 {selection.candidates.map(candidate => <button className="button button-secondary" key={candidate.id} onClick={() => void chooseSubject(candidate.id)}>{candidate.name}（{candidate.id}）</button>)}
@@ -462,7 +502,7 @@ export default function AIPanel({ entry, textDraft }: AIPanelProps) {
             {explanation && <div role="group" aria-label="发送摘要给学习助手解释">
                 <p className="workspace-help">可发送上方摘要给当前AI；也可只看本机。</p>
                 {explanation.partial && <label><input type="checkbox" checked={acceptLimited} onChange={event => setAcceptLimited(event.target.checked)} />部分记录不可用；我同意发送有限摘要</label>}
-                <button className="button button-secondary" disabled={loading || (explanation.partial && !acceptLimited)} onClick={() => void explain()}>发送摘要给 AI</button>
+                <button className="button button-secondary" disabled={!isReady || !isAIConfigured || loading || (explanation.partial && !acceptLimited)} onClick={() => void explain()}>发送摘要给 AI</button>
                 <button className="button button-secondary" onClick={() => setExplanation(null)}>仅看本机结果</button>
             </div>}
             <AIComposer

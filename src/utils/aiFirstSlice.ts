@@ -86,9 +86,29 @@ function completeFocusAnswer(text: string): FirstSliceGateResult | null {
   return null
 }
 
-/** Exclude ordinary compounds such as 分别/区别/个别; standalone imperative 别 still blocks. */
+/** Output preferences do not revoke data access; ambiguous data/action refusals still fail closed. */
 export function hasRestrictionInstruction(text: string): boolean {
-  return /不要|不看|不发|不用|禁止|请勿|撤回|(?<![分区个特识辨鉴判差级类性告])别/u.test(text)
+  const remaining = text.replace(
+    /(?:不要|不用|请勿|(?<![分区个特识辨鉴判差级类性告])别)(?:先|再|直接|立即|马上|现在|提前){0,2}(?:给出?|提供|展示|显示|写出?|附上|附带|包含|告诉)?(?:我)?(?:答案|解答|解析|解题步骤|提示|解释|剧透)|(?:不要|不用|别)(?:讲|写|解释|安排)?(?:太难|太简单|太长|太详细|太复杂|太满|过于复杂)/gu,
+    '',
+  ).replace(/别人/gu, '')
+  const negative = /不要|不看|不发|不用|禁止|请勿|撤回|(?<![分区个特识辨鉴判差级类性告])别/u
+  if (!negative.test(remaining)) return false
+
+  // Questions about methods, health or writing topics are ordinary conversation.
+  // Any data, transmission or ambiguous action object still takes precedence,
+  // including another clause mixed into the same message.
+  const controlledObject = /日记|私人|隐私|记录|数据|资料|内容|附件|图片|文件|本地|本机|数据库|Provider|AI|联网|工具|授权|发给|发送|发出去|上传|传输|分享|交给|透露|披露|转发|读取|调用|访问|操作|执行|修改|删除|保存|继续|那段|这样|上面|前面|之前|刚才|接下来|(?:用|看|把|将)(?:那|这|它|昨天)|(?:不要|不用|别)(?:再|先)?(?:这个|那个)/iu
+  if (controlledObject.test(remaining)) return true
+  if (/撤回/u.test(remaining)) {
+    // A Git knowledge question does not revoke this conversation's authorization.
+    if (!/Git\s*(?:怎么|如何|怎样).*撤回.*\bcommit\b/iu.test(remaining)) return true
+    if (negative.test(remaining.replace(/撤回/gu, ''))) return true
+    return false
+  }
+  const knowledgeQuestion = /怎么|如何|怎样|什么.*依据|科学依据|有什么.*原因/u
+  const writingTopic = /(?:写|撰写).*(?:议论文|作文|文章|论述)/u
+  return !knowledgeQuestion.test(remaining) && !writingTopic.test(remaining)
 }
 
 /** Only current direct text and locally confirmed slots. No learning-data dependencies. */
@@ -96,7 +116,7 @@ export function classifyFirstSlice(text: string, clarification?: FocusSlots): Fi
   const normalized = text.trim().replace(/[，。！？?,!\s]/g, '')
   const intent = restriction(normalized)
   if (intent) return { kind: 'restriction', intent }
-  // Unknown negative instructions block before clarification, retrieval, or ordinary chat.
+  // Data/action refusals block before clarification, retrieval, or ordinary chat.
   if (hasRestrictionInstruction(normalized)) return { kind: 'blocked', reason: 'clarify_restriction' }
 
   if (clarification) {
@@ -117,17 +137,30 @@ export function classifyFirstSlice(text: string, clarification?: FocusSlots): Fi
   }
 
   const progress = /^(.+?)(?:现在学到哪里|的?章节进度|的?学习进度)[。？?]?$/.exec(text.trim())
-  if (progress) return { kind: 'evidence', request: { kind: 'subject_progress',
+  if (progress && !/制定|安排|规划|设计|建议/.test(progress[1]!)) return { kind: 'evidence', request: { kind: 'subject_progress',
     subject: { by: 'exact_name', name: progress[1]!.trim() } } }
 
   const completeAnswer = completeFocusAnswer(text)
   if (completeAnswer) return completeAnswer
   const ambiguous = /^最近(.+?)效率下降[。？?]?$/.exec(text.trim())
   if (ambiguous) return finishSlots({ subject: { by: 'exact_name', name: ambiguous[1]!.trim() } })
-  if (/记录学习时间|记录投入/.test(normalized)) return finishSlots({ meaning: 'recorded_study_time' })
-  if (/效率|理解力|任务|日记|错题|记录|进度|学到哪里|覆盖未知/.test(normalized)) return { kind: 'unsupported' }
+  if (/记录学习时间|记录投入/.test(normalized)
+    && /比较|对比|查询|查一下|统计|^(?:记录学习时间|记录投入)$/.test(normalized)) {
+    return finishSlots({ meaning: 'recorded_study_time' })
+  }
+  // Topic words alone (e.g. a task plan or advice on efficiency) do not request local data.
+  const localTopic = /任务|日记|错题|记录|进度|学到哪里|学习时长|学了多久|专注时间/
+  const lookup = /查|搜索|检索|统计|读取|查看|看看|根据|结合|分析|总结|回顾|比较|对比/
+  const localSource = /本地|本机|数据库|MindDiary|我的|我最近|我之前|我上周|我这周|历史|记录/
+  if (localTopic.test(normalized) && lookup.test(normalized)
+    && (localSource.test(normalized) || /查|搜索|检索|读取/.test(normalized))) {
+    return { kind: 'unsupported' }
+  }
+  if (/我的|我最近|我之前|我上周|我这周/.test(normalized)
+    && /效率.*下降|理解力.*变差|是不是.*退步/.test(normalized)) return { kind: 'unsupported' }
+  if (/覆盖未知/.test(normalized)) return { kind: 'unsupported' }
   // Bounded local-record intent: personal/lookup language plus a study-time fact.
-  if (/(?:我|查|看看|统计)/.test(normalized)
+  if (/(?:查|看看|统计|我的|我最近|我之前|我上周|我这周|我.*学了多久)/.test(normalized)
     && /学习时长|学了多久|专注时间/.test(normalized)) return { kind: 'unsupported' }
   return { kind: 'chat' }
 }

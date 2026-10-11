@@ -4,11 +4,12 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.21.0 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.21.0')
+  it('bundles the current v1.21.1 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.21.1')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('清除格式')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('多篇日记')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('资料')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('文字草稿')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('不支持自动回滚')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 8')

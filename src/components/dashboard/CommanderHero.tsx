@@ -10,7 +10,7 @@ interface CommanderHeroProps {
 export const CommanderHero: React.FC<CommanderHeroProps> = ({ config, onActionClick }) => {
     const isUrgent = config.type === 'A';
     const isCaution = config.type === 'C';
-    const isFatigued = config.type === 'D';
+    const hasNoLearningData = config.type === 'D';
 
     let badgeText = '稳定推进';
     let badgeTone = 'steady';
@@ -21,8 +21,8 @@ export const CommanderHero: React.FC<CommanderHeroProps> = ({ config, onActionCl
     } else if (isCaution) {
         badgeText = '复习任务积压';
         badgeTone = 'warning';
-    } else if (isFatigued) {
-        badgeText = '疲劳预警';
+    } else if (hasNoLearningData) {
+        badgeText = '尚无学习记录';
         badgeTone = 'neutral';
     }
 

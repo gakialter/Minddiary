@@ -1,11 +1,26 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App'
 import AIPanel from '../src/components/AIPanel'
 import type { DiaryEntry } from '../src/types'
 import type { FirstSliceAPI, FirstSliceSendResult } from '../src/types/api'
 import { AI_CONTEXT_LABELS, AI_QUICK_PROMPT_TEMPLATES } from '../src/utils/aiQuickPrompts'
+import * as aiComposer from '../src/hooks/useAIComposer'
+import type { AIContextKind } from '../src/utils/aiQuickPrompts'
+
+const actualUseAIComposer = aiComposer.useAIComposer
+function observeComposer() {
+  let composer!: ReturnType<typeof actualUseAIComposer>
+  vi.spyOn(aiComposer, 'useAIComposer').mockImplementation(binding => {
+    composer = actualUseAIComposer(binding)
+    return composer
+  })
+  // Select records explicitly through the real hook; quick prompts only fill text.
+  return (kinds: AIContextKind[]) => act(() => composer.setContextKinds(kinds))
+}
+
+afterEach(() => vi.restoreAllMocks())
 
 const CHAT_HISTORY_KEY = 'minddiary.ai.chatHistory'
 
@@ -34,7 +49,12 @@ const makeEntry = (overrides: Partial<DiaryEntry> = {}): DiaryEntry => ({
 })
 
 const mocks = vi.hoisted(() => ({
-  settingsData: {},
+  settingsData: {} as {
+    aiEndpoint: string
+    aiModel: string
+    aiApiKeyPresent: boolean
+    aiVisionEnabled: boolean
+  },
   entries: {
     getByDate: vi.fn(),
     create: vi.fn(),
@@ -57,6 +77,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/contexts/DiaryContext', () => ({
   DiaryProvider: ({ children }: { children: ReactNode }) => children,
   useDiary: () => ({
+    isReady: true,
     isDarkMode: false,
     settingsData: mocks.settingsData,
     entries: mocks.entries,
@@ -143,6 +164,12 @@ describe('AI chat history cache', () => {
     localStorage.clear()
     localStorage.setItem('started', 'true')
     vi.clearAllMocks()
+    mocks.settingsData = {
+      aiEndpoint: 'https://fixture.example/v1',
+      aiModel: 'fixture-model',
+      aiApiKeyPresent: true,
+      aiVisionEnabled: false,
+    }
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.entries.getByDate.mockResolvedValue(null)
     mocks.entries.create.mockResolvedValue(null)
@@ -155,6 +182,40 @@ describe('AI chat history cache', () => {
     mocks.firstSlice.send.mockResolvedValue({ kind: 'answer', requestHandle: 'live-request', content: 'Cached assistant reply' })
     mocks.mistakesGetAll.mockResolvedValue({ data: [] })
     HTMLElement.prototype.scrollIntoView = vi.fn()
+  })
+
+  it('shows the exact missing AI setup fields, keeps the draft, and opens Settings without sending', async () => {
+    mocks.settingsData = { aiEndpoint: '', aiModel: '', aiApiKeyPresent: false, aiVisionEnabled: false }
+    const onOpenSettings = vi.fn()
+    render(<AIPanel entry={null} onOpenSettings={onOpenSettings} />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'Question to keep while configuring AI' } })
+    expect(screen.getByText(/AI 尚未配置，缺少：API 地址、模型、API 密钥/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /打开设置/ })).toBeInTheDocument()
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    expect(input).toHaveValue('Question to keep while configuring AI')
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /打开设置/ }))
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+  })
+
+  it('flags an invalid configured address before sending without treating provider failures as missing setup', async () => {
+    mocks.settingsData.aiEndpoint = 'invalid-address'
+    const view = render(<AIPanel entry={null} onOpenSettings={vi.fn()} />)
+    expect(screen.getByText(/API 地址格式无效/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
+    view.unmount()
+
+    mocks.settingsData.aiEndpoint = 'https://fixture.example/v1'
+    mocks.firstSlice.send.mockResolvedValueOnce({ kind: 'failed', possiblySent: false })
+    render(<AIPanel entry={null} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Configured request' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await screen.findByText('请求未发出，请重新发送问题。')
+    expect(screen.queryByText(/AI 尚未配置/)).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('Configured request')
   })
 
   it('keeps sent and received AI messages after navigating away and back', async () => {
@@ -308,11 +369,14 @@ describe('AI chat history cache', () => {
     expect(screen.getByRole('textbox')).toHaveValue('')
   })
 
-  it('UX-04 keeps plain text but drops selected context and file content when leaving the AI page', async () => {
+  it('keeps unsent text and files in app memory while dropping selected local context on navigation', async () => {
+    const selectContext = observeComposer()
     const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'mistake-patterns')!
     const { container } = render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     fireEvent.click(screen.getByRole('button', { name: prompt.label }))
+    expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
+    selectContext(['mistake-patterns'])
     const fileInput = container.querySelector('input[type="file"]')!
     fireEvent.change(fileInput, { target: { files: [new File(['Synthetic request-scoped material'], 'navigation-fixture.txt', { type: 'text/plain' })] } })
     await screen.findByText('navigation-fixture.txt')
@@ -322,7 +386,7 @@ describe('AI chat history cache', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
-    expect(screen.queryByText('navigation-fixture.txt')).not.toBeInTheDocument()
+    expect(screen.getByText('navigation-fixture.txt')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
     expect(mocks.firstSlice.send).not.toHaveBeenCalled()
     expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
@@ -502,7 +566,7 @@ describe('AI chat history cache', () => {
     expect(screen.queryByText('first stale reply')).not.toBeInTheDocument()
   })
 
-  it('fills quick-prompt drafts and context without starting chat or prefetching context', async () => {
+  it('fills quick-prompt drafts without selecting local context, starting chat or prefetching context', async () => {
     const mistakesRequest = createDeferred<{ data: [] }>()
     mocks.mistakesGetAll.mockReturnValueOnce(mistakesRequest.promise)
     const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'mistake-patterns')!
@@ -512,7 +576,8 @@ describe('AI chat history cache', () => {
     fireEvent.click(screen.getByRole('button', { name: /错题规律|閿欓/ }))
 
     expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
-    expect(screen.getByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).toBeInTheDocument()
+    expect(prompt.contextKinds).toEqual([])
+    expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
     expect(mocks.aiChat).not.toHaveBeenCalled()
     expect(mocks.firstSlice.send).not.toHaveBeenCalled()
     expect(mocks.firstSlice.resolveEvidence).not.toHaveBeenCalled()
@@ -556,11 +621,15 @@ describe('AI chat history cache', () => {
   })
 
   it('blocks selected diary context without reading its content or sending it', async () => {
+    const selectContext = observeComposer()
     const entry = makeEntry()
     const content = vi.fn(() => '我每天晚上会戴紫色潜水帽学习。')
     Object.defineProperty(entry, 'content', { get: content })
     render(<AIPanel entry={entry} />)
     fireEvent.click(screen.getByRole('button', { name: AI_QUICK_PROMPT_TEMPLATES.find(p => p.id === 'daily-summary')!.label }))
+    expect(screen.queryByRole('button', { name: '移除资料：今日日记' })).not.toBeInTheDocument()
+    selectContext(['current-diary'])
+    expect(screen.getByRole('button', { name: '移除资料：今日日记' })).toBeInTheDocument()
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
     expect(await screen.findByText(/当前受控对话暂不支持/)).toBeInTheDocument()
     expect(content).not.toHaveBeenCalled()

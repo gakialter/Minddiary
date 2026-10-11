@@ -36,6 +36,7 @@
 .color-picker--editable .color-picker__popover { display: grid; grid-template-columns: repeat(4, 26px); }
 .diary-selection-toolbar { position: fixed; z-index: var(--z-dropdown); padding: 3px 5px; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); background: var(--color-surface-raised); }
 .diary-selection-toolbar .color-picker__popover { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; }
+.diary-selection-toolbar[data-color-below] .color-picker__popover { top: calc(100% + 8px); bottom: auto; }
 @media (max-height: 680px) { .diary-live-preview .cm-editor { min-height: 220px; } }
 .diary-selection-toolbar { display: flex; align-items: center; gap: 4px; }
 .diary-polish-menu { position: absolute; top: 100%; left: 0; width: 172px; padding: 4px; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); background: var(--color-surface-raised); }

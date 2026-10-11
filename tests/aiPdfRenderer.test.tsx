@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(), restrict: vi.fn(), resolveEvidence: vi.fn(), reader: vi.fn(), openSession: vi.fn(),
 }))
 vi.mock('../src/contexts/DiaryContext', () => ({ useDiary: () => ({
-  settingsData: { aiModel: 'deepseek-flash', aiEndpoint: 'https://api.deepseek.com', aiVisionEnabled: true },
+  isReady: true,
+  settingsData: { aiModel: 'deepseek-flash', aiEndpoint: 'https://api.deepseek.com', aiApiKeyPresent: true, aiVisionEnabled: true },
   ai: { firstSlice: {
     openSession: mocks.openSession, closeSession: vi.fn(),
     send: mocks.send, restrict: mocks.restrict, resolveEvidence: mocks.resolveEvidence,

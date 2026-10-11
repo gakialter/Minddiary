@@ -64,6 +64,7 @@ interface PomodoroActionsValue {
   selectFocusTask: (taskId: number | null) => void
   setCustomMinutes: React.Dispatch<React.SetStateAction<number>>
   toggleTimer: () => Promise<boolean>
+  startFocusTask: (taskId: number) => Promise<boolean>
   resetTimer: () => void
   loadTodayTasks: (dateKey?: string) => Promise<void>
   settleFocusTask: (options: FocusTaskSettlementOptions) => Promise<boolean>
@@ -577,12 +578,23 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
   }, [getCurrentCountdownElapsedSeconds])
 
+  const subjectLoadGenerationRef = useRef(0)
   const loadSubjects = useCallback(async () => {
+    const generation = ++subjectLoadGenerationRef.current
     try {
       const data = await subjectsAPI.getAll()
-      setSubjects(data || [])
-    } catch (e) { logger.error(e) }
+      if (generation !== subjectLoadGenerationRef.current) return
+      const nextSubjects = data || []
+      setSubjects(nextSubjects)
+      setSelectedSubjectState(current => (
+        current !== null && !nextSubjects.some(subject => subject.id === current) ? null : current
+      ))
+    } catch (e) {
+      if (generation === subjectLoadGenerationRef.current) logger.error(e)
+    }
   }, [subjectsAPI])
+
+  useEffect(() => () => { subjectLoadGenerationRef.current += 1 }, [])
 
   const loadTodayStats = useCallback(async (dateKey = currentDateKey) => {
     setTodayDateKey(dateKey)
@@ -657,8 +669,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [tasksAPI])
 
   useEffect(() => {
-    loadSubjects()
-  }, [loadSubjects])
+    void loadSubjects()
+  }, [dataRefreshVersion, loadSubjects])
 
   useEffect(() => {
     setTodayStats([])
@@ -1302,14 +1314,16 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     })
   }, [customMinutes, isRunning, mode, selectedSubject, selectedTaskId, timeLeft])
 
-  const toggleTimer = useCallback(async () => {
+  const timerTransitionInFlightRef = useRef(false)
+  const transitionTimer = useCallback(async (startTask?: StudyTask) => {
     if (sessionSettlementInFlightRef.current) return false
+    if (startTask && (activeSessionRef.current || isRunning)) return false
 
-    const currentMode = modeRef.current
+    const currentMode = startTask ? dynamicModes.WORK! : modeRef.current
     if (!isPomodoroModeId(currentMode.id)) return false
 
     const nowMs = Date.now()
-    const nextIsRunning = !isRunning
+    const nextIsRunning = startTask ? true : !isRunning
     const isStopwatch = isStopwatchModeId(currentMode.id)
     const isStartingNewFocusSession = nextIsRunning && isFocusModeId(currentMode.id) && !activeSessionRef.current
 
@@ -1331,10 +1345,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const taskIdForSession = selectedTaskIdRef.current
-    const originalTask = taskIdForSession === null
+    const taskIdForSession = startTask?.id ?? selectedTaskIdRef.current
+    const subjectForSession = startTask ? startTask.subject_id ?? selectedSubject : selectedSubject
+    const originalTask = startTask ?? (taskIdForSession === null
       ? null
-      : todayTasksRef.current.find(task => task.id === taskIdForSession) ?? null
+      : todayTasksRef.current.find(task => task.id === taskIdForSession) ?? null)
     let taskSnapshotForSession: StudyTask | null = taskIdForSession === null ? null : activeTaskSnapshotRef.current
 
     if (isStartingNewFocusSession && taskIdForSession !== null) {
@@ -1352,8 +1367,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    let nextTimeLeft = timeLeft
-    let nextStartedAt = sessionStartedAtRef.current
+    let nextTimeLeft = startTask ? currentMode.time : timeLeft
+    let nextStartedAt = startTask ? null : sessionStartedAtRef.current
     let nextEndTimeMs: number | null = null
     let nextStopwatchElapsedBeforeRun = stopwatchElapsedBeforeRunRef.current
     let nextStopwatchRunStartedAt: number | null = stopwatchRunStartedAtRef.current
@@ -1361,13 +1376,13 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     if (nextIsRunning) {
       if (isStopwatch) {
         nextStartedAt = nextStartedAt ?? new Date(nowMs)
-        nextStopwatchElapsedBeforeRun = timeLeft
+        nextStopwatchElapsedBeforeRun = nextTimeLeft
         nextStopwatchRunStartedAt = nowMs
       } else {
         nextStartedAt = isFocusModeId(currentMode.id)
           ? nextStartedAt ?? new Date(nowMs)
           : nextStartedAt
-        nextEndTimeMs = nowMs + timeLeft * 1000
+        nextEndTimeMs = nowMs + nextTimeLeft * 1000
       }
     } else if (isStopwatch) {
       nextTimeLeft = getCurrentStopwatchElapsedSeconds(nowMs)
@@ -1383,7 +1398,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       modeId: currentMode.id,
       modeTime: currentMode.time,
       customMinutes,
-      selectedSubject,
+      selectedSubject: subjectForSession,
       selectedTaskId: taskIdForSession,
       timeLeft: persistedTimeLeft,
       isRunning: nextIsRunning,
@@ -1408,6 +1423,14 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
 
     activeSessionRef.current = true
+    if (startTask) {
+      modeRef.current = currentMode
+      setModeState(currentMode)
+      setTimeLeft(nextTimeLeft)
+      selectedTaskIdRef.current = startTask.id
+      setSelectedTaskIdState(startTask.id)
+      setSelectedSubjectState(subjectForSession)
+    }
     setHasActiveTimerSession(true)
     lastTickRemainingRef.current = nextTimeLeft
     sessionStartedAtRef.current = nextStartedAt
@@ -1426,6 +1449,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     return true
   }, [
     customMinutes,
+    dynamicModes,
     getCurrentStopwatchElapsedSeconds,
     isRunning,
     requestDataRefresh,
@@ -1434,6 +1458,33 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     tasksAPI,
     timeLeft,
   ])
+
+  const toggleTimer = useCallback(async () => {
+    if (timerTransitionInFlightRef.current) return false
+    timerTransitionInFlightRef.current = true
+    try { return await transitionTimer() }
+    finally { timerTransitionInFlightRef.current = false }
+  }, [transitionTimer])
+
+  const startFocusTask = useCallback(async (taskId: number) => {
+    if (timerTransitionInFlightRef.current || activeSessionRef.current || isRunning
+      || sessionSettlementInFlightRef.current) return false
+    timerTransitionInFlightRef.current = true
+    try {
+      // Re-read the task so a stale list cannot start a completed or moved task.
+      const tasks = await tasksAPI.getByDate(currentDateKey)
+      const task = tasks.find(item => item.id === taskId && item.planned_date === currentDateKey
+        && (item.status === 'todo' || item.status === 'doing'))
+      if (!task) {
+        setTaskError('这项任务已变化，请刷新今日任务后重试。')
+        return false
+      }
+      return await transitionTimer(task)
+    } catch {
+      setTaskError('暂时无法开始专注，请重试。')
+      return false
+    } finally { timerTransitionInFlightRef.current = false }
+  }, [currentDateKey, isRunning, tasksAPI, transitionTimer])
 
   const resetTimer = useCallback(() => {
     if (sessionSettlementInFlightRef.current) return
@@ -1665,10 +1716,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }), [subjects, selectedSubject, todayStats, todayTotal, customMinutes, alertState, isSavingInterruptedFocus, todayTasks, selectedTaskId, selectedTask, taskError])
 
   const actionsValue = useMemo((): PomodoroActionsValue => ({
-    setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
+    setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, startFocusTask, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime,
     loadSubjects, loadTodayStats, dismissAlert,
     setOnBreakStart,
-  }), [setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
+  }), [setMode, setSelectedSubject, selectFocusTask, setCustomMinutes, toggleTimer, startFocusTask, resetTimer, loadTodayTasks, settleFocusTask, resolveFocusReviewEntryCreation, getCountdownFocusSettlementPreview, finishCountdownFocusSession, finishStopwatchSession, formatTime, loadSubjects, loadTodayStats, dismissAlert, setOnBreakStart])
 
   return (
     <TimerContext.Provider value={timerValue}>

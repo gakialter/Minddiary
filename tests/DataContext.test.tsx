@@ -287,6 +287,30 @@ afterEach(() => {
 })
 
 describe('DataContext', () => {
+  it.each([true, false])('broadcasts successful subject changes in Electron=%s', async isElectron => {
+    mocks.isElectron = isElectron
+    seedEmptyBrowserStorage()
+    const { result } = renderDataHook()
+    let subjectId = 0
+    await act(async () => {
+      subjectId = (await result.current.subjects.create({ name: '数学二' })).id
+    })
+    expect(result.current.dataRefreshVersion).toBe(1)
+    await act(async () => { await result.current.subjects.update(subjectId, { name: '英语二' }) })
+    expect(result.current.dataRefreshVersion).toBe(2)
+    await act(async () => { await result.current.subjects.delete(subjectId) })
+    expect(result.current.dataRefreshVersion).toBe(3)
+  })
+
+  it('does not broadcast a failed subject write', async () => {
+    vi.mocked(window.api.subjects.create).mockRejectedValueOnce(new Error('write failed'))
+    const { result } = renderDataHook()
+    await act(async () => {
+      await expect(result.current.subjects.create({ name: '数学二' })).rejects.toThrow('write failed')
+    })
+    expect(result.current.dataRefreshVersion).toBe(0)
+  })
+
   it('throws when useData is rendered without DataProvider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const suppressWindowError = (event: ErrorEvent) => event.preventDefault()

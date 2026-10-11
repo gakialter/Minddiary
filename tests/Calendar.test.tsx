@@ -76,6 +76,16 @@ describe('Calendar Component', () => {
     })
   }
 
+  it('shows all same-day diary counts in the visible cell and accessible name', async () => {
+    mockGetDatesWithEntries.mockResolvedValue([
+      { date: '2023-10-05', mood: 'happy' },
+      { date: '2023-10-05', mood: 'calm' },
+    ])
+    await renderCalendar()
+    const day = screen.getByRole('button', { name: '2023-10-05，2 篇日记' })
+    expect(day).toHaveTextContent('2 篇日记')
+  })
+
   it('1. 有日记但无专注记录时，仍显示 mood 和"已写日记"', async () => {
     mockGetDatesWithEntries.mockResolvedValue([
       { date: '2023-10-05', mood: 'happy' }
@@ -88,6 +98,14 @@ describe('Calendar Component', () => {
     const happyIcons = screen.getAllByTestId('mood-icon-happy')
     expect(happyIcons.length).toBeGreaterThanOrEqual(2)
     expect(await screen.findByText('已写日记', { selector: '.workspace-calendar__recorded' })).toBeInTheDocument()
+  })
+
+  it('opens the selected historical month and explains that Home remains today-focused', async () => {
+    await renderCalendar('2022-04-09')
+
+    expect(screen.getByRole('heading', { name: '2022年4月' })).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-date-hint')).toHaveTextContent('所选日期：2022-04-09（历史日期）')
+    expect(screen.getByTestId('calendar-date-hint')).toHaveTextContent('今日安排始终显示今天')
   })
 
   it('2. 无日记但有 30 分钟专注记录时，显示 level 1 标记', async () => {

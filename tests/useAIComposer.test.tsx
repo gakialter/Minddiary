@@ -4,6 +4,7 @@ import { act, render, renderHook } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAIComposer, type AITextDraft, type AITextDraftBinding } from '../src/hooks/useAIComposer'
+import { AIComposerSessionProvider } from '../src/contexts/AIComposerSessionContext'
 import type { AIComposerAttachment } from '../src/utils/aiAttachmentPolicy'
 import { readAIComposerFile } from '../src/utils/aiAttachmentReader'
 
@@ -125,6 +126,60 @@ describe('useAIComposer', () => {
     view.unmount()
     render(<Owner active />)
     expect(ownerDraft).toEqual({ text: '', revision: 0 })
+  })
+
+  it('keeps session attachments across page remounts and revokes them on remove and successful send', async () => {
+    let composer!: ReturnType<typeof useAIComposer>
+    function Composer() {
+      composer = useAIComposer()
+      return null
+    }
+    function Owner({ active }: { active: boolean }) {
+      return <AIComposerSessionProvider>{active ? <Composer /> : null}</AIComposerSessionProvider>
+    }
+    const view = render(<Owner active />)
+
+    await act(async () => { await composer.addFiles([makeImage('keep-on-navigation.png')]) })
+    expect(composer.attachments.map(item => item.name)).toEqual(['keep-on-navigation.png'])
+    view.rerender(<Owner active={false} />)
+    expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:keep-on-navigation.png')
+    view.rerender(<Owner active />)
+    expect(composer.attachments.map(item => item.name)).toEqual(['keep-on-navigation.png'])
+
+    act(() => composer.removeAttachment('pending-keep-on-navigation.png'))
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:keep-on-navigation.png')
+    await act(async () => { await composer.addFiles([makeImage('sent-session-file.png')]) })
+    act(() => composer.clearSentDraft('', ['pending-sent-session-file.png'], 0))
+    expect(composer.attachments).toEqual([])
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:sent-session-file.png')
+    view.unmount()
+  })
+
+  it('finishes a file read across navigation but cancels the whole pending batch on explicit clear', async () => {
+    let composer!: ReturnType<typeof useAIComposer>
+    function Composer() { composer = useAIComposer(); return null }
+    const app = (active: boolean) => <AIComposerSessionProvider>{active && <Composer />}</AIComposerSessionProvider>
+    const view = render(app(true))
+    const retained = makeImage('reading-across-page.png')
+    const pending = createDeferred<AIComposerAttachment>()
+    readerMocks.readAIComposerFile.mockReturnValueOnce(pending.promise)
+    let adding!: Promise<void>
+    act(() => { adding = composer.addFiles([retained]) })
+    view.rerender(app(false))
+    await act(async () => { pending.resolve(makeReadyAttachment(retained)); await adding })
+    view.rerender(app(true))
+    expect(composer.attachments[0]?.status).toBe('ready')
+
+    const cleared = makeImage('cleared-while-reading.png')
+    const afterClear = createDeferred<AIComposerAttachment>()
+    readerMocks.readAIComposerFile.mockReturnValueOnce(afterClear.promise)
+    act(() => { adding = composer.addFiles([cleared, makeImage('never-read-after-clear.png')]) })
+    act(() => composer.clearComposer())
+    await act(async () => { afterClear.resolve(makeReadyAttachment(cleared)); await adding })
+    expect(composer.attachments).toEqual([])
+    expect(readerMocks.readAIComposerFile).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:cleared-while-reading.png')
+    view.unmount()
   })
 
   it('UX-04 discards a pending attachment after composer unmount and stops the remaining batch', async () => {

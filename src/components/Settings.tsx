@@ -39,7 +39,7 @@ function normalizeFocusWhitelist(value: unknown): FocusWhitelistItem[] {
 
 function Settings() {
   const diary = useDiary()
-  const [examDate, setExamDate] = useState('2025-12-21')
+  const [examDate, setExamDate] = useState('')
   const [countdownEvents, setCountdownEvents] = useState<CountdownEvent[]>([])
   const [aiEndpoint, setAiEndpoint] = useState('')
   const [aiApiKeyInput, setAiApiKeyInput] = useState('')
@@ -121,7 +121,7 @@ function Settings() {
       const settings = await diary.settings.getAll()
       if (!settings) return
       const normalizedCountdown = normalizeCountdownSettings(settings.countdownEvents, settings.examDate)
-      const loadedExamDate = normalizedCountdown.examDate || '2025-12-21'
+      const loadedExamDate = normalizedCountdown.examDate
       setExamDate(loadedExamDate)
       setCountdownEvents(normalizeCountdownEvents(normalizedCountdown.countdownEvents, loadedExamDate))
       setAiEndpoint((settings.aiEndpoint as string) || '')
@@ -173,7 +173,7 @@ function Settings() {
       try {
         await Promise.all([
           diary.settings.updateGeneral({
-            examDate,
+            ...(examDate ? { examDate } : {}),
             countdownEvents: normalizeCountdownEvents(countdownEvents, examDate),
             theme: diary.theme,
             pomodoroMinutes, autoSave, pomodoroSound, pomodoroAlert,

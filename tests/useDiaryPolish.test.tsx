@@ -9,6 +9,10 @@ import { capturePolishTarget } from '../src/components/common/diaryPolishTarget'
 import { useDiaryPolish } from '../src/components/common/useDiaryPolish'
 import type { PolishAction } from '../src/utils/diaryPolish'
 
+// jsdom has no layout measurements; CodeMirror may request them asynchronously.
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+Range.prototype.getBoundingClientRect = () => new DOMRect()
+
 const source = '今天感觉很好'
 const action: PolishAction = 'polish'
 
@@ -145,7 +149,7 @@ describe('useDiaryPolish', () => {
     } finally { ctx.cleanup() }
   })
 
-  it('invalidates on document or selection changes, blocks apply during IME, and rechecks the captured target at apply time', async () => {
+  it('invalidates document changes, applies the frozen range after selection moves, and blocks apply during IME', async () => {
     const ctx = setup()
     try {
       await act(async () => { await ctx.result.current.run(action, ctx.target) })
@@ -155,18 +159,22 @@ describe('useDiaryPolish', () => {
       act(() => ctx.result.current.apply())
       expect(ctx.view.state.doc.toString()).toBe(`${source}，准备继续复习。外部`)
 
-      const freshTarget = capturePolishTarget(ctx.view.state, 'day-1')
-      ctx.view.dispatch({ selection: { anchor: 1, head: 3 } })
-      await act(async () => { await ctx.result.current.run(action, freshTarget) })
-      act(() => ctx.result.current.invalidate())
-      expect(ctx.result.current.review?.stale).toBe(true)
       act(() => ctx.result.current.close())
       ctx.view.dispatch({ selection: { anchor: 0, head: source.length } })
+      const freshTarget = capturePolishTarget(ctx.view.state, 'day-1')
+      await act(async () => { await ctx.result.current.run(action, freshTarget) })
+      act(() => ctx.result.current.editCandidate('改写结果'))
+      ctx.view.dispatch({ selection: { anchor: 1, head: 3 } })
+      expect(ctx.result.current.review?.stale).toBe(false)
+      act(() => ctx.result.current.apply())
+      expect(ctx.view.state.doc.toString()).toBe('改写结果，准备继续复习。外部')
+
+      ctx.view.dispatch({ selection: { anchor: 0, head: '改写结果'.length } })
       const imeTarget = capturePolishTarget(ctx.view.state, 'day-1')
       await act(async () => { await ctx.result.current.run(action, imeTarget) })
       Object.defineProperty(ctx.view, 'compositionStarted', { configurable: true, get: () => true })
       act(() => ctx.result.current.apply())
-      expect(ctx.view.state.doc.toString()).toBe(`${source}，准备继续复习。外部`)
+      expect(ctx.view.state.doc.toString()).toBe('改写结果，准备继续复习。外部')
       expect(ctx.result.current.review?.stale).toBe(true)
     } finally { ctx.cleanup() }
   })
