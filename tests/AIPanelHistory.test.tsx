@@ -1,11 +1,26 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App'
 import AIPanel from '../src/components/AIPanel'
 import type { DiaryEntry } from '../src/types'
-import type { FirstSliceSendResult } from '../src/types/api'
+import type { FirstSliceAPI, FirstSliceSendResult } from '../src/types/api'
 import { AI_CONTEXT_LABELS, AI_QUICK_PROMPT_TEMPLATES } from '../src/utils/aiQuickPrompts'
+import * as aiComposer from '../src/hooks/useAIComposer'
+import type { AIContextKind } from '../src/utils/aiQuickPrompts'
+
+const actualUseAIComposer = aiComposer.useAIComposer
+function observeComposer() {
+  let composer!: ReturnType<typeof actualUseAIComposer>
+  vi.spyOn(aiComposer, 'useAIComposer').mockImplementation(binding => {
+    composer = actualUseAIComposer(binding)
+    return composer
+  })
+  // Select records explicitly through the real hook; quick prompts only fill text.
+  return (kinds: AIContextKind[]) => act(() => composer.setContextKinds(kinds))
+}
+
+afterEach(() => vi.restoreAllMocks())
 
 const CHAT_HISTORY_KEY = 'minddiary.ai.chatHistory'
 
@@ -34,7 +49,12 @@ const makeEntry = (overrides: Partial<DiaryEntry> = {}): DiaryEntry => ({
 })
 
 const mocks = vi.hoisted(() => ({
-  settingsData: {},
+  settingsData: {} as {
+    aiEndpoint: string
+    aiModel: string
+    aiApiKeyPresent: boolean
+    aiVisionEnabled: boolean
+  },
   entries: {
     getByDate: vi.fn(),
     create: vi.fn(),
@@ -57,6 +77,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/contexts/DiaryContext', () => ({
   DiaryProvider: ({ children }: { children: ReactNode }) => children,
   useDiary: () => ({
+    isReady: true,
     isDarkMode: false,
     settingsData: mocks.settingsData,
     entries: mocks.entries,
@@ -91,6 +112,17 @@ vi.mock('../src/hooks/useGlobalKeyboard', () => ({
   useGlobalKeyboard: vi.fn(),
 }))
 
+vi.mock('../src/utils/aiAttachmentReader', () => ({
+  createReadingAIComposerAttachment: (file: File) => ({
+    id: `pending-${file.name}`, kind: 'text-file', name: file.name,
+    mimeType: file.type, size: file.size, status: 'reading', reusable: true,
+  }),
+  readAIComposerFile: async (file: File, _existing: unknown[], id: string) => ({
+    id, kind: 'text-file', name: file.name, mimeType: file.type,
+    size: file.size, status: 'ready', extractedText: 'Synthetic request-scoped material', reusable: true,
+  }),
+}))
+
 vi.mock('../src/components/Layout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
@@ -100,6 +132,7 @@ vi.mock('../src/components/Sidebar', () => ({
     <nav>
       <button onClick={() => onViewChange('ai')}>AI</button>
       <button onClick={() => onViewChange('editor')}>Diary</button>
+      <button onClick={() => onViewChange('settings')}>Settings</button>
     </nav>
   ),
 }))
@@ -131,6 +164,12 @@ describe('AI chat history cache', () => {
     localStorage.clear()
     localStorage.setItem('started', 'true')
     vi.clearAllMocks()
+    mocks.settingsData = {
+      aiEndpoint: 'https://fixture.example/v1',
+      aiModel: 'fixture-model',
+      aiApiKeyPresent: true,
+      aiVisionEnabled: false,
+    }
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.entries.getByDate.mockResolvedValue(null)
     mocks.entries.create.mockResolvedValue(null)
@@ -143,6 +182,40 @@ describe('AI chat history cache', () => {
     mocks.firstSlice.send.mockResolvedValue({ kind: 'answer', requestHandle: 'live-request', content: 'Cached assistant reply' })
     mocks.mistakesGetAll.mockResolvedValue({ data: [] })
     HTMLElement.prototype.scrollIntoView = vi.fn()
+  })
+
+  it('shows the exact missing AI setup fields, keeps the draft, and opens Settings without sending', async () => {
+    mocks.settingsData = { aiEndpoint: '', aiModel: '', aiApiKeyPresent: false, aiVisionEnabled: false }
+    const onOpenSettings = vi.fn()
+    render(<AIPanel entry={null} onOpenSettings={onOpenSettings} />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'Question to keep while configuring AI' } })
+    expect(screen.getByText(/AI 尚未配置，缺少：API 地址、模型、API 密钥/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /打开设置/ })).toBeInTheDocument()
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    expect(input).toHaveValue('Question to keep while configuring AI')
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /打开设置/ }))
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+  })
+
+  it('flags an invalid configured address before sending without treating provider failures as missing setup', async () => {
+    mocks.settingsData.aiEndpoint = 'invalid-address'
+    const view = render(<AIPanel entry={null} onOpenSettings={vi.fn()} />)
+    expect(screen.getByText(/API 地址格式无效/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送问题' })).toBeDisabled()
+    view.unmount()
+
+    mocks.settingsData.aiEndpoint = 'https://fixture.example/v1'
+    mocks.firstSlice.send.mockResolvedValueOnce({ kind: 'failed', possiblySent: false })
+    render(<AIPanel entry={null} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Configured request' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await screen.findByText('请求未发出，请重新发送问题。')
+    expect(screen.queryByText(/AI 尚未配置/)).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('Configured request')
   })
 
   it('keeps sent and received AI messages after navigating away and back', async () => {
@@ -166,6 +239,104 @@ describe('AI chat history cache', () => {
     expect(screen.getByText('Cached assistant reply')).toBeInTheDocument()
   })
 
+  it('UX-04 retains an unsent plain-text draft through Diary and Settings without storing or sending it', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Private unsent navigation draft' } })
+
+    for (const destination of ['Diary', 'Settings']) {
+      fireEvent.click(screen.getByRole('button', { name: destination }))
+      expect(await screen.findByText(`${destination} view`)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+      expect(screen.getByRole('textbox')).toHaveValue('Private unsent navigation draft')
+    }
+
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+    expect(mocks.aiChat).not.toHaveBeenCalled()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+    expect(Object.values(localStorage).join('')).not.toContain('Private unsent navigation draft')
+    expect(Object.values(sessionStorage).join('')).not.toContain('Private unsent navigation draft')
+  })
+
+  it('UX-04 retains failed First Slice input through Settings and lets the user edit before retrying', async () => {
+    mocks.firstSlice.send.mockResolvedValueOnce({ kind: 'failed', possiblySent: false })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Failed editable question' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await screen.findByText('请求未发出，请重新发送问题。')
+    expect(screen.getByRole('textbox')).toHaveValue('Failed editable question')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue('Failed editable question')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited retry question' } })
+    expect(screen.getByRole('textbox')).toHaveValue('Edited retry question')
+    expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+  })
+
+  it('UX-04 drops an unsent text draft when the whole App unmounts and mounts again', () => {
+    const firstApp = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'App lifetime only' } })
+    firstApp.unmount()
+
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+  })
+
+  it('UX-04 explicitly discards an unsent draft even when conversation history is empty', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Discard without chat history' } })
+    fireEvent.click(screen.getByRole('button', { name: /清空历史/ }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+  })
+
+  it('UX-04 clears the same submitted draft after success and keeps it empty after navigation', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Submitted question' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await screen.findByText('Cached assistant reply')
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Diary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['Next unsent question', 'Submitted ABA question'])('UX-04 keeps a newer edit after late success: %s', async nextInput => {
+    const request = createDeferred<FirstSliceSendResult>()
+    mocks.firstSlice.send.mockReturnValueOnce(request.promise)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Submitted ABA question' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Intermediate edit' } })
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: nextInput } })
+
+    await act(async () => {
+      request.resolve({ kind: 'answer', requestHandle: 'request', content: 'Late successful reply' })
+      await request.promise
+    })
+    expect(screen.getByRole('textbox')).toHaveValue(nextInput)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue(nextInput)
+    expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
+  })
+
   it('clears cached AI messages when clearing the conversation', async () => {
     localStorage.setItem(
       CHAT_HISTORY_KEY,
@@ -180,6 +351,7 @@ describe('AI chat history cache', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     expect(screen.getByText('Old question')).toBeInTheDocument()
     expect(screen.getByText('Old answer')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Explicitly discarded draft' } })
 
     fireEvent.click(screen.getByRole('button', { name: /清空历史/ }))
 
@@ -187,12 +359,126 @@ describe('AI chat history cache', () => {
       expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
     })
     expect(screen.queryByText('Old question')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('')
 
     fireEvent.click(screen.getByRole('button', { name: 'Diary' }))
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
 
     expect(screen.queryByText('Old question')).not.toBeInTheDocument()
     expect(screen.queryByText('Old answer')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('')
+  })
+
+  it('keeps unsent text and files in app memory while dropping selected local context on navigation', async () => {
+    const selectContext = observeComposer()
+    const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'mistake-patterns')!
+    const { container } = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.click(screen.getByRole('button', { name: prompt.label }))
+    expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
+    selectContext(['mistake-patterns'])
+    const fileInput = container.querySelector('input[type="file"]')!
+    fireEvent.change(fileInput, { target: { files: [new File(['Synthetic request-scoped material'], 'navigation-fixture.txt', { type: 'text/plain' })] } })
+    await screen.findByText('navigation-fixture.txt')
+    expect(screen.getByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
+    expect(screen.getByText('navigation-fixture.txt')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+    expect(Object.values(localStorage).join('')).not.toContain('Synthetic request-scoped material')
+    expect(Object.values(sessionStorage).join('')).not.toContain('Synthetic request-scoped material')
+  })
+
+  it('UX-04 preserves the newer draft across cancellation, navigation, and a late provider response', async () => {
+    const request = createDeferred<FirstSliceSendResult>()
+    mocks.firstSlice.send.mockReturnValueOnce(request.promise)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Cancelled question' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Newer unsent after cancellation' } })
+    fireEvent.click(screen.getByRole('button', { name: '停止请求' }))
+    await waitFor(() => expect(mocks.firstSlice.cancel).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Diary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+
+    await act(async () => {
+      request.resolve({ kind: 'answer', requestHandle: 'cancelled', content: 'Cancelled late reply' })
+      await request.promise
+    })
+    expect(screen.getByRole('textbox')).toHaveValue('Newer unsent after cancellation')
+    expect(screen.queryByText('Cancelled late reply')).not.toBeInTheDocument()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+    expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('UX-04 preserves newer text while leaving an active request and ignores its late response', async () => {
+    const request = createDeferred<FirstSliceSendResult>()
+    mocks.firstSlice.send.mockReturnValueOnce(request.promise)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Question before navigation' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Newer text before leaving' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await act(async () => {
+      request.resolve({ kind: 'answer', requestHandle: 'unmounted', content: 'Reply after page unmount' })
+      await request.promise
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue('Newer text before leaving')
+    expect(screen.queryByText('Reply after page unmount')).not.toBeInTheDocument()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
+    expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('UX-04 preserves an ABA edit when a restriction confirmation arrives late', async () => {
+    const request = createDeferred<Awaited<ReturnType<FirstSliceAPI['restrict']>>>()
+    mocks.firstSlice.restrict.mockReturnValueOnce(request.promise)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    const restriction = '接下来这段不要用日记'
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: restriction } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(mocks.firstSlice.restrict).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Next restriction draft' } })
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: restriction } })
+    await act(async () => {
+      request.resolve({ kind: 'restricted', applied: true, durableSaved: false })
+      await request.promise
+    })
+    expect(screen.getByRole('textbox')).toHaveValue(restriction)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue(restriction)
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { kind: 'unavailable' },
+    { kind: 'restricted', applied: false, durableSaved: false },
+  ] as const)('UX-04 preserves a failed restriction draft for explicit retry ($kind)', async failure => {
+    mocks.firstSlice.restrict.mockResolvedValueOnce(failure)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    const restriction = '接下来这段不要用日记'
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: restriction } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
+    await screen.findByText('限制未能确认；本次未继续发送，请明确范围后重试。')
+    expect(screen.getByRole('textbox')).toHaveValue(restriction)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.getByRole('textbox')).toHaveValue(restriction)
+    expect(mocks.firstSlice.restrict).toHaveBeenCalledTimes(1)
+    expect(mocks.firstSlice.send).not.toHaveBeenCalled()
+    expect(localStorage.getItem(CHAT_HISTORY_KEY)).toBeNull()
   })
 
   it('does not crash and resets history when cached AI messages contain malformed JSON', async () => {
@@ -259,7 +545,7 @@ describe('AI chat history cache', () => {
       expect(mocks.firstSlice.send).toHaveBeenCalledTimes(1)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /鍙栨秷|取消/ }))
+    fireEvent.click(screen.getByRole('button', { name: '停止请求' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Second question' } })
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
 
@@ -280,17 +566,18 @@ describe('AI chat history cache', () => {
     expect(screen.queryByText('first stale reply')).not.toBeInTheDocument()
   })
 
-  it('fills quick-prompt drafts and context without starting chat or prefetching context', async () => {
+  it('fills quick-prompt drafts without selecting local context, starting chat or prefetching context', async () => {
     const mistakesRequest = createDeferred<{ data: [] }>()
     mocks.mistakesGetAll.mockReturnValueOnce(mistakesRequest.promise)
     const prompt = AI_QUICK_PROMPT_TEMPLATES.find(template => template.id === 'mistake-patterns')!
 
     render(<AIPanel entry={null} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /错题规律分析|閿欓/ }))
+    fireEvent.click(screen.getByRole('button', { name: /错题规律|閿欓/ }))
 
     expect(screen.getByRole('textbox')).toHaveValue(prompt.draft)
-    expect(screen.getByText(AI_CONTEXT_LABELS['mistake-patterns'])).toBeInTheDocument()
+    expect(prompt.contextKinds).toEqual([])
+    expect(screen.queryByRole('button', { name: `移除资料：${AI_CONTEXT_LABELS['mistake-patterns']}` })).not.toBeInTheDocument()
     expect(mocks.aiChat).not.toHaveBeenCalled()
     expect(mocks.firstSlice.send).not.toHaveBeenCalled()
     expect(mocks.firstSlice.resolveEvidence).not.toHaveBeenCalled()
@@ -334,11 +621,15 @@ describe('AI chat history cache', () => {
   })
 
   it('blocks selected diary context without reading its content or sending it', async () => {
+    const selectContext = observeComposer()
     const entry = makeEntry()
     const content = vi.fn(() => '我每天晚上会戴紫色潜水帽学习。')
     Object.defineProperty(entry, 'content', { get: content })
     render(<AIPanel entry={entry} />)
     fireEvent.click(screen.getByRole('button', { name: AI_QUICK_PROMPT_TEMPLATES.find(p => p.id === 'daily-summary')!.label }))
+    expect(screen.queryByRole('button', { name: '移除资料：今日日记' })).not.toBeInTheDocument()
+    selectContext(['current-diary'])
+    expect(screen.getByRole('button', { name: '移除资料：今日日记' })).toBeInTheDocument()
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
     expect(await screen.findByText(/当前受控对话暂不支持/)).toBeInTheDocument()
     expect(content).not.toHaveBeenCalled()

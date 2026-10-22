@@ -161,7 +161,7 @@ describe('App Pomodoro fullscreen navigation guard', () => {
     expect(screen.getByTestId('active-view')).toHaveTextContent('pomodoro')
     expect(screen.getByText('Pomodoro view')).toBeInTheDocument()
     expect(screen.queryByText('Settings view')).not.toBeInTheDocument()
-    expect(mocks.showToast).toHaveBeenCalledWith('请先退出番茄钟全屏模式再切换页面', 'info')
+    expect(mocks.showToast).toHaveBeenCalledWith('请先退出专注计时全屏，再切换页面。', 'info')
   })
 
   it('restores sidebar navigation after Pomodoro fullscreen exits', () => {
@@ -187,6 +187,6 @@ describe('App Pomodoro fullscreen navigation guard', () => {
     expect(screen.getByTestId('active-view')).toHaveTextContent('pomodoro')
     expect(screen.getByText('Pomodoro view')).toBeInTheDocument()
     expect(screen.queryByText('Settings view')).not.toBeInTheDocument()
-    expect(mocks.showToast).toHaveBeenCalledWith('请先退出番茄钟全屏模式再切换页面', 'info')
+    expect(mocks.showToast).toHaveBeenCalledWith('请先退出专注计时全屏，再切换页面。', 'info')
   })
 })

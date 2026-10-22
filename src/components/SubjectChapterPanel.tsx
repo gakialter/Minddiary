@@ -210,7 +210,7 @@ export default function SubjectChapterPanel({
                     <div className="text-sm text-muted">
                         {hasDetailedChapters
                             ? `全部 ${stats.total} · 未完成 ${stats.open} · 已完成 ${stats.completed}`
-                            : '当前是汇总模式，添加第一批章节后会转换为详细章节模式。'}
+                            : '添加章节后会开始逐章记录进度。'}
                     </div>
                 </div>
                 {hasDetailedChapters && (
@@ -218,9 +218,9 @@ export default function SubjectChapterPanel({
                         className="button button-secondary"
                         onClick={clearDetailed}
                         disabled={!!pending}
-                        title="退出详细章节模式并保留汇总进度"
+                        title="删除章节明细并保留汇总进度"
                     >
-                        退出详细模式
+                        删除明细，保留汇总进度
                     </button>
                 )}
             </div>
@@ -229,13 +229,13 @@ export default function SubjectChapterPanel({
                 <input
                     className="input"
                     style={{ flex: 1, minWidth: 0 }}
-                    placeholder="输入章节名称，按 Enter 添加"
+                    placeholder="输入章节名后按回车添加"
                     value={singleTitle}
                     onChange={event => setSingleTitle(event.target.value)}
                     onKeyDown={handleTitleKeyDown}
                     disabled={!!pending}
                     data-testid="chapter-title-input"
-                    aria-label="章节名称"
+                    aria-label="章节名"
                 />
                 <button
                     className="button button-primary"
@@ -252,23 +252,23 @@ export default function SubjectChapterPanel({
                 <textarea
                     className="input"
                     style={{ minHeight: 92, resize: 'vertical' }}
-                    placeholder={'批量粘贴目录，一行一个章节\n第一章 函数、极限与连续\n第二章 一元函数微分学'}
+                    placeholder={'一行一个章节，例如：\n第一章 函数、极限与连续\n第二章 一元函数微分学'}
                     value={bulkText}
                     onChange={event => setBulkText(event.target.value)}
                     disabled={!!pending}
                     data-testid="chapter-bulk-input"
-                    aria-label="批量章节目录"
+                    aria-label="章节目录"
                 />
                 <div className="flex items-center justify-between gap-sm flex-wrap">
                     <div className="text-xs text-muted">
-                        空行会自动忽略；本次输入中的完全重复行只创建一次。
+                        每行添加一个章节；空行忽略，本次粘贴中重复的章节只添加一次。
                     </div>
                     <button
                         className="button button-secondary"
                         onClick={handleBulkAdd}
                         disabled={!!pending || !bulkText.trim()}
                         data-testid="chapter-bulk-button"
-                        title="批量添加章节"
+                        title="批量添加"
                     >
                         <ListPlus size={15} /> 批量添加
                     </button>
@@ -354,15 +354,15 @@ export default function SubjectChapterPanel({
                                                         if (event.key === 'Escape') cancelEdit()
                                                         if (event.key === 'Enter') void saveEdit(chapter)
                                                     }}
-                                                    aria-label="编辑章节标题"
+                                                    aria-label="章节名称"
                                                 />
                                                 <textarea
                                                     className="input"
                                                     value={editNotes}
                                                     onChange={event => setEditNotes(event.target.value)}
                                                     data-testid={`chapter-edit-notes-${chapter.id}`}
-                                                    placeholder="可选说明"
-                                                    aria-label="编辑章节说明"
+                                                    placeholder="说明"
+                                                    aria-label="章节说明"
                                                     style={{ minHeight: 68, resize: 'vertical' }}
                                                 />
                                             </div>
@@ -403,7 +403,7 @@ export default function SubjectChapterPanel({
                                                     onClick={() => void reorder(chapter, -1)}
                                                     disabled={!!pending || index === 0 || filter !== 'all'}
                                                     data-testid={`chapter-up-${chapter.id}`}
-                                                    title="上移章节"
+                                                    title="上移"
                                                 >
                                                     <ArrowUp size={15} />
                                                 </button>
@@ -412,7 +412,7 @@ export default function SubjectChapterPanel({
                                                     onClick={() => void reorder(chapter, 1)}
                                                     disabled={!!pending || index === visibleChapters.length - 1 || filter !== 'all'}
                                                     data-testid={`chapter-down-${chapter.id}`}
-                                                    title="下移章节"
+                                                    title="下移"
                                                 >
                                                     <ArrowDown size={15} />
                                                 </button>
@@ -444,7 +444,7 @@ export default function SubjectChapterPanel({
                                             onClick={() => void addToToday(chapter)}
                                             style={{ minHeight: 32, padding: '4px 10px', borderRadius: 16, fontSize: 12 }}
                                         >
-                                            {todayChapterTaskIds.has(chapter.id) ? '已加入今日任务' : '加入今日任务'}
+                                            {todayChapterTaskIds.has(chapter.id) ? '已加入' : '加入任务'}
                                         </button>
                                     </div>
                                 )}

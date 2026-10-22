@@ -82,8 +82,8 @@ function mountSettingsAndPanel() {
 async function attachAndCheckSending(container: HTMLElement, supported: boolean) {
   const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!
   fireEvent.change(fileInput, { target: { files: [new File(['image'], 'vision.png', { type: 'image/png' })] } })
-  const send = screen.getByRole('button', { name: '发送 AI 请求' })
-  expect(await screen.findByRole('button', { name: '删除附件 vision.png' })).toBeInTheDocument()
+  const send = screen.getByRole('button', { name: '发送问题' })
+  expect(await screen.findByRole('button', { name: '移除附件：vision.png' })).toBeInTheDocument()
   if (supported) {
     await waitFor(() => expect(send).toBeEnabled())
     expect(screen.queryByText(UNSUPPORTED_IMAGE)).not.toBeInTheDocument()
@@ -97,7 +97,7 @@ async function attachAndCheckSending(container: HTMLElement, supported: boolean)
     // A completed image-only send clears its draft, so a next turn cannot
     // accidentally retain this attachment.
     await waitFor(() => expect(send).toBeDisabled())
-    expect(screen.queryByRole('button', { name: '删除附件 vision.png' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '移除附件：vision.png' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText(/向小研提问/), { target: { value: 'Hello again' } })
     fireEvent.click(send)
     await waitFor(() => expect(mocks.firstSlice.send).toHaveBeenCalledTimes(sentBefore + 2))

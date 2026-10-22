@@ -675,7 +675,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                         title={`选择${title}文件，支持多选`}
                     >
-                        <ImagePlus size={16} /> 上传
+                        <ImagePlus size={16} /> 上传图片
                     </button>
                     <input
                         ref={fileInputRef}
@@ -777,7 +777,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         onClick={() => setShowAIReview(true)}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                     >
-                        <Sparkles size={16} /> AI 复习规划
+                        <Sparkles size={16} /> AI 复习建议
                     </button>
                     <button
                         type="button"
@@ -788,7 +788,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                     >
                         <BookOpen size={16} /> 到期复习
                     </button>
-                    <button type="button" className="button button-secondary" onClick={() => setShowDailyReview(true)}>日常复盘</button>
+                    <button type="button" className="button button-secondary" onClick={() => setShowDailyReview(true)}>错题复习</button>
                     <button
                         className={showForm ? 'button button-secondary' : 'button button-primary'}
                         onClick={handleToggleForm}
@@ -818,7 +818,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                 </label>
-                <label className="workspace-field">掌握状态
+                <label className="workspace-field">掌握情况
                     <select className="input" value={filter.mastered}
                         onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
                         data-testid="mistake-status-filter">
@@ -876,27 +876,36 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 >
                     <div className="mistake-book__toolbar" style={{ marginBottom: 'var(--space)' }}>
                         <h3>{editingId ? '编辑' : '添加错题/知识点'}</h3>
-                        <span className="text-xs text-muted">提示：支持 Ctrl/Cmd+V 粘贴或拖拽图片</span>
+                        <span className="text-xs text-muted">可按 Ctrl/Cmd+V 粘贴图片，也可拖入图片。</span>
                     </div>
                     <div className="flex flex-col gap-sm">
                         <label htmlFor="mistake-form-subject">科目</label>
                         <select id="mistake-form-subject" className="input" value={form.subject_id}
-                            onChange={e => setForm(f => ({ ...f, subject_id: e.target.value }))}>
+                            onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, subject_id: value }))
+                            }}>
                             <option value="">选择科目</option>
                             {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
-                        <label htmlFor="mistake-form-question">问题 / 知识点</label>
+                        <label htmlFor="mistake-form-question">问题或知识点</label>
                         <textarea id="mistake-form-question"
                             ref={questionTextareaRef}
                             className="input" placeholder="问题 / 知识点" rows={3}
-                            value={form.question} onChange={e => setForm(f => ({ ...f, question: e.target.value }))}
+                            value={form.question} onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, question: value }))
+                            }}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('question', '题目图片', '在查看答案前显示', form.question_image_paths)}
-                        <label htmlFor="mistake-form-answer">答案 / 解析</label>
+                        <label htmlFor="mistake-form-answer">答案解析</label>
                         <textarea id="mistake-form-answer"
                             className="input" placeholder="答案 / 解析" rows={3}
-                            value={form.answer} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))}
+                            value={form.answer} onChange={e => {
+                                const value = e.target.value
+                                setForm(f => ({ ...f, answer: value }))
+                            }}
                             style={{ resize: 'vertical' }}
                         />
                         {renderImageSection('answer', '答案图片', '查看答案后显示', form.answer_image_paths)}
@@ -911,7 +920,10 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             <textarea id="mistake-form-notes"
                                 ref={notesTextareaRef}
                                 className="input" placeholder="备注（可选）" rows={2}
-                                value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                                value={form.notes} onChange={e => {
+                                    const value = e.target.value
+                                    setForm(f => ({ ...f, notes: value }))
+                                }}
                                 style={{ resize: 'vertical', marginTop: 'var(--space-xs)' }}
                                 data-testid="mistake-notes-textarea"
                             />
@@ -924,7 +936,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                 disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || imageUploadFailures.length > 0 || isSaving}
                                 data-testid="mistake-submit-btn"
                             >
-                                {uploadingImageCount > 0 ? '图片上传中...' : isSaving ? '保存中...' : editingId ? '保存' : '添加'}
+                                {uploadingImageCount > 0 ? '上传中' : isSaving ? '保存中...' : editingId ? '保存' : '添加'}
                             </button>
                             <button
                                 type="button"
@@ -960,12 +972,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             <BookX size={28} style={{ color: 'var(--accent)', opacity: 0.9 }} />
                         </div>
                         <h3 className="text-lg font-medium">
-                            {filter.search || filter.subject_id || filter.mastered || dueOnly ? '没有符合筛选条件的错题' : '还没有错题记录'}
+                            {filter.search || filter.subject_id || filter.mastered || dueOnly ? '没有匹配的错题，试试减少筛选。' : '还没有错题，添加一道开始复习。'}
                         </h3>
                         <p className="text-muted" style={{ maxWidth: 300 }}>
                             {filter.search || filter.subject_id || filter.mastered || dueOnly
                                 ? '试试调整搜索词、科目或掌握状态。'
-                                : '你可以将遇到的错题或需要背诵的知识点记录在这里，支持关联科目并随时复习。'}
+                                : '记录错题或知识点，关联科目后可随时复习。'}
                         </p>
                         {!showForm && (
                             <button className="button button-secondary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)} data-testid="mistake-add-first-btn">

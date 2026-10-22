@@ -198,8 +198,11 @@ function prepareFixtureDatabase(fixture: LegacyDatabaseFixture): {
   tempRoots.push(temp.root)
   const database = trackDatabase(temp.database)
   database.pragma('foreign_keys = ON')
-  fixture.createSchema(database)
-  const expected = fixture.seedData(database)
+  // Commit fixture setup once instead of syncing every DDL and seed write to disk.
+  const expected = database.transaction(() => {
+    fixture.createSchema(database)
+    return fixture.seedData(database)
+  })()
   return {
     database,
     expected,

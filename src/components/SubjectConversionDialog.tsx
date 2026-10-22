@@ -63,7 +63,7 @@ export default function SubjectConversionDialog({
                 }}
             >
                 <h3 id="subject-conversion-title" className="font-bold text-lg" style={{ marginBottom: 'var(--space-sm)' }}>
-                    转换为详细章节模式
+                    改为逐章记录
                 </h3>
                 <p className="text-sm text-secondary" style={{ lineHeight: 1.7, marginBottom: 'var(--space-md)' }}>
                     当前「{subject.name}」的汇总进度是 {summaryCompleted} / {summaryTotal}。确认后将创建 {chapterCount} 个详细章节，
@@ -93,7 +93,7 @@ export default function SubjectConversionDialog({
                         />
                         <span>
                             <span className="font-semibold">全部设为未完成</span>
-                            <span className="block text-sm text-muted">保留旧汇总到确认前，不自动推断完成章节。</span>
+                            <span className="block text-sm text-muted">确认前保留原汇总；不推测已完成章节</span>
                         </span>
                     </label>
                 </div>
@@ -118,7 +118,7 @@ export default function SubjectConversionDialog({
                         取消
                     </button>
                     <button className="button button-primary" onClick={handleConfirm} disabled={saving || preserveUnavailable} data-testid="chapter-conversion-confirm">
-                        {saving ? '转换中...' : '确认转换'}
+                        {saving ? '正在转换…' : '确认转换'}
                     </button>
                 </div>
             </div>

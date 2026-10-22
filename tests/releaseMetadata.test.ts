@@ -3,10 +3,14 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { createHash } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { verifyReleaseMetadata } from '../scripts/verify-release-metadata'
 
 const tempRoots: string[] = []
+const installerSha512 = createHash('sha512').update('installer').digest('base64')
+const zipSha512 = createHash('sha512').update('zip').digest('base64')
+const dmgSha512 = createHash('sha512').update('dmg').digest('base64')
 
 function makeTempRoot(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'minddiary-release-'))
@@ -31,10 +35,10 @@ function writeLatestYml(releaseDir: string, body?: string): void {
     'version: 1.9.3',
     'files:',
     '  - url: MindDiary-Setup-1.9.3.exe',
-    '    sha512: abc123',
+    `    sha512: ${installerSha512}`,
     '    size: 9',
     'path: MindDiary-Setup-1.9.3.exe',
-    'sha512: abc123',
+    `sha512: ${installerSha512}`,
     'releaseDate: 2026-05-21T00:00:00.000Z',
     '',
   ].join('\n'))
@@ -60,13 +64,13 @@ function writeMacLatestYml(releaseDir: string, body?: string): void {
     'version: 1.9.3',
     'files:',
     '  - url: MindDiary-1.9.3-arm64-mac.zip',
-    '    sha512: ziphash',
+    `    sha512: ${zipSha512}`,
     '    size: 3',
     '  - url: MindDiary-1.9.3-arm64.dmg',
-    '    sha512: dmghash',
+    `    sha512: ${dmgSha512}`,
     '    size: 3',
     'path: MindDiary-1.9.3-arm64-mac.zip',
-    'sha512: ziphash',
+    `sha512: ${zipSha512}`,
     'releaseDate: 2026-05-21T00:00:00.000Z',
     '',
   ].join('\n'))
@@ -113,6 +117,110 @@ describe('release metadata verification', () => {
     })
   })
 
+  it('accepts an asset whose SHA512 covers multiple read chunks and a partial final chunk', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeLatestYml(releaseDir)
+    writeAppUpdateYml(releaseDir)
+    const installer = Buffer.alloc(1024 * 1024 + 7, 0x5a)
+    installer.fill(0x3c, 1024 * 1024)
+    const sha512 = createHash('sha512').update(installer).digest('base64')
+    fs.writeFileSync(path.join(releaseDir, 'MindDiary-Setup-1.9.3.exe'), installer)
+    const latestPath = path.join(releaseDir, 'latest.yml')
+    fs.writeFileSync(latestPath, fs.readFileSync(latestPath, 'utf8')
+      .split(installerSha512).join(sha512)
+      .replace('    size: 9', `    size: ${installer.length}`))
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'win',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).not.toThrow()
+  })
+
+  it.each(['win', 'mac'] as const)('rejects %s metadata when the top-level SHA512 does not match the primary asset', platform => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    if (platform === 'win') {
+      writeLatestYml(releaseDir)
+      writeAppUpdateYml(releaseDir)
+    } else {
+      writeMacLatestYml(releaseDir)
+      writeMacAppUpdateYml(releaseDir)
+    }
+    const latestFilename = platform === 'win' ? 'latest.yml' : 'latest-mac.yml'
+    const latestPath = path.join(releaseDir, latestFilename)
+    const wrongSha512 = createHash('sha512').update('different asset').digest('base64')
+    fs.writeFileSync(latestPath, fs.readFileSync(latestPath, 'utf8').replace(
+      /\nsha512: [^\n]+/,
+      `\nsha512: ${wrongSha512}`,
+    ))
+
+    expect(() => verifyReleaseMetadata({
+      platform,
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(`${latestFilename} sha512 does not match asset SHA512`)
+  })
+
+  it.each(['win', 'mac'] as const)('rejects %s metadata when a file-entry SHA512 does not match its asset', platform => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    if (platform === 'win') {
+      writeLatestYml(releaseDir)
+      writeAppUpdateYml(releaseDir)
+    } else {
+      writeMacLatestYml(releaseDir)
+      writeMacAppUpdateYml(releaseDir)
+    }
+    const latestFilename = platform === 'win' ? 'latest.yml' : 'latest-mac.yml'
+    const latestPath = path.join(releaseDir, latestFilename)
+    const originalSha512 = platform === 'win' ? installerSha512 : dmgSha512
+    const wrongSha512 = createHash('sha512').update('different asset').digest('base64')
+    fs.writeFileSync(latestPath, fs.readFileSync(latestPath, 'utf8').replace(
+      `    sha512: ${originalSha512}`,
+      `    sha512: ${wrongSha512}`,
+    ))
+
+    expect(() => verifyReleaseMetadata({
+      platform,
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(`${latestFilename} files[${platform === 'win' ? 0 : 1}] sha512 does not match asset SHA512`)
+  })
+
+  it.each(['win', 'mac'] as const)('rejects %s metadata after an asset changes without changing its size', platform => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    if (platform === 'win') {
+      writeLatestYml(releaseDir)
+      writeAppUpdateYml(releaseDir)
+    } else {
+      writeMacLatestYml(releaseDir)
+      writeMacAppUpdateYml(releaseDir)
+    }
+    const assetPath = path.join(releaseDir, platform === 'win'
+      ? 'MindDiary-Setup-1.9.3.exe'
+      : 'MindDiary-1.9.3-arm64.dmg')
+    const originalSize = fs.statSync(assetPath).size
+    fs.writeFileSync(assetPath, platform === 'win' ? 'corrupted' : 'bad')
+    expect(fs.statSync(assetPath).size).toBe(originalSize)
+
+    expect(() => verifyReleaseMetadata({
+      platform,
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/sha512 does not match asset SHA512/)
+  })
+
   it('rejects a missing latest.yml', () => {
     const root = makeTempRoot()
     const releaseDir = path.join(root, 'release')
@@ -152,9 +260,9 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: win-unpacked/MindDiary.exe',
-      '    sha512: abc123',
+      `    sha512: ${createHash('sha512').update('internal app').digest('base64')}`,
       'path: win-unpacked/MindDiary.exe',
-      'sha512: abc123',
+      `sha512: ${createHash('sha512').update('internal app').digest('base64')}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))
@@ -198,9 +306,9 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: MindDiary-Setup-1.9.3.exe',
-      '    sha512: abc123',
+      `    sha512: ${installerSha512}`,
       'path: MindDiary-Setup-1.9.3.exe',
-      'sha512: abc123',
+      `sha512: ${installerSha512}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))
@@ -222,10 +330,10 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: MindDiary-Setup-1.9.3.exe',
-      '    sha512: abc123',
+      `    sha512: ${installerSha512}`,
       '    size: invalid',
       'path: MindDiary-Setup-1.9.3.exe',
-      'sha512: abc123',
+      `sha512: ${installerSha512}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))
@@ -247,10 +355,10 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: MindDiary-Setup-1.9.3.exe',
-      '    sha512: abc123',
+      `    sha512: ${installerSha512}`,
       '    size: 10',
       'path: MindDiary-Setup-1.9.3.exe',
-      'sha512: abc123',
+      `sha512: ${installerSha512}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))
@@ -346,10 +454,10 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: MindDiary-1.9.3-arm64.dmg',
-      '    sha512: dmghash',
+      `    sha512: ${dmgSha512}`,
       '    size: 3',
       'path: MindDiary-1.9.3-arm64.dmg',
-      'sha512: dmghash',
+      `sha512: ${dmgSha512}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))
@@ -362,6 +470,31 @@ describe('release metadata verification', () => {
     })).toThrow(/path must point to the root release asset MindDiary-1\.9\.3-arm64-mac\.zip/)
   })
 
+  it('rejects macOS metadata when files lists only the DMG and omits the primary update ZIP', () => {
+    const root = makeTempRoot()
+    const releaseDir = path.join(root, 'release')
+    fs.mkdirSync(releaseDir)
+    const packagePath = writePackageJson(root)
+    writeMacLatestYml(releaseDir, [
+      'version: 1.9.3',
+      'files:',
+      '  - url: MindDiary-1.9.3-arm64.dmg',
+      `    sha512: ${dmgSha512}`,
+      '    size: 3',
+      'path: MindDiary-1.9.3-arm64-mac.zip',
+      `sha512: ${zipSha512}`,
+      'releaseDate: 2026-05-21T00:00:00.000Z',
+      '',
+    ].join('\n'))
+    writeMacAppUpdateYml(releaseDir)
+
+    expect(() => verifyReleaseMetadata({
+      platform: 'mac',
+      packageJsonPath: packagePath,
+      releaseDir,
+    })).toThrow(/latest-mac\.yml files must include the primary update asset MindDiary-1\.9\.3-arm64-mac\.zip/)
+  })
+
   it('rejects macOS latest-mac.yml when an asset size does not match the actual file', () => {
     const root = makeTempRoot()
     const releaseDir = path.join(root, 'release')
@@ -371,13 +504,13 @@ describe('release metadata verification', () => {
       'version: 1.9.3',
       'files:',
       '  - url: MindDiary-1.9.3-arm64-mac.zip',
-      '    sha512: ziphash',
+      `    sha512: ${zipSha512}`,
       '    size: 4',
       '  - url: MindDiary-1.9.3-arm64.dmg',
-      '    sha512: dmghash',
+      `    sha512: ${dmgSha512}`,
       '    size: 3',
       'path: MindDiary-1.9.3-arm64-mac.zip',
-      'sha512: ziphash',
+      `sha512: ${zipSha512}`,
       'releaseDate: 2026-05-21T00:00:00.000Z',
       '',
     ].join('\n'))

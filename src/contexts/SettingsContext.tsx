@@ -193,7 +193,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 )
                 normalizedPatch = {
                     ...patch,
-                    examDate: countdown.examDate,
+                    ...(countdown.examDate ? { examDate: countdown.examDate } : {}),
                     countdownEvents: countdown.countdownEvents,
                 }
             }

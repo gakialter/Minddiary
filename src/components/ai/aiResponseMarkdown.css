@@ -1,0 +1,24 @@
+.ai-message__body {
+    min-width: 0;
+}
+
+.ai-message-content {
+    overflow-wrap: anywhere;
+}
+
+.ai-message-content .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 0.25em;
+}
+
+.ai-message-content .katex {
+    overflow-wrap: normal;
+    font-size: 1.1em;
+}
+
+.ai-message-content .katex-error {
+    color: var(--color-text-primary) !important;
+    white-space: pre-wrap;
+}

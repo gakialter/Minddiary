@@ -116,7 +116,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
         >
           <div className="flex items-center gap-sm">
             <FileText size={18} style={{ color: 'var(--accent)' }} />
-            <h3 className="font-semibold" style={{ fontSize: 16 }}>管理日记模板</h3>
+            <h3 className="font-semibold" style={{ fontSize: 16 }}>管理模板</h3>
           </div>
           <div className="flex items-center gap-sm">
             <button
@@ -266,7 +266,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
 
           {templates.length === 0 && !isAdding && (
             <div className="text-sm text-muted text-center" style={{ padding: 'var(--space-xl)' }}>
-              暂无模板，点击右上角"新建模板"创建你的第一个模板。
+              还没有模板，点击新建。
             </div>
           )}
         </div>
@@ -280,7 +280,7 @@ export default function TemplateManager({ visible, onClose, onInsert }: Template
             textAlign: 'center',
           }}
         >
-          点击模板名称即可插入到编辑器 · 默认模板不可删除但可编辑内容
+          点击模板名称可插入日记；默认模板可编辑但不能删除。
         </div>
       </div>
     </div>

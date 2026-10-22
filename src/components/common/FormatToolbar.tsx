@@ -1,9 +1,10 @@
-import { Bold, Highlighter, Underline } from 'lucide-react'
+import { Bold, Highlighter, RemoveFormatting, Underline } from 'lucide-react'
 import type { MarkdownColorKey } from '../../utils/remarkColor'
 import ColorPickerButton from './ColorPickerButton'
 
 interface FormatToolbarProps {
   active?: { bold: boolean; underline: boolean; highlight: boolean; color?: MarkdownColorKey }
+  onClearFormat?: () => void
   onClearColor?: () => void
   /** Callback when the bold button is clicked */
   onBold: () => void
@@ -23,7 +24,7 @@ interface FormatToolbarProps {
  * when a button is clicked (typically inserting Markdown markers
  * into a textarea via the useTextFormat hook).
  */
-export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor, active, onClearColor }: FormatToolbarProps) {
+export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColor, active, onClearColor, onClearFormat }: FormatToolbarProps) {
   // Pointer activation runs on mousedown so the textarea selection is still intact.
   // Keyboard/assistive activation reaches the click path with detail === 0.
   const handleMouseDown = (e: React.MouseEvent, action: () => void) => {
@@ -40,13 +41,13 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
     <div
       className="format-toolbar"
       role="toolbar"
-      aria-label="文本格式工具栏"
+      aria-label="文字格式"
       data-testid="format-toolbar"
     >
       <button
         type="button"
-        className="format-toolbar__button"
-        title="加粗 (**文本**)"
+        className={`format-toolbar__button${active?.bold ? ' format-toolbar__button--selected' : ''}`}
+        title="加粗"
         aria-label="加粗"
         data-testid="format-bold"
         aria-pressed={active?.bold}
@@ -58,8 +59,8 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
 
       <button
         type="button"
-        className="format-toolbar__button"
-        title="高亮 (==文本==)"
+        className={`format-toolbar__button${active?.highlight ? ' format-toolbar__button--selected' : ''}`}
+        title="高亮"
         aria-label="高亮"
         data-testid="format-highlight"
         aria-pressed={active?.highlight}
@@ -71,8 +72,8 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
 
       <button
         type="button"
-        className="format-toolbar__button"
-        title="下划线 (++文本++)"
+        className={`format-toolbar__button${active?.underline ? ' format-toolbar__button--selected' : ''}`}
+        title="下划线"
         aria-label="下划线"
         data-testid="format-underline"
         aria-pressed={active?.underline}
@@ -81,6 +82,20 @@ export default function FormatToolbar({ onBold, onHighlight, onUnderline, onColo
       >
         <Underline size={15} aria-hidden="true" />
       </button>
+
+      {onClearFormat && (
+        <button
+          type="button"
+          className="format-toolbar__button"
+          title="清除格式"
+          aria-label="清除格式"
+          data-testid="format-clear"
+          onMouseDown={(e) => handleMouseDown(e, onClearFormat)}
+          onClick={(e) => handleClick(e, onClearFormat)}
+        >
+          <RemoveFormatting size={15} aria-hidden="true" />
+        </button>
+      )}
 
       {onColor && (
         <>

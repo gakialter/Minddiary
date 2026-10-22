@@ -127,9 +127,9 @@ describe('FocusDistributionChart', () => {
 
     render(<FocusDistributionChart pomodoro={mockPomodoro} dataRefreshVersion={0} />)
 
-    const rangeGroup = screen.getByRole('group', { name: '专注分布时间范围' })
+    const rangeGroup = screen.getByRole('group', { name: '专注统计日期范围' })
     const rangeButtons = within(rangeGroup).getAllByRole('button')
-    expect(rangeButtons.map(button => button.textContent)).toEqual(['今日', '近 7 天', '近 30 天', '单日', '范围'])
+    expect(rangeButtons.map(button => button.textContent)).toEqual(['今日', '近 7 天', '近 30 天', '单日', '自选范围'])
     expect(screen.getByTestId('focus-range-today')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('focus-range-week')).toHaveAttribute('aria-pressed', 'false')
 

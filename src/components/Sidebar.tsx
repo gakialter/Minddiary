@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Home, PenLine, Calendar, BarChart2, Tags, Search, Timer, BookOpen, BookX, Bot, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 
 interface SidebarProps {
   activeView: string
@@ -16,17 +17,18 @@ interface NavItem {
 }
 
 export default function Sidebar({ activeView, onViewChange, selectedDate, isCollapsed, onToggle }: SidebarProps) {
+  const todayDate = useCurrentLocalDateKey()
   const navItems: NavItem[] = [
-    { id: 'home', icon: Home, label: '今日执行' },
+    { id: 'home', icon: Home, label: '今日安排' },
     { id: 'editor', icon: PenLine, label: '写日记' },
     { id: 'calendar', icon: Calendar, label: '日历' },
-    { id: 'dashboard', icon: BarChart2, label: '数据统计' },
-    { id: 'tags', icon: Tags, label: '标签管理' },
-    { id: 'search', icon: Search, label: '搜索' },
-    { id: 'pomodoro', icon: Timer, label: '番茄钟' },
+    { id: 'dashboard', icon: BarChart2, label: '学习统计' },
+    { id: 'tags', icon: Tags, label: '标签' },
+    { id: 'search', icon: Search, label: '搜索日记' },
+    { id: 'pomodoro', icon: Timer, label: '专注计时' },
     { id: 'progress', icon: BookOpen, label: '科目进度' },
     { id: 'mistakes', icon: BookX, label: '错题本' },
-    { id: 'ai', icon: Bot, label: 'AI 助手' },
+    { id: 'ai', icon: Bot, label: '学习助手' },
     { id: 'settings', icon: Settings, label: '设置' },
   ]
   const toggleLabel = isCollapsed ? '展开侧边栏' : '收起侧边栏'
@@ -65,11 +67,16 @@ export default function Sidebar({ activeView, onViewChange, selectedDate, isColl
       <div className="sidebar-footer">
         {!isCollapsed && (
           <div className="sidebar-today">
-            <div className="sidebar-today-label">今日</div>
-            <div className="sidebar-today-date">{selectedDate}</div>
+            <div className="sidebar-today-label">今天</div>
+            <div className="sidebar-today-date">{todayDate}</div>
             <div className="sidebar-today-weekday">
-              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
+              {new Date(todayDate + 'T00:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}
             </div>
+            {selectedDate !== todayDate && (
+              <div className="sidebar-today-weekday">
+                日历所选日期：{selectedDate}（{selectedDate < todayDate ? '历史日记' : '未来日期'}）
+              </div>
+            )}
           </div>
         )}
         <button

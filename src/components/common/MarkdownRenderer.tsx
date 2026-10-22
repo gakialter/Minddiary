@@ -1,12 +1,16 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import type { Components } from 'react-markdown'
 import remarkTextFormatting from '../../utils/remarkTextFormatting'
 import remarkColor, { COLOR_WHITELIST } from '../../utils/remarkColor'
+import { normalizeMarkdownMath } from '../../utils/aiResponseMath'
 
 interface MarkdownRendererProps {
   children: string
   className?: string
+  math?: boolean
 }
 
 const components: Components = {
@@ -86,14 +90,27 @@ const components: Components = {
   },
 }
 
-export default function MarkdownRenderer({ children, className }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ children, className, math = true }: MarkdownRendererProps) {
+  // KaTeX produces its own safe span classes/styles. The ordinary color-span
+  // renderer deliberately strips other classes, so leave those spans to React.
+  const { span: _colorSpan, ...mathComponents } = components
   return (
     <div className={`markdown-body content-selectable ${className || ''}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkTextFormatting, remarkColor]} components={components}>
-        {children}
+      <ReactMarkdown
+        remarkPlugins={math ? [remarkGfm, remarkMath, remarkTextFormatting, remarkColor] : [remarkGfm, remarkTextFormatting, remarkColor]}
+        rehypePlugins={math ? [[rehypeKatex, { trust: false, maxExpand: 1000, maxSize: 20 }]] : []}
+        components={math ? mathComponents : components}
+      >
+        {math ? normalizeMarkdownMath(children) : children}
       </ReactMarkdown>
       <style>{`
         .markdown-body p:last-child { margin-bottom: 0; }
+        .markdown-body { min-width: 0; max-width: 100%; }
+        .markdown-body .katex-display {
+          max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-block: 0.25em;
+        }
+        .markdown-body .katex { overflow-wrap: normal; font-size: 1.1em; }
+        .markdown-body .katex-error { color: var(--color-text-primary) !important; white-space: pre-wrap; }
       `}</style>
     </div>
   )

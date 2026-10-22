@@ -4120,6 +4120,21 @@ textarea.input {
   gap: var(--space-2);
 }
 
+.today-action__first-task-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.today-action__first-task-entry p {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-compact);
+}
+
 .today-action__task-action--complete:hover:not(:disabled) {
   border-color: var(--color-success-border);
   background: var(--color-success-bg-subtle);

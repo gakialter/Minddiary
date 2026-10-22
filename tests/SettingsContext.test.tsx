@@ -166,6 +166,24 @@ describe('SettingsContext', () => {
     expect(saved.result.current.settingsData.aiModel).toBe('kimi-latest')
     expect(window.api.settings.updateAI).not.toHaveBeenCalled()
   })
+  it('saves general settings without sending an empty primary date to Electron', async () => {
+    vi.mocked(window.api.settings.getAll).mockResolvedValue(settingsFrom({ examDate: '', countdownEvents: [] }))
+    vi.mocked(window.api.settings.updateGeneral).mockImplementation(async patch => {
+      if (patch.examDate === '') throw new Error('Invalid examDate: expected a valid YYYY-MM-DD date')
+      return { success: true }
+    })
+    const { result } = renderSettingsHook()
+    await waitFor(() => expect(result.current.settingsReady).toBe(true))
+
+    await act(async () => {
+      await result.current.settings.updateGeneral({ countdownEvents: [], autoSave: true })
+    })
+
+    expect(window.api.settings.updateGeneral).toHaveBeenCalledWith({ countdownEvents: [], autoSave: true })
+    expect(result.current.settingsData.examDate).toBe('')
+    expect(result.current.settingsData.countdownEvents).toEqual([])
+  })
+
   it('throws when useSettings is rendered without SettingsProvider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const suppressWindowError = (event: ErrorEvent) => event.preventDefault()
@@ -336,12 +354,8 @@ describe('SettingsContext', () => {
     await waitFor(() => expect(result.current.settingsReady).toBe(true))
 
     expect(mocks.loggerError).toHaveBeenCalledWith('[SettingsContext] Ignored malformed browser settings')
-    expect(result.current.settingsData.countdownEvents).toEqual([
-      expect.objectContaining({
-        id: DEFAULT_EXAM_EVENT_ID,
-        title: '考研初试',
-      }),
-    ])
+    expect(result.current.settingsData.countdownEvents).toEqual([])
+    expect(result.current.settingsData.examDate).toBe('')
   })
 
   it('rejects an invalid primary title before calling the Electron settings API', async () => {

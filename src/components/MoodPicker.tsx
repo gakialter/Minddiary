@@ -15,7 +15,7 @@ function MoodPicker({ mood, onChange }: MoodPickerProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-      <div className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>今天的心情</div>
+      <div className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>当天心情</div>
       <div className="flex gap-sm">
         {MOODS.map(m => (
           <button

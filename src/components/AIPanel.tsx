@@ -1,24 +1,26 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import type { ReactElement } from 'react'
-import { Bot, Coffee, GraduationCap, PenLine, Search, Target, Trash2 } from 'lucide-react'
+import { Bot, Coffee, GraduationCap, PenLine, Search, Settings2, Target, Trash2 } from 'lucide-react'
 import AIComposer from './ai/AIComposer'
 import AIMessageBubble, { type AIChatMessage } from './ai/AIMessageBubble'
 import AIQuickPromptMenu from './ai/AIQuickPromptMenu'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import { showToast } from './Toast'
-import { useAIComposer } from '../hooks/useAIComposer'
+import { useAIComposer, type AITextDraftBinding } from '../hooks/useAIComposer'
 import { useDiary } from '../contexts/DiaryContext'
 import {
     AI_QUICK_PROMPT_TEMPLATES,
     type AIQuickPromptViewModel,
 } from '../utils/aiQuickPrompts'
-import { resolveAIModelCapabilities } from '../data/aiProviders'
+import { isRemovedPresetModel, REMOVED_MODEL_MESSAGE, resolveAIModelCapabilities } from '../data/aiProviders'
 import type { DiaryEntry } from '../types'
 import type { EvidenceRequest, FirstSliceSendInput, FirstSliceSendResult, SubjectIdentity } from '../types/api'
 import { classifyFirstSlice, formatFirstSliceAnswer, formatSuppliedFocusAnswer, type FocusSlots } from '../utils/aiFirstSlice'
 
 interface AIPanelProps {
     entry: DiaryEntry | null
+    textDraft?: AITextDraftBinding
+    onOpenSettings?: () => void
 }
 
 const AI_CHAT_HISTORY_STORAGE_KEY = 'minddiary.ai.chatHistory'
@@ -97,7 +99,8 @@ const saveCachedMessages = (messages: AIChatMessage[]) => {
 }
 
 type Replay = { requestHandle: string; assistantMessageId: number }
-type Selection = { requestHandle: string; request: EvidenceRequest; candidates: SubjectIdentity[] }
+type SubmittedDraft = { input: string; attachmentIds: string[]; revision: number }
+type Selection = { requestHandle: string; request: EvidenceRequest; candidates: SubjectIdentity[]; draft?: SubmittedDraft }
 type Explanation = { requestHandle: string; partial: boolean }
 const unavailableText = '上下文范围已变化或当前功能不可用，请重新发送问题。'
 
@@ -109,11 +112,12 @@ const iconByPromptId: Record<string, ReactElement> = {
     'sprint-plan': <Target size={18} />,
 }
 
-export default function AIPanel({ entry }: AIPanelProps) {
-    const { settingsData, ai: aiAPI } = useDiary()
+export default function AIPanel({ entry, textDraft, onOpenSettings }: AIPanelProps) {
+    const { isReady, settingsData, ai: aiAPI } = useDiary()
     const api = useRef(aiAPI.firstSlice).current
-    const composer = useAIComposer()
+    const composer = useAIComposer(textDraft)
     const [messages, setMessages] = useState<AIChatMessage[]>(() => loadCachedMessages())
+    const cachedMessageCountRef = useRef(messages.length)
     const [loading, setLoading] = useState(false)
     const [preview, setPreview] = useState<PreviewImage | null>(null)
     const [notice, setNotice] = useState('')
@@ -149,22 +153,33 @@ export default function AIPanel({ entry }: AIPanelProps) {
         resolveAIModelCapabilities(settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint)
     ), [settingsData.aiModel, settingsData.aiVisionEnabled, settingsData.aiEndpoint])
 
+    const missingAISettings = [
+        !settingsData.aiEndpoint?.trim() ? 'API 地址' : '',
+        !settingsData.aiModel?.trim() ? '模型' : '',
+        !settingsData.aiApiKeyPresent ? 'API 密钥' : '',
+    ].filter(Boolean)
+    let endpointValid = false
+    try { endpointValid = ['http:', 'https:'].includes(new URL(settingsData.aiEndpoint).protocol) }
+    catch { /* An invalid local value is a configuration issue, not a network error. */ }
+    const configurationProblem = missingAISettings.length
+        ? `AI 尚未配置，缺少：${missingAISettings.join('、')}。`
+        : !endpointValid ? 'API 地址格式无效，请在设置中填写有效的地址。'
+        : isRemovedPresetModel(settingsData.aiModel, settingsData.aiEndpoint) ? REMOVED_MODEL_MESSAGE : ''
+    const isAIConfigured = !configurationProblem
+
     const hasImageAttachment = composer.attachments.some(attachment => attachment.kind === 'image')
     const modelError = hasImageAttachment && !modelCapabilities.vision
         ? '当前模型不支持图片，请切换支持图片的模型或移除图片。'
         : null
     const composerError = composer.error || modelError
-    const canSend = composer.canSendContent && !loading && !composerError
+    const canSend = composer.canSendContent && !loading && !composerError && isReady && isAIConfigured
 
     const quickPrompts: AIQuickPromptViewModel[] = useMemo(() => (
         AI_QUICK_PROMPT_TEMPLATES.map(template => ({
             ...template,
             icon: iconByPromptId[template.id],
-            disabledReason: template.id === 'daily-summary' && !entry
-                ? '当前日记为空，无法附加今日日记上下文。'
-                : undefined,
         }))
-    ), [entry?.id])
+    ), [])
 
     const beginRequest = () => {
         const generation = ++generationRef.current
@@ -195,12 +210,14 @@ export default function AIPanel({ entry }: AIPanelProps) {
         setAcceptLimited(false)
     }
     const clearMessages = () => {
-        if (messages.length && window.confirm?.('确认清空 AI 聊天历史吗？附件内容不会保留，清空后无法恢复。') === false) return
+        if (messages.length && window.confirm?.('确认清空 AI 聊天历史和当前草稿吗？清空后无法恢复。') === false) return
         invalidateRequest()
         clearInteraction()
         closeSession(sessionRef.current)
         sessionRef.current = openSession()
         setMessages([])
+        cachedMessageCountRef.current = 0
+        composer.clearComposer()
         setNotice('')
     }
     const cancelRequest = async () => {
@@ -213,7 +230,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
             const result = session && await api?.cancel({ session })
             if (generation !== generationRef.current) return
             setNotice(result && result.kind === 'cancelled'
-                ? result.possiblySent ? '已停止采用回复；请求可能已经发送，无法撤回。' : '已取消，尚未发送给 Provider。'
+                ? result.possiblySent ? '已停止采用回复；请求可能已经发送，无法撤回。' : '已取消，尚未发给当前AI服务。'
                 : unavailableText)
         } catch { if (generation === generationRef.current) setNotice(unavailableText) }
     }
@@ -226,9 +243,9 @@ export default function AIPanel({ entry }: AIPanelProps) {
         if (isCurrentRequest(generation)) { activeGenerationRef.current = null; setLoading(false) }
     }
     const resultNotice = (result: FirstSliceSendResult) => result.kind === 'failed' || result.kind === 'discarded'
-        ? result.possiblySent ? '回复未采用；请求可能已经发送，无法撤回。' : '请求未发送，请重新发送问题。'
+        ? result.possiblySent ? '回复未采用；请求可能已经发送，无法撤回。' : '请求未发出，请重新发送问题。'
         : unavailableText
-    const provider = async (input: FirstSliceSendInput, generation: number, draft?: { input: string; attachmentIds: string[] }) => {
+    const provider = async (input: FirstSliceSendInput, generation: number, draft?: SubmittedDraft) => {
         const requestSettings = settingsData
         const result = await api!.send(input)
         if (!isCurrentRequest(generation)) return
@@ -236,15 +253,15 @@ export default function AIPanel({ entry }: AIPanelProps) {
         const assistantMessageId = append(input.userInput, result.content)
         lastRequestRef.current = input.kind === 'chat' && !input.imageDataUrls?.length && !input.textAttachments?.length && requestSettings === replaySettingsRef.current
             ? { requestHandle: result.requestHandle, assistantMessageId } : null
-        if (input.kind === 'chat' && draft) composer.clearSentDraft(draft.input, draft.attachmentIds)
+        if (input.kind === 'chat' && draft) composer.clearSentDraft(draft.input, draft.attachmentIds, draft.revision)
     }
-    const resolveEvidence = async (session: string, userInput: string, request: EvidenceRequest, generation: number, requestHandle?: string) => {
+    const resolveEvidence = async (session: string, userInput: string, request: EvidenceRequest, generation: number, requestHandle?: string, draft?: SubmittedDraft) => {
         const response = await api!.resolveEvidence(requestHandle ? { session, requestHandle, request } : { session, userInput, request })
         if (!isCurrentRequest(generation)) return
         if (!('result' in response)) { setNotice(unavailableText); return }
         if (response.result.kind === 'ask_user') {
-            setSelection({ requestHandle: response.requestHandle, request, candidates: response.result.candidates })
-            setNotice('请选择要核对的科目。')
+            setSelection({ requestHandle: response.requestHandle, request, candidates: response.result.candidates, draft })
+            setNotice('请选择科目。')
         } else if (response.result.kind === 'resolved') {
             const envelope = response.result.envelope
             setSelection(null)
@@ -252,7 +269,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
             if (envelope.sourceCategory === 'focus_comparison' && ['ok', 'empty', 'partial'].includes(envelope.status)) {
                 setExplanation({ requestHandle: response.requestHandle, partial: envelope.status === 'partial' })
             }
-            composer.clearComposer()
+            if (draft) composer.clearSentDraft(draft.input, draft.attachmentIds, draft.revision)
         } else { setSelection(null); setNotice(unavailableText) }
     }
 
@@ -269,6 +286,7 @@ export default function AIPanel({ entry }: AIPanelProps) {
     const sendMessage = async (inputOverride?: string) => {
         const draftInput = inputOverride ?? composer.input
         const readyAttachments = composer.attachments.filter(attachment => attachment.status === 'ready')
+        const submittedDraft: SubmittedDraft = { input: draftInput, attachmentIds: readyAttachments.map(attachment => attachment.id), revision: composer.inputRevision }
         const hasAttachment = composer.attachments.length > 0
         const userInput = draftInput.trim() || (readyAttachments.some(attachment => attachment.kind !== 'image')
             ? '请根据我附加的文件文字概括主要内容。'
@@ -290,17 +308,17 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 if (gate.kind === 'blocked') {
                     // Ambiguous refusals cannot leave an older request eligible for adoption.
                     await api.cancel({ session })
-                    if (isCurrentRequest(generation)) setNotice('请明确限制范围；本次未继续发送。')
+                    if (isCurrentRequest(generation)) setNotice('请说明限制范围；本次没有继续发送。')
                     return
                 }
                 const result = await api.restrict({ session, userInput, intent: gate.intent })
                 if (!isCurrentRequest(generation)) return
                 setNotice(result.kind === 'restricted' && result.applied
                     ? gate.intent.lifetime === 'durable_preference' && !result.durableSaved
-                        ? '当前限制已生效，但长期偏好未能保存。'
-                        : '当前限制已生效，旧回复不会继续采用；已发出的请求无法撤回。'
+                        ? '当前限制已生效；长期偏好未保存。'
+                        : '限制生效；旧回复作废，已发请求无法撤回。'
                     : '限制未能确认；本次未继续发送，请明确范围后重试。')
-                composer.setInput('')
+                if (result.kind === 'restricted' && result.applied) composer.clearSentDraft(draftInput, [], submittedDraft.revision)
             } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
             finally { finish(generation) }
             return
@@ -309,7 +327,15 @@ export default function AIPanel({ entry }: AIPanelProps) {
         setNotice('')
         if (composer.contextKinds.length) {
             setExplanation(null)
-            setNotice('当前受控对话暂不支持所选上下文或附件。请移除后发送；这些材料没有发送。')
+            setNotice('当前受控对话暂不支持所选上下文或附件，请移除后再发送；这些材料尚未发送。')
+            return
+        }
+        if (!isReady) {
+            setNotice('正在读取 AI 配置，请稍后再发送。')
+            return
+        }
+        if (!isAIConfigured) {
+            setNotice(`${configurationProblem}当前问题草稿会保留。`)
             return
         }
         if (!userInput.trim() || composer.error || modelError) return
@@ -333,14 +359,14 @@ export default function AIPanel({ entry }: AIPanelProps) {
             if (!isCurrentRequest(generation)) return
             if (!session || !api) { setNotice(unavailableText); return }
             if (!composer.isAttachmentSnapshotCurrent(readyAttachments)) {
-                setNotice('附件已变化，请确认当前草稿后重新发送。')
+                setNotice('附件已变化；请检查草稿后重新发送。')
                 return
             }
-            if (gate.kind === 'evidence') await resolveEvidence(session, userInput, gate.request, generation)
+            if (gate.kind === 'evidence') await resolveEvidence(session, userInput, gate.request, generation, undefined, submittedDraft)
             else await provider({ session, kind: 'chat', userInput,
                 ...(imageDataUrls.length ? { imageDataUrls } : {}),
                 ...(textAttachments.length ? { textAttachments } : {}),
-            }, generation, { input: draftInput, attachmentIds: readyAttachments.map(attachment => attachment.id) })
+            }, generation, submittedDraft)
         } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
         finally { finish(generation) }
     }
@@ -353,13 +379,21 @@ export default function AIPanel({ entry }: AIPanelProps) {
             const session = await sessionRef.current
             if (!isCurrentRequest(generation)) return
             if (!session || !api) { setNotice(unavailableText); return }
-            await resolveEvidence(session, '核对所选科目的记录', { ...pending.request, subject: { by: 'id', id } }, generation, pending.requestHandle)
+            await resolveEvidence(session, '核对所选科目的记录', { ...pending.request, subject: { by: 'id', id } }, generation, pending.requestHandle, pending.draft)
         } catch { if (isCurrentRequest(generation)) setNotice(unavailableText) }
         finally { finish(generation) }
     }
     const explain = async () => {
         const pending = explanation
         if (!pending || hasActiveRequest() || (pending.partial && !acceptLimited)) return
+        if (!isReady) {
+            setNotice('正在读取 AI 配置，请稍后再发送。')
+            return
+        }
+        if (!isAIConfigured) {
+            setNotice(`${configurationProblem}这份本机摘要会保留。`)
+            return
+        }
         setExplanation(null)
         const generation = beginRequest()
         try {
@@ -395,23 +429,26 @@ export default function AIPanel({ entry }: AIPanelProps) {
                     </div>
                     <div>
                         <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>小研</h2>
-                        <span className="workspace-help" role="status">{loading ? '正在生成回复…' : 'AI 学习助手'}</span>
+                        <span className="workspace-help" role="status">{loading ? '正在生成回复…' : '学习助手'}</span>
                     </div>
                 </div>
                 <button className="button button-secondary" style={{ padding: '6px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={clearMessages}>
-                    <Trash2 size={14} /> 清空历史
+                    <Trash2 size={14} /> 清空历史和草稿
                 </button>
             </div>
 
-            <div className="ai-workspace__messages" role="region" aria-label="对话消息" tabIndex={0}>
+            <div className="ai-workspace__messages" role="region" aria-label="对话记录" tabIndex={0}>
+                {cachedMessageCountRef.current > 0 && <p className="workspace-help">
+                    先前聊天仅供查看。继续话题时，请在问题中说明。
+                </p>}
                 {messages.length === 0 && (
                     <div className="workspace-empty ai-workspace__empty">
                         <div className="workspace-empty__icon">
                             <Bot size={28} />
                         </div>
-                        <h3>我是你的专属考研智囊</h3>
+                        <h3>学习上有问题，随时问小研。</h3>
                         <p className="text-muted">
-                            快捷提示会先进入草稿，你可以编辑请求、移除上下文，再主动发送给 AI。
+                            选后先编辑问题和资料，再自行发送。
                         </p>
                         <AIQuickPromptMenu prompts={quickPrompts} onSelect={composer.applyQuickPrompt} />
                     </div>
@@ -451,15 +488,22 @@ export default function AIPanel({ entry }: AIPanelProps) {
                 <div ref={messagesEndRef} style={{ height: 1 }} />
             </div>
 
+            {!isReady && <p className="workspace-help" role="status">正在读取 AI 配置…</p>}
+            {isReady && !isAIConfigured && <div className="workspace-help" role="status" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span>{configurationProblem}你的问题草稿会保留。</span>
+                {onOpenSettings && <button className="button button-secondary" type="button" onClick={onOpenSettings}>
+                    <Settings2 size={14} aria-hidden /> 打开设置
+                </button>}
+            </div>}
             {notice && <p role="status" className="workspace-help">{notice}</p>}
-            {selection && <div role="group" aria-label="科目选择">
+            {selection && <div role="group" aria-label="选择科目">
                 {selection.candidates.map(candidate => <button className="button button-secondary" key={candidate.id} onClick={() => void chooseSubject(candidate.id)}>{candidate.name}（{candidate.id}）</button>)}
             </div>}
-            {explanation && <div role="group" aria-label="可选 AI 解释">
-                <p className="workspace-help">可将以上有限摘要发送给当前 Provider，请 AI 解释。只核对本机记录也可以。</p>
-                {explanation.partial && <label><input type="checkbox" checked={acceptLimited} onChange={event => setAcceptLimited(event.target.checked)} />我理解部分记录不可用，同意仅发送有限摘要</label>}
-                <button className="button button-secondary" disabled={loading || (explanation.partial && !acceptLimited)} onClick={() => void explain()}>发送摘要并解释</button>
-                <button className="button button-secondary" onClick={() => setExplanation(null)}>仅保留本机结果</button>
+            {explanation && <div role="group" aria-label="发送摘要给学习助手解释">
+                <p className="workspace-help">可发送上方摘要给当前AI；也可只看本机。</p>
+                {explanation.partial && <label><input type="checkbox" checked={acceptLimited} onChange={event => setAcceptLimited(event.target.checked)} />部分记录不可用；我同意发送有限摘要</label>}
+                <button className="button button-secondary" disabled={!isReady || !isAIConfigured || loading || (explanation.partial && !acceptLimited)} onClick={() => void explain()}>发送摘要给 AI</button>
+                <button className="button button-secondary" onClick={() => setExplanation(null)}>仅看本机结果</button>
             </div>}
             <AIComposer
                 input={composer.input}

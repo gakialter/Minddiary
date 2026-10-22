@@ -178,7 +178,7 @@ export default function Dashboard() {
             <div className="statistics-dashboard statistics-dashboard--state" role="status" aria-live="polite">
                 <div className="statistics-dashboard__state-copy">
                     <span className="statistics-dashboard__eyebrow">学习数据</span>
-                    <h2>正在整理统计信息</h2>
+                    <h2>正在加载统计…</h2>
                     <p>正在聚合并分析学习图谱...</p>
                 </div>
                 <div className="statistics-dashboard__loading-bars" aria-hidden="true">
@@ -198,7 +198,7 @@ export default function Dashboard() {
                 </div>
                 <div className="statistics-dashboard__state-copy">
                     <span className="statistics-dashboard__eyebrow">数据状态</span>
-                    <h2>统计信息暂时无法加载</h2>
+                    <h2>统计暂时无法加载，请重试。</h2>
                     <p>{error}</p>
                 </div>
                 <button type="button" className="button button-primary" onClick={loadDashboardData}>
@@ -212,7 +212,7 @@ export default function Dashboard() {
         <div className="statistics-dashboard">
             <header className="statistics-dashboard__intro" aria-labelledby="dashboard-insight">
                 <div>
-                    <span className="statistics-dashboard__eyebrow">学习概览 · 数据截至今天</span>
+                    <span className="statistics-dashboard__eyebrow">学习概览 · 截至今天</span>
                     <p id="dashboard-insight" className="statistics-dashboard__insight">
                         连续专注 <strong>{stats.streakDays}</strong> 天，今日待复习 <strong>{stats.dueMistakes}</strong> 题。
                     </p>
@@ -220,19 +220,19 @@ export default function Dashboard() {
                 <p className="statistics-dashboard__context">趋势范围为最近 7 日，日记轨迹范围为最近 90 日。</p>
             </header>
 
-            <dl className="statistics-dashboard__metrics" aria-label="学习数据摘要">
+            <dl className="statistics-dashboard__metrics" aria-label="学习摘要">
                 <div className="statistics-dashboard__metric">
                     <dt><Flame size={15} aria-hidden="true" />连续专注</dt>
                     <dd><strong>{stats.streakDays}</strong><span>天</span></dd>
                     <dd className="statistics-dashboard__metric-note">当前连续学习记录</dd>
                 </div>
                 <div className="statistics-dashboard__metric">
-                    <dt><Clock3 size={15} aria-hidden="true" />历史总专注</dt>
+                    <dt><Clock3 size={15} aria-hidden="true" />累计专注</dt>
                     <dd>
                         <strong>{Math.floor(stats.totalPomodoroMinutes / 60)}</strong><span>小时</span>
                         <strong>{stats.totalPomodoroMinutes % 60}</strong><span>分钟</span>
                     </dd>
-                    <dd className="statistics-dashboard__metric-note">累计完成的番茄专注</dd>
+                    <dd className="statistics-dashboard__metric-note">累计专注时长</dd>
                 </div>
                 <div className="statistics-dashboard__metric">
                     <dt><Target size={15} aria-hidden="true" />错题掌握</dt>
@@ -250,7 +250,7 @@ export default function Dashboard() {
                 <section className="statistics-dashboard__section statistics-dashboard__trend" aria-labelledby="weekly-trend-title">
                     <div className="statistics-dashboard__section-header">
                         <div>
-                            <span className="statistics-dashboard__section-kicker">专注节奏</span>
+                            <span className="statistics-dashboard__section-kicker">专注趋势</span>
                             <h2 id="weekly-trend-title"><TrendingUp size={18} aria-hidden="true" />近 7 日专注趋势</h2>
                         </div>
                         <div className="statistics-dashboard__period">
@@ -308,16 +308,16 @@ export default function Dashboard() {
                     </figure>
                 </section>
 
-                <aside className="statistics-dashboard__support-stack" aria-label="学习轨迹与关键日期">
+                <aside className="statistics-dashboard__support-stack" aria-label="学习记录与关键日期">
                     <section className="statistics-dashboard__section statistics-dashboard__heatmap" aria-labelledby="learning-trail-title">
                         <div className="statistics-dashboard__section-header">
                             <div>
-                                <span className="statistics-dashboard__section-kicker">日记证据</span>
-                                <h2 id="learning-trail-title"><CalendarDays size={18} aria-hidden="true" />近 90 日日记记录</h2>
+                                <span className="statistics-dashboard__section-kicker">日记记录</span>
+                                <h2 id="learning-trail-title"><CalendarDays size={18} aria-hidden="true" />近90日日记记录</h2>
                             </div>
                         </div>
                         <p className="statistics-dashboard__chart-caption">
-                            每个方格仅表示当天有无日记记录，不代表时长或强度。
+                            方格仅表示当天是否有日记记录，不代表时长或强度。
                         </p>
 
                         {!hasHeatmapData && (
@@ -326,7 +326,7 @@ export default function Dashboard() {
 
                         <div className="statistics-dashboard__heatmap-grid" aria-hidden="true">
                             {heatmapData.map(d => (
-                                <span key={d.date} data-recorded={d.hasEntry || undefined} title={`${d.date} · ${d.hasEntry ? '有记录' : '无记录'}`} />
+                                <span key={d.date} data-recorded={d.hasEntry || undefined} title={`${d.date} · ${d.hasEntry ? '有日记' : '无日记'}`} />
                             ))}
                         </div>
                         <div className="statistics-dashboard__heatmap-legend" aria-hidden="true">

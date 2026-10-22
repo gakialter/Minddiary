@@ -73,12 +73,12 @@ export default function PomodoroAlert({
   const isInterruptedFocus = isWorkComplete && completionKind === 'interrupted'
   const title = isInterruptedFocus
     ? '专注已保存'
-    : isWorkComplete ? '专注完成！' : '休息结束！'
+    : isWorkComplete ? '专注完成' : '休息结束'
   const subtitle = isInterruptedFocus
     ? '本次提前结束，实际专注时长已计入统计。'
     : isWorkComplete
-      ? '干得漂亮，休息几分钟再继续吧～'
-      : '精力充沛，继续加油！'
+      ? '专注完成，休息几分钟再继续吧。'
+      : '休息结束，可以继续专注了。'
   const hasChapterAttribution = taskSettlement?.relatedChapterId != null && !!taskSettlement.chapterTitle
   const canCompleteChapter = hasChapterAttribution && !taskSettlement?.chapterCompleted
 
@@ -155,7 +155,7 @@ export default function PomodoroAlert({
             background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
             padding: 'var(--space-sm) var(--space-md)', minWidth: 90,
           }}>
-            <div className="text-xs text-muted" style={{ marginBottom: 2 }}>今日累计</div>
+            <div className="text-xs text-muted" style={{ marginBottom: 2 }}>本次专注日累计</div>
             <div className="font-bold" style={{ fontSize: 18, color: 'var(--color-state-success)' }}>
               {Math.floor(todayTotal / 60)}h {todayTotal % 60}m
             </div>
@@ -190,7 +190,7 @@ export default function PomodoroAlert({
                 padding: 'var(--space-md)',
               }}
             >
-              <div className="text-xs text-muted" style={{ marginBottom: 4 }}>绑定任务</div>
+              <div className="text-xs text-muted" style={{ marginBottom: 4 }}>关联任务</div>
               <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{taskSettlement.title}</div>
               <div className="text-xs" style={{ marginTop: 4, color: 'var(--text-secondary)' }}>
                 {taskSettlement.subjectName || '未选择科目'} · {STUDY_TASK_STATUS_LABELS[taskSettlement.status]} · {taskSettlement.duration} 分钟
@@ -221,7 +221,7 @@ export default function PomodoroAlert({
                   onClick={() => { void onResolveReviewEntryCreation?.(true) }}
                   style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
                 >
-                  {isSettlingTask ? '写入中...' : '创建日记并写入复盘'}
+                  {isSettlingTask ? '正在写入日记…' : '创建日记并写入复盘'}
                 </button>
                 <button
                   type="button"
@@ -231,7 +231,7 @@ export default function PomodoroAlert({
                   onClick={() => { void onResolveReviewEntryCreation?.(false) }}
                   style={{ height: 38, borderRadius: 19, fontSize: 13 }}
                 >
-                  不创建日记，完成结算
+                  完成结算，不写日记
                 </button>
               </div>
             ) : (
@@ -262,7 +262,7 @@ export default function PomodoroAlert({
                       data-testid="pomodoro-settle-complete-chapter"
                       style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
                     >
-                      {isSettlingTask ? '保存中...' : '完成任务并完成章节'}
+                      {isSettlingTask ? '保存中...' : '完成任务和章节'}
                     </button>
                     <button
                       className="button button-secondary w-full"
@@ -271,7 +271,7 @@ export default function PomodoroAlert({
                       data-testid="pomodoro-settle-task-only"
                       style={{ height: 40, borderRadius: 20, fontSize: 14, fontWeight: 600 }}
                     >
-                      仅完成任务，章节暂不完成
+                      仅完成任务，不完成章节
                     </button>
                   </>
                 ) : (
@@ -282,7 +282,7 @@ export default function PomodoroAlert({
                     data-testid="pomodoro-settle-complete"
                     style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
                   >
-                    {isSettlingTask ? '保存中...' : '标记任务完成'}
+                    {isSettlingTask ? '保存中...' : '完成任务'}
                   </button>
                 )}
                 <button
@@ -309,7 +309,7 @@ export default function PomodoroAlert({
                   data-testid="pomodoro-settle-skip-review"
                   style={{ height: 38, borderRadius: 19, fontSize: 13 }}
                 >
-                  跳过复盘，仅保存专注记录
+                  仅保存专注记录
                 </button>
                 <button
                   className="button button-secondary w-full"
@@ -332,7 +332,7 @@ export default function PomodoroAlert({
               data-testid="pomodoro-alert-write-diary"
               style={{ height: 42, borderRadius: 22, fontSize: 14, fontWeight: 600 }}
             >
-              写入今日日记
+              写入日记
             </button>
             <button
               className="button button-secondary w-full"

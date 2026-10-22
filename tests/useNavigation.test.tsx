@@ -46,6 +46,24 @@ describe('VIEW_CONFIG', () => {
 })
 
 describe('useNavigation', () => {
+  it('keeps exact record identity for same-day search selections and clears it for date navigation', () => {
+    const { result } = renderHook(() => useNavigation())
+    const record = { id: 12, date: '2026-05-04' } as import('../src/types').DiaryEntry
+    act(() => result.current.selectEntry(record))
+    expect(result.current.selectedDate).toBe(record.date)
+    expect(result.current.selectedEntryId).toBe(12)
+    expect(result.current.isFollowingToday).toBe(false)
+    act(() => result.current.selectEntry({ ...record, id: 13 }))
+    expect(result.current.selectedEntryId).toBe(13)
+    act(() => result.current.changeDate(record.date))
+    expect(result.current.selectedEntryId).toBeNull()
+    act(() => result.current.selectEntry(record))
+    act(() => result.current.setSelectedDate(record.date))
+    expect(result.current.selectedEntryId).toBeNull()
+    act(() => result.current.selectEntry(record))
+    act(() => result.current.returnToToday())
+    expect(result.current.selectedEntryId).toBeNull()
+  })
   it('keeps search intent across views only within the current application session', () => {
     const first = renderHook(() => useNavigation())
     const intent = { query: '定义域', filters: { mood: 'happy', startDate: '', endDate: '', tagId: null } }

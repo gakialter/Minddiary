@@ -96,22 +96,35 @@ export default function ColorPickerButton({ onSelectColor, currentColor, onClear
     triggerRef.current?.focus()
   }
 
+  const clearColor = (e: React.MouseEvent<HTMLButtonElement>) => {
+    restoreTriggerIfFocusIsLostRef.current = e.detail === 0
+    setOpen(false)
+    onClearColor?.()
+  }
+
   return (
     <div ref={containerRef} className={`color-picker${onClearColor ? ' color-picker--editable' : ''}`} onKeyDown={handleKeyDown}>
       <button
         ref={triggerRef}
         type="button"
-        className="format-toolbar__button color-picker__trigger"
+        className={`format-toolbar__button color-picker__trigger${currentColor && onClearColor ? ' format-toolbar__button--selected' : ''}`}
         aria-pressed={onClearColor ? !!currentColor : undefined}
         title="文字颜色"
         aria-label="文字颜色"
+        aria-describedby={currentColor ? `${popoverId}-current-color` : undefined}
         aria-expanded={open}
         aria-controls={popoverId}
         data-testid="format-color"
         onMouseDown={handleTriggerMouseDown}
         onClick={handleTriggerClick}
       >
-        <Palette size={15} aria-hidden="true" className={currentColor ? `md-color-${currentColor}` : undefined} />
+        <Palette size={15} aria-hidden="true" />
+        {currentColor && (
+          <>
+            <span className="color-picker__current-color" style={{ backgroundColor: `var(--md-color-${currentColor})` }} aria-hidden="true" />
+            <span id={`${popoverId}-current-color`} className="sr-only">当前颜色：{COLOR_LABELS[currentColor]}</span>
+          </>
+        )}
       </button>
 
       {open && (
@@ -121,7 +134,7 @@ export default function ColorPickerButton({ onSelectColor, currentColor, onClear
               ref={index === 0 ? firstSwatchRef : undefined}
               key={color}
               type="button"
-              className="color-picker__swatch"
+              className={`color-picker__swatch${onClearColor && currentColor === color ? ' color-picker__swatch--selected' : ''}`}
               style={{ backgroundColor: `var(--md-color-${color})` }}
               title={COLOR_LABELS[color]}
               aria-label={COLOR_LABELS[color]}
@@ -133,7 +146,7 @@ export default function ColorPickerButton({ onSelectColor, currentColor, onClear
           ))}
           {onClearColor && <button type="button" className="color-picker__clear"
             onMouseDown={e => e.preventDefault()}
-            onClick={() => { setOpen(false); onClearColor() }}>清除颜色</button>}
+            onClick={clearColor}>清除颜色</button>}
         </div>
       )}
     </div>

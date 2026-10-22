@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FocusEnvelope, FocusPeriodResult, ProgressEnvelope } from '../src/types/api'
 import { classifyFirstSlice as gate, formatFirstSliceAnswer as format, formatSuppliedFocusAnswer,
-  type FocusSlots } from '../src/utils/aiFirstSlice'
+  hasRestrictionInstruction, type FocusSlots } from '../src/utils/aiFirstSlice'
 
 const periodA = { startDate: '2026-09-07', endDate: '2026-09-13' }
 const periodB = { startDate: '2026-09-14', endDate: '2026-09-20' }
@@ -47,6 +47,48 @@ describe('I2 pure deterministic interaction', () => {
     })
   it.each(['讲克拉默法则', '学习时长一般怎么安排？', '番茄钟一次多长合适？'])(
     'preserves ordinary knowledge: %s', text => expect(gate(text)).toEqual({ kind: 'chat' }))
+  it.each([
+    '别人考研每天学几小时？', '这道题不用递归怎么解？',
+    '复习不要熬夜有什么科学依据？', 'Git 怎么撤回上次 commit？',
+    '写一篇关于禁止吸烟的议论文。', '再出一道类似的数学题，不要给答案。',
+    '不用循环如何求这个数列的通项？', '请写一篇关于禁止酗酒的文章。',
+  ])('allows ordinary topics through renderer and the shared main guard: %s', text => {
+    expect(gate(text)).toEqual({ kind: 'chat' })
+    expect(hasRestrictionInstruction(text)).toBe(false)
+  })
+  it.each([
+    '不要读取我的日记。', '不要向 Provider 发送私人记录。', '禁止使用我的数据。',
+    '别人考研每天学几小时？不要读取日记。',
+    '这道题不用递归怎么解？不要把私人记录发给 AI。',
+    '复习不要熬夜有什么科学依据？请勿调用工具。',
+    'Git 怎么撤回上次 commit？撤回之前的授权。',
+    '写一篇关于禁止吸烟的议论文，不要读取附件。',
+    '不用递归怎么解？不要用那段。', '不要再这样，怎么解决？',
+    '不要用前面的内容，如何回答？', '不要继续执行，怎么处理？',
+    '不要把这段透露给他，怎么解释？',
+  ])('keeps data, action and ambiguous restrictions ahead of topic questions: %s', text => {
+    expect(gate(text)).toEqual({ kind: 'blocked', reason: 'clarify_restriction' })
+    expect(hasRestrictionInstruction(text)).toBe(true)
+  })
+  it.each([
+    '再给我一道同类型题，只给题目，先不要给答案。',
+    '请出一道极限题，不用给我解题步骤。',
+    '请出一道极限题，不要立即给答案。', '再给我一道题，别先给出答案。',
+    '给我制定一份考前冲刺计划，包含每日任务，不要安排太满。',
+    '怎样提高学习效率？', '如何提高我的学习效率？',
+    '帮我制定学习计划并安排每天的任务。', '帮我规划每天的学习时长和专注时间。',
+    '错题应该如何记录和复习？', '学习进度一般怎么安排？', '帮我安排数学学习进度',
+  ])('keeps output preferences and general planning in ordinary chat: %s', text => {
+    expect(gate(text)).toEqual({ kind: 'chat' })
+  })
+  it.each([
+    '再给我一道题，不要给答案，也不要读取日记。',
+    '先不要给答案，撤回之前的授权。',
+    '不要给答案，不要用昨天的记录。',
+    '不要立即给答案，也不要联网。', '别先给出答案，请勿调用工具。',
+  ])('does not hide a data restriction behind an output preference: %s', text => {
+    expect(gate(text)).toEqual({ kind: 'blocked', reason: 'clarify_restriction' })
+  })
   it('consumes sufficient current self-report while clarification is active', () => {
     const first = gate('最近数学效率下降')
     if (first.kind !== 'clarify') throw new Error('Expected clarification')

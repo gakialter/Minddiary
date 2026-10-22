@@ -311,6 +311,58 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe('starting focus from a task row', () => {
+  it('starts the task and its subject with a full work timer even from an idle break', async () => {
+    const task = makeStudyTask({ id: 91, subject_id: 1, planned_date: '2026-05-05' })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue({ ...task, status: 'doing' })
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await act(async () => { result.current.actions.setMode(result.current.timer.dynamicModes.SHORT_BREAK!) })
+    let started = false
+    await act(async () => { started = await result.current.actions.startFocusTask(task.id) })
+    expect(started).toBe(true)
+    expect(mocks.tasksStartFocus).toHaveBeenCalledWith(task.id, '2026-05-05')
+    expect(result.current.timer).toMatchObject({ isRunning: true, mode: { id: 'work' }, timeLeft: 25 * 60 })
+    expect(result.current.data).toMatchObject({ selectedTaskId: task.id, selectedSubject: 1 })
+    expect(JSON.parse(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)!)).toMatchObject({
+      selectedTaskId: task.id, selectedSubject: 1, modeId: 'work', timeLeft: 25 * 60, isRunning: true,
+    })
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+  })
+
+  it('refuses another task while a focus session is paused', async () => {
+    const task = makeStudyTask({ id: 91 })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    mocks.tasksStartFocus.mockResolvedValue({ ...task, status: 'doing' })
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    await act(async () => { await result.current.actions.startFocusTask(task.id) })
+    await act(async () => { await result.current.actions.toggleTimer() })
+    const session = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
+    let started = true
+    await act(async () => { started = await result.current.actions.startFocusTask(92) })
+    expect(started).toBe(false)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBe(session)
+    expect(mocks.tasksStartFocus).toHaveBeenCalledTimes(1)
+    expect(result.current.timer.isRunning).toBe(false)
+  })
+
+  it('rechecks task status and rejects stale completed tasks without starting a timer', async () => {
+    const task = makeStudyTask({ id: 91 })
+    mocks.tasksGetByDate.mockResolvedValue([task])
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    mocks.tasksGetByDate.mockResolvedValue([{ ...task, status: 'done' }])
+    let started = true
+    await act(async () => { started = await result.current.actions.startFocusTask(task.id) })
+    expect(started).toBe(false)
+    expect(mocks.tasksStartFocus).not.toHaveBeenCalled()
+    expect(result.current.timer.isRunning).toBe(false)
+    expect(localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)).toBeNull()
+  })
+})
+
 afterEach(() => {
   vi.runOnlyPendingTimers()
   vi.clearAllTimers()
@@ -323,6 +375,103 @@ afterAll(() => {
 })
 
 describe('PomodoroContext', () => {
+  it('refreshes created and renamed subjects without remounting the focus provider', async () => {
+    const { result, rerender } = renderPomodoroHook()
+    await flushAsyncWork()
+    act(() => { result.current.actions.setSelectedSubject(1) })
+    const updated = [{ ...SUBJECTS[0]!, name: '数学二' }, SUBJECTS[1]!, { id: 3, name: '英语二', color: '#C65A3A' }]
+    mocks.subjectsGetAll.mockResolvedValue(updated)
+    const diary = mocks.useDiary.mock.results[mocks.useDiary.mock.results.length - 1]!.value as ReturnType<typeof useDiary>
+    mocks.useDiary.mockReturnValue({ ...diary, dataRefreshVersion: 1 })
+    rerender()
+    await flushAsyncWork()
+    expect(result.current.data.subjects).toEqual(updated)
+    expect(result.current.data.selectedSubject).toBe(1)
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+  })
+
+  it('clears a removed subject only after a successful current list load', async () => {
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    act(() => { result.current.actions.setSelectedSubject(1) })
+    mocks.subjectsGetAll.mockRejectedValueOnce(new Error('list unavailable'))
+    await act(async () => { await result.current.actions.loadSubjects() })
+    expect(result.current.data.selectedSubject).toBe(1)
+    expect(result.current.data.subjects).toEqual(SUBJECTS)
+    mocks.subjectsGetAll.mockResolvedValueOnce([SUBJECTS[1]!])
+    await act(async () => { await result.current.actions.loadSubjects() })
+    expect(result.current.data.selectedSubject).toBeNull()
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+    expect(mocks.pomodoroAddSession).not.toHaveBeenCalled()
+  })
+
+  it('ignores an older subject response after a newer load succeeds', async () => {
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    let resolveOlder!: (subjects: Subject[]) => void
+    const older = new Promise<Subject[]>(resolve => { resolveOlder = resolve })
+    const updated = [...SUBJECTS, { id: 3, name: '数学二', color: '#0F766E' }]
+    mocks.subjectsGetAll.mockReturnValueOnce(older).mockResolvedValueOnce(updated)
+    let olderLoad!: Promise<void>
+    act(() => { olderLoad = result.current.actions.loadSubjects() })
+    await act(async () => { await result.current.actions.loadSubjects() })
+    act(() => { result.current.actions.setSelectedSubject(3) })
+    await act(async () => { resolveOlder(SUBJECTS); await olderLoad })
+    expect(result.current.data.subjects).toEqual(updated)
+    expect(result.current.data.selectedSubject).toBe(3)
+  })
+
+  it.each(['resolved', 'rejected'] as const)('UX-03 keeps restored tasks selectable when an older overlapping load is %s', async outcome => {
+    const original = makeStudyTask({ status: 'done' })
+    const restored = makeStudyTask({ status: 'todo' })
+    mocks.tasksGetByDate.mockResolvedValue([original])
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    expect(result.current.data.todayTasks).toEqual([original])
+    let resolveOlder!: (tasks: StudyTask[]) => void
+    let rejectOlder!: (error: Error) => void
+    const older = new Promise<StudyTask[]>((resolve, reject) => { resolveOlder = resolve; rejectOlder = reject })
+    mocks.tasksGetByDate.mockReturnValueOnce(older).mockResolvedValueOnce([restored])
+    let olderLoad!: Promise<void>
+    act(() => { olderLoad = result.current.actions.loadTodayTasks() })
+    await act(async () => { await result.current.actions.loadTodayTasks() })
+    act(() => { result.current.actions.selectFocusTask(restored.id) })
+    expect(result.current.data.selectedTask).toEqual(restored)
+    await act(async () => {
+      if (outcome === 'resolved') resolveOlder([original])
+      else rejectOlder(new Error('old list unavailable'))
+      await olderLoad
+    })
+    expect(result.current.data.todayTasks).toEqual([restored])
+    expect(result.current.data.todayTasks.filter(task => task.status === 'todo' || task.status === 'doing')).toEqual([restored])
+    expect(result.current.data.selectedTask).toEqual(restored)
+    expect(result.current.data.taskError).toBeNull()
+    expect(result.current.timer.hasActiveTimerSession).toBe(false)
+  })
+
+  it('UX-03 ignores a previous-date pending list after the local date rolls over', async () => {
+    const yesterday = makeStudyTask({ status: 'done' })
+    const today = makeStudyTask({ id: 43, planned_date: '2026-05-06', status: 'todo' })
+    mocks.tasksGetByDate.mockResolvedValue([yesterday])
+    const { result } = renderPomodoroHook()
+    await flushAsyncWork()
+    let resolveOlder!: (tasks: StudyTask[]) => void
+    const older = new Promise<StudyTask[]>(resolve => { resolveOlder = resolve })
+    mocks.tasksGetByDate.mockReturnValueOnce(older).mockResolvedValue([today])
+    let olderLoad!: Promise<void>
+    act(() => { olderLoad = result.current.actions.loadTodayTasks('2026-05-05') })
+    await act(async () => {
+      vi.setSystemTime(new Date(2026, 4, 6, 0, 1))
+      window.dispatchEvent(new Event('focus'))
+    })
+    await flushAsyncWork()
+    expect(mocks.tasksGetByDate).toHaveBeenLastCalledWith('2026-05-06')
+    expect(result.current.data.todayTasks).toEqual([today])
+    await act(async () => { resolveOlder([yesterday]); await olderLoad })
+    expect(result.current.data.todayTasks).toEqual([today])
+    expect(result.current.data.taskError).toBeNull()
+  })
+
   it.each([
     [usePomodoroTimer, 'usePomodoroTimer must be used within PomodoroProvider'],
     [usePomodoroData, 'usePomodoroData must be used within PomodoroProvider'],

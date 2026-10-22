@@ -53,7 +53,7 @@ describe('AI message clipboard behavior', () => {
     Reflect.set(window.api, 'clipboard', { writeText: electronWriteText })
     render(<AIPanel entry={null} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '复制用户消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制消息' }))
 
     await waitFor(() => expect(electronWriteText).toHaveBeenCalledWith(COPY_TEXT))
     expect(browserWriteText).not.toHaveBeenCalled()
@@ -65,7 +65,7 @@ describe('AI message clipboard behavior', () => {
     Reflect.set(window.api, 'clipboard', { writeText: electronWriteText })
     render(<AIPanel entry={null} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '复制用户消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制消息' }))
 
     await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith('复制失败', 'error'))
     expect(browserWriteText).not.toHaveBeenCalled()
@@ -75,7 +75,7 @@ describe('AI message clipboard behavior', () => {
     browserWriteText.mockResolvedValue(undefined)
     render(<AIPanel entry={null} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '复制用户消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制消息' }))
 
     await waitFor(() => expect(browserWriteText).toHaveBeenCalledWith(COPY_TEXT))
     expect(mocks.showToast).toHaveBeenCalledWith('已复制', 'success')

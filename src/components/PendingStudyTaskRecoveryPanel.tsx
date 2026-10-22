@@ -192,7 +192,7 @@ export default function PendingStudyTaskRecoveryPanel({
   return (
     <section
       className="mt-3"
-      aria-label="待恢复的 AI 学习任务"
+      aria-label="待核对任务创建结果"
       data-testid={`pending-study-task-recovery-${operationKind}`}
       style={{
         border: '1px solid var(--warning, var(--border))',
@@ -201,9 +201,9 @@ export default function PendingStudyTaskRecoveryPanel({
         background: 'var(--bg-tertiary)',
       }}
     >
-      <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>待检查的任务创建结果</strong>
+      <strong className="text-sm" style={{ color: 'var(--text-primary)' }}>待核对任务创建结果</strong>
       <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
-        MindDiary 不会自动重试。Daily Review 可复用原确认请求；Today Action 重启后只读检查已提交结果，不会重建或重发任务。
+        应用不会自动重试。每日回顾可复用原确认请求；今日建议重启后只核对已提交结果，不会重新创建或发送任务。
       </p>
       {warning && <p className="text-xs" role="alert" data-testid="pending-study-task-warning" style={{ color: 'var(--warning)' }}>{warning}</p>}
       {outcome && <p className="text-xs" role="status" data-testid="pending-study-task-outcome" style={{ color: 'var(--text-secondary)' }}>{outcome}</p>}
@@ -229,7 +229,7 @@ export default function PendingStudyTaskRecoveryPanel({
             }
             onClick={() => { void recover(operation) }}
           >
-            {recoveringOperationId === operation.operationId ? '检查中...' : '检查并恢复'}
+            {recoveringOperationId === operation.operationId ? '正在检查…' : '检查并恢复'}
           </button>
         </div>
       ))}

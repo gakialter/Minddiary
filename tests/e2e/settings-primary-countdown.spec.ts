@@ -21,7 +21,7 @@ async function launch(profilePath: string): Promise<{ app: ElectronApplication; 
 async function openSettings(page: Page): Promise<void> {
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
-  await expect(page.getByLabel('主目标名称')).toBeVisible()
+  await expect(page.getByLabel('目标名称')).toBeVisible()
 }
 
 test.describe('primary countdown settings persistence', () => {
@@ -36,13 +36,13 @@ test.describe('primary countdown settings persistence', () => {
       let page = launched.page
       await openSettings(page)
 
-      await expect(page.getByLabel('主目标名称')).toHaveValue('考研初试')
-      await page.getByLabel('主目标名称').fill('公务员考试')
-      await page.getByLabel('主目标名称').press('Tab')
-      await page.getByLabel('主目标日期').fill('2027-01-10')
+      await expect(page.getByLabel('目标名称')).toHaveValue('考研初试')
+      await page.getByLabel('目标名称').fill('公务员考试')
+      await page.getByLabel('目标名称').press('Tab')
+      await page.getByLabel('目标日期').nth(0).fill('2027-01-10')
 
-      await page.getByLabel('关键日期标题').fill('论文提交')
-      await page.getByLabel('关键日期日期').fill('2026-11-01')
+      await page.getByLabel('日期标题').fill('论文提交')
+      await page.getByLabel('目标日期').nth(1).fill('2026-11-01')
       await page.getByRole('button', { name: '添加日期' }).click()
       await page.getByRole('button', { name: '置顶 论文提交' }).click()
       await page.getByRole('button', { name: '删除 论文提交' }).click()
@@ -100,8 +100,8 @@ test.describe('primary countdown settings persistence', () => {
       page = launched.page
       await openSettings(page)
 
-      await expect(page.getByLabel('主目标名称')).toHaveValue('公务员考试')
-      await expect(page.getByLabel('主目标日期')).toHaveValue('2027-01-10')
+      await expect(page.getByLabel('目标名称')).toHaveValue('公务员考试')
+      await expect(page.getByLabel('目标日期').nth(0)).toHaveValue('2027-01-10')
 
       await page.evaluate(() => window.api.settings.updateGeneral({ examDate: '2027-02-02' }))
       stored = await page.evaluate(() => window.api.settings.getAll())

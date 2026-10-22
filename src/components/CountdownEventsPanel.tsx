@@ -17,7 +17,7 @@ export default function CountdownEventsPanel({ events, maxItems = 3 }: Countdown
   return (
     <div className="card" style={{ padding: 'var(--space-lg)', borderTop: '3px solid var(--accent)' }}>
       <div className="text-muted text-sm font-medium mb-2 flex items-center gap-xs">
-        <CalendarDays size={14} style={{ color: 'var(--accent)' }} /> 关键日期
+        <CalendarDays size={14} style={{ color: 'var(--accent)' }} /> 重要日期
       </div>
 
       {upcomingEvents.length === 0 ? (

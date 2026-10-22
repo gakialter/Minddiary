@@ -1,18 +1,19 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import Sidebar from '../src/components/Sidebar'
+import { getLocalDateKey } from '../src/utils/dateKey'
 
 const destinationNames = [
-  '今日执行',
+  '今日安排',
   '写日记',
   '日历',
-  '数据统计',
-  '标签管理',
-  '搜索',
-  '番茄钟',
+  '学习统计',
+  '标签',
+  '搜索日记',
+  '专注计时',
   '科目进度',
   '错题本',
-  'AI 助手',
+  '学习助手',
   '设置',
 ] as const
 
@@ -61,9 +62,25 @@ describe('Sidebar', () => {
   it('identifies only the active destination as the current page', () => {
     renderSidebar({ activeView: 'dashboard' })
 
-    const currentDestination = screen.getByRole('button', { name: '数据统计' })
+    const currentDestination = screen.getByRole('button', { name: '学习统计' })
     expect(currentDestination).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('button', { name: '今日执行' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('button', { name: '今日安排' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('shows the actual current date and keeps a different selected diary date as context', () => {
+    renderSidebar()
+    const today = getLocalDateKey(new Date())
+    expect(screen.getByText('今天')).toBeInTheDocument()
+    expect(screen.getByText(today)).toBeInTheDocument()
+    expect(screen.getByText(/日历所选日期：2026-06-21（历史日记|选中日期）/)).toBeInTheDocument()
+  })
+
+  it('shows the actual current date and keeps a different selected diary date as context', () => {
+    renderSidebar()
+    const today = new Date().toLocaleDateString('en-CA')
+    expect(screen.getByText('今天')).toBeInTheDocument()
+    expect(screen.getByText(today)).toBeInTheDocument()
+    expect(screen.getByText('日历所选日期：2026-06-21（历史日记）')).toBeInTheDocument()
   })
 
   it('names the collapse control accurately and exposes its expanded state', () => {
@@ -94,7 +111,7 @@ describe('Sidebar', () => {
     const onViewChange = vi.fn()
     renderSidebar({ isCollapsed: true, onViewChange })
 
-    fireEvent.click(screen.getByRole('button', { name: '数据统计' }))
+    fireEvent.click(screen.getByRole('button', { name: '学习统计' }))
 
     expect(onViewChange).toHaveBeenCalledWith('dashboard')
   })

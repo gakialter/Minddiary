@@ -14,13 +14,18 @@ export const createSubjectsApi = (
         pomodoroSessionsRef?: MutableRefObject<PomodoroSession[]>
         subjectChaptersRef?: MutableRefObject<SubjectChapter[]>
     },
+    onChanged?: () => void,
 ): SubjectsContextAPI => ({
     getAll: async () => {
         if (IS_ELECTRON) return window.api.subjects.getAll()
         return subjectsRef.current.sort((a, b) => (a.order || 0) - (b.order || 0))
     },
     create: async (data: Partial<Subject>) => {
-        if (IS_ELECTRON) return window.api.subjects.create(data)
+        if (IS_ELECTRON) {
+            const subject = await window.api.subjects.create(data)
+            onChanged?.()
+            return subject
+        }
         
         const newSubject: Subject = {
             name: '', color: '#0F766E',
@@ -30,20 +35,24 @@ export const createSubjectsApi = (
         }
         subjectsRef.current = [...subjectsRef.current, newSubject]
         saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
+        onChanged?.()
         return newSubject
     },
     update: async (id: number, data: Partial<Subject>) => {
         if (IS_ELECTRON) {
             await window.api.subjects.update(id, data)
+            onChanged?.()
             return data
         }
         subjectsRef.current = subjectsRef.current.map(s => s.id === id ? { ...s, ...data } : s)
         saveToLocal(STORAGE_KEYS.SUBJECTS, subjectsRef.current)
+        onChanged?.()
         return data
     },
     delete: async (id: number) => {
         if (IS_ELECTRON) {
             await window.api.subjects.delete(id)
+            onChanged?.()
             return true
         }
         subjectsRef.current = subjectsRef.current.filter(s => s.id !== id)
@@ -82,6 +91,7 @@ export const createSubjectsApi = (
             ))
             saveToLocal(STORAGE_KEYS.POMODORO_SESSIONS, relatedRefs.pomodoroSessionsRef.current)
         }
+        onChanged?.()
         return true
     }
 })

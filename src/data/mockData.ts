@@ -97,16 +97,8 @@ export const mockEntries: DiaryEntry[] = [
 
 export const mockSettings: AppSettings = {
   theme: 'system',
-  examDate: '2024-12-23',
-  countdownEvents: [
-    {
-      id: 'default-exam',
-      title: '考研初试',
-      date: '2024-12-23',
-      type: 'exam',
-      pinned: true,
-    },
-  ],
+  examDate: '',
+  countdownEvents: [],
   dailyGoal: 8,
   autoSave: true,
   notifications: true,

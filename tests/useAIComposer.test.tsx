@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook } from '@testing-library/react'
+import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAIComposer } from '../src/hooks/useAIComposer'
+import { useAIComposer, type AITextDraft, type AITextDraftBinding } from '../src/hooks/useAIComposer'
+import { AIComposerSessionProvider } from '../src/contexts/AIComposerSessionContext'
 import type { AIComposerAttachment } from '../src/utils/aiAttachmentPolicy'
 import { readAIComposerFile } from '../src/utils/aiAttachmentReader'
 
@@ -49,6 +51,155 @@ function createDeferred<T>() {
 }
 
 describe('useAIComposer', () => {
+  it.each([false, true])('UX-04 preserves an ABA text edit against a stale success with app binding=%s', bound => {
+    const { result } = renderHook(() => {
+      const [draft, setDraft] = useState<AITextDraft>({ text: '', revision: 0 })
+      return useAIComposer(bound ? { draft, setDraft } : undefined)
+    })
+    act(() => result.current.setInput('submitted text'))
+    const sentRevision = result.current.inputRevision
+    act(() => result.current.setInput('newer text'))
+    act(() => result.current.setInput('submitted text'))
+    expect(result.current.inputRevision).toBeGreaterThan(sentRevision)
+    act(() => result.current.clearSentDraft('submitted text', [], sentRevision))
+    expect(result.current.input).toBe('submitted text')
+  })
+
+  it('UX-04 clears only an exact submitted text and revision pair', () => {
+    const { result } = renderHook(() => useAIComposer())
+    act(() => result.current.setInput('exact submitted text'))
+    const sentRevision = result.current.inputRevision
+    act(() => result.current.clearSentDraft('different text', [], sentRevision))
+    expect(result.current.input).toBe('exact submitted text')
+    act(() => result.current.clearSentDraft('exact submitted text', [], sentRevision))
+    expect(result.current.input).toBe('')
+  })
+
+  it('UX-04 keeps batched functional text edits in order and advances revision for each edit', () => {
+    const { result } = renderHook(() => {
+      const [draft, setDraft] = useState<AITextDraft>({ text: '', revision: 0 })
+      return useAIComposer({ draft, setDraft })
+    })
+    act(() => {
+      result.current.setInput('first')
+      result.current.setInput(current => `${current} second`)
+      result.current.setInput(current => `${current} third`)
+    })
+    expect(result.current.input).toBe('first second third')
+    expect(result.current.inputRevision).toBe(3)
+  })
+
+  it('UX-04 retains only owner text across composer remount and explicit clear updates the owner', async () => {
+    let composer!: ReturnType<typeof useAIComposer>
+    let ownerDraft!: AITextDraft
+    function Composer({ binding }: { binding: AITextDraftBinding }) {
+      composer = useAIComposer(binding)
+      return null
+    }
+    function Owner({ active }: { active: boolean }) {
+      const [draft, setDraft] = useState<AITextDraft>({ text: '', revision: 0 })
+      ownerDraft = draft
+      return active ? <Composer binding={{ draft, setDraft }} /> : null
+    }
+    const view = render(<Owner active />)
+    await act(async () => {
+      composer.setInput('Retained owner text')
+      composer.setContextKinds(['mistake-patterns'])
+      composer.setError('Ephemeral request error')
+      await composer.addFiles([makeImage('page-only.png')])
+    })
+    expect(composer.attachments).toHaveLength(1)
+    const revisionBeforeNavigation = ownerDraft.revision
+    view.rerender(<Owner active={false} />)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:page-only.png')
+    view.rerender(<Owner active />)
+    expect(composer.input).toBe('Retained owner text')
+    expect(composer.inputRevision).toBe(revisionBeforeNavigation)
+    expect(composer.contextKinds).toEqual([])
+    expect(composer.attachments).toEqual([])
+    expect(composer.error).toBeNull()
+    act(() => composer.clearComposer())
+    expect(ownerDraft.text).toBe('')
+    view.rerender(<Owner active={false} />)
+    view.rerender(<Owner active />)
+    expect(composer.input).toBe('')
+    view.unmount()
+    render(<Owner active />)
+    expect(ownerDraft).toEqual({ text: '', revision: 0 })
+  })
+
+  it('keeps session attachments across page remounts and revokes them on remove and successful send', async () => {
+    let composer!: ReturnType<typeof useAIComposer>
+    function Composer() {
+      composer = useAIComposer()
+      return null
+    }
+    function Owner({ active }: { active: boolean }) {
+      return <AIComposerSessionProvider>{active ? <Composer /> : null}</AIComposerSessionProvider>
+    }
+    const view = render(<Owner active />)
+
+    await act(async () => { await composer.addFiles([makeImage('keep-on-navigation.png')]) })
+    expect(composer.attachments.map(item => item.name)).toEqual(['keep-on-navigation.png'])
+    view.rerender(<Owner active={false} />)
+    expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:keep-on-navigation.png')
+    view.rerender(<Owner active />)
+    expect(composer.attachments.map(item => item.name)).toEqual(['keep-on-navigation.png'])
+
+    act(() => composer.removeAttachment('pending-keep-on-navigation.png'))
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:keep-on-navigation.png')
+    await act(async () => { await composer.addFiles([makeImage('sent-session-file.png')]) })
+    act(() => composer.clearSentDraft('', ['pending-sent-session-file.png'], 0))
+    expect(composer.attachments).toEqual([])
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:sent-session-file.png')
+    view.unmount()
+  })
+
+  it('finishes a file read across navigation but cancels the whole pending batch on explicit clear', async () => {
+    let composer!: ReturnType<typeof useAIComposer>
+    function Composer() { composer = useAIComposer(); return null }
+    const app = (active: boolean) => <AIComposerSessionProvider>{active && <Composer />}</AIComposerSessionProvider>
+    const view = render(app(true))
+    const retained = makeImage('reading-across-page.png')
+    const pending = createDeferred<AIComposerAttachment>()
+    readerMocks.readAIComposerFile.mockReturnValueOnce(pending.promise)
+    let adding!: Promise<void>
+    act(() => { adding = composer.addFiles([retained]) })
+    view.rerender(app(false))
+    await act(async () => { pending.resolve(makeReadyAttachment(retained)); await adding })
+    view.rerender(app(true))
+    expect(composer.attachments[0]?.status).toBe('ready')
+
+    const cleared = makeImage('cleared-while-reading.png')
+    const afterClear = createDeferred<AIComposerAttachment>()
+    readerMocks.readAIComposerFile.mockReturnValueOnce(afterClear.promise)
+    act(() => { adding = composer.addFiles([cleared, makeImage('never-read-after-clear.png')]) })
+    act(() => composer.clearComposer())
+    await act(async () => { afterClear.resolve(makeReadyAttachment(cleared)); await adding })
+    expect(composer.attachments).toEqual([])
+    expect(readerMocks.readAIComposerFile).toHaveBeenCalledTimes(2)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:cleared-while-reading.png')
+    view.unmount()
+  })
+
+  it('UX-04 discards a pending attachment after composer unmount and stops the remaining batch', async () => {
+    const deferred = createDeferred<AIComposerAttachment>()
+    const firstFile = makeImage('late-page-only.png')
+    readerMocks.readAIComposerFile.mockReturnValueOnce(deferred.promise)
+    const { result, unmount } = renderHook(() => useAIComposer())
+    let pending!: Promise<void>
+    act(() => { pending = result.current.addFiles([firstFile, makeImage('never-read.png')]) })
+    unmount()
+    await act(async () => {
+      deferred.resolve(makeReadyAttachment(firstFile))
+      await pending
+    })
+    expect(readerMocks.readAIComposerFile).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:late-page-only.png')
+    const remounted = renderHook(() => useAIComposer())
+    expect(remounted.result.current.attachments).toEqual([])
+  })
+
   it('removes only the deleted attachment error and preserves other file and request errors', async () => {
     readerMocks.readAIComposerFile.mockImplementation(async (file: File, _existing: AIComposerAttachment[], id?: string) => ({
       ...makeReadyAttachment(file, id), kind: 'pdf', status: 'error', error: `failure ${file.name}`,

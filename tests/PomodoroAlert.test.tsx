@@ -22,9 +22,10 @@ describe('PomodoroAlert', () => {
       />,
     )
 
-    expect(screen.getByText('专注完成！')).toBeInTheDocument()
-    expect(screen.getByText('干得漂亮，休息几分钟再继续吧～')).toBeInTheDocument()
+    expect(screen.getByText('专注完成')).toBeInTheDocument()
+    expect(screen.getByText('专注完成，休息几分钟再继续吧。')).toBeInTheDocument()
     expect(screen.getByText('25min')).toBeInTheDocument()
+    expect(screen.getByText('本次专注日累计', { exact: true })).toBeInTheDocument()
     expect(screen.getByText('1h 15m')).toBeInTheDocument()
     expect(screen.getByTestId('pomodoro-alert-write-diary')).toBeInTheDocument()
     expect(screen.getByTestId('pomodoro-alert-add-mistake')).toBeInTheDocument()
@@ -48,6 +49,7 @@ describe('PomodoroAlert', () => {
     expect(screen.getByText('专注已保存')).toBeInTheDocument()
     expect(screen.getByText('本次提前结束，实际专注时长已计入统计。')).toBeInTheDocument()
     expect(screen.getByText('19min')).toBeInTheDocument()
+    expect(screen.getByText('本次专注日累计', { exact: true })).toBeInTheDocument()
     expect(screen.getByText('0h 44m')).toBeInTheDocument()
     expect(screen.getByTestId('pomodoro-alert-write-diary')).toBeInTheDocument()
     expect(screen.getByTestId('pomodoro-alert-add-mistake')).toBeInTheDocument()
@@ -66,8 +68,8 @@ describe('PomodoroAlert', () => {
       />,
     )
 
-    expect(screen.getByText('休息结束！')).toBeInTheDocument()
-    expect(screen.getByText('精力充沛，继续加油！')).toBeInTheDocument()
+    expect(screen.getByText('休息结束')).toBeInTheDocument()
+    expect(screen.getByText('休息结束，可以继续专注了。')).toBeInTheDocument()
     const primaryAction = screen.getByTestId('pomodoro-alert-primary-action')
     expect(primaryAction).toHaveTextContent('继续专注')
 

@@ -1,6 +1,6 @@
 import { expect, test, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -160,7 +160,7 @@ const startServer = async (): Promise<void> => {
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(5173, 'localhost', resolve)
+    server.listen(5173, '127.0.0.1', resolve)
   })
 }
 
@@ -336,6 +336,8 @@ test.describe.serial('Electron navigation security', () => {
       Reflect.set(process, key, dialog.showSaveDialog)
       Reflect.set(dialog, 'showSaveDialog', async () => ({ canceled: false, filePath: target }))
     }, { key: originalDialogKey, target: savePath })
+    const tempDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath('temp'))
+    const tempFilesBefore = readdirSync(tempDir).filter(name => /^minddiary_export_[0-9a-f-]{36}\.html$/i.test(name)).sort()
 
     try {
       await page.evaluate(async ({ html, target }) => {
@@ -359,8 +361,7 @@ test.describe.serial('Electron navigation security', () => {
       await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(windowCount)
       expect(await getExternalCalls()).toEqual([])
       expect(pdfNavigationRequests).toBe(0)
-      const tempDir = await app.evaluate(({ app: electronApp }) => electronApp.getPath('temp'))
-      expect(existsSync(path.join(tempDir, 'minddiary_export_tmp.html'))).toBe(false)
+      expect(readdirSync(tempDir).filter(name => /^minddiary_export_[0-9a-f-]{36}\.html$/i.test(name)).sort()).toEqual(tempFilesBefore)
     } finally {
       await app.evaluate(({ dialog }, key) => {
         const original = Reflect.get(process, key)

@@ -360,12 +360,12 @@ describe('StudyProgress detailed subject chapters', () => {
 
     await screen.findByTestId('subject-card-7')
     expect(screen.getByText('Math')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: '总体章节进度' })).toHaveAttribute('aria-valuenow', '40')
+    expect(screen.getByRole('progressbar', { name: '总进度' })).toHaveAttribute('aria-valuenow', '40')
     expect(screen.getByRole('progressbar', { name: 'Math章节进度' })).toHaveAttribute('aria-valuetext', '已完成 2 / 5 章节')
-    expect(screen.getByRole('button', { name: 'Math汇总进度加一' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '增加 Math 的完成章节数' })).toBeInTheDocument()
     expect(screen.getByTestId('manage-chapters-7')).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByTestId('manage-chapters-7')).toHaveAttribute('aria-controls', 'study-progress-chapters-7')
-    expect(screen.getByTitle('汇总进度加一')).toBeInTheDocument()
+    expect(screen.getByTitle('增加 Math 的完成章节数')).toBeInTheDocument()
 
     vi.mocked(window.confirm).mockReturnValue(false)
     fireEvent.click(screen.getByTitle('删除科目'))
@@ -377,10 +377,10 @@ describe('StudyProgress detailed subject chapters', () => {
   it('keeps the subject form persistently labelled and exposes color selection', async () => {
     setupStudyProgress([])
 
-    fireEvent.click(await screen.findByRole('button', { name: '新增科目' }))
+    fireEvent.click(await screen.findByRole('button', { name: '添加科目' }))
 
-    expect(screen.getByLabelText('科目名称')).toHaveAttribute('id', 'study-progress-subject-name')
-    expect(screen.getByLabelText('汇总章节数')).toHaveAttribute('id', 'study-progress-subject-total')
+    expect(screen.getByLabelText('科目名')).toHaveAttribute('id', 'study-progress-subject-name')
+    expect(screen.getByLabelText('章节总数')).toHaveAttribute('id', 'study-progress-subject-total')
     expect(screen.getByRole('button', { name: '选择颜色 #0F766E' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '选择颜色 #2F8F6B' })).toHaveAttribute('aria-pressed', 'false')
   })
@@ -510,6 +510,41 @@ describe('StudyProgress detailed subject chapters', () => {
       expect(mocks.showToast).toHaveBeenCalledWith('save failed', 'error')
     })
     expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(2)
+  })
+
+  it('discloses clearing chapter details, cancels without writes, and preserves summary progress on confirmation', async () => {
+    const subject = makeSubject({ total_chapters: 3, completed_chapters: 2 })
+    const chapters = [
+      makeChapter({ id: 1, title: '第一章 函数', notes: '保留用于取消核对', completed: true }),
+      makeChapter({ id: 2, title: '第二章 导数', completed: true, sort_order: 1 }),
+      makeChapter({ id: 3, title: '第三章 积分', completed: false, sort_order: 2 }),
+    ]
+    const state = setupStudyProgress([subject], { 7: chapters })
+    fireEvent.click(await screen.findByTestId('manage-chapters-7'))
+    const clearButton = await screen.findByRole('button', { name: '删除明细，保留汇总进度' })
+    expect(clearButton).toHaveAttribute('title', '删除章节明细并保留汇总进度')
+
+    vi.mocked(window.confirm).mockReturnValueOnce(false)
+    fireEvent.click(clearButton)
+    expect(window.confirm).toHaveBeenLastCalledWith('确认删除全部详细章节，并保留当前 2/3 为汇总进度吗？')
+    expect(mocks.chaptersClear).not.toHaveBeenCalled()
+    expect(mocks.showToast).not.toHaveBeenCalled()
+    expect(state.getChapters(7)).toEqual(chapters)
+    expect(state.getSubjects()).toEqual([subject])
+    expect(screen.getByTestId('chapter-row-3')).toBeInTheDocument()
+
+    fireEvent.click(clearButton)
+    await waitFor(() => expect(mocks.chaptersClear).toHaveBeenCalledWith(7))
+    expect(mocks.chaptersClear).toHaveBeenCalledTimes(1)
+    expect(window.confirm).toHaveBeenCalledTimes(2)
+    expect(mocks.showToast).toHaveBeenCalledWith('已退出详细章节模式，汇总进度已保留', 'success')
+    await waitFor(() => expect(screen.queryByRole('button', { name: '删除明细，保留汇总进度' })).not.toBeInTheDocument())
+    expect(state.getChapters(7)).toEqual([])
+    expect(state.getSubjects()).toEqual([subject])
+    expect(screen.getByTestId('subject-card-7')).toHaveTextContent('2 / 3 章节')
+    expect(screen.queryByTestId('chapter-row-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chapter-row-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chapter-row-3')).not.toBeInTheDocument()
   })
 
   it('deletes a confirmed subject and removes its detailed chapters from the next refresh', async () => {

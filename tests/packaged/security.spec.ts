@@ -216,13 +216,19 @@ test('runs the unpacked packaged app with hardened runtime and persisted local d
     await session.page.getByRole('button', { name: '设置', exact: true }).click()
     await expect(session.page.getByText(`v${expectedVersion}`, { exact: true })).toBeVisible()
 
+    const settingsPage = session.page.locator('.settings-page')
+    const primaryDateInput = session.page.getByLabel('目标日期').first()
+    await expect.poll(async () => {
+      const storedDate = await session?.page.evaluate(() => window.api.settings.getAll().then(settings => settings.examDate))
+      return storedDate === '' && await primaryDateInput.inputValue() === storedDate
+    }).toBe(true)
+
     const sentinelExamDate = '2099-12-31'
-    await session.page.evaluate(async examDate => {
-      const result = await window.api.settings.updateGeneral({ examDate })
-      if (!result.success) throw new Error('Packaged settings update failed')
-    }, sentinelExamDate)
+    await primaryDateInput.fill(sentinelExamDate)
+    await session.page.getByRole('button', { name: /保存设置/ }).click()
     await expect.poll(() => session?.page.evaluate(() => window.api.settings.getAll().then(settings => settings.examDate)))
       .toBe(sentinelExamDate)
+    await expect(settingsPage).toHaveAttribute('aria-busy', 'false')
 
     const persisted = await session.page.evaluate(async ({ imageData, date }) => {
       const entry = await window.api.entries.create({

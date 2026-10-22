@@ -20,15 +20,15 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
     const inputRef = useRef<HTMLInputElement>(null)
 
     const commands: Command[] = [
-        { id: 'editor', title: '写新日记', icon: <PenLine size={24} />, description: '记录今天的生活' },
-        { id: 'calendar', title: '查看日历', icon: <Calendar size={24} />, description: '按日期回顾历史记录' },
-        { id: 'search', title: '搜索日记', icon: <Search size={24} />, description: '全局搜索记忆' },
-        { id: 'progress', title: '学习进度', icon: <BookOpen size={24} />, description: '追踪考研各科目完成度' },
-        { id: 'mistakes', title: '错题本', icon: <BookX size={24} />, description: '复习整理的错题和知识点' },
-        { id: 'pomodoro', title: '专注番茄钟', icon: <Timer size={24} />, description: '开启一段沉浸式学习' },
-        { id: 'tags', title: '管理标签', icon: <Tags size={24} />, description: '分类整理日记' },
-        { id: 'ai', title: 'AI 助手', icon: <Bot size={24} />, description: '让 AI 帮你总结或答疑' },
-        { id: 'settings', title: '偏好设置', icon: <Settings size={24} />, description: '修改主题和高级选项' }
+        { id: 'editor', title: '写日记', icon: <PenLine size={24} />, description: '记录当天的学习和生活' },
+        { id: 'calendar', title: '日历', icon: <Calendar size={24} />, description: '按日期查看日记和专注记录' },
+        { id: 'search', title: '搜索日记', icon: <Search size={24} />, description: '按内容、日期、心情或标签查找' },
+        { id: 'progress', title: '科目进度', icon: <BookOpen size={24} />, description: '查看各科的章节完成情况' },
+        { id: 'mistakes', title: '错题本', icon: <BookX size={24} />, description: '复习错题和知识点' },
+        { id: 'pomodoro', title: '专注计时', icon: <Timer size={24} />, description: '打开专注计时页面' },
+        { id: 'tags', title: '标签', icon: <Tags size={24} />, description: '用标签给日记分类' },
+        { id: 'ai', title: 'AI 助手', icon: <Bot size={24} />, description: '提问或整理学习思路' },
+        { id: 'settings', title: '设置', icon: <Settings size={24} />, description: '调整外观、AI、计时和数据设置' }
     ]
 
     const filteredCommands = commands.filter(c =>
@@ -101,7 +101,7 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
                             background: 'transparent', border: 'none', outline: 'none',
                             boxShadow: 'none'
                         }}
-                        placeholder="你想做什么？(尝试搜索 '设置' 或 '日记')"
+                        placeholder="搜索功能，例如：设置、日记"
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -111,7 +111,7 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
                 <div style={{ maxHeight: '50vh', overflowY: 'auto', padding: 'var(--space-sm)' }}>
                     {filteredCommands.length === 0 ? (
                         <div className="text-muted text-center" style={{ padding: 'var(--space-xl)' }}>
-                            没有匹配的命令
+                            没找到功能，换个词试试。
                         </div>
                     ) : (
                         filteredCommands.map((cmd, idx) => {
@@ -163,8 +163,8 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
                     display: 'flex', justifyContent: 'center', gap: 'var(--space-lg)',
                     fontSize: 12, color: 'var(--text-muted)'
                 }}>
-                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↑↓</kbd> 选择导航</span>
-                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↵</kbd> 确认执行</span>
+                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↑↓</kbd> 选择功能</span>
+                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↵</kbd> 打开功能</span>
                     <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>esc</kbd> 关闭菜单</span>
                 </div>
             </div>

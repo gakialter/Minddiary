@@ -52,7 +52,7 @@ function Layout({ children, isSidebarCollapsed }: LayoutProps) {
             <span className="titlebar-brand-name">MindDiary</span>
           </div>
           <div className="titlebar-drag-region flex-1 self-stretch" data-testid="titlebar-drag-region" aria-hidden="true" />
-          <div className="titlebar-controls" role="group" aria-label="窗口控制">
+          <div className="titlebar-controls" role="group" aria-label="窗口操作">
             <button
               type="button"
               className="titlebar-control"
@@ -68,7 +68,7 @@ function Layout({ children, isSidebarCollapsed }: LayoutProps) {
               type="button"
               className="titlebar-control"
               onClick={handleMaximize}
-              title={isMaximized ? "还原" : "最大化"}
+              title={isMaximized ? "还原窗口" : "最大化"}
               aria-label={isMaximized ? "还原窗口" : "最大化窗口"}
             >
               {isMaximized ? (

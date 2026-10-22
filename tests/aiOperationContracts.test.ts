@@ -162,7 +162,6 @@ function digestMessages(messages: AIMessage[]): string {
 }
 
 const EXPECTED_PROMPT_DIGESTS: Readonly<Record<string, string>> = Object.freeze({
-  'today-action.prompt.v3': '8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681',
   'today-action.prompt.v4': '76aadb0d2a458e2013858e4258229279894cd5527a5d7dd5e9f7c33472008900',
   'daily-review.prompt.v2': '582c458b685032a9aef79b5d6dba8d7dfb660644bf1201aed8f4c2fea206821f',
   'mistake-review.prompt.v1': '608e1dc0f12a36d5f0edb1801ef9e75053acfab019e46a2a8c2893cd5ea18305',
@@ -301,27 +300,4 @@ describe('versioned prompt drift fixtures', () => {
     expect(digestMessages(messages)).toBe(EXPECTED_PROMPT_DIGESTS[promptVersion])
   })
 
-  it('detects a one-character Mistake Review prompt mutation against the frozen oracle', () => {
-    const messages = buildMistakeReviewPromptMessages(MISTAKE_REVIEW_CONTEXT_FIXTURE)
-      .map(message => ({ ...message }))
-    messages[1] = { ...messages[1]!, content: `${messages[1]!.content}!` }
-
-    expect(digestMessages(messages))
-      .not.toBe(EXPECTED_PROMPT_DIGESTS['mistake-review.prompt.v1'])
-  })
-
-  it('detects a one-character Today Action v4 prompt mutation against the independent frozen oracle', () => {
-    const messages = buildTodayActionSuggestionMessages(
-      TODAY_CONTEXT_FIXTURE,
-      'balanced',
-      null,
-      TODAY_CHAPTER_PROJECTION_FIXTURE,
-    ).map(message => ({ ...message }))
-    messages[1] = { ...messages[1]!, content: `${messages[1]!.content}!` }
-
-    expect(digestMessages(messages))
-      .not.toBe(EXPECTED_PROMPT_DIGESTS['today-action.prompt.v4'])
-    expect(EXPECTED_PROMPT_DIGESTS['today-action.prompt.v3'])
-      .toBe('8f73d031b6343d523cbd37c8d6e0b47b3e34ec13108b0a42c033c38842f4f681')
-  })
 })

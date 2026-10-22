@@ -44,11 +44,11 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
         const selectedFiles = Array.from(e.target.files || [])
         const invalidFiles = selectedFiles.filter(f => !f.type.startsWith('image/'))
         invalidFiles.forEach(file => {
-            showToast(`文件 ${file.name} 不是图片，已拒绝上传`, 'error')
+            showToast(`文件 ${file.name} 不是图片，未添加。`, 'error')
         })
         const oversizedFiles = selectedFiles.filter(f => f.type.startsWith('image/') && f.size > MAX_IMAGE_FILE_BYTES)
         oversizedFiles.forEach(file => {
-            showToast(`图片 ${file.name} 超过 10MB，已拒绝上传`, 'error')
+            showToast(`图片 ${file.name} 超过 10MB，未添加。`, 'error')
         })
         const files = selectedFiles.filter(f => f.type.startsWith('image/') && f.size <= MAX_IMAGE_FILE_BYTES)
         const targetEntryId = entryId || await ensureEntryId?.()
@@ -71,7 +71,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
         for (const { file, result, error } of compressed) {
             if (error || !result) {
                 logger.error('Compression failed for', file.name, error)
-                showToast(`图片 ${file.name} 处理失败`, 'error')
+                showToast(`图片 ${file.name} 处理失败，请重试。`, 'error')
                 continue
             }
             try {
@@ -92,7 +92,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
         setLoading(false)
         if (entryId) loadAttachments()
         if (uploadedAny) {
-            showToast('图片上传成功', 'success')
+            showToast('图片已添加。', 'success')
         }
         e.target.value = ''
     }
@@ -103,10 +103,10 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
             await attachmentsAPI.delete(id)
             if (deletedAttachment && preview?.src === safeFileUrl(deletedAttachment.filepath)) setPreview(null)
             loadAttachments()
-            showToast('图片已删除', 'success')
+            showToast('图片已删除。', 'success')
         } catch (e) {
             logger.error(e)
-            showToast('删除失败', 'error')
+            showToast('未能删除，请重试。', 'error')
         }
     }
 
@@ -149,10 +149,10 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                 <div className="editor-attachment-gallery__header">
                     <h2 id="editor-attachments-title" className="editor-attachment-gallery__title">
                         <ImageIcon size={16} aria-hidden="true" />
-                        图片附件
+                        日记图片
                     </h2>
                 </div>
-                <p className="editor-attachment-gallery__unavailable">请先保存日记后再添加图片</p>
+                <p className="editor-attachment-gallery__unavailable">当前无法添加图片。</p>
             </section>
         )
     }
@@ -163,10 +163,10 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                 <div>
                     <h2 id="editor-attachments-title" className="editor-attachment-gallery__title">
                         <ImageIcon size={16} aria-hidden="true" />
-                        图片附件
+                        日记图片
                     </h2>
                     <p className="editor-attachment-gallery__count">
-                        {attachments.length > 0 ? `${attachments.length} 张图片` : '为这篇日记补充图像记录'}
+                        {attachments.length > 0 ? `${attachments.length} 张图片` : '给这篇日记添张图片。'}
                     </p>
                 </div>
                 <button
@@ -175,7 +175,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                     onClick={() => fileInputRef.current?.click()}
                 >
                     <Plus size={14} aria-hidden="true" />
-                    上传
+                    添加图片
                 </button>
                 <input
                     ref={fileInputRef} type="file" accept="image/*" multiple
@@ -197,9 +197,9 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                     <span className="editor-attachment-gallery__dropzone-icon">
                         <Camera size={24} aria-hidden="true" />
                     </span>
-                    <span className="editor-attachment-gallery__dropzone-title">点击或拖拽上传图片</span>
+                    <span className="editor-attachment-gallery__dropzone-title">点击选择，或把图片拖到这里。</span>
                     <span id="editor-attachment-upload-hint" className="editor-attachment-gallery__dropzone-hint">
-                        支持 JPG、PNG、WebP，每个最大 10MB
+                        每张图片不超过10MB。
                     </span>
                 </button>
             )}
@@ -240,7 +240,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                     {/* Add more button or drop target */}
                     {loading ? (
                         <div className="editor-attachment-gallery__loading" role="status" aria-live="polite">
-                            <span>图片上传中…</span>
+                            <span>正在添加图片…</span>
                         </div>
                     ) : (
                         <button
@@ -248,7 +248,7 @@ export default function ImageGallery({ entryId, ensureEntryId, onImageInsert }: 
                             className="editor-attachment-gallery__add-more"
                             data-dragging={isDragging ? 'true' : 'false'}
                             onClick={() => fileInputRef.current?.click()}
-                            title="上传更多"
+                            title="添加更多图片"
                             aria-label="上传更多图片"
                         >
                             <Plus size={20} aria-hidden="true" />

@@ -88,17 +88,17 @@ import {
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const PRIORITIES: DailyReviewPriority[] = ['high', 'medium', 'low']
 const PRIORITY_LABELS: Record<DailyReviewPriority, string> = {
-  high: '高',
-  medium: '中',
-  low: '低',
+  high: '优先做',
+  medium: '正常安排',
+  low: '有空再做',
 }
 
 const CANDIDATE_FIELD_LABELS: Readonly<Record<PlanningCandidateChangedField, string>> = {
-  title: '标题',
-  description: '理由',
+  title: '任务名',
+  description: '任务理由',
   type: '类型',
   estimateMinutes: '预计分钟',
-  priority: '优先级',
+  priority: '优先顺序',
   subjectId: '科目',
   relatedMistakeId: '到期错题',
   relatedEntryId: '今日日记',
@@ -1095,20 +1095,20 @@ export default function DailyReviewAgentDialog({
         <header className="daily-review__header">
           <div className="daily-review__heading">
             <span className="daily-review__eyebrow">学习复盘 · {date}</span>
-            <h3 id="daily-review-agent-title">每日复盘</h3>
+            <h3 id="daily-review-agent-title">每日回顾</h3>
             <p id="daily-review-agent-description">
-              先核对本地证据，再理解建议并决定是否创建次日任务。
+              先核对本机记录，再看建议并决定是否创建次日任务。
             </p>
           </div>
-          <div className="daily-review__trust" aria-label="复盘信任边界">
-            <span>本地证据优先</span>
+          <div className="daily-review__trust" aria-label="使用说明">
+            <span>先看本机记录</span>
             <span>AI 仅作建议</span>
           </div>
           <button
             ref={closeButtonRef}
             type="button"
-            aria-label="关闭每日复盘"
-            title="关闭每日复盘"
+            aria-label="关闭回顾"
+            title="关闭回顾"
             className="button button-secondary daily-review__close"
             disabled={generating || creating}
             onClick={closeDialog}
@@ -1121,10 +1121,10 @@ export default function DailyReviewAgentDialog({
           <section className="daily-review__section daily-review__evidence" aria-labelledby="daily-review-evidence-title" data-testid="daily-review-context-preview">
             <div className="daily-review__section-header">
               <div>
-                <span className="daily-review__section-kicker">本地证据</span>
+                <span className="daily-review__section-kicker">本机记录</span>
                 <h4 id="daily-review-evidence-title">复盘依据（仅本地读取）</h4>
                 <p className="daily-review__section-description">
-                  打开或刷新只读取本地安全摘要，不请求 AI，也不会创建或修改任务。
+                  只读本机摘要；不会请求AI或改动任务。
                 </p>
                 <p className="daily-review__privacy-note">
                   本功能不会把日记正文、错题答案或图片发送给 AI。
@@ -1137,12 +1137,12 @@ export default function DailyReviewAgentDialog({
                 disabled={contextLoading || generating || creating}
                 onClick={() => { void refreshReviewContext() }}
               >
-                {contextLoading ? '加载中...' : '刷新复盘依据'}
+                {contextLoading ? '正在读取…' : '刷新记录'}
               </button>
             </div>
 
-            {contextLoading && <p className="daily-review__inline-status" data-testid="daily-review-context-loading" role="status">正在加载本地复盘依据…</p>}
-            {contextError && <p className="daily-review__notice daily-review__notice--danger" data-testid="daily-review-context-error" role="alert">无法加载本地复盘依据：{contextError}</p>}
+            {contextLoading && <p className="daily-review__inline-status" data-testid="daily-review-context-loading" role="status">正在读取本机记录…</p>}
+            {contextError && <p className="daily-review__notice daily-review__notice--danger" data-testid="daily-review-context-error" role="alert">无法读取本机记录：{contextError}</p>}
             {visibleContext && (
               <>
                 <div className="daily-review__evidence-grid">
@@ -1159,7 +1159,7 @@ export default function DailyReviewAgentDialog({
                       >
                         {displayPreviewItem(item)}
                         {item.warnings?.map(warning => (
-                          <div key={warning} className="daily-review__evidence-warning">风险提示：{warning}</div>
+                          <div key={warning} className="daily-review__evidence-warning">注意：{warning}</div>
                         ))}
                       </article>
                     )
@@ -1167,34 +1167,34 @@ export default function DailyReviewAgentDialog({
                 </div>
                 <section className="daily-review__deterministic" data-testid="daily-review-deterministic-summary" aria-labelledby="daily-review-deterministic-title">
                   <div>
-                    <span className="daily-review__section-kicker">确定性总结</span>
-                    <h5 id="daily-review-deterministic-title">本地确定性摘要</h5>
+                    <span className="daily-review__section-kicker">本机总结</span>
+                    <h5 id="daily-review-deterministic-title">本机摘要</h5>
                   </div>
                   <ul>
                     {deterministicSummary.map(item => <li key={item.label}>{displaySummaryItem(item)}</li>)}
                   </ul>
                 </section>
-                {isEmptyDay && <p className="daily-review__notice daily-review__notice--neutral" data-testid="daily-review-empty-day" role="status">今天尚无足够本地复盘数据；你仍可手动生成建议或稍后再试。</p>}
+                {isEmptyDay && <p className="daily-review__notice daily-review__notice--neutral" data-testid="daily-review-empty-day" role="status">今天记录不足；可手动生成建议或稍后再试。</p>}
               </>
             )}
           </section>
 
           <details className="daily-review__details" data-testid="daily-review-request-explainability">
-            <summary>本次请求依据</summary>
+            <summary>发送内容</summary>
             <div className="daily-review__details-group" data-testid="daily-review-current-request-preview">
-              <strong>当前本地预览（刷新会更新）</strong>
-              <p>表示若现在生成，本地应用会如何准备并加入各类信息。</p>
+              <strong>当前本地预览（刷新后会更新）</strong>
+              <p>显示现在生成建议时会使用哪些本机记录。</p>
               <ContextDecisionList decisions={currentRequestDecisions} testIdPrefix="daily-review-current-request-context" />
             </div>
             <div className="daily-review__details-group" data-testid="daily-review-generation-request-snapshot">
-              <strong>本代请求快照（刷新不会覆盖）</strong>
+              <strong>本次请求摘要（刷新不会覆盖）</strong>
               {planningSession ? (
                 <>
                   <p>本代标识：{planningSession.generationId}</p>
                   <ContextDecisionList decisions={planningSession.contextDecisions} testIdPrefix="daily-review-generation-request-context" />
                 </>
               ) : (
-                <p>尚未生成请求；这里不会把当前预览误写成历史快照。</p>
+                <p>还未发送请求；上方只是当前预览。</p>
               )}
             </div>
             <p className="daily-review__provider-disclaimer" data-testid="daily-review-provider-usage-disclaimer">{PROVIDER_USAGE_DISCLAIMER}</p>
@@ -1203,9 +1203,9 @@ export default function DailyReviewAgentDialog({
           <section className="daily-review__section daily-review__ai-request" aria-labelledby="daily-review-ai-request-title" aria-busy={generating}>
             <div className="daily-review__section-header">
               <div>
-                <span className="daily-review__section-kicker daily-review__section-kicker--ai">AI 建议 · 仅供参考</span>
+                <span className="daily-review__section-kicker daily-review__section-kicker--ai">复盘建议</span>
                 <h4 id="daily-review-ai-request-title">生成次日建议</h4>
-                <p className="daily-review__section-description">AI 只读取上方安全摘要；输出须经本地验证并由你明确确认。</p>
+                <p className="daily-review__section-description">只发送上方摘要；本机检查后由你确认。</p>
               </div>
             </div>
 
@@ -1252,8 +1252,8 @@ export default function DailyReviewAgentDialog({
                 onClick={generateReview}
               >
                 {generating
-                  ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 生成中...</>
-                  : <><Sparkles size={14} aria-hidden="true" /> {generationErrors.length > 0 ? '重新生成复盘建议' : '生成复盘建议'}</>}
+                  ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 正在生成…</>
+                  : <><Sparkles size={14} aria-hidden="true" /> {generationErrors.length > 0 ? '重新生成复盘建议' : '生成建议'}</>}
               </button>
             </div>
 
@@ -1270,14 +1270,14 @@ export default function DailyReviewAgentDialog({
               </div>
             )}
 
-            {generating && <p className="daily-review__inline-status" role="status">正在请求并验证 AI 建议…</p>}
+            {generating && <p className="daily-review__inline-status" role="status">正在请求并检查AI建议…</p>}
             {!generating && generationErrors.length === 0 && observations.length === 0 && candidates.length === 0 && (
-              <p className="daily-review__ai-empty">尚未生成 AI 建议。你可以先阅读本地证据，再决定是否发起请求。</p>
+              <p className="daily-review__ai-empty">还没生成建议；先看记录，再决定是否发送。</p>
             )}
             {generationErrors.length > 0 && (
               <div className="daily-review__notice daily-review__notice--danger" role="alert" data-testid="daily-review-errors">
                 {generationErrors.map(error => <p key={error}>{error}</p>)}
-                <p>AI 返回格式无效；不会创建任务。请重新生成。</p>
+                <p>AI建议无法读取，不会创建任务；请重试。</p>
               </div>
             )}
             {planningHistoryWarning && (
@@ -1291,9 +1291,9 @@ export default function DailyReviewAgentDialog({
           {observations.length > 0 && (
             <section className="daily-review__section daily-review__ai-observations" aria-labelledby="daily-review-observations-title" data-testid="daily-review-observations">
               <div className="daily-review__section-heading">
-                <span className="daily-review__section-kicker">AI 建议 · 参考信息</span>
-                <h4 id="daily-review-observations-title">AI 复盘建议</h4>
-                <p>以下内容是 AI 对本地安全摘要的建议，不是已发生事实。</p>
+                <span className="daily-review__section-kicker">参考建议</span>
+                <h4 id="daily-review-observations-title">复盘建议</h4>
+                <p>AI根据本机记录提出建议，不代表事实。</p>
               </div>
               <div className="daily-review__observation-list">
                 {observations.map((observation, index) => (
@@ -1301,7 +1301,7 @@ export default function DailyReviewAgentDialog({
                     <strong>{observation.summary}</strong>
                     <p>{observation.reason}</p>
                     {observation.sourceRefs.length > 0 && (
-                      <p className="daily-review__source-ref">本地来源：{observation.sourceRefs.join('、')}</p>
+                      <p className="daily-review__source-ref">本机来源：{observation.sourceRefs.join('、')}</p>
                     )}
                   </article>
                 ))}
@@ -1313,9 +1313,9 @@ export default function DailyReviewAgentDialog({
             <section className="daily-review__section daily-review__candidates" aria-labelledby="daily-review-candidates-title" data-testid="daily-review-candidates">
               <div className="daily-review__candidate-heading">
                 <div className="daily-review__section-heading">
-                  <span className="daily-review__section-kicker">已验证候选 · 等待你的决定</span>
-                  <h4 id="daily-review-candidates-title">候选与确认</h4>
-                  <p>候选仅保存在当前窗口。编辑、取消选择或删除后，再由你明确确认创建。</p>
+                  <span className="daily-review__section-kicker">已通过检查，待你决定</span>
+                  <h4 id="daily-review-candidates-title">候选任务（确认后才添加）</h4>
+                  <p>候选只保存在当前窗口。编辑、取消选择或删除后，仍由你明确确认才会创建任务。</p>
                 </div>
                 {visibleContext && <span className="daily-review__candidate-date">计划日期：{visibleContext.candidateDate}</span>}
               </div>
@@ -1344,20 +1344,20 @@ export default function DailyReviewAgentDialog({
                               ? 'selected'
                               : 'unselected'
                   const presentationLabel = presentationState === 'replayed'
-                    ? '已重放并恢复'
+                    ? '已核对并恢复任务'
                     : presentationState === 'created'
                       ? '已创建'
                       : presentationState === 'creating'
-                        ? '创建中'
+                        ? '正在创建'
                         : presentationState === 'uncertain'
-                          ? '结果不确定'
+                          ? '创建结果待核对'
                           : presentationState === 'failed'
                             ? '创建失败'
                             : presentationState === 'invalid'
-                              ? '本地校验未通过'
+                              ? '检查未通过'
                               : presentationState === 'selected'
-                                ? '已选择 · 可编辑'
-                                : '未选择 · 可编辑'
+                                ? '已选，可修改'
+                                : '未选，可修改'
                   return (
                     <article
                       key={candidate.clientId}
@@ -1379,7 +1379,7 @@ export default function DailyReviewAgentDialog({
                               'selection',
                             )}
                           />
-                          创建此候选
+                          选中此建议
                         </label>
                         <span className="daily-review__candidate-state" data-state={presentationState}>
                           {presentationLabel}
@@ -1396,10 +1396,10 @@ export default function DailyReviewAgentDialog({
                       </div>
                       <div className="daily-review__candidate-fields">
                         <label className="daily-review__field-label">
-                          任务标题
+                          任务名称
                           <input
                             className="input daily-review__candidate-field"
-                            aria-label="候选任务标题"
+                            aria-label="任务名称"
                             value={candidate.title}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { title: event.target.value }, 'edit')}
@@ -1410,7 +1410,7 @@ export default function DailyReviewAgentDialog({
                           类型
                           <select
                             className="input daily-review__candidate-field"
-                            aria-label="候选任务类型"
+                            aria-label="任务类型"
                             value={candidate.type}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { type: event.target.value as StudyTaskType }, 'edit', true)}
@@ -1419,13 +1419,13 @@ export default function DailyReviewAgentDialog({
                           </select>
                         </label>
                         <label className="daily-review__field-label">
-                          预计分钟数
+                          预计用时（分钟）
                           <input
                             className="input daily-review__candidate-field"
                             type="number"
                             min={5}
                             max={180}
-                            aria-label="候选预计分钟数"
+                            aria-label="候选预计用时（分钟）"
                             value={candidate.estimate_minutes}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { estimate_minutes: Number(event.target.value) }, 'edit', true)}
@@ -1435,13 +1435,13 @@ export default function DailyReviewAgentDialog({
                           关联科目
                           <select
                             className="input daily-review__candidate-field"
-                            aria-label="候选关联科目"
+                            aria-label="关联科目"
                             value={candidate.subject_id ?? ''}
                             disabled={isLocked}
                             onChange={event => updateCandidate(candidate.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit', true)}
                           >
                             {!isKnownSubject && <option value={candidate.subject_id ?? ''} disabled>请选择有效科目</option>}
-                            <option value="">不关联科目</option>
+                            <option value="">不关联</option>
                             {visibleContext?.subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
                           </select>
                         </label>
@@ -1464,12 +1464,12 @@ export default function DailyReviewAgentDialog({
                             >
                               {!isKnownMistake && <option value={candidate.related_mistake_id ?? ''} disabled>请选择有效错题</option>}
                               <option value="">选择到期错题</option>
-                              {visibleContext?.dueMistakes.map(mistake => <option key={mistake.id} value={mistake.id}>#{mistake.id} {mistake.question_snippet || '（无题目）'}</option>)}
+                              {visibleContext?.dueMistakes.map(mistake => <option key={mistake.id} value={mistake.id}>#{mistake.id} {mistake.question_snippet || '未写题目'}</option>)}
                             </select>
                           </label>
                         )}
                         <label className="daily-review__field-label">
-                          建议优先级（不写入任务）
+                          建议优先级（仅供参考，不写入任务）
                           <select
                             className="input daily-review__candidate-field"
                             aria-label="候选建议优先级"
@@ -1482,10 +1482,10 @@ export default function DailyReviewAgentDialog({
                         </label>
                       </div>
                       <label className="daily-review__field-label daily-review__candidate-reason">
-                        候选理由
+                        建议理由
                         <textarea
                           className="input daily-review__candidate-field daily-review__candidate-textarea"
-                          aria-label="候选理由"
+                          aria-label="建议理由"
                           value={candidate.reason}
                           disabled={isLocked}
                           onChange={event => updateCandidate(candidate.clientId, { reason: event.target.value }, 'edit')}
@@ -1493,7 +1493,7 @@ export default function DailyReviewAgentDialog({
                         />
                       </label>
                       <div className="daily-review__candidate-outcome" role="status">
-                        {candidate.creationState === 'created' && <span className="daily-review__status-text daily-review__status-text--success">{candidate.replayed ? '已重放并恢复' : '已创建'} #{candidate.createdTaskId}</span>}
+                        {candidate.creationState === 'created' && <span className="daily-review__status-text daily-review__status-text--success">{candidate.replayed ? '已核对并恢复任务' : '已创建'} #{candidate.createdTaskId}</span>}
                         {candidate.creationState === 'failed' && <span className="daily-review__status-text daily-review__status-text--danger">{candidate.creationError}</span>}
                         {candidate.creationState === 'uncertain' && <span className="daily-review__status-text daily-review__status-text--warning">{candidate.creationError}</span>}
                       </div>
@@ -1594,7 +1594,7 @@ export default function DailyReviewAgentDialog({
             )}
 
             <details className="daily-review__details" data-testid="daily-review-candidate-decision-summary">
-              <summary>候选决策摘要</summary>
+              <summary>候选处理记录</summary>
               <p data-testid="daily-review-candidate-decision-counts">
                 初始通过验证 {explainabilitySummary.providerValidated} 项 · 用户修复后纳入 {explainabilitySummary.userRepaired} 项 · 已编辑 {explainabilitySummary.edited} 项 · 已移除 {explainabilitySummary.removed} 项 · 保留但未选择 {explainabilitySummary.retainedUnselected} 项 · 当前已选择 {explainabilitySummary.selected} 项 · 已确认 {explainabilitySummary.confirmed} 项
               </p>
@@ -1641,7 +1641,7 @@ export default function DailyReviewAgentDialog({
         <footer className="daily-review__footer">
           <div className="daily-review__confirmation-copy">
             <strong>可创建 {selectedValidCount} 项</strong>
-            <span>只有点击“创建选中任务”后才会发起创建。</span>
+            <span>只有点击“添加所选任务”后，才会发起添加。</span>
           </div>
           <div className="daily-review__footer-actions">
             <button type="button" className="button button-secondary" disabled={generating || creating} onClick={closeDialog}>关闭</button>
@@ -1653,7 +1653,7 @@ export default function DailyReviewAgentDialog({
               disabled={generating || creating || contextLoading || !visibleContext || selectedValidCount === 0 || generationErrors.length > 0}
               onClick={createSelectedCandidates}
             >
-              {creating ? '创建中...' : '创建选中任务'}
+              {creating ? '正在添加…' : '添加所选任务'}
             </button>
           </div>
         </footer>

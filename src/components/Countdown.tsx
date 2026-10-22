@@ -29,7 +29,7 @@ function Countdown() {
 
   return (
     <div
-      aria-label="关键日期倒计时"
+      aria-label="重要日期倒计时"
       style={{
         display: 'inline-flex',
         alignItems: 'center',

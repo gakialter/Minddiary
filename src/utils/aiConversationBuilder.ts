@@ -1,7 +1,7 @@
 import type { AIContentPart, AIMessage } from '../types'
 import type { FirstSliceTextAttachment } from '../types/api'
 import { sanitizeUserInput, SYSTEM_PROMPT } from './promptTemplates'
-import { AI_ATTACHMENT_LIMITS, type AIComposerAttachment } from './aiAttachmentPolicy'
+import { AI_ATTACHMENT_LIMITS } from './aiAttachmentPolicy'
 import { AI_CONTEXT_LABELS, type AIContextKind } from './aiQuickPrompts'
 import type { AIContextSection } from './aiContextBuilder'
 import { validateAiRequestMessages } from './aiRequestPolicy'
@@ -16,7 +16,6 @@ export interface BuildAIConversationInput {
     userInput: string
     selectedContextKinds: AIContextKind[]
     contextSections: AIContextSection[]
-    attachments: AIComposerAttachment[]
     // Current explicit send only; never reconstructed from history.
     imageDataUrls?: string[]
     textAttachments?: FirstSliceTextAttachment[]
@@ -73,10 +72,9 @@ function buildAttachmentText(textAttachments: FirstSliceTextAttachment[]): strin
 function buildFinalUserText(
     userInput: string,
     sections: AIContextSection[],
-    attachments: AIComposerAttachment[],
     textAttachments: FirstSliceTextAttachment[],
 ): string {
-    if (sections.length === 0 && attachments.length === 0 && textAttachments.length === 0) {
+    if (sections.length === 0 && textAttachments.length === 0) {
         return sanitizeUserInput(userInput)
     }
     const request = userInput.trim() || '请分析我附加的内容。'
@@ -97,13 +95,11 @@ function toSafeHistoryMessage(message: ChatMessageForAI): AIMessage {
     }
 }
 
-function buildContentParts(text: string, attachments: AIComposerAttachment[], imageDataUrls: string[]): string | AIContentPart[] {
-    const images = [...attachments.filter(attachment => attachment.kind === 'image' && attachment.dataUrl)
-        .map(attachment => attachment.dataUrl!), ...imageDataUrls]
-    if (images.length === 0) return text
+function buildContentParts(text: string, imageDataUrls: string[]): string | AIContentPart[] {
+    if (imageDataUrls.length === 0) return text
     return [
         { type: 'text', text },
-        ...images.map(url => ({
+        ...imageDataUrls.map(url => ({
             type: 'image_url' as const,
             image_url: {
                 url,
@@ -114,24 +110,18 @@ function buildContentParts(text: string, attachments: AIComposerAttachment[], im
 }
 
 export function buildAIConversation(input: BuildAIConversationInput): BuildAIConversationResult {
-    const textAttachments: FirstSliceTextAttachment[] = [
-        ...input.attachments.filter(attachment => attachment.kind !== 'image').map(attachment => {
-            if (attachment.status !== 'ready' || attachment.truncated) throw new Error('附件尚未完整读取，请移除或重新添加。')
-            return { kind: attachment.kind as FirstSliceTextAttachment['kind'], name: attachment.name, text: attachment.extractedText || '' }
-        }),
-        ...(input.textAttachments ?? []),
-    ]
+    const textAttachments = input.textAttachments ?? []
     if (textAttachments.some(attachment => !attachment.text.trim())) throw new Error('附件未检测到可读取文字。')
     const textLength = textAttachments.reduce((sum, attachment) => sum + attachment.text.length, 0)
     if (textLength > AI_ATTACHMENT_LIMITS.maxExtractedTextChars) {
         throw new Error(`附件文本总量 ${textLength} 字超过 ${AI_ATTACHMENT_LIMITS.maxExtractedTextChars} 字，请移除部分文件。`)
     }
-    if (input.attachments.length + (input.textAttachments?.length ?? 0) + (input.imageDataUrls?.length ?? 0) > AI_ATTACHMENT_LIMITS.maxAttachments) {
+    if (textAttachments.length + (input.imageDataUrls?.length ?? 0) > AI_ATTACHMENT_LIMITS.maxAttachments) {
         throw new Error(`附件数量超过 ${AI_ATTACHMENT_LIMITS.maxAttachments} 个。`)
     }
     const contextLabels = input.selectedContextKinds.map(kind => AI_CONTEXT_LABELS[kind])
-    const attachmentSummary = [...input.attachments.map(attachment => attachment.name), ...(input.textAttachments ?? []).map(attachment => attachment.name)]
-    const finalUserText = buildFinalUserText(input.userInput, input.contextSections, input.attachments, textAttachments)
+    const attachmentSummary = textAttachments.map(attachment => attachment.name)
+    const finalUserText = buildFinalUserText(input.userInput, input.contextSections, textAttachments)
     const messages: AIMessage[] = [
         {
             role: 'system',
@@ -143,7 +133,7 @@ export function buildAIConversation(input: BuildAIConversationInput): BuildAICon
         ...input.history.slice(-6).map(toSafeHistoryMessage),
         {
             role: 'user',
-            content: buildContentParts(finalUserText, input.attachments, input.imageDataUrls ?? []),
+            content: buildContentParts(finalUserText, input.imageDataUrls ?? []),
         },
     ]
 

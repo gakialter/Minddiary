@@ -4,6 +4,7 @@ import { MOODS } from '../utils/helpers'
 import { logger } from '../utils/logger'
 import MoodIcon from './MoodIcon'
 import type { MoodId, DateMood } from '../types'
+import { parseLocalDate } from '../utils/countdown'
 
 interface CalendarProps {
   selectedDate: string
@@ -14,11 +15,12 @@ interface CalendarDateData {
   mood: MoodId | null
   pomodoro: { totalMinutes: number; sessionCount: number } | null
   hasDiary: boolean
+  diaryCount: number
 }
 
 function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
   const diary = useDiary()
-  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [currentMonth, setCurrentMonth] = useState(() => parseLocalDate(selectedDate) ?? new Date())
   const [entriesByDate, setEntriesByDate] = useState<Record<string, CalendarDateData>>({})
 
   const getFocusLevel = (totalMinutes: number): 0 | 1 | 2 | 3 => {
@@ -27,6 +29,11 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
     if (totalMinutes >= 30) return 1
     return 0
   }
+
+  useEffect(() => {
+    const selected = parseLocalDate(selectedDate)
+    if (selected) setCurrentMonth(new Date(selected.getFullYear(), selected.getMonth(), 1))
+  }, [selectedDate])
 
   useEffect(() => {
     let isCancelled = false
@@ -52,7 +59,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
         
         if (datesResult.status === 'fulfilled') {
           ;((datesResult.value || []) as DateMood[]).forEach(d => {
-            map[d.date] = { mood: d.mood, hasDiary: true, pomodoro: null }
+            map[d.date] = { mood: map[d.date]?.mood ?? d.mood, hasDiary: true, diaryCount: (map[d.date]?.diaryCount ?? 0) + 1, pomodoro: null }
           })
         } else {
           logger.error('Failed to load diary entries for calendar:', datesResult.reason)
@@ -61,7 +68,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
         if (pomodoroRangeResult.status === 'fulfilled') {
           ;(pomodoroRangeResult.value || []).forEach(p => {
             if (!map[p.date]) {
-              map[p.date] = { mood: null, hasDiary: false, pomodoro: null }
+              map[p.date] = { mood: null, hasDiary: false, diaryCount: 0, pomodoro: null }
             }
             map[p.date]!.pomodoro = { totalMinutes: p.total_minutes, sessionCount: p.session_count }
           })
@@ -80,7 +87,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
     return () => {
       isCancelled = true
     }
-  }, [currentMonth, diary.entries, diary.pomodoro])
+  }, [currentMonth, diary.entries, diary.pomodoro, diary.dataRefreshVersion])
 
 
 
@@ -130,6 +137,9 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
 
   return (
     <section className="workspace-page workspace-page--wide workspace-calendar" aria-labelledby="calendar-month-heading">
+      <p className="text-muted" data-testid="calendar-date-hint">
+        所选日期：{selectedDate}{selectedDate < todayStr ? '（历史日期）' : selectedDate > todayStr ? '（未来日期）' : '（今天）'}。点击日期可查看或写当天日记，今日安排始终显示今天。
+      </p>
       {/* Month navigation */}
       <header className="workspace-calendar__header">
         <div className="workspace-calendar__heading-group">
@@ -140,9 +150,9 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
              回到今天
            </button>
         </div>
-        <nav className="workspace-calendar__month-nav" aria-label="月份切换">
-           <button type="button" className="button button-secondary" onClick={prevMonth}>← 上个月</button>
-           <button type="button" className="button button-secondary" onClick={nextMonth}>下个月 →</button>
+        <nav className="workspace-calendar__month-nav" aria-label="切换月份">
+           <button type="button" className="button button-secondary" onClick={prevMonth}>上个月</button>
+           <button type="button" className="button button-secondary" onClick={nextMonth}>下个月</button>
         </nav>
       </header>
 
@@ -167,7 +177,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
             const hasDiary = !!data?.hasDiary
             const pomodoro = data?.pomodoro
             const focusLevel = pomodoro ? getFocusLevel(pomodoro.totalMinutes) : 0
-            const buttonTitle = date ? `${dateStr}${hasDiary ? '，已记录日记' : ''}${pomodoro ? `，专注 ${pomodoro.totalMinutes} 分钟` : ''}` : ''
+            const buttonTitle = date ? `${dateStr}${hasDiary ? `，${data.diaryCount} 篇日记` : ''}${pomodoro ? `，专注 ${pomodoro.totalMinutes} 分钟` : ''}` : ''
 
             return (
               <button
@@ -198,7 +208,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                         )}
                       </div>
                     )}
-                    {hasDiary && <span className="workspace-calendar__recorded">已记录</span>}
+                    {hasDiary && <span className="workspace-calendar__recorded">{data.diaryCount > 1 ? `${data.diaryCount} 篇日记` : '已写日记'}</span>}
                     {!hasDiary && focusLevel > 0 && (
                       <div className="workspace-calendar__focus-summary">
                          <span className="workspace-calendar__focus-badge" data-level={focusLevel}>
@@ -207,7 +217,7 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
                       </div>
                     )}
                     {!hasDiary && focusLevel === 0 && date.getDay() !== 0 && date.getDay() !== 6 && (
-                      <span className="workspace-calendar__add-hint">点击添加</span>
+                      <span className="workspace-calendar__add-hint">写日记</span>
                     )}
                   </>
                 )}
@@ -219,10 +229,10 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
 
       {/* Legend */}
       <aside className="workspace-calendar__legend" aria-label="日历图例">
-        <h3 className="workspace-calendar__legend-title">图例</h3>
+        <h3 className="workspace-calendar__legend-title">标记说明</h3>
         <div className="workspace-calendar__legend-item">
           <span aria-hidden="true"><MoodIcon mood="default" size={24} /></span>
-          <span>有日记</span>
+          <span>已写日记</span>
         </div>
         {MOODS.map(m => (
           <div key={m.id} className="workspace-calendar__legend-item">
@@ -232,15 +242,15 @@ function Calendar({ selectedDate, onSelectDate }: CalendarProps) {
         ))}
         <div className="workspace-calendar__legend-item workspace-calendar__legend-item--focus">
           <span className="workspace-calendar__focus-dot" data-level="1" aria-hidden="true" />
-          <span>专注 30m+</span>
+          <span>专注至少30分钟</span>
         </div>
         <div className="workspace-calendar__legend-item">
           <span className="workspace-calendar__focus-dot" data-level="2" aria-hidden="true" />
-          <span>专注 60m+</span>
+          <span>专注至少60分钟</span>
         </div>
         <div className="workspace-calendar__legend-item">
           <span className="workspace-calendar__focus-dot" data-level="3" aria-hidden="true" />
-          <span>专注 120m+</span>
+          <span>专注至少120分钟</span>
         </div>
       </aside>
     </section>

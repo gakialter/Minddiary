@@ -30,13 +30,13 @@ const variantLabels: Record<TagVariant, string> = {
   soft: '柔和',
   solid: '实色',
   outline: '描边',
-  ghost: '清淡',
+  ghost: '淡色',
 }
 
 const patternLabels: Record<TagPattern, string> = {
   none: '无纹理',
   dots: '点阵',
-  stripes: '细纹',
+  stripes: '条纹',
   grid: '网格',
   leaf: '叶影',
 }
@@ -172,7 +172,7 @@ function TagManager() {
   const renderStyleControls = (draft: TagDraft, onChange: (updates: Partial<TagDraft>) => void, prefix: string) => (
     <div className="workspace-tags__style-grid">
       <div className="workspace-field">
-        <label htmlFor={`${prefix}-icon`}>图标 / emoji</label>
+        <label htmlFor={`${prefix}-icon`}>图标或表情</label>
         <input
           id={`${prefix}-icon`}
           data-testid={`${prefix}-icon-input`}
@@ -185,7 +185,7 @@ function TagManager() {
         />
       </div>
       <div className="workspace-field">
-        <label htmlFor={`${prefix}-variant`}>展示样式</label>
+        <label htmlFor={`${prefix}-variant`}>标签样式</label>
         <select
           id={`${prefix}-variant`}
           data-testid={`${prefix}-variant-select`}
@@ -238,7 +238,7 @@ function TagManager() {
           <div className="workspace-section__heading">
             <div>
               <h2 id="tag-create-title">新建标签</h2>
-              <p className="workspace-help">用简短名称和克制的识别色整理日记主题。</p>
+              <p className="workspace-help">用简短名称和颜色整理日记。</p>
             </div>
           </div>
           <div className="workspace-tags__form">
@@ -249,13 +249,13 @@ function TagManager() {
                 data-testid="tag-name-input"
                 type="text"
                 className="input w-full"
-                placeholder="例如：政治、英语、错题..."
+                placeholder="例如：政治、英语、错题"
                 value={newTag.name}
                 onChange={(event) => setNewTag(current => ({ ...current, name: event.target.value }))}
                 onKeyDown={(event) => event.key === 'Enter' && handleCreateTag()}
               />
             </div>
-            {renderColorPicker(newTag.color, color => setNewTag(current => ({ ...current, color })), '专属识别色')}
+            {renderColorPicker(newTag.color, color => setNewTag(current => ({ ...current, color })), '标签颜色')}
             {renderStyleControls(newTag, updates => setNewTag(current => ({ ...current, ...updates })), 'tag')}
             <button
               type="button"
@@ -264,7 +264,7 @@ function TagManager() {
               onClick={handleCreateTag}
               disabled={loading || !newTag.name.trim()}
             >
-              + 创建标签
+              创建标签
             </button>
           </div>
         </section>
@@ -272,8 +272,8 @@ function TagManager() {
         <section className="workspace-section workspace-tags__collection" aria-labelledby="tag-collection-title">
           <div className="workspace-section__heading">
             <div>
-              <h2 id="tag-collection-title">现有标签 <span className="workspace-tags__count">{tags.length}</span></h2>
-              <p className="workspace-help">编辑识别方式不会改变标签的已有归属。</p>
+              <h2 id="tag-collection-title">已有标签 <span className="workspace-tags__count">{tags.length}</span></h2>
+              <p className="workspace-help">编辑标签不会改变已关联的日记。</p>
             </div>
           </div>
           {loading ? (
@@ -286,9 +286,9 @@ function TagManager() {
           ) : tags.length === 0 ? (
             <div className="workspace-empty workspace-tags__empty" role="status">
               <div className="workspace-empty__icon" aria-hidden="true"><Tags size={36} /></div>
-              <h3>还没有任何标签</h3>
+              <h3>还没有标签，添加一个给日记分类。</h3>
               <p>
-                使用标签为日记内容建立有意义的分类系统，让回顾和复盘更加高效。
+                用标签给日记分类，方便以后查找和回顾。
               </p>
             </div>
           ) : (
@@ -399,7 +399,7 @@ function TagManager() {
       </div>
 
       <p className="workspace-help workspace-tags__footer-note">
-        标签可用于分类日记内容；现在可以组合颜色、emoji / 简短符号、展示样式和预设纹理。
+        标签可组合颜色、表情或符号、样式和纹理。
       </p>
     </div>
   )

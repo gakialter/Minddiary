@@ -204,7 +204,7 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
 
   const handleDeleteEntry = async (event: React.MouseEvent<HTMLButtonElement>, entry: SearchResultEntry) => {
     event.stopPropagation()
-    if (!window.confirm('确认删除这篇日记吗？此操作不可恢复。')) return
+    if (!window.confirm('删除这篇日记？删除后无法恢复。')) return
 
     try {
       await deleteEntry(entry.id)
@@ -212,7 +212,7 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
       showToast('日记已删除', 'success')
     } catch (error) {
       logger.error('Failed to delete entry from search result:', error)
-      showToast('删除日记失败', 'error')
+      showToast('未能删除日记，请重试。', 'error')
     }
   }
 
@@ -221,14 +221,14 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
       <section className="workspace-section workspace-search__controls" aria-labelledby="search-controls-title">
         <div className="workspace-section__heading">
           <div>
-            <h2 id="search-controls-title">检索条件</h2>
-            <p className="workspace-help">通过关键词、心情、日期或标签找回过往记录。</p>
+            <h2 id="search-controls-title">搜索条件</h2>
+            <p className="workspace-help">按标题或内容、心情、日期或标签找日记。</p>
           </div>
         </div>
 
         <div className="workspace-search__query-row">
           <div className="workspace-field workspace-search__query">
-            <label htmlFor="diary-search-query">关键词</label>
+            <label htmlFor="diary-search-query">搜索内容</label>
             <input
               id="diary-search-query"
               type="text"
@@ -240,10 +240,10 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
             />
           </div>
           <button type="button" className="button button-primary" onClick={handleSearch} disabled={loading}>
-            {loading ? '搜索中...' : '搜索'}
+            {loading ? '正在查找…' : '搜索'}
           </button>
           <button type="button" className="button button-secondary" onClick={clearFilters}>
-            清空
+            清空搜索条件
           </button>
         </div>
 
@@ -310,13 +310,13 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
         <div className="workspace-section__heading workspace-search__results-heading">
           <h2 id="search-results-title">搜索结果 <span className="workspace-search__result-count">{results.length}</span></h2>
           {results.length > 0 && (
-            <p className="workspace-help">选择日记标题可跳转到对应日期。</p>
+            <p className="workspace-help">点击标题，打开这篇日记。</p>
           )}
         </div>
 
         {loading ? (
           <div className="workspace-status workspace-search__loading" role="status" aria-live="polite">
-            <span className="sr-only">正在加载搜索结果</span>
+            <span className="sr-only">正在查找日记…</span>
             <SkeletonText lines={10} gap={32} />
           </div>
         ) : results.length === 0 ? (
@@ -325,17 +325,17 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
               {query || Object.values(filters).some(f => f) ? <Search size={36} /> : <FileText size={36} />}
             </div>
             <h3>
-              {query || Object.values(filters).some(f => f) ? '没有找到匹配的日记' : '开始搜索你的记忆'}
+              {query || Object.values(filters).some(f => f) ? '没找到日记，换个词或减少筛选。' : '输入关键词，或按心情、日期、标签筛选日记。'}
             </h3>
             {query || Object.values(filters).some(f => f) ? (
-              <p>尝试减少筛选条件，或者使用不同关键词。</p>
+              <p>换个词，或减少筛选条件。</p>
             ) : (
               <p>
-                支持通过包含的单词、特定的心情、日期范围或者是设定的标签来精确查找过往日记。
+                可按标题、内容、心情、日期或标签查找日记。
               </p>
             )}
             <p className="workspace-search__shortcut-hint">
-              快捷键提示：随时按下 <kbd>Cmd/Ctrl + K</kbd> 也可以发起搜索导航
+              按 <kbd>Ctrl/⌘ K</kbd> 打开快捷菜单。
             </p>
           </div>
         ) : (
@@ -358,7 +358,7 @@ function SearchPanel({ onSelectEntry, session, onSessionChange }: SearchPanelPro
                     }}
                     aria-label={`打开日记 ${entry.title || formatShortDate(entry.date)}`}
                   >
-                    {entry.title || '无标题'}
+                    {entry.title || '未写标题'}
                   </button>
                   <div className="workspace-search__result-actions">
                     <time className="workspace-search__date" dateTime={entry.date}>{formatShortDate(entry.date)}</time>

@@ -1,4 +1,4 @@
-import { Annotation, EditorSelection, EditorState, StateField, Transaction, type TransactionSpec } from '@codemirror/state'
+import { Annotation, EditorSelection, EditorState, StateEffect, StateField, Transaction, type TransactionSpec } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from '@codemirror/view'
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { isolateHistory } from '@codemirror/commands'
@@ -188,6 +188,51 @@ export function inlineResolver(state: EditorState) {
 // Only balanced local rewrites, FORMAT and scoped structure actions use this checkpoint.
 // Native history reads the selection at the START of the selection-only tx.
 const logicalInlineEdit = Annotation.define<boolean>()
+const selectionFormatted = Annotation.define<boolean>()
+export const clearFormatContinuation = StateEffect.define<null>()
+
+// This is a one-input intent, never a second source of formatting truth.
+export const formatContinuationField = StateField.define<EditorSelection | null>({
+  create: () => null,
+  update: (intent, tr) => {
+    if (tr.effects.some(effect => effect.is(clearFormatContinuation))) return null
+    if (tr.annotation(selectionFormatted) && tr.docChanged && !tr.newSelection.main.empty
+      && tr.newSelection.ranges.length === 1) return tr.newSelection
+    if (tr.docChanged || tr.isUserEvent('undo') || tr.isUserEvent('redo')
+      || !tr.newSelection.eq(tr.startState.selection)) return null
+    return intent
+  },
+})
+
+export function finishFormattedSelection(state: EditorState): TransactionSpec | null {
+  const intent = state.field(formatContinuationField, false)
+  if (!intent || !intent.eq(state.selection) || state.selection.main.empty) return null
+  const resolver = inlineResolver(state)
+  // Start at the logical end, then cross closing delimiters only. A neighbouring
+  // opening delimiter at the same visual boundary belongs to the next text.
+  let end = resolver.visibleToSource(resolver.sourceToVisible(state.selection.main.to), -1)
+  for (;;) {
+    const closing = resolver.ranges.find(r => r.contentTo === end && r.contentFrom < r.contentTo)
+    if (!closing) break
+    end = closing.to
+  }
+  return { changes: { from: end, insert: ' ' }, selection: { anchor: end + 1 },
+    userEvent: 'input.selection-continuation', scrollIntoView: true,
+    annotations: [logicalInlineEdit.of(true), isolateHistory.of('full')],
+    effects: clearFormatContinuation.of(null) }
+}
+
+const continuationInput = EditorState.transactionFilter.of(tr => {
+  if (!tr.docChanged || tr.annotation(Transaction.userEvent) !== 'input.type'
+    || tr.annotation(Transaction.addToHistory) === false || tr.annotation(logicalInlineEdit)) return tr
+  const selection = tr.startState.selection.main
+  const edits: Array<{ from: number; to: number; text: string }> = []
+  tr.changes.iterChanges((from, to, _a, _b, inserted) => edits.push({ from, to, text: inserted.toString() }))
+  const edit = edits[0]
+  if (edits.length !== 1 || edit?.text !== ' ' || edit.from !== selection.from || edit.to !== selection.to) return tr
+  const finish = finishFormattedSelection(tr.startState)
+  return finish ? { ...finish, filter: false } : tr
+})
 export function inlineEditTransactions(tr: Transaction): readonly Transaction[] {
   if (!tr.docChanged || !tr.annotation(logicalInlineEdit)
     || tr.annotation(Transaction.addToHistory) === false || tr.isUserEvent('input.type.compose')
@@ -328,7 +373,24 @@ function moveInlineCaret(view: EditorView, forward: boolean, extend: boolean) {
   return true
 }
 
-export const inlineInteraction = [inlineEditing, tokenField, keymap.of([
+export const inlineInteraction = [formatContinuationField, inlineEditing, continuationInput, tokenField,
+  EditorView.domEventObservers({
+    compositionstart: (_event, view) => view.dispatch({ effects: clearFormatContinuation.of(null) }),
+    mousedown: (_event, view) => view.dispatch({ effects: clearFormatContinuation.of(null) }),
+    keydown: (event, view) => {
+      if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+        || event.isComposing || view.compositionStarted) {
+        if (view.state.field(formatContinuationField)) view.dispatch({ effects: clearFormatContinuation.of(null) })
+      }
+    },
+  }), keymap.of([
+  { key: 'Space', run: view => {
+    if (view.compositionStarted) return false
+    const transaction = finishFormattedSelection(view.state)
+    if (!transaction) return false
+    view.dispatch(transaction)
+    return true
+  } },
   { key: 'ArrowLeft', run: view => moveInlineCaret(view, false, false) },
   { key: 'ArrowRight', run: view => moveInlineCaret(view, true, false) },
   { key: 'Shift-ArrowLeft', run: view => moveInlineCaret(view, false, true) },
@@ -351,31 +413,42 @@ export function activeFormats(state: EditorState) {
 const wrapperOrder: Record<DiaryFormat, number> = { bold: 0, underline: 1, highlight: 1, color: 2 }
 const isPlainFragment = (text: string) => !/[\n\r`*_\\[\]<>]|\+\+|==|\{\/?color/.test(text)
 
+function hasUnknownInlineMarkers(state: EditorState, from: number) {
+  const line = state.doc.lineAt(from), ranges = state.field(rangeField)
+  for (const match of line.text.matchAll(/\*\*|\+\+|==|\{\/?color(?::[^}\n]*)?\}?/g)) {
+    const pos = line.from + match.index
+    if (!ranges.some(r => (pos >= r.from && pos + match[0].length <= r.contentFrom)
+      || (pos >= r.contentTo && pos + match[0].length <= r.to))) return true
+  }
+  return false
+}
+
 export function formatTransaction(state: EditorState, format: DiaryFormat, color?: MarkdownColorKey | null): TransactionSpec | null {
   if (color && !COLOR_WHITELIST.has(color)) return null
+  if (state.selection.ranges.length !== 1) return null
   const { from, to, anchor, head, empty } = state.selection.main
   const ranges = state.field(rangeField)
+  const resolver = inlineResolver(state)
+  const selectsBody = (r: DialectRange) => !empty
+    && resolver.sourceToVisible(from) === resolver.sourceToVisible(r.contentFrom)
+    && resolver.sourceToVisible(to) === resolver.sourceToVisible(r.contentTo)
   const contains = (r: DialectRange) => (from >= r.contentFrom && to <= r.contentTo)
     || (!empty && from === r.from && to === r.to)
   const intersects = (r: DialectRange) => empty ? from > r.from && from < r.to : from < r.to && to > r.from
   const containers = ranges.filter(contains).sort((a, b) => a.from - b.from || b.to - a.to)
   const enclosing = [...containers].reverse().find(r => r.format === format)
-  const annotations = [Transaction.userEvent.of('input.format'), isolateHistory.of('full'), logicalInlineEdit.of(true)]
+  const annotations = [Transaction.userEvent.of('input.format'), isolateHistory.of('full'), logicalInlineEdit.of(true),
+    selectionFormatted.of(!empty)]
 
   // Unknown/incomplete wrappers around a selection must not be treated as plain
   // text (e.g. ++**text**++ has no recognized underline range in the reader).
-  const line = state.doc.lineAt(from)
-  for (const match of line.text.matchAll(/\*\*|\+\+|==|\{\/?color(?::[^}\n]*)?\}?/g)) {
-    const pos = line.from + match.index
-    if (!ranges.some(r => (pos >= r.from && pos + match[0].length <= r.contentFrom)
-      || (pos >= r.contentTo && pos + match[0].length <= r.to))) return null
-  }
+  if (hasUnknownInlineMarkers(state, from)) return null
 
   if (enclosing) {
     const r = enclosing
     const prefix = format === 'color' && color && color !== r.color ? `{color:${color}}` : ''
     const suffix = prefix ? '{/color}' : ''
-    const full = empty || (from === r.contentFrom && to === r.contentTo) || (from === r.from && to === r.to)
+    const full = empty || selectsBody(r)
     if (!full) {
       // Splitting nested/structural content is deliberately unsupported. Never
       // silently widen a non-empty sub-selection to its enclosing wrapper.
@@ -415,7 +488,7 @@ export function formatTransaction(state: EditorState, format: DiaryFormat, color
     if (wrapperOrder[r.format] > wrapperOrder[format]) {
       // Promote only a complete selected format. A sub-selection would require
       // nested splitting, so refuse it rather than changing its neighbours.
-      if (empty || !((from === r.contentFrom && to === r.contentTo) || (from === r.from && to === r.to))) return null
+      if (!selectsBody(r)) return null
       start = Math.min(start, r.from)
       end = Math.max(end, r.to)
     } else if (from === r.from && to === r.to) {
@@ -442,6 +515,37 @@ export function formatTransaction(state: EditorState, format: DiaryFormat, color
   const changes = state.changes([{ from: start, insert: prefix }, { from: end, insert: suffix }])
   const map = (pos: number) => changes.mapPos(Math.max(start, Math.min(pos, end)), pos >= end ? -1 : 1)
   return { changes, selection: { anchor: map(anchor), head: map(head) }, annotations, scrollIntoView: true }
+}
+
+/** Clear a coherent supported selection by composing existing guarded toggles.
+ * A failure in any step discards the whole operation, including partial changes.
+ */
+export function clearFormatTransaction(state: EditorState): TransactionSpec | null {
+  if (state.selection.main.empty || state.selection.ranges.length !== 1) return null
+  if (hasUnknownInlineMarkers(state, state.selection.main.from)) return null
+  const resolver = inlineResolver(state)
+  const from = resolver.sourceToVisible(state.selection.main.from)
+  const to = resolver.sourceToVisible(state.selection.main.to)
+  // Existing toggles can clear uniform containers, not heterogeneous nested
+  // fragments. Reject the entire clear rather than leaving a partial result.
+  if (resolver.ranges.some(r => {
+    const start = resolver.sourceToVisible(r.contentFrom), end = resolver.sourceToVisible(r.contentTo)
+    return from < end && to > start && (from < start || to > end)
+  })) return null
+  let current = state
+  let changes = state.changes([])
+  for (const kind of ['bold', 'underline', 'highlight', 'color'] as const) {
+    if (!activeFormats(current)[kind]) continue
+    const spec = formatTransaction(current, kind, kind === 'color' ? null : undefined)
+    if (!spec) return null
+    const tr = current.update({ ...spec, filter: false })
+    changes = changes.compose(tr.changes)
+    current = tr.state
+  }
+  if (changes.empty) return { effects: clearFormatContinuation.of(null) }
+  return { changes, selection: current.selection, scrollIntoView: true,
+    annotations: [Transaction.userEvent.of('input.format.clear'), isolateHistory.of('full'),
+      logicalInlineEdit.of(true), selectionFormatted.of(true)] }
 }
 
 function previewDecorations(state: EditorState): DecorationSet {

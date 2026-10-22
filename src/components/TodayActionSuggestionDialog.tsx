@@ -106,8 +106,8 @@ const CANDIDATE_FIELD_LABELS: Readonly<Record<PlanningCandidateChangedField, str
   title: '标题',
   description: '理由',
   type: '类型',
-  estimateMinutes: '预计分钟',
-  priority: '优先级',
+  estimateMinutes: '预计用时（分钟）',
+  priority: '优先顺序',
   subjectId: '科目',
   relatedMistakeId: '到期错题',
   relatedEntryId: '今日日记',
@@ -1534,16 +1534,16 @@ export default function TodayActionSuggestionDialog({
         <div className="flex items-start justify-between gap-sm" style={{ padding: 'var(--space-lg)', borderBottom: '1px solid var(--border)' }}>
           <div>
             <h3 id="today-action-suggestion-title" style={{ margin: 0, color: 'var(--text-primary)' }}>
-              AI 规划今日行动
+              今日建议
             </h3>
             <p className="text-sm" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
-              AI 只生成候选建议；本地校验后，由你确认才会创建任务。
+              建议经本地检查后由你确认添加。
             </p>
           </div>
           <button
             ref={closeButtonRef}
             type="button"
-            aria-label="关闭 AI 今日行动建议"
+            aria-label="关闭建议"
             className="button button-secondary"
             disabled={generating || (creating && creationDispatchStarted)}
             onClick={closeDialog}
@@ -1559,7 +1559,7 @@ export default function TodayActionSuggestionDialog({
         >
           <div className="flex flex-wrap items-center gap-sm">
             <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              今日可用时间
+              可用时间
               <input
                 data-testid="ai-plan-available-minutes"
                 className="input"
@@ -1577,10 +1577,10 @@ export default function TodayActionSuggestionDialog({
               分钟
             </label>
             <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              规划策略
+              安排方式
               <select
                 data-testid="today-action-strategy-selector"
-                aria-label="规划策略"
+                aria-label="安排方式"
                 className="input"
                 value={selectedStrategy}
                 disabled={creating}
@@ -1603,7 +1603,7 @@ export default function TodayActionSuggestionDialog({
             >
               {generating || feedbackLoading
                 ? <><Loader2 size={14} className="animate-spin" /> {feedbackLoading ? '准备中...' : '生成中...'}</>
-                : <><Sparkles size={14} /> {planningSession ? '重新生成一组建议' : '生成建议'}</>}
+                : <><Sparkles size={14} /> {planningSession ? '重新生成' : '生成建议'}</>}
             </button>
           </div>
           {hasReplaceableGenerationState && (
@@ -1612,7 +1612,7 @@ export default function TodayActionSuggestionDialog({
               data-testid="today-action-regeneration-warning"
               style={{ color: 'var(--text-muted)' }}
             >
-              重新生成会开始一次新的规划，当前尚未确认的候选和修改将被替换；已创建的任务不受影响。
+              会替换未确认建议和修改；已添加任务不变。
             </p>
           )}
 
@@ -1644,7 +1644,7 @@ export default function TodayActionSuggestionDialog({
           {showFeedbackPreview && (
             <section
               data-testid="today-action-feedback-preview"
-              aria-label="历史参考信息预览"
+              aria-label="过往记录"
               className="mt-3 p-3 rounded"
               style={{
                 backgroundColor: 'var(--bg-secondary)',
@@ -1653,7 +1653,7 @@ export default function TodayActionSuggestionDialog({
             >
               <div className="flex items-center justify-between">
                 <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 14 }}>
-                  历史参考信息（可选）
+                  过往记录
                 </h4>
                 <button
                   type="button"
@@ -1667,7 +1667,7 @@ export default function TodayActionSuggestionDialog({
                 </button>
               </div>
               <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                以下是此前确认并执行的规划记录。只有你确认后，它们才会作为本次候选生成的参考数据。完成、跳过或专注记录不代表建议好坏，也不表示 AI 导致了这些结果。
+                以下是此前确认并执行的规划记录。只有你确认后，它们才会作为本次候选生成的参考数据。完成、跳过或专注记录不代表建议好坏，也不能证明结果由 AI 导致。
               </p>
 
               {feedbackWarning && (
@@ -1761,7 +1761,7 @@ export default function TodayActionSuggestionDialog({
                   disabled={feedbackLoading}
                   onClick={() => { void startActualGeneration(null) }}
                 >
-                  不使用历史反馈生成
+                  不使用过往记录生成建议
                 </button>
                 <button
                   type="button"
@@ -1770,16 +1770,16 @@ export default function TodayActionSuggestionDialog({
                   disabled={feedbackLoading || selectedFeedbackKeys.size === 0}
                   onClick={() => { void confirmFeedbackGeneration() }}
                 >
-                  {feedbackLoading ? <><Loader2 size={14} className="animate-spin" /> 处理中...</> : '使用选中历史反馈生成'}
+                  {feedbackLoading ? <><Loader2 size={14} className="animate-spin" /> 正在处理…</> : '使用所选记录生成建议'}
                 </button>
               </div>
             </section>
           )}
 
-          <section className="mt-4" aria-label="当前本地规划预览" data-testid="planning-context-preview">
+          <section className="mt-4" aria-label="当前参考" data-testid="planning-context-preview">
             <div className="flex flex-wrap items-center justify-between gap-sm">
               <div>
-                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>当前本地预览（仅本地读取）</h4>
+                <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>当前本地预览</h4>
                 <p className="text-xs" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
                   查看不会请求 AI，也不会创建或修改任务。
                 </p>
@@ -1791,7 +1791,7 @@ export default function TodayActionSuggestionDialog({
                 disabled={contextLoading || generating || creating}
                 onClick={() => { void refreshPlanningContext() }}
               >
-                {contextLoading ? '加载中...' : '刷新规划依据'}
+                {contextLoading ? '正在读取…' : '刷新当前本地预览'}
               </button>
             </div>
 
@@ -1836,11 +1836,11 @@ export default function TodayActionSuggestionDialog({
           </p>
           <details className="mt-3" data-testid="today-action-request-explainability">
             <summary className="text-sm" style={{ color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
-              详细信息：本次请求依据
+              本次依据
             </summary>
             <p className="text-xs" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
               {planningSession
-                ? '本代请求快照在生成时固定；刷新只会更新上方当前本地预览。'
+                ? '本次依据已固定；刷新只更新上方预览。'
                 : '尚未生成；当前只有本地预览，还没有固定的请求依据。'}
             </p>
             {planningSession && planningSession.contextDecisions.length === 0 && (
@@ -1921,7 +1921,7 @@ export default function TodayActionSuggestionDialog({
                   disabled={creating || generating}
                   onClick={acceptRefreshedChapterContext}
                 >
-                  我已查看更新，仍接受原建议
+                  仍采用
                 </button>
               )}
             </section>
@@ -1930,10 +1930,10 @@ export default function TodayActionSuggestionDialog({
           {planningSession && (
             <details className="mt-3" data-testid="today-action-candidate-explainability">
               <summary className="text-sm" style={{ color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>
-                详细信息：建议的校验与选择
+                建议处理
               </summary>
               <p className="text-xs" data-testid="today-action-candidate-counts" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
-                初始通过验证 {explainabilitySummary.providerValidated} · 用户修复后纳入 {explainabilitySummary.userRepaired} · 已净编辑 {explainabilitySummary.edited} · 已移除 {explainabilitySummary.removed} · 保留但未选择 {explainabilitySummary.retainedUnselected} · 当前选择 {explainabilitySummary.selected} · 已确认 {explainabilitySummary.confirmed}
+                初次通过 {explainabilitySummary.providerValidated} · 修复后纳入 {explainabilitySummary.userRepaired} · 已修改 {explainabilitySummary.edited} · 已移除 {explainabilitySummary.removed} · 尚未选择 {explainabilitySummary.retainedUnselected} · 当前选择 {explainabilitySummary.selected} · 已确认 {explainabilitySummary.confirmed}
               </p>
               {explainabilityCandidates.length === 0 ? (
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>本代没有通过本地解析与验证的候选。</p>
@@ -1955,8 +1955,8 @@ export default function TodayActionSuggestionDialog({
                           : candidate.selected
                             ? '已选择'
                             : candidate.decision === 'retained_unselected'
-                              ? '保留但未选择'
-                              : '首次纳入'}
+                              ? '尚未选择'
+                              : '首次加入'}
                       {candidate.changedFields.length > 0 && (
                         <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                           {candidate.changedFields.map(field => (
@@ -2175,7 +2175,7 @@ export default function TodayActionSuggestionDialog({
                       />
                       <input
                         className="input"
-                        aria-label="建议标题"
+                        aria-label="任务名称"
                         value={suggestion.title}
                         disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { title: event.target.value }, 'edit')}
@@ -2184,7 +2184,7 @@ export default function TodayActionSuggestionDialog({
                       />
                       <select
                         className="input"
-                        aria-label="建议类型"
+                        aria-label="任务类型"
                         value={suggestion.type}
                         disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { type: event.target.value as StudyTaskType }, 'edit', true)}
@@ -2195,7 +2195,7 @@ export default function TodayActionSuggestionDialog({
                       </select>
                       <input
                         className="input"
-                        aria-label="预计分钟"
+                        aria-label="预计用时（分钟）"
                         type="number"
                         min={5}
                         max={180}
@@ -2206,7 +2206,7 @@ export default function TodayActionSuggestionDialog({
                       />
                       <select
                         className="input"
-                        aria-label="建议科目"
+                        aria-label="科目"
                         value={suggestion.subject_id ?? ''}
                         disabled={isLocked}
                         onChange={event => updateSuggestion(suggestion.clientId, { subject_id: event.target.value ? Number(event.target.value) : null }, 'edit', true)}
@@ -2220,7 +2220,7 @@ export default function TodayActionSuggestionDialog({
                       </select>
                       <button
                         type="button"
-                        aria-label="删除建议"
+                        aria-label="移除建议"
                         className="button button-secondary"
                         disabled={isLocked}
                         onClick={() => removeSuggestion(suggestion.clientId)}
@@ -2234,7 +2234,7 @@ export default function TodayActionSuggestionDialog({
                         关联到期错题
                         <select
                           className="input"
-                          aria-label="关联到期错题"
+                          aria-label="关联错题"
                           value={suggestion.related_mistake_id ?? ''}
                           disabled={isLocked}
                           onChange={event => {
@@ -2250,9 +2250,9 @@ export default function TodayActionSuggestionDialog({
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
                           {!isKnownMistake && <option value={suggestion.related_mistake_id ?? ''} disabled>请选择有效错题</option>}
-                          <option value="">{suggestion.type === 'review' ? '选择到期错题' : '不关联错题'}</option>
+                          <option value="">{suggestion.type === 'review' ? '选择错题' : '不关联'}</option>
                           {suggestion.type === 'review' && planningContext?.dueMistakes.map(mistake => (
-                            <option key={mistake.id} value={mistake.id}>#{mistake.id} {mistake.question || '（无题目）'}</option>
+                            <option key={mistake.id} value={mistake.id}>#{mistake.id} {mistake.question || '未写题目'}</option>
                           ))}
                           {suggestion.type !== 'review' && matchingMistake && (
                             <option value={matchingMistake.id} disabled>#{matchingMistake.id} 已关联，请移除</option>
@@ -2263,7 +2263,7 @@ export default function TodayActionSuggestionDialog({
                         关联今日日记
                         <select
                           className="input"
-                          aria-label="关联今日日记"
+                          aria-label="关联日记"
                           value={suggestion.related_entry_id ?? ''}
                           disabled={isLocked}
                           onChange={event => updateSuggestion(suggestion.clientId, {
@@ -2272,7 +2272,7 @@ export default function TodayActionSuggestionDialog({
                           style={{ marginLeft: 6, minHeight: 32 }}
                         >
                           {!isKnownEntry && <option value={suggestion.related_entry_id ?? ''} disabled>请选择有效日记</option>}
-                          <option value="">{planningContext?.todayEntry ? '不关联日记' : '今天没有可关联日记'}</option>
+                          <option value="">{planningContext?.todayEntry ? '不关联' : '今天没有可关联日记'}</option>
                           {planningContext?.todayEntry && (
                             <option value={planningContext.todayEntry.id}>{planningContext.todayEntry.title || planningContext.todayEntry.date}</option>
                           )}
@@ -2282,7 +2282,7 @@ export default function TodayActionSuggestionDialog({
                         AI 建议优先级（不写入任务）
                         <select
                           className="input"
-                          aria-label="建议优先级"
+                          aria-label="优先顺序"
                           value={suggestion.priority}
                           disabled={isLocked}
                           onChange={event => updateSuggestion(suggestion.clientId, { priority: event.target.value as TodayActionPriority }, 'edit', true)}
@@ -2337,7 +2337,7 @@ export default function TodayActionSuggestionDialog({
               disabled={generating || creating || feedbackLoading || recoveringPendingOperation || hasUnresolvedTodayActionOperation || contextLoading || !visiblePlanningContext || requiresRegenerationAfterDefinitiveFailure || selectedValidCount === 0 || hasFatalParseErrors}
               onClick={createSelectedSuggestions}
             >
-              {creating ? '创建中...' : '创建选中任务'}
+              {creating ? '正在添加…' : '添加所选任务'}
             </button>
           </div>
         </div>

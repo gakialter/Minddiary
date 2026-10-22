@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import {
     appendQuickPromptDraft,
     mergeContextKinds,
@@ -14,39 +14,71 @@ import {
     createReadingAIComposerAttachment,
     readAIComposerFile,
 } from '../utils/aiAttachmentReader'
+import { useAIComposerSession } from '../contexts/AIComposerSessionContext'
 
-export function useAIComposer() {
-    const [input, setInput] = useState('')
+// Text and unsent attachments may belong to the app session. Context and request
+// authorization remain owned by the mounted composer/panel.
+export interface AITextDraft { text: string; revision: number }
+export interface AITextDraftBinding {
+    draft: AITextDraft
+    setDraft: Dispatch<SetStateAction<AITextDraft>>
+}
+
+export function useAIComposer(draftBinding?: AITextDraftBinding) {
+    const session = useAIComposerSession()
+    const [localDraft, setLocalDraft] = useState<AITextDraft>({ text: '', revision: 0 })
+    const draft = draftBinding?.draft ?? localDraft
+    const setDraft = draftBinding?.setDraft ?? setLocalDraft
+    const input = draft.text
+    const setInput = useCallback((value: SetStateAction<string>) => {
+        setDraft(current => ({
+            text: typeof value === 'function' ? value(current.text) : value,
+            revision: current.revision + 1,
+        }))
+    }, [setDraft])
     const [contextKinds, setContextKinds] = useState<AIContextKind[]>([])
-    const [attachments, setAttachments] = useState<AIComposerAttachment[]>([])
+    const [localAttachments, setAttachments] = useState<AIComposerAttachment[]>([])
+    const attachments = session?.attachments ?? localAttachments
     const [error, setError] = useState<string | null>(null)
-    const attachmentsRef = useRef<AIComposerAttachment[]>([])
+    const localAttachmentsRef = useRef<AIComposerAttachment[]>([])
+    const attachmentsRef = session?.attachmentsRef ?? localAttachmentsRef
+    const disposedRef = useRef(false)
 
     useEffect(() => {
-        attachmentsRef.current = attachments
-    }, [attachments])
+        if (!session) attachmentsRef.current = attachments
+    }, [attachments, session, attachmentsRef])
 
     const commitAttachments = useCallback((next: AIComposerAttachment[]) => {
         attachmentsRef.current = next
-        setAttachments(next)
-    }, [])
+        if (session) session.commitAttachments(next)
+        else setAttachments(next)
+    }, [session, attachmentsRef])
 
-    useEffect(() => () => {
-        attachmentsRef.current.forEach(revokeAttachmentPreview)
+    useEffect(() => {
+        disposedRef.current = false
+        return () => {
+            disposedRef.current = true
+            if (!session) {
+                attachmentsRef.current.forEach(revokeAttachmentPreview)
+                attachmentsRef.current = []
+            }
+        }
     }, [])
 
     const applyQuickPrompt = useCallback((template: AIQuickPromptTemplate) => {
         setInput(current => appendQuickPromptDraft(current, template.draft))
         setContextKinds(current => mergeContextKinds(current, template.contextKinds))
         setError(null)
-    }, [])
+    }, [setInput])
 
     const removeContextKind = useCallback((kind: AIContextKind) => {
         setContextKinds(current => current.filter(item => item !== kind))
     }, [])
 
     const addFiles = useCallback(async (files: File[]) => {
+        if (session) { await session.addFiles(files); return }
         for (const file of files) {
+            if (disposedRef.current) return
             const pending = createReadingAIComposerAttachment(file)
             const existingBeforeFile = attachmentsRef.current
             commitAttachments([...existingBeforeFile, pending])
@@ -54,7 +86,7 @@ export function useAIComposer() {
             const result = await readAIComposerFile(file, existingBeforeFile, pending.id)
             const currentAttachments = attachmentsRef.current
             const stillExists = currentAttachments.some(attachment => attachment.id === pending.id)
-            if (!stillExists) {
+            if (disposedRef.current || !stillExists) {
                 revokeAttachmentPreview(result)
                 continue
             }
@@ -66,7 +98,7 @@ export function useAIComposer() {
             // Reader errors belong to the attachment; derive them from the current list.
             // Removing one file must not leave a stale composer-wide error behind.
         }
-    }, [commitAttachments])
+    }, [commitAttachments, session])
 
     const removeAttachment = useCallback((id: string) => {
         const currentAttachments = attachmentsRef.current
@@ -80,21 +112,25 @@ export function useAIComposer() {
     ), [])
 
     const clearComposer = useCallback(() => {
-        attachmentsRef.current.forEach(revokeAttachmentPreview)
+        if (session) session.clearAttachments()
+        else {
+            attachmentsRef.current.forEach(revokeAttachmentPreview)
+            commitAttachments([])
+        }
         setInput('')
         setContextKinds([])
-        commitAttachments([])
         setError(null)
-    }, [commitAttachments])
+    }, [commitAttachments, setInput, session, attachmentsRef])
 
     // A response may arrive after the user has started another draft.
-    const clearSentDraft = useCallback((sentInput: string, attachmentIds: string[]) => {
+    const clearSentDraft = useCallback((sentInput: string, attachmentIds: string[], sentRevision?: number) => {
         const sentIds = new Set(attachmentIds)
         attachmentsRef.current.filter(item => sentIds.has(item.id)).forEach(revokeAttachmentPreview)
         commitAttachments(attachmentsRef.current.filter(item => !sentIds.has(item.id)))
-        setInput(current => current === sentInput ? '' : current)
+        setDraft(current => current.text === sentInput && (sentRevision === undefined || current.revision === sentRevision)
+            ? { text: '', revision: current.revision + 1 } : current)
         setError(null)
-    }, [commitAttachments])
+    }, [commitAttachments, setDraft])
 
     const validationError = useMemo(() => getReadyAttachmentError(attachments), [attachments])
     const hasReadyAttachment = attachments.some(attachment => attachment.status === 'ready')
@@ -102,6 +138,7 @@ export function useAIComposer() {
 
     return {
         input,
+        inputRevision: draft.revision,
         setInput,
         contextKinds,
         setContextKinds,

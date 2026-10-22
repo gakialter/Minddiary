@@ -60,7 +60,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
     const isBreakReview = variant === 'break'
     const testPrefix = isBreakReview ? 'break-review' : 'mistake-review'
     const title = isBreakReview ? '休息时间 · 顺手刷一题！' : '错题复习'
-    const loadingText = isBreakReview ? '正在从错题本抓题...' : '正在抽取今日待复习错题...'
+    const loadingText = isBreakReview ? '正在从错题本抓题...' : '正在挑选今日待复习错题…'
     const emptyTitle = isBreakReview ? '今日无欠债！' : '当前没有待复习错题'
     const emptyText = isBreakReview
         ? '今天该复习的都搞定了，继续加油！'
@@ -367,13 +367,13 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
                                                 disabled={settlementRetrying}
                                                 onClick={() => retryTaskSettlement()}
                                             >
-                                                {settlementRetrying ? '重试中...' : '重试任务结算'}
+                                                {settlementRetrying ? '正在重试…' : '重试任务结算'}
                                             </button>
                                         </div>
                                     )}
                                     <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'center' }}>
                                         <button type="button" className="button button-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={loadRandomMistake}>
-                                            <RotateCcw size={14} /> 再来一题
+                                            <RotateCcw size={14} /> 再做一题
                                         </button>
                                         <button type="button" className="button button-primary" onClick={onClose}>
                                             {closeDoneText}
@@ -387,7 +387,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
 
                 {!loading && !noMistakes && (
                     <div style={{ padding: 'var(--space-sm) var(--space-lg)', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-                        <span className="text-xs text-muted">错题会根据你的作答质量，由 SM-2 算法安排下次复习时间</span>
+                        <span className="text-xs text-muted">复习安排会根据你的作答调整</span>
                     </div>
                 )}
                 <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />

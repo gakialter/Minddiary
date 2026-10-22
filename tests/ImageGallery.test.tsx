@@ -64,7 +64,7 @@ describe('ImageGallery diary attachments', () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"]')
     expect(input).not.toBeNull()
     const clickSpy = vi.spyOn(input!, 'click')
-    const uploadTarget = await screen.findByRole('button', { name: /点击或拖拽上传图片/ })
+    const uploadTarget = await screen.findByRole('button', { name: /点击选择，或把图片拖到这里。/ })
     expect(uploadTarget.tagName).toBe('BUTTON')
 
     activateNativeButtonWithKeyboard(uploadTarget as HTMLButtonElement, key)
@@ -144,7 +144,7 @@ describe('ImageGallery diary attachments', () => {
     fireEvent.change(input!, { target: { files: [file] } })
 
     await waitFor(() => {
-      expect(mocks.showToast).toHaveBeenCalledWith('图片 超大原图.png 超过 10MB，已拒绝上传', 'error')
+      expect(mocks.showToast).toHaveBeenCalledWith('图片 超大原图.png 超过 10MB，未添加。', 'error')
     })
     expect(mocks.compressImages).not.toHaveBeenCalled()
     expect(mocks.save).not.toHaveBeenCalled()

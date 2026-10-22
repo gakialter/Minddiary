@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
 import {
     createPrintWindowNavigationHandler,
@@ -163,7 +164,7 @@ export function createExportHandlers({
             }
 
             const resolvedSavePath = await consumeSavePath(savePath);
-            const tmpPath = path.join(app.getPath('temp'), 'minddiary_export_tmp.html');
+            const tmpPath = path.join(app.getPath('temp'), `minddiary_export_${randomUUID()}.html`);
             let win: BrowserWindowLike | null = null;
 
             try {

@@ -24,18 +24,18 @@ describe('planningStrategies domain & metadata', () => {
   it('provides immutable and canonical metadata for each strategy', () => {
     expect(getPlanningStrategyMetadata('balanced')).toEqual({
       id: 'balanced',
-      label: '均衡规划',
-      description: '兼顾重要复习与新知推进，保持各科目合理分配与适度节奏。',
+      label: '均衡安排',
+      description: '复习和新内容兼顾，安排适中。',
     })
     expect(getPlanningStrategyMetadata('deep_focus')).toEqual({
       id: 'deep_focus',
-      label: '深度专注',
-      description: '倾向于较少数量的大颗粒度连续学习块，聚焦核心科目攻坚，减少频繁切换。',
+      label: '集中学习',
+      description: '少安排几项，留出连续专注时间。',
     })
     expect(getPlanningStrategyMetadata('light_load')).toEqual({
       id: 'light_load',
-      label: '轻量推进',
-      description: '倾向于低启动门槛的小颗粒度行动，优先消化错题与轻量任务，平缓推进。',
+      label: '轻松起步',
+      description: '从容易开始的小任务入手。',
     })
 
     for (const id of PLANNING_STRATEGY_IDS) {

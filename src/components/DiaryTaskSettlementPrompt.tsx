@@ -105,7 +105,7 @@ export default function DiaryTaskSettlementPrompt({
           </div>
           <button
             type="button"
-            aria-label="关闭日记任务结算"
+            aria-label="关闭任务结算"
             className="button button-secondary"
             disabled={settling}
             onClick={onClose}
@@ -176,7 +176,7 @@ export default function DiaryTaskSettlementPrompt({
                 disabled={settling || selectedTaskId === null}
                 onClick={confirmSettlement}
               >
-                {settling ? <><Loader2 size={14} className="animate-spin" /> 结算中...</> : '关联并完成'}
+                {settling ? <><Loader2 size={14} className="animate-spin" /> 正在保存…</> : '关联并完成'}
               </button>
             </>
           )}

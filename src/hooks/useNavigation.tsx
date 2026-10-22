@@ -6,7 +6,7 @@ import type { DiaryEntry } from '../types'
 import HomeDashboard from '../components/HomeDashboard'
 import Calendar from '../components/Calendar'
 import Editor from '../components/Editor'
-import type { PendingDiaryInsert } from '../components/Editor'
+import type { EditorSaveHandler, PendingDiaryInsert } from '../components/Editor'
 import Dashboard from '../components/Dashboard'
 import TagManager from '../components/TagManager'
 import SearchPanel from '../components/SearchPanel'
@@ -17,6 +17,7 @@ import MistakeBook from '../components/MistakeBook'
 import type { MistakeFilterIntent } from '../components/MistakeBook'
 import AIPanel from '../components/AIPanel'
 import Settings from '../components/Settings'
+import type { AITextDraft, AITextDraftBinding } from './useAIComposer'
 
 export type DiarySaveOrigin = 'editor-auto' | 'editor-manual'
 export interface DiarySaveOptions {
@@ -31,7 +32,10 @@ interface ViewRenderProps {
   loading: boolean
   selectedDate: string
   setSelectedDate: (date: string) => void
+  selectEntry: (entry: DiaryEntry) => void
   changeDate: (date: string) => void
+  changeEntry?: (entry: DiaryEntry) => void
+  currentDateKey?: string
   setActiveView: (view: string) => void
   isSidebarCollapsed: boolean
   ImageGallery: React.ComponentType<{ entryId?: number; ensureEntryId?: () => Promise<number | null> }> | null
@@ -39,12 +43,14 @@ interface ViewRenderProps {
   pendingDiaryInsert?: PendingDiaryInsert | null
   onPendingDiaryInsertApplied?: (id: number) => void
   onEditorDirtyChange?: (isDirty: boolean) => void
+  onRegisterEditorSave?: (save: EditorSaveHandler | null) => void
   mistakeFilterIntent?: MistakeFilterIntent | null
   onMistakeFilterIntent?: (intent: MistakeFilterIntent) => void
   onMistakeFilterIntentApplied?: () => void
   onPomodoroFullscreenChange?: (isActive: boolean) => void
   searchSession?: SearchSessionState
   onSearchSessionChange?: (session: SearchSessionState) => void
+  aiTextDraft?: AITextDraftBinding
 }
 
 interface ViewConfig {
@@ -65,6 +71,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
     render: (props) => (
       <HomeDashboard
         setActiveView={props.setActiveView}
+        selectedDate={props.selectedDate}
         setSelectedDate={props.setSelectedDate}
         onMistakeFilterIntent={props.onMistakeFilterIntent}
       />
@@ -82,6 +89,10 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
             pendingInsert={props.pendingDiaryInsert}
             onPendingInsertApplied={props.onPendingDiaryInsertApplied}
             onDirtyChange={props.onEditorDirtyChange}
+            onRegisterSave={props.onRegisterEditorSave}
+            onChangeDate={props.changeDate}
+            onSelectEntry={props.changeEntry}
+            todayDate={props.currentDateKey}
           />
         </div>
         <div style={{
@@ -109,7 +120,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Search size={22} style={{ color: 'var(--accent)' }} /> 搜索</span>,
     render: (props) => (
       <SearchPanel session={props.searchSession} onSessionChange={props.onSearchSessionChange} onSelectEntry={(e) => {
-        props.setSelectedDate(e.date)
+        props.selectEntry(e)
         props.setActiveView('editor')
       }} />
     ),
@@ -140,7 +151,7 @@ export const VIEW_CONFIG: Record<string, ViewConfig> = {
   },
   ai: {
     title: <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={22} style={{ color: 'var(--accent)' }} /> AI 助手</span>,
-    render: (props) => <AIPanel entry={props.entry} />,
+    render: (props) => <AIPanel entry={props.entry} textDraft={props.aiTextDraft} onOpenSettings={() => props.setActiveView('settings')} />,
   },
   settings: {
     title: null, // Settings has its own header
@@ -159,29 +170,44 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
   const currentDateKey = useCurrentLocalDateKey()
   const [activeView, setActiveView] = useState('home')
   const [searchSession, setSearchSession] = useState(createSearchSession)
+  // MindDiary has one AI conversation per app instance. Navigation owns only
+  // its unsent text; remounting the app starts a fresh, empty draft.
+  const [aiDraft, setAIDraft] = useState<AITextDraft>({ text: '', revision: 0 })
   const [selectedDate, setSelectedDateState] = useState(currentDateKey)
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null)
   const [isFollowingToday, setIsFollowingToday] = useState(true)
 
   useEffect(() => {
     if (isFollowingToday && canAutoFollowToday) {
       setSelectedDateState(currentDateKey)
+      setSelectedEntryId(null)
     }
   }, [canAutoFollowToday, currentDateKey, isFollowingToday])
 
   const setSelectedDate = useCallback((date: string) => {
     setSelectedDateState(date)
+    setSelectedEntryId(null)
     setIsFollowingToday(date === currentDateKey)
   }, [currentDateKey])
 
   const changeDate = useCallback((date: string) => {
     setSelectedDateState(date)
+    setSelectedEntryId(null)
     setIsFollowingToday(date === currentDateKey)
     setActiveView('editor')
   }, [currentDateKey])
 
+  const selectEntry = useCallback((entry: DiaryEntry) => {
+    setSelectedDateState(entry.date)
+    setSelectedEntryId(entry.id)
+    // A search result identifies a saved record, even when its date is today.
+    setIsFollowingToday(false)
+  }, [])
+
   const returnToToday = useCallback(() => {
     setIsFollowingToday(true)
     setSelectedDateState(currentDateKey)
+    setSelectedEntryId(null)
   }, [currentDateKey])
 
   const viewTitle = VIEW_CONFIG[activeView]?.title || ''
@@ -189,8 +215,11 @@ export function useNavigation({ canAutoFollowToday = true }: UseNavigationOption
   return {
     activeView,
     searchSession, setSearchSession,
+    aiTextDraft: { draft: aiDraft, setDraft: setAIDraft },
     setActiveView,
     selectedDate,
+    selectedEntryId,
+    selectEntry,
     setSelectedDate,
     changeDate,
     currentDateKey,

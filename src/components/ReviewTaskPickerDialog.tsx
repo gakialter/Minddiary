@@ -196,10 +196,10 @@ export default function ReviewTaskPickerDialog({
         <div className="flex items-start justify-between gap-sm" style={{ padding: 'var(--space-lg)', borderBottom: '1px solid var(--border)' }}>
           <div>
             <h3 id="review-task-picker-title" style={{ margin: 0, color: 'var(--text-primary)' }}>
-              选择今日错题复习任务
+              选择今日错题
             </h3>
             <p className="text-sm" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
-              今日风险池 {riskPoolCount} 题。选择后会为每道错题创建一个独立 review task。
+              今日待复习错题 {riskPoolCount} 道。勾选后点击“添加任务”，每题对应一项预计 10 分钟的复习任务。
             </p>
           </div>
           <button
@@ -295,7 +295,7 @@ export default function ReviewTaskPickerDialog({
               disabled={creating || selectedCreatableCount === 0}
               onClick={createSelected}
             >
-              {creating ? '创建中...' : '创建任务'}
+              {creating ? '正在添加…' : '添加任务'}
             </button>
           </div>
         </div>

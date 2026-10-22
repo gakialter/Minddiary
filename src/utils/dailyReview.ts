@@ -15,7 +15,7 @@ export function validateDailyReviewCommand(value: unknown): DailyReviewCommand {
     switch (input.kind) {
         case 'get': return { ...base, kind: 'get' }
         case 'configure':
-            if (!positiveInteger(input.quota)) throw new Error('每日题量必须为正整数')
+            if (!positiveInteger(input.quota)) throw new Error('每日题数需为正整数。')
             return { ...base, kind: 'configure', quota: input.quota }
         case 'start':
             if (input.previousRoundId !== null && !validToken(input.previousRoundId)) throw new Error('Invalid round token')
