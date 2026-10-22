@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import HomeDashboard from '../src/components/HomeDashboard'
 import * as DiaryContextModule from '../src/contexts/DiaryContext'
 import type { Mistake, StudyTask, TodayDashboardData } from '../src/types'
@@ -767,6 +767,71 @@ describe('HomeDashboard Component - Commander Engine', () => {
     expect(screen.getByText('AI 建议')).toBeInTheDocument()
     expect(screen.getByText('关联错题 #44')).toBeInTheDocument()
     expect(screen.getByText('关联日记 #1')).toBeInTheDocument()
+  })
+
+  it('keeps task actions accessible across statuses with a long title and several related labels', async () => {
+    const complexTitle = '完成数学函数专题复习并整理错题、回顾课堂笔记与今日学习记录'
+    mockTasksGetByDate.mockResolvedValue([
+      makeTask({
+        id: 81,
+        title: complexTitle,
+        type: 'focus',
+        subject_id: 7,
+        related_chapter_id: 70,
+        related_entry_id: 9,
+        related_mistake_id: 8,
+        status: 'todo',
+      }),
+      makeTask({ id: 82, title: '继续当前任务', status: 'doing' }),
+      makeTask({ id: 83, title: '已完成任务', status: 'done' }),
+      makeTask({ id: 84, title: '已跳过任务', status: 'skipped' }),
+    ])
+    mockSubjectsGetAll.mockResolvedValue([{ id: 7, name: '数学', color: '#2563eb' }])
+    mockSubjectChaptersGetBySubject.mockResolvedValue([{ id: 70, subject_id: 7, title: '函数' }])
+
+    render(<HomeDashboard setActiveView={mockSetActiveView} />)
+
+    expect(await screen.findByText(complexTitle)).toBeInTheDocument()
+    expect(screen.getByText('关联日记 #9')).toBeInTheDocument()
+    expect(screen.getByText('关联错题 #8')).toBeInTheDocument()
+    expect(screen.getByTestId('task-source-81')).toHaveTextContent('数学 · 函数')
+
+    const assertMaintenanceActions = (id: number, status: StudyTask['status']) => {
+      const taskTitle = id === 81 ? complexTitle : id === 82 ? '继续当前任务' : id === 83 ? '已完成任务' : '已跳过任务'
+      const actions = screen.getByRole('group', { name: `${taskTitle} 的操作` })
+      expect(within(actions).getByRole('button', { name: '修改' })).toBeVisible()
+      expect(within(actions).getByRole('button', { name: '完成' })).toBeVisible()
+      expect(within(actions).getByRole('button', { name: '跳过' })).toBeVisible()
+      expect(within(actions).getByRole('button', { name: '删除' })).toBeVisible()
+      if (status === 'done') {
+        expect(within(actions).getByRole('button', { name: '完成' })).toBeDisabled()
+      } else {
+        expect(within(actions).getByRole('button', { name: '完成' })).toBeEnabled()
+      }
+      if (status === 'skipped') {
+        expect(within(actions).getByRole('button', { name: '跳过' })).toBeDisabled()
+      } else {
+        expect(within(actions).getByRole('button', { name: '跳过' })).toBeEnabled()
+      }
+      return actions
+    }
+
+    for (const [id, status, title] of [
+      [81, 'todo', complexTitle],
+      [82, 'doing', '继续当前任务'],
+    ] as const) {
+      const actions = assertMaintenanceActions(id, status)
+      expect(within(actions).getByRole('button', { name: `开始专注：${title}` })).toBeVisible()
+    }
+
+    for (const [id, status, title] of [
+      [83, 'done', '已完成任务'],
+      [84, 'skipped', '已跳过任务'],
+    ] as const) {
+      const actions = assertMaintenanceActions(id, status)
+      expect(within(actions).getByRole('button', { name: '恢复待开始' })).toBeVisible()
+      expect(within(actions).queryByRole('button', { name: `开始专注：${title}` })).not.toBeInTheDocument()
+    }
   })
 
   it('marks chapter-attributed tasks without changing ordinary task badges', async () => {

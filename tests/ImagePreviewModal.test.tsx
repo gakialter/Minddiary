@@ -139,7 +139,7 @@ describe('ImagePreviewModal', () => {
       showToast('Saved', 'success')
     })
 
-    expect(screen.getByText('Saved').parentElement?.parentElement).toHaveStyle({
+    expect(document.querySelector('.toast-container')).toHaveStyle({
       zIndex: 'var(--z-toast)',
     })
   })

@@ -192,6 +192,10 @@ describe('MistakeReviewModal', () => {
     })
 
     expect(await screen.findByText('Manual question')).toBeInTheDocument()
+    expect(screen.getByText('Math')).toHaveStyle({
+      background: 'var(--color-accent-subtle)',
+      color: 'var(--color-accent)',
+    })
     expect(screen.queryByText('Manual answer')).not.toBeInTheDocument()
     expect(screen.queryByText('Manual notes')).not.toBeInTheDocument()
     expect(screen.queryByTestId('mistake-review-quality-4')).not.toBeInTheDocument()

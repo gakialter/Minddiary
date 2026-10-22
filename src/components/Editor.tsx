@@ -74,6 +74,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
   const [content, setContent] = useState(entry?.content || '')
   const [wordCount, setWordCount] = useState(() => calculateWordCount(entry?.content || ''))
   const [saving, setSaving] = useState(false)
+  const [manualSaveFeedback, setManualSaveFeedback] = useState(false)
   const [dayEntries, setDayEntries] = useState<DiaryEntry[]>([])
   const [dayEntriesError, setDayEntriesError] = useState(false)
   useEffect(() => {
@@ -188,6 +189,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
       revisionRef.current++
       saveGenerationRef.current++
       setSaving(false)
+      setManualSaveFeedback(false)
     }
     if (entry && entry !== entryRef.current) {
       entryRef.current = entry
@@ -251,6 +253,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
     )
     const isCurrentRevision = () => isCurrentSave() && revision === revisionRef.current
     const promise = (async () => {
+      setManualSaveFeedback(isManual)
       setSaving(true)
       try {
         const saved = await onSave(
@@ -442,7 +445,7 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
             {entry?.date && todayDate && `（${entry.date === todayDate ? '今天' : entry.date < todayDate ? '历史日期' : '未来日期'}）`}
           </p>
           {onChangeDate && entry && (
-            <nav aria-label="日记导航" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <nav className="editor-document__navigation" aria-label="日记导航">
               <label htmlFor="editor-diary-date">选择日期</label>
               <input id="editor-diary-date" type="date" value={entry.date}
                 onChange={event => { if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value) && event.target.value !== entry.date) onChangeDate(event.target.value) }} />
@@ -486,7 +489,8 @@ function Editor({ entry, onSave, loading, pendingInsert, onPendingInsertApplied,
               className="editor-save-state"
               data-state={saveState}
               role="status"
-              aria-live="polite"
+              // Manual saves announce through Toast; autosaves keep this live status.
+              aria-live={manualSaveFeedback && (saving || saveState === 'saved') ? 'off' : 'polite'}
               aria-atomic="true"
             >
               <span className="editor-save-state__dot" aria-hidden="true" />

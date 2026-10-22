@@ -18,7 +18,8 @@ export function useModalFocus(onClose: () => void | Promise<void>, active = true
     let node: HTMLElement = root
     while (node.parentElement) {
       for (const sibling of node.parentElement.children) {
-        if (sibling !== node && sibling instanceof HTMLElement) {
+        // Global feedback must remain visible and announce while a dialog is active.
+        if (sibling !== node && sibling instanceof HTMLElement && !sibling.hasAttribute('data-toast-region')) {
           isolated.push({ element: sibling, inert: sibling.inert })
           sibling.inert = true
         }

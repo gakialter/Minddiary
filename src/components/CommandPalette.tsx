@@ -1,5 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
+import { createPortal } from 'react-dom'
 import { PenLine, Calendar, Search, BookOpen, BookX, Timer, Tags, Bot, Settings } from 'lucide-react'
+import { useModalFocus } from '../hooks/useModalFocus'
+import './CommandPalette.css'
 
 interface CommandPaletteProps {
     isOpen: boolean
@@ -17,7 +20,10 @@ interface Command {
 export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandPaletteProps) {
     const [query, setQuery] = useState('')
     const [selectedIndex, setSelectedIndex] = useState(0)
-    const inputRef = useRef<HTMLInputElement>(null)
+    const modalRef = useModalFocus(onClose, isOpen)
+    const listRef = useRef<HTMLDivElement>(null)
+    const listId = useId()
+    const helpId = useId()
 
     const commands: Command[] = [
         { id: 'editor', title: '写日记', icon: <PenLine size={24} />, description: '记录当天的学习和生活' },
@@ -35,33 +41,38 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
         c.title.toLowerCase().includes(query.toLowerCase()) ||
         c.description.toLowerCase().includes(query.toLowerCase())
     )
+    const activeIndex = filteredCommands.length === 0
+        ? -1
+        : Math.max(0, Math.min(selectedIndex, filteredCommands.length - 1))
+    const activeCommand = filteredCommands[activeIndex]
 
     useEffect(() => {
         if (isOpen) {
-            setTimeout(() => inputRef.current?.focus(), 10)
             setQuery('')
             setSelectedIndex(0)
         }
     }, [isOpen])
 
     useEffect(() => {
-        setSelectedIndex(0)
-    }, [query])
+        if (isOpen) {
+            listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+                ?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
+        }
+    }, [isOpen, query, activeIndex])
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing) return
         if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(i => (i + 1) % filteredCommands.length)
+            if (filteredCommands.length) setSelectedIndex((activeIndex + 1) % filteredCommands.length)
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
-            setSelectedIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length)
+            if (filteredCommands.length) setSelectedIndex((activeIndex - 1 + filteredCommands.length) % filteredCommands.length)
         } else if (e.key === 'Enter') {
             e.preventDefault()
-            if (filteredCommands[selectedIndex]) {
-                executeCommand(filteredCommands[selectedIndex])
+            if (activeCommand) {
+                executeCommand(activeCommand)
             }
-        } else if (e.key === 'Escape') {
-            onClose()
         }
     }
 
@@ -72,102 +83,73 @@ export default function CommandPalette({ isOpen, onClose, onNavigate }: CommandP
 
     if (!isOpen) return null
 
-    return (
-        <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'var(--bg-overlay)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-            paddingTop: '15vh', zIndex: 'var(--z-modal)',
-            animation: 'page-fade-in 0.2s cubic-bezier(0.2, 0, 0, 1)'
-        }} onClick={onClose}>
+    return createPortal(
+        <div className="command-palette-overlay" onClick={onClose}>
             <div
-                style={{
-                    width: '100%', maxWidth: 640,
-                    background: 'var(--bg-secondary)',
-                    borderRadius: 'var(--radius-lg)',
-                    boxShadow: 'var(--shadow-lg)',
-                    border: '1px solid var(--border)',
-                    overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column'
-                }}
+                ref={modalRef}
+                className="command-palette"
+                role="dialog"
+                aria-modal="true"
+                aria-label="快捷菜单"
+                tabIndex={-1}
                 onClick={e => e.stopPropagation()}
+                onKeyDown={handleKeyDown}
             >
-                <div style={{ padding: 'var(--space-md)', borderBottom: '1px solid var(--border)' }}>
+                <div className="command-palette__search">
                     <input
-                        ref={inputRef}
                         className="input w-full"
-                        style={{
-                            fontSize: 20, padding: 'var(--space-md)',
-                            background: 'transparent', border: 'none', outline: 'none',
-                            boxShadow: 'none'
-                        }}
+                        role="combobox"
+                        aria-label="搜索功能"
+                        aria-autocomplete="list"
+                        aria-expanded="true"
+                        aria-controls={listId}
+                        aria-activedescendant={activeCommand ? `${listId}-${activeCommand.id}` : undefined}
+                        aria-describedby={helpId}
                         placeholder="搜索功能，例如：设置、日记"
                         value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
+                        onChange={e => { setQuery(e.target.value); setSelectedIndex(0) }}
                     />
                 </div>
 
-                <div style={{ maxHeight: '50vh', overflowY: 'auto', padding: 'var(--space-sm)' }}>
-                    {filteredCommands.length === 0 ? (
-                        <div className="text-muted text-center" style={{ padding: 'var(--space-xl)' }}>
-                            没找到功能，换个词试试。
-                        </div>
-                    ) : (
-                        filteredCommands.map((cmd, idx) => {
-                            const selected = idx === selectedIndex
-                            return (
-                                <div
-                                    key={cmd.id}
-                                    onClick={() => executeCommand(cmd)}
-                                    onMouseEnter={() => setSelectedIndex(idx)}
-                                    style={{
-                                        padding: 'var(--space-md)',
-                                        borderRadius: 'var(--radius)',
-                                        cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', gap: 'var(--space-md)',
-                                        background: selected ? 'var(--accent)' : 'transparent',
-                                        color: selected ? '#fff' : 'inherit',
-                                        transition: 'none' // instant feedback for keyboard
-                                    }}
-                                >
-                                    <span style={{ 
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        width: 32, height: 32,
-                                        color: selected ? '#fff' : 'var(--text-secondary)'
-                                    }}>
-                                        {cmd.icon}
-                                    </span>
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: 15 }}>{cmd.title}</div>
-                                        <div style={{ fontSize: 13, color: selected ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
-                                            {cmd.description}
-                                        </div>
-                                    </div>
-                                    {selected && (
-                                        <div style={{
-                                            marginLeft: 'auto', fontSize: 12,
-                                            background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 4
-                                        }}>
-                                            ↵ Enter
-                                        </div>
-                                    )}
-                                </div>
-                            )
-                        })
-                    )}
+                <div ref={listRef} id={listId} role="listbox" aria-label="功能" tabIndex={-1} className="command-palette__list">
+                    {filteredCommands.map((cmd, idx) => {
+                        const selected = idx === activeIndex
+                        const optionId = `${listId}-${cmd.id}`
+                        return (
+                            <button
+                                type="button"
+                                role="option"
+                                tabIndex={-1}
+                                id={optionId}
+                                key={cmd.id}
+                                aria-selected={selected}
+                                aria-labelledby={`${optionId}-title`}
+                                aria-describedby={`${optionId}-description`}
+                                className="command-palette__option"
+                                onClick={() => executeCommand(cmd)}
+                                onMouseEnter={() => setSelectedIndex(idx)}
+                            >
+                                <span className="command-palette__icon" aria-hidden="true">{cmd.icon}</span>
+                                <span className="command-palette__copy">
+                                    <span id={`${optionId}-title`} className="command-palette__title">{cmd.title}</span>
+                                    <span id={`${optionId}-description`} className="command-palette__description">{cmd.description}</span>
+                                </span>
+                                {selected && <span className="command-palette__enter" aria-hidden="true">↵ Enter</span>}
+                            </button>
+                        )
+                    })}
                 </div>
-                <div style={{
-                    padding: 'var(--space-sm) var(--space-md)',
-                    background: 'var(--bg-tertiary)', borderTop: '1px solid var(--border)',
-                    display: 'flex', justifyContent: 'center', gap: 'var(--space-lg)',
-                    fontSize: 12, color: 'var(--text-muted)'
-                }}>
-                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↑↓</kbd> 选择功能</span>
-                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>↵</kbd> 打开功能</span>
-                    <span><kbd style={{ fontFamily: 'var(--font-mono)' }}>esc</kbd> 关闭菜单</span>
+                {filteredCommands.length === 0 && (
+                    <div className="command-palette__empty" role="status">
+                        没找到功能，换个词试试。
+                    </div>
+                )}
+                <div id={helpId} className="command-palette__help">
+                    <span><kbd>↑↓</kbd> 选择功能</span>
+                    <span><kbd>↵</kbd> 打开功能</span>
+                    <span><kbd>esc</kbd> 关闭菜单</span>
                 </div>
             </div>
-        </div>
+        </div>, document.body,
     )
 }

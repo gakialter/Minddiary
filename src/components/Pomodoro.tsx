@@ -137,7 +137,7 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
   const timerControlsDisabled = isSavingInterruptedFocus
   const timerStatusText = isRunning
     ? (isStopwatchMode ? '正在正计时...' : '正在进行中...')
-    : (isStopwatchMode && hasActiveTimerSession ? '已暂停' : '准备就绪')
+    : (hasActiveTimerSession ? '已暂停' : '准备就绪')
 
   const placement = usePomodoroWidgetPlacement()
 
@@ -280,19 +280,20 @@ export default function Pomodoro({ isWidget, onExpand, onFullscreenChange }: Pom
   ) : null
 
   // ─── Widget (floating ball) ───
+  const timerActionLabel = hasActiveTimerSession ? '继续' : '开始'
   const startButtonLabel = ({
-    work: '开始专注',
-    short_break: '开始短休',
-    long_break: '开始长休',
-    custom: '开始计时',
-    stopwatch: hasActiveTimerSession ? '继续正计时' : '开始正计时',
-  } as Record<string, string>)[mode.id] || '开始计时'
+    work: `${timerActionLabel}专注`,
+    short_break: `${timerActionLabel}短休`,
+    long_break: `${timerActionLabel}长休`,
+    custom: `${timerActionLabel}计时`,
+    stopwatch: `${timerActionLabel}正计时`,
+  } as Record<string, string>)[mode.id] || `${timerActionLabel}计时`
   if (isWidget) {
     return (
       <>
       <div className="pomodoro-mini" data-testid="pomodoro-widget" data-dock={placement.dock} data-dragging={placement.isDragging} aria-label="专注计时">
         <span className="pomodoro-mini__handle" aria-hidden="true" title="拖动调整左右停靠位置" {...placement.handleProps}><GripVertical size={16} /></span>
-        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : '开始或继续计时'} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
+        <button type="button" className="button button-secondary button-icon" aria-label={isRunning ? '暂停计时' : `${timerActionLabel}计时`} disabled={timerControlsDisabled} onClick={() => { if (!timerControlsDisabled) void toggleTimer() }}>
           {isRunning ? <Pause size={16} /> : <Play size={16} />}
         </button>
         <button type="button" className="button button-secondary pomodoro-mini__open" aria-label="打开专注计时" onClick={onExpand}>

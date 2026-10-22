@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, XCircle, Info } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { CheckCircle, XCircle, Info, X } from 'lucide-react'
 
 type ToastType = 'success' | 'error' | 'info'
 
@@ -14,9 +15,11 @@ type ToastListener = (toast: ToastData) => void
 
 // Toast context - simple global toast system
 let toastListeners: ToastListener[] = []
+let lastToastId = 0
 
 export function showToast(message: string, type: ToastType = 'success', duration: number = 3000): number {
-    const id = Date.now()
+    const id = Math.max(Date.now(), lastToastId + 1)
+    lastToastId = id
     const toast: ToastData = { id, message, type, duration }
     toastListeners.forEach(fn => fn(toast))
     return id
@@ -39,18 +42,26 @@ export function ToastContainer() {
         setToasts(prev => prev.filter(t => t.id !== id))
     }, [])
 
-    if (toasts.length === 0) return null
-
-    return (
-        <div style={{
-            position: 'fixed', bottom: 24, right: 24,
-            display: 'flex', flexDirection: 'column', gap: 8,
-            zIndex: 'var(--z-toast)', pointerEvents: 'none',
-        }}>
-            {toasts.map(toast => (
-                <ToastItem key={toast.id} toast={toast} dismiss={dismiss} />
-            ))}
-        </div>
+    return createPortal(
+        <>
+            {/* Persistent regions announce additions once; exits and dismiss controls stay silent. */}
+            <div data-toast-region="" className="sr-only" role="status" aria-atomic="false" aria-relevant="additions">
+                {toasts.filter(toast => toast.type !== 'error').map(toast => <div key={toast.id}>{toast.message}</div>)}
+            </div>
+            <div data-toast-region="" className="sr-only" role="alert" aria-atomic="false" aria-relevant="additions">
+                {toasts.filter(toast => toast.type === 'error').map(toast => <div key={toast.id}>{toast.message}</div>)}
+            </div>
+            <div data-toast-region="" className="toast-container" style={{
+                position: 'fixed', bottom: 24, right: 24,
+                display: 'flex', flexDirection: 'column', gap: 8,
+                zIndex: 'var(--z-toast)', pointerEvents: 'none',
+            }}>
+                {toasts.map(toast => (
+                    <ToastItem key={toast.id} toast={toast} dismiss={dismiss} />
+                ))}
+            </div>
+        </>,
+        document.body,
     )
 }
 
@@ -61,53 +72,53 @@ interface ToastItemProps {
 
 function ToastItem({ toast, dismiss }: ToastItemProps) {
     const [isLeaving, setIsLeaving] = useState(false)
+    const itemRef = useRef<HTMLDivElement>(null)
+    const closingRef = useRef(false)
+    const dismissedRef = useRef(false)
+
+    const handleDismiss = useCallback(() => {
+        if (closingRef.current) return
+        closingRef.current = true
+        setIsLeaving(true)
+    }, [])
+
+    const finishDismiss = useCallback(() => {
+        if (dismissedRef.current) return
+        dismissedRef.current = true
+        dismiss(toast.id)
+    }, [dismiss, toast.id])
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsLeaving(true)
-            setTimeout(() => dismiss(toast.id), 300) // Match CSS animation duration
-        }, toast.duration)
+        if (isLeaving) return
+        const timer = setTimeout(handleDismiss, toast.duration)
         return () => clearTimeout(timer)
-    }, [toast, dismiss])
+    }, [toast.duration, isLeaving, handleDismiss])
 
-    const handleDismiss = () => {
-        setIsLeaving(true)
-        setTimeout(() => dismiss(toast.id), 300)
-    }
+    useEffect(() => {
+        if (!isLeaving || !itemRef.current) return
+        // CSS is the timing authority, including the reduced-motion variant.
+        // The fallback also removes items closed before an entrance could paint.
+        const duration = getComputedStyle(itemRef.current).transitionDuration
+        const milliseconds = (parseFloat(duration) || 0) * (duration.endsWith('ms') ? 1 : 1000)
+        const timer = setTimeout(finishDismiss, milliseconds)
+        return () => clearTimeout(timer)
+    }, [isLeaving, finishDismiss])
 
     return (
         <div
+            ref={itemRef}
+            className={`toast toast--${toast.type}`}
+            data-leaving={isLeaving}
             onClick={handleDismiss}
-            style={{
-                pointerEvents: 'auto',
-                padding: '14px 24px',
-                borderRadius: 'var(--radius)',
-                backdropFilter: 'blur(24px)',
-                WebkitBackdropFilter: 'blur(24px)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 12,
-                fontSize: 15, fontWeight: 500,
-                animation: isLeaving
-                    ? 'toast-out 0.3s cubic-bezier(0.4, 0, 1, 1) forwards'
-                    : 'toast-in 0.4s cubic-bezier(0.2, 0, 0, 1) forwards',
-                ...(toast.type === 'success' ? {
-                    background: 'rgba(52, 199, 89, 0.15)',
-                    border: '1px solid rgba(52, 199, 89, 0.3)',
-                    color: 'var(--text-primary)',
-                } : toast.type === 'error' ? {
-                    background: 'rgba(255, 59, 48, 0.15)',
-                    border: '1px solid rgba(255, 59, 48, 0.3)',
-                    color: 'var(--text-primary)',
-                } : {
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-primary)',
-                }),
+            onTransitionEnd={event => {
+                if (isLeaving && event.target === event.currentTarget && event.propertyName === 'opacity') finishDismiss()
             }}
         >
-            {toast.type === 'success' ? <CheckCircle size={18} style={{ color: 'var(--success)' }} /> : toast.type === 'error' ? <XCircle size={18} style={{ color: 'var(--danger)' }} /> : <Info size={18} style={{ color: 'var(--accent)' }} />}
-            <span>{toast.message}</span>
+            {toast.type === 'success' ? <CheckCircle size={18} aria-hidden="true" /> : toast.type === 'error' ? <XCircle size={18} aria-hidden="true" /> : <Info size={18} aria-hidden="true" />}
+            <span className="toast__message" aria-hidden="true">{toast.message}</span>
+            <button type="button" className="toast__dismiss" aria-label={`关闭通知：${toast.message}`}>
+                <X size={14} aria-hidden="true" />
+            </button>
         </div>
     )
 }

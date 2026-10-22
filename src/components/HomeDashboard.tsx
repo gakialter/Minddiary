@@ -57,6 +57,7 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
   const startTaskLocksRef = useRef(new Set<number>())
   const taskLoadGenerationRef = useRef(0)
   const [newTaskTitle, setNewTaskTitle] = useState('')
+  const newTaskTitleRef = useRef<HTMLInputElement>(null)
   const [newTaskType, setNewTaskType] = useState<StudyTaskType>('custom')
   const [newTaskEstimate, setNewTaskEstimate] = useState(25)
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
@@ -397,22 +398,23 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
 
           <CommanderHero config={config} onActionClick={handleCTA} />
 
-          {!settingsData?.examDate && (
-            <div className="today-action__notice" data-testid="home-target-date-prompt">
-              <span>还没有设置目标日期。</span>
-              <button type="button" className="button today-action__task-action" onClick={() => setActiveView('settings')}>
-                设置日期
-              </button>
-            </div>
-          )}
-
           <section
             data-testid="next-today-action"
             className="today-action__next"
             aria-labelledby="today-action-next-title"
           >
             <div className="today-action__next-copy">
-              <p className="today-action__eyebrow">推荐下一步</p>
+              <div className="today-action__next-heading">
+                <p className="today-action__eyebrow">推荐下一步</p>
+                {!settingsData?.examDate && (
+                  <div className="today-action__target-date" data-testid="home-target-date-prompt">
+                    <span>还没有设置目标日期。</span>
+                    <button type="button" className="button today-action__task-action" onClick={() => setActiveView('settings')}>
+                      设置日期
+                    </button>
+                  </div>
+                )}
+              </div>
               <h2 id="today-action-next-title">{nextAction.title}</h2>
               <p id="today-action-next-reason" className="today-action__next-reason">{nextAction.reason}</p>
               {nextAction.task && (
@@ -437,50 +439,6 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
           </section>
 
           <section
-            data-testid="today-execution-overview"
-            className="today-action__overview"
-            aria-labelledby="today-action-overview-title"
-          >
-            <div className="today-action__section-heading today-action__section-heading--compact">
-              <div>
-                <p className="today-action__eyebrow">学习状态</p>
-                <h2 id="today-action-overview-title">今日进展</h2>
-              </div>
-              <time className="today-action__date" dateTime={todayDate}>{todayDate}</time>
-            </div>
-            <dl className="today-action__overview-grid">
-              <div data-testid="overview-tasks" className="today-action__overview-item">
-                <dt>今日任务</dt>
-                <dd>
-                  <strong>{executionSummary.completedTasks} / {executionSummary.totalTasks}</strong>
-                  <span>已完成 / 总数</span>
-                </dd>
-              </div>
-              <div data-testid="overview-focus" className="today-action__overview-item">
-                <dt>今日专注</dt>
-                <dd>
-                  <strong>{executionSummary.focusMinutes} 分钟</strong>
-                  <span>今天所有专注计时的累计时长</span>
-                </dd>
-              </div>
-              <div data-testid="overview-chapters" className="today-action__overview-item">
-                <dt>章节进度</dt>
-                <dd>
-                  <strong>{executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}</strong>
-                  <span>已完成 / 今日章节</span>
-                </dd>
-              </div>
-              <div data-testid="overview-diary" className="today-action__overview-item">
-                <dt>今日复盘</dt>
-                <dd>
-                  <strong>{diaryStatusLabel}</strong>
-                  <span>今天没有日记、只有草稿，或已有正文</span>
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section
             data-testid="daily-action-queue"
             className="today-action__queue"
             aria-labelledby="today-action-queue-title"
@@ -488,7 +446,6 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
           >
             <div className="today-action__section-heading">
               <div>
-                <p className="today-action__eyebrow">当前任务</p>
                 <h2 id="today-action-queue-title">
                   今日任务
                 </h2>
@@ -496,12 +453,204 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
                   待开始 {taskStatusCounts.todo} · 进行中 {taskStatusCounts.doing} · 已完成 {taskStatusCounts.done} · 已跳过 {taskStatusCounts.skipped}
                 </p>
               </div>
-              {(taskLoading || taskMutating) && (
-                <span className="today-action__sync-status" role="status" aria-live="polite">
-                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                  {taskMutating ? '正在更新任务...' : '同步中...'}
-                </span>
-              )}
+              <div className="today-action__queue-tools">
+                {(taskLoading || taskMutating) && (
+                  <span className="today-action__sync-status" role="status" aria-live="polite">
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                    {taskMutating ? '正在更新任务...' : '同步中...'}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="button today-action__quiet-action"
+                  onClick={() => newTaskTitleRef.current?.focus()}
+                >
+                  添加任务
+                </button>
+              </div>
+            </div>
+
+            <div className="today-action__task-list">
+              {tasks.length === 0 ? (
+                <p className="today-action__empty-queue" role="status">
+                  今天还没任务，先加一件容易开始的事。
+                </p>
+              ) : tasks.map(task => (
+                <div
+                  key={task.id}
+                  className="today-action__task-row"
+                  data-status={task.status}
+                >
+                  {editingTaskId === task.id ? (
+                    <form className="today-action__task-edit" noValidate onSubmit={handleTaskEditSubmit}>
+                      <div className="today-action__task-edit-fields">
+                        <label className="today-action__field">
+                          <span>任务标题</span>
+                          <input
+                            data-testid={`task-edit-title-${task.id}`}
+                            className="input"
+                            value={editTaskTitle}
+                            maxLength={200}
+                            disabled={taskMutating}
+                            onChange={event => setEditTaskTitle(event.target.value)}
+                          />
+                        </label>
+                        <label className="today-action__field">
+                          <span>预计分钟数</span>
+                          <input
+                            data-testid={`task-edit-estimate-${task.id}`}
+                            className="input"
+                            type="number"
+                            min={TASK_ESTIMATE_MINUTES_MIN}
+                            max={TASK_ESTIMATE_MINUTES_MAX}
+                            step={1}
+                            value={editTaskEstimate}
+                            disabled={taskMutating}
+                            onChange={event => setEditTaskEstimate(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="today-action__task-edit-actions">
+                        <button
+                          type="button"
+                          className="button today-action__task-action"
+                          data-testid={`task-edit-cancel-${task.id}`}
+                          disabled={taskMutating}
+                          onClick={closeTaskEditor}
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="submit"
+                          className="button button-primary today-action__task-action"
+                          data-testid={`task-edit-save-${task.id}`}
+                          disabled={taskMutating}
+                        >
+                          {taskMutating ? '保存中' : '保存'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="today-action__task-layout">
+                      <div className="today-action__task-copy">
+                        <p className="today-action__task-title">{task.title}</p>
+                        <div className="today-action__task-labels">
+                          <span
+                            data-testid={`task-status-${task.id}`}
+                            className="today-action__task-status"
+                            data-status={task.status}
+                          >
+                            {STUDY_TASK_STATUS_LABELS[task.status]}
+                          </span>
+                          <span className="today-action__task-meta">
+                            {STUDY_TASK_TYPE_LABELS[task.type]} · {task.estimate_minutes} 分钟
+                          </span>
+                          {task.source === 'ai' && (
+                            <span className="today-action__task-tag today-action__task-tag--ai">
+                              AI 建议
+                            </span>
+                          )}
+                          {task.related_mistake_id !== null && (
+                            <span className="today-action__task-tag today-action__task-tag--warning">
+                              关联错题 #{task.related_mistake_id}
+                            </span>
+                          )}
+                          {task.related_entry_id !== null && (
+                            <span className="today-action__task-tag today-action__task-tag--success">
+                              关联日记 #{task.related_entry_id}
+                            </span>
+                          )}
+                          {task.related_chapter_id !== null && (
+                            <>
+                              <span className="today-action__task-tag today-action__task-tag--chapter">
+                                章节任务
+                              </span>
+                              {taskSourceLabels[task.id] && (
+                                <span
+                                  data-testid={`task-source-${task.id}`}
+                                  className="today-action__task-source"
+                                  data-missing={taskSourceLabels[task.id]?.missingChapter ? 'true' : 'false'}
+                                >
+                                  {taskSourceLabels[task.id]?.label}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {task.description && (
+                          <p className="today-action__task-description">{task.description}</p>
+                        )}
+                      </div>
+                      <div className="today-action__task-actions" role="group" aria-label={`${task.title} 的操作`}>
+                        <div className="today-action__task-primary-actions">
+                          {(task.status === 'todo' || task.status === 'doing') && (
+                            <button
+                              data-testid={`task-start-focus-${task.id}`}
+                              type="button"
+                              className="button today-action__task-action today-action__task-action--focus"
+                              aria-label={`开始专注：${task.title}`}
+                              title={hasActiveTimerSession ? '请先结束当前专注，再开始另一项任务。' : undefined}
+                              disabled={taskMutating || hasActiveTimerSession || startingTaskId !== null}
+                              onClick={() => { void handleStartTaskFocus(task) }}
+                            >
+                              {startingTaskId === task.id ? '正在开始…' : <><Timer size={14} aria-hidden="true" /> 开始专注</>}
+                            </button>
+                          )}
+                          {(task.status === 'done' || task.status === 'skipped') && (
+                            <button
+                              data-testid={`task-restore-${task.id}`}
+                              type="button"
+                              className="button today-action__task-action"
+                              disabled={taskMutating}
+                              onClick={() => persistTaskChange(() => tasksAPI.update(task.id, { status: 'todo' }))}
+                            >
+                              恢复待开始
+                            </button>
+                          )}
+                          <button
+                            data-testid={`task-complete-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action today-action__task-action--complete"
+                            disabled={taskMutating || task.status === 'done'}
+                            onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
+                          >
+                            完成
+                          </button>
+                        </div>
+                        <div className="today-action__task-maintenance-actions">
+                          <button
+                            data-testid={`task-edit-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action"
+                            disabled={taskMutating}
+                            onClick={() => openTaskEditor(task)}
+                          >
+                            修改
+                          </button>
+                          <button
+                            data-testid={`task-skip-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action"
+                            disabled={taskMutating || task.status === 'skipped'}
+                            onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
+                          >
+                            跳过
+                          </button>
+                          <button
+                            data-testid={`task-delete-${task.id}`}
+                            type="button"
+                            className="button today-action__task-action today-action__task-action--danger"
+                            disabled={taskMutating}
+                            onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             <form className="today-action__task-create" aria-label="添加今日任务" onSubmit={handleManualTaskSubmit}>
@@ -509,6 +658,7 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
                 <span>任务名称</span>
                 <input
                   id="today-task-title"
+                  ref={newTaskTitleRef}
                   data-testid="task-title-input"
                   value={newTaskTitle}
                   onChange={event => setNewTaskTitle(event.target.value)}
@@ -602,190 +752,54 @@ export default function HomeDashboard({ setActiveView, selectedDate, setSelected
               </div>
             ) : null}
 
-            <div className="today-action__task-list">
-              {tasks.length === 0 ? (
-                <p className="today-action__empty-queue" role="status">
-                  今天还没任务，先加一件容易开始的事。
-                </p>
-              ) : tasks.map(task => (
-                <div
-                  key={task.id}
-                  className="today-action__task-row"
-                  data-status={task.status}
-                >
-                  {editingTaskId === task.id ? (
-                    <form className="today-action__task-edit" noValidate onSubmit={handleTaskEditSubmit}>
-                      <div className="today-action__task-edit-fields">
-                        <label className="today-action__field">
-                          <span>任务标题</span>
-                          <input
-                            data-testid={`task-edit-title-${task.id}`}
-                            className="input"
-                            value={editTaskTitle}
-                            maxLength={200}
-                            disabled={taskMutating}
-                            onChange={event => setEditTaskTitle(event.target.value)}
-                          />
-                        </label>
-                        <label className="today-action__field">
-                          <span>预计分钟数</span>
-                          <input
-                            data-testid={`task-edit-estimate-${task.id}`}
-                            className="input"
-                            type="number"
-                            min={TASK_ESTIMATE_MINUTES_MIN}
-                            max={TASK_ESTIMATE_MINUTES_MAX}
-                            step={1}
-                            value={editTaskEstimate}
-                            disabled={taskMutating}
-                            onChange={event => setEditTaskEstimate(event.target.value)}
-                          />
-                        </label>
-                      </div>
-                      <div className="today-action__task-edit-actions">
-                        <button
-                          type="button"
-                          className="button today-action__task-action"
-                          data-testid={`task-edit-cancel-${task.id}`}
-                          disabled={taskMutating}
-                          onClick={closeTaskEditor}
-                        >
-                          取消
-                        </button>
-                        <button
-                          type="submit"
-                          className="button button-primary today-action__task-action"
-                          data-testid={`task-edit-save-${task.id}`}
-                          disabled={taskMutating}
-                        >
-                          {taskMutating ? '保存中' : '保存'}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="today-action__task-layout">
-                      <div className="today-action__task-copy">
-                        <div className="today-action__task-title-line">
-                          <span className="today-action__task-title">{task.title}</span>
-                          <span
-                            data-testid={`task-status-${task.id}`}
-                            className="today-action__task-status"
-                            data-status={task.status}
-                          >
-                            {STUDY_TASK_STATUS_LABELS[task.status]}
-                          </span>
-                          <span className="today-action__task-meta">
-                            {STUDY_TASK_TYPE_LABELS[task.type]} · {task.estimate_minutes} 分钟
-                          </span>
-                          {task.source === 'ai' && (
-                            <span className="today-action__task-tag today-action__task-tag--ai">
-                              AI 建议
-                            </span>
-                          )}
-                          {task.related_mistake_id !== null && (
-                            <span className="today-action__task-tag today-action__task-tag--warning">
-                              关联错题 #{task.related_mistake_id}
-                            </span>
-                          )}
-                          {task.related_entry_id !== null && (
-                            <span className="today-action__task-tag today-action__task-tag--success">
-                              关联日记 #{task.related_entry_id}
-                            </span>
-                          )}
-                          {task.related_chapter_id !== null && (
-                            <>
-                              <span className="today-action__task-tag today-action__task-tag--chapter">
-                                章节任务
-                              </span>
-                              {taskSourceLabels[task.id] && (
-                                <span
-                                  data-testid={`task-source-${task.id}`}
-                                  className="today-action__task-source"
-                                  data-missing={taskSourceLabels[task.id]?.missingChapter ? 'true' : 'false'}
-                                >
-                                  {taskSourceLabels[task.id]?.label}
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        {task.description && (
-                          <p className="today-action__task-description">{task.description}</p>
-                        )}
-                      </div>
-                      <div className="today-action__task-actions" role="group" aria-label={`${task.title} 的操作`}>
-                        {(task.status === 'todo' || task.status === 'doing') && (
-                          <button
-                            data-testid={`task-start-focus-${task.id}`}
-                            type="button"
-                            className="button today-action__task-action"
-                            aria-label={`开始专注：${task.title}`}
-                            title={hasActiveTimerSession ? '请先结束当前专注，再开始另一项任务。' : undefined}
-                            disabled={taskMutating || hasActiveTimerSession || startingTaskId !== null}
-                            onClick={() => { void handleStartTaskFocus(task) }}
-                          >
-                            {startingTaskId === task.id ? '正在开始…' : <><Timer size={14} aria-hidden="true" /> 开始专注</>}
-                          </button>
-                        )}
-                        {(task.status === 'done' || task.status === 'skipped') && (
-                          <button
-                            data-testid={`task-restore-${task.id}`}
-                            type="button"
-                            className="button today-action__task-action"
-                            disabled={taskMutating}
-                            onClick={() => persistTaskChange(() => tasksAPI.update(task.id, { status: 'todo' }))}
-                          >
-                            恢复待开始
-                          </button>
-                        )}
-                        <button
-                          data-testid={`task-edit-${task.id}`}
-                          type="button"
-                          className="button today-action__task-action"
-                          disabled={taskMutating}
-                          onClick={() => openTaskEditor(task)}
-                        >
-                          修改
-                        </button>
-                        <button
-                          data-testid={`task-complete-${task.id}`}
-                          type="button"
-                          className="button today-action__task-action today-action__task-action--complete"
-                          disabled={taskMutating || task.status === 'done'}
-                          onClick={() => persistTaskChange(() => tasksAPI.complete(task.id))}
-                        >
-                          完成
-                        </button>
-                        <button
-                          data-testid={`task-skip-${task.id}`}
-                          type="button"
-                          className="button today-action__task-action"
-                          disabled={taskMutating || task.status === 'skipped'}
-                          onClick={() => persistTaskChange(() => tasksAPI.skip(task.id))}
-                        >
-                          跳过
-                        </button>
-                        <button
-                          data-testid={`task-delete-${task.id}`}
-                          type="button"
-                          className="button today-action__task-action today-action__task-action--danger"
-                          disabled={taskMutating}
-                          onClick={() => persistTaskChange(() => tasksAPI.delete(task.id))}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
             {taskError && (
               <p role="alert" id="today-action-task-error" data-testid="task-error" className="today-action__notice today-action__notice--danger">
                 {taskError}
               </p>
             )}
+          </section>
+
+          <section
+            data-testid="today-execution-overview"
+            className="today-action__overview"
+            aria-labelledby="today-action-overview-title"
+          >
+            <div className="today-action__section-heading today-action__section-heading--compact">
+              <div>
+                <h2 id="today-action-overview-title">今日进展</h2>
+              </div>
+              <time className="today-action__date" dateTime={todayDate}>{todayDate}</time>
+            </div>
+            <dl className="today-action__overview-grid">
+              <div data-testid="overview-tasks" className="today-action__overview-item">
+                <dt>今日任务</dt>
+                <dd>
+                  <strong>{executionSummary.completedTasks} / {executionSummary.totalTasks}</strong>
+                  <span>已完成 / 总数</span>
+                </dd>
+              </div>
+              <div data-testid="overview-focus" className="today-action__overview-item">
+                <dt>今日专注</dt>
+                <dd>
+                  <strong>{executionSummary.focusMinutes} 分钟</strong>
+                  <span>今天所有专注计时的累计时长</span>
+                </dd>
+              </div>
+              <div data-testid="overview-chapters" className="today-action__overview-item">
+                <dt>章节进度</dt>
+                <dd>
+                  <strong>{executionSummary.completedChapterTaskCount} / {executionSummary.chapterTaskCount}</strong>
+                  <span>已完成 / 今日章节</span>
+                </dd>
+              </div>
+              <div data-testid="overview-diary" className="today-action__overview-item">
+                <dt>今日复盘</dt>
+                <dd>
+                  <strong>{diaryStatusLabel}</strong>
+                  <span>今天没有日记、只有草稿，或已有正文</span>
+                </dd>
+              </div>
+            </dl>
           </section>
 
           <section className="today-action__followup" aria-labelledby="today-action-followup-title">

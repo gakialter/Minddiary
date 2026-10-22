@@ -335,6 +335,7 @@ describe('Editor dirty tracking', () => {
       )
       expect(onDirtyChange).toHaveBeenLastCalledWith(false)
     })
+    expect(document.querySelector('.editor-save-state')).toHaveAttribute('aria-live', 'off')
   })
 
   it('keeps dirty state when save resolves null', async () => {
@@ -667,6 +668,7 @@ describe('Editor live preview contracts', () => {
     await act(async () => { vi.advanceTimersByTime(1) })
     expect(onSave).toHaveBeenCalledWith({ title: entry.title, content: '**Entry** body', tags: [1] }, expect.objectContaining({ origin: 'editor-auto' }))
     expect(screen.getByLabelText('日记字数 13')).toBeInTheDocument()
+    expect(document.querySelector('.editor-save-state')).toHaveAttribute('aria-live', 'polite')
   })
 
   it('switches entries with fresh selection/history and does not save the previous draft into the new entry', async () => {

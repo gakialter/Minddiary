@@ -152,13 +152,13 @@ describe('Pomodoro Component', () => {
     pointer('pointerdown', 100)
     pointer('pointerup', 102)
     expect(onExpand).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '开始或继续计时' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始计时' }))
     await flushAsyncWork()
     act(() => vi.advanceTimersByTime(1000))
     expect(screen.getByText('24:59')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '暂停计时' }))
     await flushAsyncWork()
-    fireEvent.click(screen.getByRole('button', { name: '开始或继续计时' }))
+    fireEvent.click(screen.getByRole('button', { name: '继续计时' }))
     await flushAsyncWork()
     act(() => vi.advanceTimersByTime(1000))
     expect(screen.getByText('24:58')).toBeInTheDocument()
@@ -239,6 +239,65 @@ describe('Pomodoro Component', () => {
 
     fireEvent.click(screen.getByTestId('pomodoro-mode-custom'))
     expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始计时')
+  })
+
+  it.each([
+    ['work', '开始专注', '继续专注'],
+    ['custom', '开始计时', '继续计时'],
+    ['stopwatch', '开始正计时', '继续正计时'],
+    ['short_break', '开始短休', '继续短休'],
+    ['long_break', '开始长休', '继续长休'],
+  ])('keeps %s feedback accurate through start, pause, resume and reset', async (modeId, startLabel, resumeLabel) => {
+    await renderPomodoro()
+    fireEvent.click(screen.getByTestId(`pomodoro-mode-${modeId}`))
+    const initialTime = screen.getByText(/^\d{2}:\d{2}$/).textContent
+    const runningLabel = modeId === 'stopwatch' ? '正在正计时...' : '正在进行中...'
+    const startButton = screen.getByTestId('pomodoro-start-btn')
+
+    expect(screen.getByText('准备就绪')).toBeInTheDocument()
+    expect(startButton).toHaveTextContent(startLabel)
+    fireEvent.click(startButton)
+    await flushAsyncWork()
+    expect(screen.getByText(runningLabel)).toBeInTheDocument()
+    expect(startButton).toHaveTextContent('暂停')
+
+    // A session can be paused immediately, even when the stopwatch still reads zero.
+    fireEvent.click(startButton)
+    await flushAsyncWork()
+    expect(screen.getByText('已暂停')).toBeInTheDocument()
+    expect(startButton).toHaveTextContent(resumeLabel)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByText(/^\d{2}:\d{2}$/).textContent).toBe(initialTime)
+
+    fireEvent.click(startButton)
+    await flushAsyncWork()
+    expect(screen.getByText(runningLabel)).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByText(/^\d{2}:\d{2}$/).textContent).not.toBe(initialTime)
+
+    fireEvent.click(screen.getByTestId('pomodoro-reset-btn'))
+    expect(screen.getByText('准备就绪')).toBeInTheDocument()
+    expect(startButton).toHaveTextContent(startLabel)
+    expect(screen.getByText(/^\d{2}:\d{2}$/).textContent).toBe(initialTime)
+  })
+
+  it.each<[string, number, string]>([
+    ['work', 25 * 60, '开始短休'],
+    ['custom', 30 * 60, '开始短休'],
+    ['short_break', 5 * 60, '开始专注'],
+    ['long_break', 15 * 60, '开始专注'],
+  ])('returns to ready feedback after %s completes naturally', async (modeId, seconds, nextStartLabel) => {
+    await renderPomodoro()
+    fireEvent.click(screen.getByTestId(`pomodoro-mode-${modeId}`))
+    fireEvent.click(screen.getByTestId('pomodoro-start-btn'))
+    await flushAsyncWork()
+
+    await act(async () => { vi.advanceTimersByTime(seconds * 1000) })
+    await flushAsyncWork()
+
+    expect(screen.getByText('准备就绪')).toBeInTheDocument()
+    expect(screen.queryByText('已暂停')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent(nextStartLabel)
   })
 
   it('enters Zen mode and requests Electron fullscreen', async () => {
@@ -642,6 +701,8 @@ describe('Pomodoro Component', () => {
       duration: 1,
     }))
     expect(screen.getByText('00:00')).toBeInTheDocument()
+    expect(screen.getByText('准备就绪')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始正计时')
   })
 
   it('shows the countdown finish button only for active work/custom countdowns', async () => {
@@ -717,6 +778,8 @@ describe('Pomodoro Component', () => {
       duration: 1,
     }))
     expect(screen.queryByTestId('pomodoro-finish-countdown-btn')).not.toBeInTheDocument()
+    expect(screen.getByText('准备就绪')).toBeInTheDocument()
+    expect(screen.getByTestId('pomodoro-start-btn')).toHaveTextContent('开始专注')
   })
 
   it('does not save when interrupted countdown confirmation is cancelled', async () => {

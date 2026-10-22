@@ -203,8 +203,8 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
                             {mistake.subject_name && (
                                 <span style={{
                                     display: 'inline-block',
-                                    background: (mistake.subject_color || 'var(--accent)') + '22',
-                                    color: mistake.subject_color || 'var(--accent)',
+                                    background: 'var(--color-accent-subtle)',
+                                    color: 'var(--color-accent)',
                                     padding: '2px 10px', borderRadius: 'var(--radius-sm)',
                                     fontSize: 13, fontWeight: 500, marginBottom: 'var(--space-md)'
                                 }}>
