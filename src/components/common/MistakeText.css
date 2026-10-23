@@ -1,0 +1,24 @@
+.mistake-qa-content {
+    min-width: 0;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mistake-qa-content .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 0.25em;
+    white-space: normal;
+}
+
+.mistake-qa-content .katex {
+    white-space: normal;
+    overflow-wrap: normal;
+}
+
+.mistake-qa-content .katex-display:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+}

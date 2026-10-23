@@ -135,6 +135,90 @@ describe('MistakeBook Component', () => {
     expect(screen.getByText('basic')).toBeInTheDocument()
   })
 
+  it('scrolls the page container to the mistake list after a pagination request resolves', async () => {
+    let resolveSecondPage!: (response: { data: Mistake[]; total: number; masteredTotal: number }) => void
+    mistakesApi.getAll
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
+      .mockReturnValueOnce(new Promise(resolve => { resolveSecondPage = resolve }))
+
+    const { container } = render(<main data-scroll-owner="page"><MistakeBook /></main>)
+    const pageScroller = container.querySelector('main')!
+    const list = container.querySelector('.mistake-book > .flex.flex-col')!
+    vi.spyOn(pageScroller, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({ top: 20 } as DOMRect)
+    pageScroller.scrollTop = 500
+
+    await screen.findByText('1 / 2')
+    expect(pageScroller.scrollTop).toBe(500)
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页 ›' }))
+    await screen.findByText('2 / 2')
+    expect(pageScroller.scrollTop).toBe(500)
+
+    await act(async () => {
+      resolveSecondPage({
+        data: [{
+          ...mockMistakes[0]!,
+          id: 51,
+          question: 'page two question',
+          ease_factor: 2.5,
+          review_interval: 1,
+          next_review_date: null,
+          review_count: 0,
+          created_at: '2026-10-23T00:00:00Z',
+        }],
+        total: 51,
+        masteredTotal: 0,
+      })
+    })
+
+    expect(await screen.findByText('page two question')).toBeInTheDocument()
+    await waitFor(() => expect(pageScroller.scrollTop).toBe(420))
+  })
+
+  it('does not scroll for a pending page response after a filter change', async () => {
+    let resolveSecondPage!: (response: { data: Mistake[]; total: number; masteredTotal: number }) => void
+    mistakesApi.getAll
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
+      .mockReturnValueOnce(new Promise(resolve => { resolveSecondPage = resolve }))
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
+
+    const { container } = render(<main data-scroll-owner="page"><MistakeBook /></main>)
+    const pageScroller = container.querySelector('main')!
+    const list = container.querySelector('.mistake-book > .flex.flex-col')!
+    vi.spyOn(pageScroller, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({ top: 20 } as DOMRect)
+    pageScroller.scrollTop = 500
+
+    await screen.findByText('1 / 2')
+    fireEvent.click(screen.getByRole('button', { name: '下一页 ›' }))
+    await screen.findByText('2 / 2')
+
+    fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '1' } })
+    await screen.findByText('1 / 2')
+    await waitFor(() => expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 1 })))
+
+    await act(async () => {
+      resolveSecondPage({
+        data: [{
+          ...mockMistakes[0]!,
+          id: 51,
+          question: 'stale page two question',
+          ease_factor: 2.5,
+          review_interval: 1,
+          next_review_date: null,
+          review_count: 0,
+          created_at: '2026-10-23T00:00:00Z',
+        }],
+        total: 51,
+        masteredTotal: 0,
+      })
+    })
+
+    expect(await screen.findByText('stale page two question')).toBeInTheDocument()
+    expect(pageScroller.scrollTop).toBe(500)
+  })
+
   it('starts manual review using the currently selected subject filter', async () => {
     await act(async () => {
       render(<MistakeBook />)

@@ -2,7 +2,6 @@ import { createPortal } from 'react-dom'
 import { useModalFocus } from '../hooks/useModalFocus'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, CheckCircle, Pin, RotateCcw, Trophy, X } from 'lucide-react'
-import Latex from 'react-latex-next'
 import { useDiary } from '../contexts/DiaryContext'
 import type { Mistake } from '../types'
 import { getLocalDateKey } from '../utils/dateKey'
@@ -18,6 +17,7 @@ import {
 import ClickableImage from './ClickableImage'
 import ImagePreviewModal, { type PreviewImage } from './ImagePreviewModal'
 import MarkdownRenderer from './common/MarkdownRenderer'
+import MistakeText from './common/MistakeText'
 
 export interface MistakeReviewModalProps {
     onClose: () => void
@@ -218,7 +218,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
                                 lineHeight: 1.7, fontSize: 15
                             }}>
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>题目</div>
-                                <Latex>{mistake.question}</Latex>
+                                <MistakeText label="题目">{mistake.question}</MistakeText>
                             </div>
 
                             {questionImagePaths.length > 0 && (
@@ -269,7 +269,7 @@ export default function MistakeReviewModal({ onClose, variant, subjectId, initia
                                         marginBottom: 'var(--space-md)', lineHeight: 1.7, fontSize: 14
                                     }}>
                                         <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 6, fontWeight: 600 }}>答案</div>
-                                        {mistake.answer ? <Latex>{mistake.answer}</Latex> : <span className="text-muted">暂无答案</span>}
+                                        {mistake.answer ? <MistakeText label="答案">{mistake.answer}</MistakeText> : <span className="text-muted">暂无答案</span>}
                                         {mistake.notes && (
                                             <div style={{ marginTop: 'var(--space-sm)', fontSize: 13, color: 'var(--text-muted)' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4, fontWeight: 600 }}>

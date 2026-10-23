@@ -115,6 +115,25 @@ beforeEach(() => {
 })
 
 describe('MistakeReviewModal', () => {
+  it('preserves multiline Q/A while keeping notes Markdown and answer reveal behavior', () => {
+    const question = '综合题\n\n(1) $x$\n(2) **说明**'
+    const answer = '第一步\n第二步\n\n$$x=2$$'
+    render(<MistakeReviewModal
+      onClose={vi.fn()}
+      variant="manual"
+      initialMistake={{ ...dueMistake, question, answer, notes: '**备注**' }}
+    />)
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelector('.mistake-qa-content')!.textContent).toBe(question)
+    expect(dialog.querySelectorAll('.mistake-qa-content')).toHaveLength(1)
+    expect(dialog.querySelector('.mistake-review-notes-md')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('mistake-review-reveal-answer'))
+
+    expect(dialog.querySelectorAll('.mistake-qa-content')[1]!.textContent).toBe(answer)
+    expect(dialog.querySelector('.mistake-review-notes-md strong')!.textContent).toBe('备注')
+  })
+
   it('portals, isolates background, contains focus, ignores backdrop and restores entry focus', async () => {
     const entry = document.createElement('button')
     document.body.append(entry)

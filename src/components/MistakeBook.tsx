@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { useDiary } from '../contexts/DiaryContext'
 import { showToast } from './Toast'
 import { ArrowRightLeft, BookX, BookOpen, ImagePlus, X, Sparkles } from 'lucide-react'
@@ -142,6 +142,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [showAIReview, setShowAIReview] = useState(false)
     const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
     const [editScrollRequest, setEditScrollRequest] = useState(0)
+    const [paginationReadyPage, setPaginationReadyPage] = useState<number | null>(null)
     const [uploadingImageCount, setUploadingImageCount] = useState(0)
     const [cleaningImageCount, setCleaningImageCount] = useState(0)
     const [imageUploadFailures, setImageUploadFailures] = useState<ImageUploadFailure[]>([])
@@ -152,6 +153,8 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const questionFileInputRef = useRef<HTMLInputElement>(null)
     const answerFileInputRef = useRef<HTMLInputElement>(null)
     const formRef = useRef<HTMLFormElement>(null)
+    const mistakeListRef = useRef<HTMLDivElement>(null)
+    const pendingPaginationPageRef = useRef<number | null>(null)
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
     const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
     const reviewInFlightIdsRef = useRef<Set<number>>(new Set())
@@ -187,10 +190,26 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         loadSubjects()
     }, [])
 
-    useEffect(() => { loadMistakes() }, [filter, page, dueOnly])
+    useEffect(() => { loadMistakes(pendingPaginationPageRef.current === page) }, [filter, page, dueOnly])
+
+    useLayoutEffect(() => {
+        if (paginationReadyPage !== page || pendingPaginationPageRef.current !== page) return
+
+        const list = mistakeListRef.current
+        const pageScroller = list?.closest<HTMLElement>('[data-scroll-owner="page"]')
+        if (list && pageScroller) {
+            const listTop = list.getBoundingClientRect().top
+            const scrollerTop = pageScroller.getBoundingClientRect().top
+            pageScroller.scrollTop += listTop - scrollerTop
+        }
+
+        pendingPaginationPageRef.current = null
+        setPaginationReadyPage(null)
+    }, [page, paginationReadyPage])
 
     useEffect(() => {
         if (initialFilter !== 'due') return
+        pendingPaginationPageRef.current = null
         setDueOnly(true)
         setPage(1)
         onInitialFilterApplied?.()
@@ -208,9 +227,11 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     // Debounced search: update filter.search 300ms after user stops typing
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value
+        pendingPaginationPageRef.current = null
         setSearchInput(val)
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
         searchDebounceRef.current = setTimeout(() => {
+            pendingPaginationPageRef.current = null
             setFilter(f => ({ ...f, search: val }))
             setPage(1)
         }, 300)
@@ -223,7 +244,8 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         } catch (e) { logger.error(e) }
     }
 
-    const loadMistakes = async () => {
+    const loadMistakes = async (isPaginationRequest = false) => {
+        const requestedPage = page
         try {
             const filters: MistakeFilters = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
             if (filter.subject_id) filters.subject_id = Number(filter.subject_id)
@@ -243,6 +265,9 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 setMistakes(response?.data || [])
                 setTotalCount(response?.total || 0)
                 setMasteredCount(response?.masteredTotal || 0)
+            }
+            if (isPaginationRequest && pendingPaginationPageRef.current === requestedPage) {
+                setPaginationReadyPage(requestedPage)
             }
         } catch (e) { logger.error(e) }
     }
@@ -812,7 +837,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 </label>
                 <label className="workspace-field">科目
                     <select className="input" value={filter.subject_id}
-                        onChange={e => { setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}
+                        onChange={e => { pendingPaginationPageRef.current = null; setFilter({ ...filter, subject_id: e.target.value }); setPage(1) }}
                         data-testid="mistake-subject-filter">
                         <option value="">全部科目</option>
                         {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -820,7 +845,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                 </label>
                 <label className="workspace-field">掌握情况
                     <select className="input" value={filter.mastered}
-                        onChange={e => { setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
+                        onChange={e => { pendingPaginationPageRef.current = null; setFilter({ ...filter, mastered: e.target.value }); setPage(1) }}
                         data-testid="mistake-status-filter">
                         <option value="">全部状态</option>
                         <option value="false">未掌握</option>
@@ -851,7 +876,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         type="button"
                         className="button button-secondary text-xs"
                         data-testid="mistake-clear-due-filter"
-                        onClick={() => { setDueOnly(false); setPage(1) }}
+                        onClick={() => { pendingPaginationPageRef.current = null; setDueOnly(false); setPage(1) }}
                         style={{ padding: '3px 8px', background: 'transparent' }}
                     >
                         清除筛选
@@ -952,7 +977,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             )}
 
             {/* Mistake List */}
-            <div className="flex flex-col gap-sm">
+            <div ref={mistakeListRef} className="flex flex-col gap-sm">
                 {pagedMistakes.map(m => (
                     <MistakeItem
                         key={m.id}
@@ -992,10 +1017,18 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             {totalPages > 1 && (
                 <div className="mistake-book__pagination" role="navigation" aria-label="错题分页">
                     <button className="button button-secondary" style={{ padding: '4px 12px' }}
-                        disabled={page <= 1} onClick={() => setPage(p => p - 1)}>‹ 上一页</button>
+                        disabled={page <= 1} onClick={() => {
+                            const nextPage = page - 1
+                            pendingPaginationPageRef.current = nextPage
+                            setPage(nextPage)
+                        }}>‹ 上一页</button>
                     <span className="text-sm text-muted">{page} / {totalPages}</span>
                     <button className="button button-secondary" style={{ padding: '4px 12px' }}
-                        disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页 ›</button>
+                        disabled={page >= totalPages} onClick={() => {
+                            const nextPage = page + 1
+                            pendingPaginationPageRef.current = nextPage
+                            setPage(nextPage)
+                        }}>下一页 ›</button>
                 </div>
             )}
             {showManualReview && (

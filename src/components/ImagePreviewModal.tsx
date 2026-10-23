@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useModalFocus } from '../hooks/useModalFocus'
 
 export interface PreviewImage {
   src: string
@@ -12,36 +12,21 @@ interface ImagePreviewModalProps {
 }
 
 export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalProps) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!image) return
-
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    const previousOverflow = document.body.style.overflow
-
-    document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', handleKeyDown)
-    closeButtonRef.current?.focus()
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-      previouslyFocused?.focus()
-    }
-  }, [image, onClose])
+  const modalRef = useModalFocus(onClose, !!image)
 
   if (!image) return null
 
   return (
     <div
+      ref={modalRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="图片预览"
       onClick={onClose}
+      // Keep native control activation while containing application shortcuts.
+      onKeyDown={event => event.stopPropagation()}
+      onKeyUp={event => event.stopPropagation()}
       style={{
         position: 'fixed',
         inset: 0,
@@ -55,7 +40,6 @@ export default function ImagePreviewModal({ image, onClose }: ImagePreviewModalP
       }}
     >
       <button
-        ref={closeButtonRef}
         type="button"
         aria-label="关闭图片预览"
         title="关闭图片预览"

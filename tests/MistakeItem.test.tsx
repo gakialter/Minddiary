@@ -37,6 +37,21 @@ const defaultProps = {
 }
 
 describe('MistakeItem notes markdown rendering', () => {
+  it('keeps multiline Q/A text unchanged and notes in the separate Markdown renderer', () => {
+    const question = '综合题\n\n(1) 求值 $x$\n(2) **说明**'
+    const answer = '第一步\n第二步\n\n结论 $$x=2$$'
+    const { container } = render(
+      <MistakeItem mistake={{ ...baseMistake, question, answer, notes: '**备注**' }} {...defaultProps} />
+    )
+    expect(container.querySelector('.mistake-qa-content')!.textContent).toBe(`Q：${question}`)
+    expect(container.querySelectorAll('.mistake-qa-content')).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId('mistake-toggle-answer-1'))
+
+    expect(container.querySelectorAll('.mistake-qa-content')[1]!.textContent).toBe(`A：${answer}`)
+    expect(container.querySelector('.mistake-notes-md strong')!.textContent).toBe('备注')
+  })
+
   it('shows question images immediately and keeps answer images out of the DOM until reveal', () => {
     const { container } = render(
       <MistakeItem

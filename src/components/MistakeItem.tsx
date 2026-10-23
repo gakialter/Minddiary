@@ -3,11 +3,11 @@ import { Mistake } from '../types'
 import { CheckCircle2, Clock, Eye, EyeOff, Undo2, Pencil, Trash2, Pin } from 'lucide-react'
 import { isDueForReview } from '../utils/spacedRepetition'
 import { REVIEW_QUALITIES } from '../utils/reviewLabels'
-import Latex from 'react-latex-next'
 import { toLocalAssetUrl } from '../utils/localAssetUrl'
 import ClickableImage from './ClickableImage'
 import type { PreviewImage } from './ImagePreviewModal'
 import MarkdownRenderer from './common/MarkdownRenderer'
+import MistakeText from './common/MistakeText'
 
 interface MistakeItemProps {
     mistake: Mistake
@@ -84,7 +84,7 @@ export function MistakeItem({
                 </div>
             </div>
             <div className="content-selectable" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
-                <strong>Q：</strong><Latex>{m.question}</Latex>
+                <MistakeText label="题目" prefix="Q：">{m.question}</MistakeText>
             </div>
             {questionImagePaths.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 'var(--space-sm) 0' }}>
@@ -130,7 +130,7 @@ export function MistakeItem({
             )}
             {answerVisible && m.answer && (
                 <div className="text-secondary content-selectable" style={{ marginBottom: 'var(--space-xs)', lineHeight: 1.6 }}>
-                    <strong>A：</strong><Latex>{m.answer}</Latex>
+                    <MistakeText label="答案" prefix="A：">{m.answer}</MistakeText>
                 </div>
             )}
             {answerVisible && answerImagePaths.length > 0 && (

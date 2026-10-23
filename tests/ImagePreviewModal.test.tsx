@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BreakReviewModal from '../src/components/BreakReviewModal'
 import ImagePreviewModal from '../src/components/ImagePreviewModal'
 import { showToast, ToastContainer } from '../src/components/Toast'
+import { useGlobalKeyboard } from '../src/hooks/useGlobalKeyboard'
 
 const styles = readFileSync('src/index.css', 'utf8')
 
@@ -13,14 +14,15 @@ const mocks = vi.hoisted(() => ({
   review: vi.fn(),
 }))
 
-vi.mock('../src/contexts/DiaryContext', () => ({
-  useDiary: () => ({
+vi.mock('../src/contexts/DiaryContext', () => {
+  const diary = {
     mistakes: {
       getRandomDue: mocks.getRandomDue,
       review: mocks.review,
     },
-  }),
-}))
+  }
+  return { useDiary: () => diary }
+})
 
 vi.mock('react-latex-next', () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -97,6 +99,68 @@ describe('ImagePreviewModal', () => {
     expect(screen.getByRole('dialog', { name: '图片预览' })).toHaveStyle({
       zIndex: 'var(--z-image-preview)',
     })
+  })
+
+  it('contains forward/backward Tab and programmatic focus, then restores its trigger', () => {
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return <>
+        <button onClick={() => setOpen(true)}>预览图片</button>
+        <button>开始计时</button>
+        <ImagePreviewModal image={open ? image : null} onClose={() => setOpen(false)} />
+      </>
+    }
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: '预览图片' })
+    const timer = screen.getByRole('button', { name: '开始计时' })
+    const previousInert = timer.inert
+    trigger.focus()
+    fireEvent.click(trigger)
+    const close = screen.getByRole('button', { name: '关闭图片预览' })
+    expect(close).toHaveFocus()
+    expect(timer.inert).toBe(true)
+    for (const shiftKey of [false, false, true, true]) {
+      expect(fireEvent.keyDown(close, { key: 'Tab', shiftKey })).toBe(false)
+      expect(close).toHaveFocus()
+    }
+    timer.focus()
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(timer.inert).toBe(previousInert)
+  })
+
+  it('contains application shortcuts without preventing native Space activation', () => {
+    const shortcut = vi.fn()
+    function Harness() {
+      useGlobalKeyboard({ k: shortcut })
+      return <ImagePreviewModal image={image} onClose={vi.fn()} />
+    }
+    render(<Harness />)
+    const close = screen.getByRole('button', { name: '关闭图片预览' })
+    fireEvent.keyDown(close, { key: 'k', ctrlKey: true })
+    expect(shortcut).not.toHaveBeenCalled()
+    expect(fireEvent.keyDown(close, { key: ' ', code: 'Space' })).toBe(true)
+  })
+
+  it('lets a nested preview own focus and Escape, then resumes its parent modal', async () => {
+    const onParentClose = vi.fn()
+    render(<BreakReviewModal onClose={onParentClose} />)
+    const trigger = (await screen.findByRole('img')).closest('button')!
+    trigger.focus()
+    fireEvent.click(trigger)
+    const close = screen.getByRole('button', { name: '关闭图片预览' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Tab' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: '图片预览' })).not.toBeInTheDocument()
+    expect(onParentClose).not.toHaveBeenCalled()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(onParentClose).toHaveBeenCalledTimes(1)
   })
 
   it('uses the modal z-index token on the break review overlay', async () => {
