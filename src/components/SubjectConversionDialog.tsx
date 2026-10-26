@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Subject } from '../types'
+import { useModalFocus } from '../hooks/useModalFocus'
 
 interface SubjectConversionDialogProps {
     subject: Subject
@@ -19,6 +20,7 @@ export default function SubjectConversionDialog({
     const defaultMode = summaryCompleted > 0 ? 'preserve' : 'empty'
     const [mode, setMode] = useState<'preserve' | 'empty'>(defaultMode)
     const [saving, setSaving] = useState(false)
+    const modalRef = useModalFocus(() => { if (!saving) onCancel() })
 
     const markCompletedCount = mode === 'preserve' ? summaryCompleted : 0
     const preserveUnavailable = mode === 'preserve' && summaryCompleted > chapterCount
@@ -39,6 +41,8 @@ export default function SubjectConversionDialog({
 
     return (
         <div
+            ref={modalRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-labelledby="subject-conversion-title"
@@ -46,7 +50,7 @@ export default function SubjectConversionDialog({
                 position: 'fixed',
                 inset: 0,
                 zIndex: 'var(--z-modal)',
-                background: 'rgba(0,0,0,0.42)',
+                background: 'var(--color-overlay-backdrop)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -58,8 +62,9 @@ export default function SubjectConversionDialog({
                 style={{
                     width: 'min(520px, 100%)',
                     padding: 'var(--space-xl)',
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border)',
+                    background: 'var(--color-surface-raised)',
+                    color: 'var(--color-text-primary)',
+                    border: '1px solid var(--color-border-default)',
                 }}
             >
                 <h3 id="subject-conversion-title" className="font-bold text-lg" style={{ marginBottom: 'var(--space-sm)' }}>
@@ -77,7 +82,7 @@ export default function SubjectConversionDialog({
                             name="chapter-conversion-mode"
                             checked={mode === 'preserve'}
                             onChange={() => setMode('preserve')}
-                            disabled={summaryCompleted === 0}
+                            disabled={saving || summaryCompleted === 0}
                         />
                         <span>
                             <span className="font-semibold">按原完成数标记</span>
@@ -90,6 +95,7 @@ export default function SubjectConversionDialog({
                             name="chapter-conversion-mode"
                             checked={mode === 'empty'}
                             onChange={() => setMode('empty')}
+                            disabled={saving}
                         />
                         <span>
                             <span className="font-semibold">全部设为未完成</span>
@@ -103,8 +109,8 @@ export default function SubjectConversionDialog({
                     style={{
                         padding: '10px 12px',
                         borderRadius: 8,
-                        background: preserveUnavailable ? 'rgba(198,90,58,0.10)' : 'var(--bg-tertiary)',
-                        color: preserveUnavailable ? 'var(--danger)' : 'var(--text-secondary)',
+                        background: preserveUnavailable ? 'var(--color-danger-bg-subtle)' : 'var(--color-surface-subtle)',
+                        color: preserveUnavailable ? 'var(--color-danger-fg)' : 'var(--color-text-secondary)',
                         marginBottom: 'var(--space-md)',
                     }}
                 >
