@@ -5904,6 +5904,22 @@ textarea.input {
 
 .study-progress__manage {
   flex: 0 0 auto;
+  background: var(--color-accent-subtle);
+  border-color: var(--color-border-interactive);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.study-progress__manage:hover,
+.study-progress__manage[aria-expanded="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.study-progress__manage[aria-expanded="true"]:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
 }
 
 .study-progress__chapters {
