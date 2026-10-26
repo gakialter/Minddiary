@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from 'react'
-import { ArrowDown, ArrowUp, Check, Edit3, ListPlus, Save, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronUp, Edit3, ListPlus, Plus, Save, Trash2, X } from 'lucide-react'
 import type { Subject, SubjectChapter, SubjectChapterDraft } from '../types'
 import type { SubjectChaptersContextAPI } from '../types/api'
 import {
@@ -38,6 +38,7 @@ export default function SubjectChapterPanel({
     onAddToToday,
 }: SubjectChapterPanelProps) {
     const [filter, setFilter] = useState<ChapterFilter>('all')
+    const [showAddChapter, setShowAddChapter] = useState(chapters.length === 0)
     const [singleTitle, setSingleTitle] = useState('')
     const [bulkText, setBulkText] = useState('')
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -225,56 +226,71 @@ export default function SubjectChapterPanel({
                 )}
             </div>
 
-            <div className="flex gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
-                <input
-                    className="input"
-                    style={{ flex: 1, minWidth: 0 }}
-                    placeholder="输入章节名后按回车添加"
-                    value={singleTitle}
-                    onChange={event => setSingleTitle(event.target.value)}
-                    onKeyDown={handleTitleKeyDown}
-                    disabled={!!pending}
-                    data-testid="chapter-title-input"
-                    aria-label="章节名"
-                />
+            <div className="flex items-center gap-sm flex-wrap" style={{ marginBottom: 'var(--space-md)' }}>
                 <button
-                    className="button button-primary"
-                    onClick={handleSingleAdd}
-                    disabled={!!pending || !singleTitle.trim()}
-                    data-testid="chapter-add-button"
-                    title="添加章节"
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => setShowAddChapter(value => !value)}
+                    aria-expanded={showAddChapter}
+                    aria-controls={`subject-chapter-add-${subject.id}`}
+                    data-testid="chapter-add-toggle"
                 >
-                    添加
+                    {showAddChapter ? <ChevronUp size={15} aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+                    {showAddChapter ? '收起新增' : '添加章节'}
                 </button>
             </div>
-
-            <div style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-                <textarea
-                    className="input"
-                    style={{ minHeight: 92, resize: 'vertical' }}
-                    placeholder={'一行一个章节，例如：\n第一章 函数、极限与连续\n第二章 一元函数微分学'}
-                    value={bulkText}
-                    onChange={event => setBulkText(event.target.value)}
-                    disabled={!!pending}
-                    data-testid="chapter-bulk-input"
-                    aria-label="章节目录"
-                />
-                <div className="flex items-center justify-between gap-sm flex-wrap">
-                    <div className="text-xs text-muted">
-                        每行添加一个章节；空行忽略，本次粘贴中重复的章节只添加一次。
-                    </div>
+            <div id={`subject-chapter-add-${subject.id}`} data-testid="chapter-add-form" hidden={!showAddChapter}>
+                <div className="flex gap-sm" style={{ marginBottom: 'var(--space-sm)' }}>
+                    <input
+                        className="input"
+                        style={{ flex: 1, minWidth: 0 }}
+                        placeholder="输入章节名后按回车添加"
+                        value={singleTitle}
+                        onChange={event => setSingleTitle(event.target.value)}
+                        onKeyDown={handleTitleKeyDown}
+                        disabled={!!pending}
+                        data-testid="chapter-title-input"
+                        aria-label="章节名"
+                    />
                     <button
-                        className="button button-secondary"
-                        onClick={handleBulkAdd}
-                        disabled={!!pending || !bulkText.trim()}
-                        data-testid="chapter-bulk-button"
-                        title="批量添加"
+                        className="button button-primary"
+                        onClick={handleSingleAdd}
+                        disabled={!!pending || !singleTitle.trim()}
+                        data-testid="chapter-add-button"
+                        title="添加章节"
                     >
-                        <ListPlus size={15} /> 批量添加
+                        添加
                     </button>
                 </div>
-            </div>
 
+                <div style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
+                    <textarea
+                        className="input"
+                        style={{ minHeight: 92, resize: 'vertical' }}
+                        placeholder={'一行一个章节，例如：\n第一章 函数、极限与连续\n第二章 一元函数微分学'}
+                        value={bulkText}
+                        onChange={event => setBulkText(event.target.value)}
+                        disabled={!!pending}
+                        data-testid="chapter-bulk-input"
+                        aria-label="章节目录"
+                    />
+                    <div className="flex items-center justify-between gap-sm flex-wrap">
+                        <div className="text-xs text-muted">
+                            每行添加一个章节；空行忽略，本次粘贴中重复的章节只添加一次。
+                        </div>
+                        <button
+                            className="button button-secondary"
+                            onClick={handleBulkAdd}
+                            disabled={!!pending || !bulkText.trim()}
+                            data-testid="chapter-bulk-button"
+                            title="批量添加"
+                        >
+                            <ListPlus size={15} /> 批量添加
+                        </button>
+                    </div>
+                </div>
+
+            </div>
             {hasDetailedChapters && (
                 <div className="flex items-center gap-sm flex-wrap" style={{ marginBottom: 'var(--space-md)' }}>
                     {([
