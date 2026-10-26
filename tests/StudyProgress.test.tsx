@@ -264,6 +264,33 @@ describe('StudyProgress detailed subject chapters', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
+  it('keeps the chapter creation form folded for existing chapters and preserves drafts when toggled', async () => {
+    setupStudyProgress([makeSubject({ total_chapters: 1, completed_chapters: 0 })], {
+      7: [makeChapter({ id: 1, title: '第一章 函数' })],
+    })
+
+    const manage = await screen.findByTestId('manage-chapters-7')
+    expect(manage).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(manage)
+    expect(manage).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByTestId('chapter-row-1')).toBeInTheDocument()
+
+    const toggle = screen.getByTestId('chapter-add-toggle')
+    const form = screen.getByTestId('chapter-add-form')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(toggle).toHaveAttribute('aria-controls', 'subject-chapter-add-7')
+    expect(form).not.toBeVisible()
+
+    fireEvent.click(toggle)
+    expect(form).toBeVisible()
+    fireEvent.change(screen.getByTestId('chapter-title-input'), { target: { value: '第二章 导数' } })
+    fireEvent.click(toggle)
+    expect(form).not.toBeVisible()
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('chapter-title-input')).toHaveValue('第二章 导数')
+    expect(form).toBeVisible()
+  })
+
   it('adds an incomplete chapter to today once without reloading the chapter list', async () => {
     const setup = setupStudyProgress([makeSubject({ total_chapters: 2, completed_chapters: 1 })], {
       7: [
@@ -390,6 +417,7 @@ describe('StudyProgress detailed subject chapters', () => {
 
     await screen.findByTestId('subject-card-7')
     fireEvent.click(screen.getByTestId('manage-chapters-7'))
+    expect(screen.getByTestId('chapter-add-form')).toBeVisible()
     fireEvent.change(screen.getByTestId('chapter-bulk-input'), {
       target: {
         value: [
@@ -430,6 +458,7 @@ describe('StudyProgress detailed subject chapters', () => {
     await screen.findByTestId('subject-card-7')
     fireEvent.click(screen.getByTestId('manage-chapters-7'))
     await screen.findByTestId('chapter-row-2')
+    fireEvent.click(screen.getByTestId('chapter-add-toggle'))
 
     fireEvent.change(screen.getByTestId('chapter-title-input'), { target: { value: '第三章 积分' } })
     fireEvent.click(screen.getByTestId('chapter-add-button'))
@@ -500,6 +529,7 @@ describe('StudyProgress detailed subject chapters', () => {
 
     await screen.findByTestId('subject-card-7')
     fireEvent.click(screen.getByTestId('manage-chapters-7'))
+    fireEvent.click(screen.getByTestId('chapter-add-toggle'))
     fireEvent.change(screen.getByTestId('chapter-title-input'), { target: { value: '第二章 导数' } })
     fireEvent.click(screen.getByTestId('chapter-add-button'))
     fireEvent.click(screen.getByTestId('chapter-add-button'))
