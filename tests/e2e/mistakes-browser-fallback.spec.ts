@@ -180,6 +180,8 @@ test.describe('browser fallback repeated mistakes', () => {
     await page.getByRole('button', { name: '错题本' }).click()
     const first = page.locator('.mistake-item').filter({ hasText: '第1题' })
     await first.getByRole('button', { name: '编辑错题' }).click()
+    // Wait for the edit form's initial animation-frame focus before typing in notes.
+    await expect(page.getByPlaceholder('问题 / 知识点')).toBeFocused()
     const notes = page.getByPlaceholder('备注（可选）')
     await notes.fill('当前备注')
     await expect(notes).toHaveValue('当前备注')

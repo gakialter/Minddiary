@@ -54,8 +54,6 @@ test.afterAll(async () => {
 });
 
 test.describe('Template CRUD (IPC round-trip)', () => {
-    let createdId: number;
-
     test('getAll returns default templates', async () => {
         const templates = await page.evaluate(() => (window as any).api.templates.getAll());
         expect(Array.isArray(templates)).toBe(true);
@@ -76,31 +74,45 @@ test.describe('Template CRUD (IPC round-trip)', () => {
         );
         expect(newTemplate).toHaveProperty('id');
         expect(newTemplate.name).toBe('E2E Test Template');
-        createdId = newTemplate.id;
-
-        const all = await page.evaluate(() => (window as any).api.templates.getAll());
-        const found = all.find((t: any) => t.id === createdId);
-        expect(found).toBeTruthy();
+        try {
+            const all = await page.evaluate(() => (window as any).api.templates.getAll());
+            const found = all.find((t: any) => t.id === newTemplate.id);
+            expect(found).toBeTruthy();
+        } finally {
+            await page.evaluate(id => (window as any).api.templates.delete(id), newTemplate.id);
+        }
     });
 
     test('update modifies the template', async () => {
-        const updated = await page.evaluate((id: number) =>
-            (window as any).api.templates.update(id, {
-                name: 'E2E Updated Template',
-                content: '# Updated',
-            }),
-            createdId
-        );
-        expect(updated.name).toBe('E2E Updated Template');
+        const template = await page.evaluate(() => (window as any).api.templates.create({
+            name: 'E2E Update Fixture',
+            content: '# Original',
+        }));
+        try {
+            const updated = await page.evaluate((id: number) =>
+                (window as any).api.templates.update(id, {
+                    name: 'E2E Updated Template',
+                    content: '# Updated',
+                }),
+                template.id
+            );
+            expect(updated.name).toBe('E2E Updated Template');
+        } finally {
+            await page.evaluate(id => (window as any).api.templates.delete(id), template.id);
+        }
     });
 
     test('delete removes the template', async () => {
+        const template = await page.evaluate(() => (window as any).api.templates.create({
+            name: 'E2E Delete Fixture',
+            content: '# Delete Me',
+        }));
         await page.evaluate((id: number) =>
             (window as any).api.templates.delete(id),
-            createdId
+            template.id
         );
         const all = await page.evaluate(() => (window as any).api.templates.getAll());
-        const found = all.find((t: any) => t.id === createdId);
+        const found = all.find((t: any) => t.id === template.id);
         expect(found).toBeUndefined();
     });
 });

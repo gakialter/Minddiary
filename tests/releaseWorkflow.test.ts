@@ -16,6 +16,32 @@ function expectRecord(value: unknown, context: string): Record<string, unknown> 
   return value as Record<string, unknown>
 }
 
+function expectInstallationSafetyNotes(notes: string): void {
+  const installation = notes.split(/^## 安装说明\r?\n/m)[1]?.split(/^## /m)[0] ?? ''
+  expect(installation).toMatch(/未配置签名凭据时[^。\n]*未签名[^。\n]*Unknown Publisher[^。\n]*SmartScreen/)
+  expect(installation).toMatch(/Windows 安装版[^。\n]*(?:updater|自动更新)/)
+  // Either describe the bounded CI coverage, or explicitly withhold published-channel verification.
+  // Keep the disclaimer and its subject together; scattered keywords do not establish a limitation.
+  expect(installation).toMatch(
+    /(?:CI[^。\n]*但不等于[^。\n]*生产签名[^。\n]*SmartScreen reputation[^。\n]*真实用户环境|(?:本地构建|候选构建|CI)[^。\n]*不等于[^。\n]*正式发布通道[^。\n]*端到端更新验证)/,
+  )
+  if (/Windows 安装版[^。\n]*支持自动更新/.test(installation)) {
+    expect(installation).toMatch(/Windows 安装版[^。\n]*Portable 不作为自动更新目标/)
+  }
+  expect(installation).toMatch(/macOS[^。\n]*Apple silicon[^。\n]*不支持 Intel macOS/)
+  expect(installation).toMatch(/ad-hoc 签名[^。\n]*未进行 Apple notarization[^。\n]*Gatekeeper/)
+  expect(notes).not.toMatch(/自动更新已完全可靠|Windows 已签名|macOS 已 notarize/)
+}
+
+// Installation section from 034ceeb7386881aee398c1f2175c67efc5b0d7cc (v1.22 candidate).
+// Its revised updater wording caused the historical CI failure despite preserving the boundary.
+const candidateInstallationNotes = `## 安装说明
+
+- Windows 提供 Setup 和 Portable。未配置签名凭据时安装包未签名，可能出现 Unknown Publisher 或 SmartScreen 提示。
+- Windows 安装版支持自动更新，Portable 不作为自动更新目标。本地构建和元数据检查不等于正式发布通道的端到端更新验证。
+- macOS 安装包面向 Apple silicon，最低 macOS 12.0，不支持 Intel macOS；采用 ad-hoc 签名，未进行 Apple notarization，可能受到 Gatekeeper 限制。
+`
+
 describe('release workflow Windows signing policy', () => {
   const workflow = readRepoFile('.github/workflows/release.yml')
   const ciWorkflow = readRepoFile('.github/workflows/ci.yml')
@@ -26,11 +52,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.21.1', () => {
-    expect(packageJson.version).toBe('1.21.1')
-    expect(packageLock.version).toBe('1.21.1')
-    expect(packageLock.packages['']?.version).toBe('1.21.1')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.21.1')
+  it('aligns every current release version surface with the package version', () => {
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
+    expect(packageLock.version).toBe(packageJson.version)
+    expect(packageLock.packages['']?.version).toBe(packageJson.version)
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe(`# MindDiary v${packageJson.version}`)
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -67,14 +93,23 @@ describe('release workflow Windows signing policy', () => {
   })
 
   it('records updater, signing, notarization, and platform limitations without claiming completion', () => {
-    expect(releaseNotes).toContain('Windows 安装版 updater 已有 CI 端到端覆盖')
-    expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
-    expect(releaseNotes).toContain('未进行 Apple notarization')
-    expect(releaseNotes).toContain('不支持 Intel macOS')
+    expectInstallationSafetyNotes(releaseNotes)
     expect(releaseNotes).not.toContain('v1.19.1 已发布')
-    expect(releaseNotes).not.toContain('自动更新已完全可靠')
-    expect(releaseNotes).not.toContain('Windows 已签名')
-    expect(releaseNotes).not.toContain('macOS 已 notarize')
+  })
+
+  it('accepts the candidate wording that distinguishes local checks from published-channel validation', () => {
+    expectInstallationSafetyNotes(candidateInstallationNotes)
+  })
+
+  it.each([
+    ['missing updater disclaimer', /本地构建和元数据检查不等于正式发布通道的端到端更新验证。/, ''],
+    ['reversed updater disclaimer', /不等于正式发布通道/, '等于正式发布通道'],
+    ['claimed Windows signing', /安装包未签名/, '安装包已签名'],
+    ['claimed notarization', /未进行 Apple notarization/, '已进行 Apple notarization'],
+    ['claimed Intel support', /不支持 Intel macOS/, '支持 Intel macOS'],
+    ['claimed Portable updater support', /Portable 不作为自动更新目标/, 'Portable 也作为自动更新目标'],
+  ] as const)('rejects %s even when the remaining safety vocabulary is present', (_name, pattern, replacement) => {
+    expect(() => expectInstallationSafetyNotes(candidateInstallationNotes.replace(pattern, replacement))).toThrow()
   })
 
   it('records the unchanged schema and JSON backup limitations', () => {
@@ -170,7 +205,6 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).toContain('未配置签名凭据时安装包未签名')
     expect(releaseNotes).toContain('Unknown Publisher')
     expect(releaseNotes).toContain('SmartScreen 提示')
-    expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
   })
 
   it('keeps published release notes free of release-prep-only state', () => {
