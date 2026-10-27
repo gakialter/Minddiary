@@ -127,6 +127,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [mistakes, setMistakes] = useState<Mistake[]>([])
     const [totalCount, setTotalCount] = useState(0)
     const [masteredCount, setMasteredCount] = useState(0)
+    const [listLoadFailed, setListLoadFailed] = useState(false)
     const [subjects, setSubjects] = useState<Subject[]>([])
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -141,7 +142,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const [showDailyReview, setShowDailyReview] = useState(false)
     const [showAIReview, setShowAIReview] = useState(false)
     const [reviewingMistakeIds, setReviewingMistakeIds] = useState<Set<number>>(new Set())
-    const [editScrollRequest, setEditScrollRequest] = useState(0)
+    const [formFocusRequest, setFormFocusRequest] = useState(0)
     const [paginationReadyPage, setPaginationReadyPage] = useState<number | null>(null)
     const [uploadingImageCount, setUploadingImageCount] = useState(0)
     const [cleaningImageCount, setCleaningImageCount] = useState(0)
@@ -155,6 +156,9 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     const formRef = useRef<HTMLFormElement>(null)
     const mistakeListRef = useRef<HTMLDivElement>(null)
     const pendingPaginationPageRef = useRef<number | null>(null)
+    const listRequestRef = useRef(0)
+    const listMountedRef = useRef(false)
+    const listQueryRef = useRef({ filter, page, dueOnly })
     const questionTextareaRef = useRef<HTMLTextAreaElement>(null)
     const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
     const reviewInFlightIdsRef = useRef<Set<number>>(new Set())
@@ -190,6 +194,21 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         loadSubjects()
     }, [])
 
+    useLayoutEffect(() => {
+        listQueryRef.current = { filter, page, dueOnly }
+        // Invalidate the previous query before its promise can commit a result.
+        listRequestRef.current += 1
+    }, [filter, page, dueOnly])
+
+    useEffect(() => {
+        listMountedRef.current = true
+        return () => {
+            listMountedRef.current = false
+            listRequestRef.current += 1
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+        }
+    }, [])
+
     useEffect(() => { loadMistakes(pendingPaginationPageRef.current === page) }, [filter, page, dueOnly])
 
     useLayoutEffect(() => {
@@ -216,13 +235,13 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     }, [initialFilter, onInitialFilterApplied])
 
     useEffect(() => {
-        if (!showForm || !editingId || editScrollRequest === 0) return
+        if (!showForm || formFocusRequest === 0) return
         const frameId = requestAnimationFrame(() => {
-            formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            formRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
             questionTextareaRef.current?.focus({ preventScroll: true })
         })
         return () => cancelAnimationFrame(frameId)
-    }, [showForm, editingId, editScrollRequest])
+    }, [showForm, formFocusRequest])
 
     // Debounced search: update filter.search 300ms after user stops typing
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,9 +264,13 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
     }
 
     const loadMistakes = async (isPaginationRequest = false) => {
-        const requestedPage = page
+        if (!listMountedRef.current) return
+        // Mutations may finish after the user changes filters; refresh the current query.
+        const { filter, page: requestedPage, dueOnly } = listQueryRef.current
+        const requestId = ++listRequestRef.current
+        setListLoadFailed(false)
         try {
-            const filters: MistakeFilters = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
+            const filters: MistakeFilters = { limit: PAGE_SIZE, offset: (requestedPage - 1) * PAGE_SIZE }
             if (filter.subject_id) filters.subject_id = Number(filter.subject_id)
             if (dueOnly) {
                 filters.due = true
@@ -257,6 +280,15 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             }
             if (filter.search) filters.search = filter.search
             const response: { data: Mistake[]; total: number; masteredTotal: number } | Mistake[] = await diary.mistakes.getAll(filters)
+            if (!listMountedRef.current || requestId !== listRequestRef.current) return
+            const total = Array.isArray(response) ? response.length : response?.total || 0
+            const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+            if (requestedPage > lastPage) {
+                pendingPaginationPageRef.current = isPaginationRequest ? lastPage : null
+                setPaginationReadyPage(null)
+                setPage(lastPage)
+                return
+            }
             if (Array.isArray(response)) {
                 setMistakes(response)
                 setTotalCount(response.length)
@@ -269,7 +301,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             if (isPaginationRequest && pendingPaginationPageRef.current === requestedPage) {
                 setPaginationReadyPage(requestedPage)
             }
-        } catch (e) { logger.error(e) }
+        } catch (e) {
+            if (!listMountedRef.current || requestId !== listRequestRef.current) return
+            logger.error(e)
+            pendingPaginationPageRef.current = null
+            setListLoadFailed(true)
+        }
     }
 
     const replaceImageUploadFailures = (failures: ImageUploadFailure[]) => {
@@ -335,7 +372,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         return true
     }
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (continueAdding = false) => {
         if (!form.question.trim()) return
         if (uploadInFlightRef.current > 0) {
             showToast('请等待图片上传完成后再保存', 'error')
@@ -370,11 +407,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             }
             pendingImagePathsRef.current.clear()
             setSaveOutcome('saved')
-            setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
-            setShowForm(false)
+            setForm({ subject_id: continueAdding ? form.subject_id : '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
+            setShowForm(continueAdding)
             setEditingId(null)
+            if (continueAdding) setFormFocusRequest(request => request + 1)
             loadMistakes()
-            showToast(editingId ? '修改已保存' : '已添加新的记录', 'success')
+            showToast(continueAdding ? '已添加，可继续录入下一题' : editingId ? '修改已保存' : '已添加新的记录', 'success')
         } catch (e) {
             setSaveOutcome('save_failed')
             const pendingPaths = Array.from(pendingImagePathsRef.current)
@@ -418,7 +456,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
             answer_image_paths: parseImagePaths(m.answer_image_path),
         })
         setShowForm(true)
-        setEditScrollRequest(request => request + 1)
+        setFormFocusRequest(request => request + 1)
     }
 
     const appendImagePath = (role: ImageRole, filename: string) => {
@@ -573,6 +611,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
         setEditingId(null)
         setForm({ subject_id: '', question: '', answer: '', notes: '', question_image_paths: [], answer_image_paths: [] })
         setShowForm(true)
+        setFormFocusRequest(request => request + 1)
     }
 
     const appendUniqueImagePath = (paths: string[], imagePath: string): string[] => (
@@ -963,6 +1002,17 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                             >
                                 {uploadingImageCount > 0 ? '上传中' : isSaving ? '保存中...' : editingId ? '保存' : '添加'}
                             </button>
+                            {!editingId && (
+                                <button
+                                    type="button"
+                                    className="button button-secondary"
+                                    onClick={() => void handleSubmit(true)}
+                                    disabled={uploadingImageCount > 0 || cleaningImageCount > 0 || imageUploadFailures.length > 0 || isSaving}
+                                    data-testid="mistake-submit-continue-btn"
+                                >
+                                    添加并继续
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 className="button button-secondary"
@@ -978,6 +1028,12 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
 
             {/* Mistake List */}
             <div ref={mistakeListRef} className="flex flex-col gap-sm">
+                {listLoadFailed && (
+                    <div role="alert" className="workspace-action-row">
+                        <span style={{ color: 'var(--color-danger-fg)' }}>加载错题失败，请重试。</span>
+                        <button type="button" className="button button-secondary" onClick={() => void loadMistakes()}>重试加载错题</button>
+                    </div>
+                )}
                 {pagedMistakes.map(m => (
                     <MistakeItem
                         key={m.id}
@@ -991,7 +1047,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                         onPreviewImage={setPreviewImage}
                     />
                 ))}
-                {mistakes.length === 0 && (
+                {mistakes.length === 0 && !listLoadFailed && (
                     <div className="workspace-empty" data-testid="mistake-empty-state">
                         <div className="workspace-empty__icon">
                             <BookX size={28} style={{ color: 'var(--accent)', opacity: 0.9 }} />
@@ -1005,7 +1061,7 @@ export default function MistakeBook({ initialFilter = null, onInitialFilterAppli
                                 : '记录错题或知识点，关联科目后可随时复习。'}
                         </p>
                         {!showForm && (
-                            <button className="button button-secondary" style={{ marginTop: 'var(--space)' }} onClick={() => setShowForm(true)} data-testid="mistake-add-first-btn">
+                            <button className="button button-secondary" style={{ marginTop: 'var(--space)' }} onClick={() => void handleToggleForm()} data-testid="mistake-add-first-btn">
                                 + 添加错题
                             </button>
                         )}
