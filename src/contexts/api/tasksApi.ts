@@ -10,15 +10,17 @@ import type {
     StudyTaskStatus,
     StudyTaskType,
     SubjectChapter,
+    Subject,
 } from '../../types'
 import type { PrivilegedTodayActionV2CreateCommand, TasksContextAPI } from '../../types/api'
 import { getLocalDateKey } from '../../utils/dateKey'
 import { assertTaskCreationDateIsCurrent } from '../../utils/dateBoundTaskGuard'
+import { isUntouchedChapterTodayTask, validateRemoveChapterFromTodayInput } from '../../utils/chapterTodayTaskRemoval'
 import type { MutableRefObject } from 'react'
 
 const TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom']
 const TASK_STATUSES: StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped']
-const TASK_SOURCES: StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro']
+const TASK_SOURCES: StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter']
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const STATUS_ORDER: Record<StudyTaskStatus, number> = {
     doing: 0,
@@ -122,6 +124,7 @@ export const createTasksApi = (
     saveToLocal: SaveToLocalFn,
     pomodoroSessionsRef?: MutableRefObject<PomodoroSession[]>,
     subjectChaptersRef?: MutableRefObject<SubjectChapter[]>,
+    subjectsRef?: MutableRefObject<Subject[]>,
 ): TasksContextAPI => ({
     getByDate: async (date: string) => {
         if (IS_ELECTRON) return window.api.tasks.getByDate(date)
@@ -159,8 +162,9 @@ export const createTasksApi = (
             created_at: now,
             updated_at: now,
         }
-        tasksRef.current = [...tasksRef.current, newTask]
-        saveToLocal(STORAGE_KEYS.TASKS, tasksRef.current)
+        const nextTasks = [...tasksRef.current, newTask]
+        saveToLocal(STORAGE_KEYS.TASKS, nextTasks)
+        tasksRef.current = nextTasks
         return newTask
     },
     createForCurrentDate: async (data: NewStudyTask, expectedCurrentDate: string) => {
@@ -173,6 +177,7 @@ export const createTasksApi = (
             saveToLocal,
             pomodoroSessionsRef,
             subjectChaptersRef,
+            subjectsRef,
         ).create(data)
         try {
             assertTaskCreationDateIsCurrent(validatedExpectedDate, getLocalDateKey())
@@ -257,6 +262,7 @@ export const createTasksApi = (
             ...(patch.estimate_minutes !== undefined ? { estimate_minutes: normalizeEstimate(patch.estimate_minutes) } : {}),
             ...(patch.status !== undefined ? { status: normalizeStatus(patch.status) } : {}),
             ...(patch.source !== undefined ? { source: normalizeSource(patch.source) } : {}),
+            ...(existing.source === 'chapter' || patch.source === 'chapter' ? { source: 'manual' as const } : {}),
             id,
             created_at: existing.created_at,
             updated_at: new Date().toISOString(),
@@ -278,13 +284,38 @@ export const createTasksApi = (
         }
         return before !== tasksRef.current.length
     },
+    removeChapterFromToday: async input => {
+        if (IS_ELECTRON) return window.api.tasks.removeChapterFromToday(input)
+        const request = validateRemoveChapterFromTodayInput(input)
+        const today = getLocalDateKey()
+        const result = (status: 'removed' | 'missing' | 'protected' | 'changed') => ({
+            status,
+            tasks: sortTasks(tasksRef.current.filter(task => task.planned_date === getLocalDateKey())),
+        })
+        if (request.date !== today) return result('changed')
+        const task = tasksRef.current.find(item => item.id === request.taskId)
+        if (!task) return result('missing')
+        if (task.planned_date !== today || task.subject_id !== request.subjectId
+            || task.related_chapter_id !== request.chapterId) return result('changed')
+        const chapter = subjectChaptersRef?.current.find(item => item.id === request.chapterId && item.subject_id === request.subjectId)
+        const subject = subjectsRef?.current.find(item => item.id === request.subjectId)
+        if (!chapter || !subject) return result('changed')
+        if (!isUntouchedChapterTodayTask(task, subject.name, chapter.title)
+            || !pomodoroSessionsRef
+            || pomodoroSessionsRef.current.some(session => session.task_id === task.id)) return result('protected')
+        if (getLocalDateKey() !== today) return result('changed')
+        const remainingTasks = tasksRef.current.filter(item => item.id !== task.id)
+        saveToLocal(STORAGE_KEYS.TASKS, remainingTasks)
+        tasksRef.current = remainingTasks
+        return result('removed')
+    },
     complete: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.complete(id)
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'done' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef, subjectsRef).update(id, { status: 'done' })
     },
     skip: async (id: number) => {
         if (IS_ELECTRON) return window.api.tasks.skip(id)
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'skipped' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef, subjectsRef).update(id, { status: 'skipped' })
     },
     startFocus: async (id: number, date: string) => {
         if (IS_ELECTRON) return window.api.tasks.startFocus(id, date)
@@ -300,6 +331,6 @@ export const createTasksApi = (
             throw new Error('Cannot start focus for a completed or skipped task')
         }
         if (existing.status === 'doing') return existing
-        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef).update(id, { status: 'doing' })
+        return createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef, subjectsRef).update(id, { status: 'doing' })
     },
 })

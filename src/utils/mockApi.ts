@@ -123,6 +123,7 @@ const mockApi: ElectronAPI = {
         getRange: async () => [],
     },
     tasks: {
+        removeChapterFromToday: async () => ({ status: 'missing', tasks: [] }),
         getByDate: async () => [],
         find: async () => [],
         create: async (task) => {

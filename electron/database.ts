@@ -25,7 +25,7 @@ import type Database from 'better-sqlite3';
 import type {
     DiaryEntry, NewEntry, EntryFilters, Tag, Subject,
     BulkSubjectChaptersInput, ConvertSubjectChaptersInput, CreateSubjectChapterInput, SubjectChapterPatch,
-    PomodoroSession, PomodoroStat, StudyTask, NewStudyTask, StudyTaskQuery,
+    PomodoroSession, PomodoroStat, StudyTask, NewStudyTask, StudyTaskQuery, RemoveChapterFromTodayInput,
     Mistake, MistakeFilters,
     DiaryTemplate, TodayDashboardData, DateMood, Attachment
 } from '../src/types/index';
@@ -317,6 +317,10 @@ function updateStudyTask(id: number, patch: Partial<StudyTask>): StudyTask {
 
 function deleteStudyTask(id: number): boolean {
     return getRepositories().studyTasks.deleteStudyTask(id);
+}
+
+function removeChapterFromToday(input: RemoveChapterFromTodayInput) {
+    return getRepositories().studyTasks.removeChapterFromToday(input);
 }
 
 function completeStudyTask(id: number): StudyTask {
@@ -873,7 +877,7 @@ module.exports = {
     getSubjectChapters, createSubjectChapter, bulkCreateSubjectChapters, convertSubjectToDetailedChapters,
     patchSubjectChapter, toggleSubjectChapterCompleted, reorderSubjectChapters, deleteSubjectChapter, clearDetailedSubjectChapters,
     addPomodoroSession, getPomodoroStats, getPomodoroStatsRange, getDailyStudyMinutes,
-    getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, completeStudyTask, skipStudyTask, startStudyTaskFocus,
+    getStudyTasksByDate, findStudyTasks, createStudyTask, updateStudyTask, deleteStudyTask, removeChapterFromToday, completeStudyTask, skipStudyTask, startStudyTaskFocus,
     getPomodoroRange, getEntryDatesRange, getStudyStreak, getTodayDashboard,
     getAllMistakes, createMistake, createMistakes, updateMistake, deleteMistake, discardUnreferencedMistakeImage, toggleMistakeMastered,
     reviewMistake, getDueForReviewCount, getRandomDueMistake,

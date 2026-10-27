@@ -75,6 +75,7 @@ import {
     reconcileCommittedStudyTaskStatusWithPlanningAudit,
 } from './planningTaskCorrelation';
 import { getLocalDateKey } from '../src/utils/dateKey';
+import { validateRemoveChapterFromTodayInput } from '../src/utils/chapterTodayTaskRemoval';
 import {
     DEFAULT_EXAM_EVENT_ID,
     getPrimaryCountdownEvent,
@@ -1409,6 +1410,7 @@ ipcMain.handle('tasks:update', (_: unknown, id: unknown, patch: unknown) => {
     );
 });
 ipcMain.handle('tasks:delete', (_: unknown, id: unknown) => db.deleteStudyTask(validatePositiveIdPayload(id, 'task id')));
+ipcMain.handle('tasks:removeChapterFromToday', (_: unknown, input: unknown) => db.removeChapterFromToday(validateRemoveChapterFromTodayInput(input)));
 ipcMain.handle('tasks:complete', (_: unknown, id: unknown) => db.completeStudyTask(validatePositiveIdPayload(id, 'task id')));
 ipcMain.handle('tasks:skip', (_: unknown, id: unknown) => db.skipStudyTask(validatePositiveIdPayload(id, 'task id')));
 ipcMain.handle('tasks:startFocus', (_: unknown, id: unknown, date: unknown) => {

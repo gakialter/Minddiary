@@ -60,7 +60,7 @@ const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MOOD_IDS = ['motivated', 'happy', 'calm', 'tired', 'anxious', 'sad'] as const;
 const STUDY_TASK_TYPES = ['review', 'focus', 'diary', 'mistake', 'custom'] as const;
 const STUDY_TASK_STATUSES = ['todo', 'doing', 'done', 'skipped'] as const;
-const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro'] as const;
+const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

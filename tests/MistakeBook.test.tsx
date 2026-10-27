@@ -46,6 +46,7 @@ describe('MistakeBook Component', () => {
   }
 
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
     mistakesApi = {
       getAll: vi.fn().mockResolvedValue(mockMistakes),
       create: vi.fn().mockResolvedValue(3),
@@ -176,12 +177,12 @@ describe('MistakeBook Component', () => {
     await waitFor(() => expect(pageScroller.scrollTop).toBe(420))
   })
 
-  it('does not scroll for a pending page response after a filter change', async () => {
+  it('does not replace the current list, totals, or scroll with an old page response after a filter change', async () => {
     let resolveSecondPage!: (response: { data: Mistake[]; total: number; masteredTotal: number }) => void
     mistakesApi.getAll
       .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
       .mockReturnValueOnce(new Promise(resolve => { resolveSecondPage = resolve }))
-      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
+      .mockResolvedValueOnce({ data: [{ ...mockMistakes[0], question: 'current filtered question' }], total: 1, masteredTotal: 0 })
 
     const { container } = render(<main data-scroll-owner="page"><MistakeBook /></main>)
     const pageScroller = container.querySelector('main')!
@@ -195,7 +196,7 @@ describe('MistakeBook Component', () => {
     await screen.findByText('2 / 2')
 
     fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '1' } })
-    await screen.findByText('1 / 2')
+    await screen.findByText('current filtered question')
     await waitFor(() => expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 1 })))
 
     await act(async () => {
@@ -215,8 +216,143 @@ describe('MistakeBook Component', () => {
       })
     })
 
-    expect(await screen.findByText('stale page two question')).toBeInTheDocument()
+    expect(screen.queryByText('stale page two question')).not.toBeInTheDocument()
+    expect(screen.getByText('current filtered question')).toBeInTheDocument()
+    expect(screen.getByText(/条记录，已掌握/)).toHaveTextContent('共 1 条记录，已掌握 0 条')
+    expect(screen.queryByRole('navigation', { name: '错题分页' })).not.toBeInTheDocument()
     expect(pageScroller.scrollTop).toBe(500)
+  })
+
+  it.each(['删除错题', '标记掌握', '还行'])('returns to the last valid page after %s removes the only result on page two', async action => {
+    let removed = false
+    mistakesApi.getAll.mockImplementation(async (filters: { offset: number }) => ({
+      data: filters.offset === 0
+        ? [mockMistakes[0]]
+        : removed ? [] : [{ ...mockMistakes[0], id: 51, question: 'last page question' }],
+      total: removed ? 50 : 51,
+      masteredTotal: 0,
+    }))
+    mistakesApi.delete.mockImplementation(async () => { removed = true })
+    mistakesApi.toggleMastered.mockImplementation(async () => { removed = true })
+    mistakesApi.review.mockImplementation(async () => {
+      removed = true
+      return { success: true, mistake: mockMistakes[0] }
+    })
+    mockUseDiary.mockReturnValue({
+      ...DiaryContextModule.useDiary(),
+      tasks: { find: vi.fn().mockResolvedValue([]) },
+    })
+
+    render(<MistakeBook initialFilter={action === '还行' ? 'due' : null} />)
+    await screen.findByText('1 / 2')
+    fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '1' } })
+    if (action === '标记掌握') {
+      fireEvent.change(screen.getByTestId('mistake-status-filter'), { target: { value: 'false' } })
+    }
+    await waitFor(() => expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 1, offset: 0 })))
+    fireEvent.click(screen.getByRole('button', { name: '下一页 ›' }))
+    await screen.findByText('last page question')
+    if (action === '还行') fireEvent.click(screen.getByTestId('mistake-toggle-answer-51'))
+    fireEvent.click(screen.getByRole('button', { name: action }))
+
+    await screen.findByText('1+1=?')
+    expect(screen.queryByText('last page question')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('mistake-empty-state')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '错题分页' })).not.toBeInTheDocument()
+    expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 1, offset: 0 }))
+    expect(screen.getByText(/条记录，已掌握/)).toHaveTextContent('共 50 条记录，已掌握 0 条')
+  })
+
+  it('resets an empty result to page one so later reloads can show new records', async () => {
+    mistakesApi.getAll
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 51, masteredTotal: 0 })
+      .mockResolvedValueOnce({ data: [{ ...mockMistakes[0], id: 51, question: 'last page question' }], total: 51, masteredTotal: 0 })
+      .mockResolvedValueOnce({ data: [], total: 0, masteredTotal: 0 })
+      .mockResolvedValueOnce({ data: [], total: 0, masteredTotal: 0 })
+
+    render(<MistakeBook />)
+    await screen.findByText('1 / 2')
+    fireEvent.click(screen.getByRole('button', { name: '下一页 ›' }))
+    await screen.findByText('last page question')
+    fireEvent.click(screen.getByRole('button', { name: '删除错题' }))
+    await screen.findByTestId('mistake-empty-state')
+    expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }))
+
+    mistakesApi.getAll.mockResolvedValue({ data: [mockMistakes[0]], total: 1, masteredTotal: 0 })
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByPlaceholderText('问题 / 知识点'), { target: { value: 'new record' } })
+    fireEvent.submit(screen.getByTestId('mistake-form'))
+    await screen.findByText('1+1=?')
+    expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }))
+  })
+
+  it('preserves loaded records after a failed refresh and provides a working retry', async () => {
+    mistakesApi.getAll
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 1, masteredTotal: 0 })
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce({ data: [mockMistakes[1]], total: 1, masteredTotal: 1 })
+
+    render(<MistakeBook />)
+    await screen.findByText('1+1=?')
+    fireEvent.click(screen.getByRole('button', { name: '标记掌握' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载错题失败，请重试。')
+    expect(screen.getByText('1+1=?')).toBeInTheDocument()
+    expect(screen.queryByTestId('mistake-empty-state')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重试加载错题' }))
+    await screen.findByText('Apple means?')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('1+1=?')).not.toBeInTheDocument()
+  })
+
+  it('ignores a stale request failure after a newer filter query succeeds', async () => {
+    let rejectOldRequest!: (error: Error) => void
+    mistakesApi.getAll
+      .mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOldRequest = reject }))
+      .mockResolvedValueOnce({ data: [mockMistakes[1]], total: 1, masteredTotal: 1 })
+
+    render(<MistakeBook />)
+    await screen.findByRole('option', { name: 'English' })
+    fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '2' } })
+    await screen.findByText('Apple means?')
+    expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 2 }))
+    await act(async () => { rejectOldRequest(new Error('old failure')) })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Apple means?')).toBeInTheDocument()
+  })
+
+  it('refreshes the current filter when an earlier deletion finishes after a filter change', async () => {
+    let finishDelete!: () => void
+    mistakesApi.delete.mockReturnValueOnce(new Promise<void>(resolve => { finishDelete = resolve }))
+    mistakesApi.getAll
+      .mockResolvedValueOnce({ data: [mockMistakes[0]], total: 1, masteredTotal: 0 })
+      .mockResolvedValue({ data: [mockMistakes[1]], total: 1, masteredTotal: 1 })
+
+    render(<MistakeBook />)
+    await screen.findByText('1+1=?')
+    fireEvent.click(screen.getByRole('button', { name: '删除错题' }))
+    fireEvent.change(screen.getByTestId('mistake-subject-filter'), { target: { value: '2' } })
+    await screen.findByText('Apple means?')
+    await act(async () => { finishDelete() })
+
+    expect(mistakesApi.getAll).toHaveBeenLastCalledWith(expect.objectContaining({ subject_id: 2, offset: 0 }))
+    expect(screen.getByText('Apple means?')).toBeInTheDocument()
+  })
+
+  it('cancels a debounced search on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = render(<MistakeBook />)
+      await act(async () => {})
+      fireEvent.change(screen.getByTestId('mistake-search-input'), { target: { value: 'pending query' } })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+      await act(async () => { vi.advanceTimersByTime(300) })
+      expect(mistakesApi.getAll).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('starts manual review using the currently selected subject filter', async () => {
@@ -312,6 +448,64 @@ describe('MistakeBook Component', () => {
       image_path: null,
       answer_image_path: null,
     })
+  })
+
+  it('keeps the subject and focuses an empty draft when adding consecutive mistakes', async () => {
+    mistakesApi.saveImage = vi.fn().mockResolvedValue('mistake_images/saved-first.png')
+    render(<MistakeBook />)
+    await screen.findByText('1+1=?')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    const question = screen.getByLabelText('问题或知识点')
+    await waitFor(() => expect(question).toHaveFocus())
+    fireEvent.change(screen.getByLabelText('科目', { selector: '#mistake-form-subject' }), { target: { value: '1' } })
+    fireEvent.change(question, { target: { value: 'First question' } })
+    fireEvent.change(screen.getByLabelText('答案解析'), { target: { value: 'First answer' } })
+    fireEvent.change(screen.getByTestId('mistake-notes-textarea'), { target: { value: 'First notes' } })
+    fireEvent.change(screen.getByTestId('mistake-question-image-input'), {
+      target: { files: [new File(['image'], 'first.png', { type: 'image/png' })] },
+    })
+    await waitFor(() => expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'ready_to_save'))
+    fireEvent.click(screen.getByTestId('mistake-submit-continue-btn'))
+    await waitFor(() => expect(mistakesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      subject_id: 1, question: 'First question', image_path: 'mistake_images/saved-first.png',
+    })))
+    await waitFor(() => expect(question).toHaveValue(''))
+    await waitFor(() => expect(question).toHaveFocus())
+    expect(screen.getByLabelText('科目', { selector: '#mistake-form-subject' })).toHaveValue('1')
+    expect(screen.getByLabelText('答案解析')).toHaveValue('')
+    expect(screen.getByTestId('mistake-notes-textarea')).toHaveValue('')
+    expect(within(screen.getByTestId('mistake-form')).queryByRole('img')).not.toBeInTheDocument()
+    fireEvent.change(question, { target: { value: 'Second question' } })
+    fireEvent.click(screen.getByTestId('mistake-submit-continue-btn'))
+    await waitFor(() => expect(mistakesApi.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      subject_id: 1, question: 'Second question', answer: '', notes: '', image_path: null,
+    })))
+    await waitFor(() => expect(question).toHaveValue(''))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByTestId('mistake-form')).not.toBeInTheDocument())
+    expect(mistakesApi.deleteImage).not.toHaveBeenCalled()
+  })
+
+  it('preserves a consecutive-entry draft on failure and prevents duplicate submissions', async () => {
+    let rejectSave!: (error: Error) => void
+    mistakesApi.create.mockReturnValueOnce(new Promise((_, reject) => { rejectSave = reject }))
+    render(<MistakeBook />)
+    await screen.findByText('1+1=?')
+    fireEvent.click(screen.getByTestId('mistake-add-btn'))
+    fireEvent.change(screen.getByLabelText('科目', { selector: '#mistake-form-subject' }), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('问题或知识点'), { target: { value: 'Retry this question' } })
+    const continueButton = screen.getByTestId('mistake-submit-continue-btn')
+    fireEvent.click(continueButton)
+    fireEvent.click(continueButton)
+    expect(continueButton).toBeDisabled()
+    expect(mistakesApi.create).toHaveBeenCalledTimes(1)
+    await act(async () => { rejectSave(new Error('Save failed')) })
+    expect(screen.getByLabelText('问题或知识点')).toHaveValue('Retry this question')
+    expect(screen.getByLabelText('科目', { selector: '#mistake-form-subject' })).toHaveValue('1')
+    expect(screen.getByTestId('mistake-form')).toHaveAttribute('data-image-form-state', 'save_failed')
+    fireEvent.click(continueButton)
+    await waitFor(() => expect(screen.getByLabelText('问题或知识点')).toHaveValue(''))
+    expect(mistakesApi.create).toHaveBeenCalledTimes(2)
   })
 
   it('shows a safe actionable message when saving a mistake fails', async () => {
@@ -934,7 +1128,7 @@ describe('MistakeBook Component', () => {
     })
 
     await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
     })
     expect(focusSpy).toHaveBeenCalled()
 

@@ -98,7 +98,7 @@ export type SubjectChapterPatch = Partial<Pick<SubjectChapter, 'title' | 'notes'
 // --- Study Tasks ------------------------------------------------------------
 export type StudyTaskType = 'review' | 'focus' | 'diary' | 'mistake' | 'custom'
 export type StudyTaskStatus = 'todo' | 'doing' | 'done' | 'skipped'
-export type StudyTaskSource = 'manual' | 'dashboard' | 'ai' | 'pomodoro'
+export type StudyTaskSource = 'manual' | 'dashboard' | 'ai' | 'pomodoro' | 'chapter'
 
 export interface StudyTask {
   id: number
@@ -115,6 +115,18 @@ export interface StudyTask {
   source: StudyTaskSource
   created_at: string
   updated_at: string
+}
+
+export interface RemoveChapterFromTodayInput {
+  taskId: number
+  chapterId: number
+  subjectId: number
+  date: string
+}
+
+export interface RemoveChapterFromTodayResult {
+  status: 'removed' | 'missing' | 'protected' | 'changed'
+  tasks: StudyTask[]
 }
 
 export interface StudyTaskQuery {

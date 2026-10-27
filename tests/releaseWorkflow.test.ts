@@ -26,11 +26,11 @@ describe('release workflow Windows signing policy', () => {
     packages: Record<string, { version?: string }>
   }
 
-  it('locks every current release version surface to v1.21.1', () => {
-    expect(packageJson.version).toBe('1.21.1')
-    expect(packageLock.version).toBe('1.21.1')
-    expect(packageLock.packages['']?.version).toBe('1.21.1')
-    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.21.1')
+  it('locks every current release version surface to v1.22.0', () => {
+    expect(packageJson.version).toBe('1.22.0')
+    expect(packageLock.version).toBe('1.22.0')
+    expect(packageLock.packages['']?.version).toBe('1.22.0')
+    expect(releaseNotes.split(/\r?\n/, 1)[0]).toBe('# MindDiary v1.22.0')
   })
 
   it('keeps the tag, package version, notes title, and publish contract aligned', () => {
@@ -67,8 +67,8 @@ describe('release workflow Windows signing policy', () => {
   })
 
   it('records updater, signing, notarization, and platform limitations without claiming completion', () => {
-    expect(releaseNotes).toContain('Windows 安装版 updater 已有 CI 端到端覆盖')
-    expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
+    expect(releaseNotes).toContain('Windows 安装版支持自动更新，Portable 不作为自动更新目标')
+    expect(releaseNotes).toContain('本地构建和元数据检查不等于正式发布通道的端到端更新验证')
     expect(releaseNotes).toContain('未进行 Apple notarization')
     expect(releaseNotes).toContain('不支持 Intel macOS')
     expect(releaseNotes).not.toContain('v1.19.1 已发布')
@@ -170,7 +170,7 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).toContain('未配置签名凭据时安装包未签名')
     expect(releaseNotes).toContain('Unknown Publisher')
     expect(releaseNotes).toContain('SmartScreen 提示')
-    expect(releaseNotes).toContain('不等于已证明生产签名、SmartScreen reputation')
+    expect(releaseNotes).not.toContain('Windows 已签名')
   })
 
   it('keeps published release notes free of release-prep-only state', () => {
