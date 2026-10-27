@@ -4,13 +4,13 @@ import { CURRENT_RELEASE_NOTES } from '../src/releaseNotes'
 import packageJson from '../package.json'
 
 describe('release notes', () => {
-  it('bundles the current v1.21.1 summary for offline display', () => {
-    expect(CURRENT_RELEASE_NOTES.version).toBe('1.21.1')
+  it('bundles the current v1.22.0 summary for offline display', () => {
+    expect(CURRENT_RELEASE_NOTES.version).toBe('1.22.0')
     expect(CURRENT_RELEASE_NOTES.version).toBe(packageJson.version)
     expect(CURRENT_RELEASE_NOTES.items.length).toBeGreaterThan(0)
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('多篇日记')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('资料')
-    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('文字草稿')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('章节工作区')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('安全撤销')
+    expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('添加并继续')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('不支持自动回滚')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('schema 8')
     expect(CURRENT_RELEASE_NOTES.items.join('\n')).toContain('无新增数据迁移')

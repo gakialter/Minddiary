@@ -120,9 +120,9 @@ MindDiary 将隐私与数据自主置于最高优先级：
 
 ## 版本信息
 
-### v1.21.1（发布候选）
+### v1.22.0（发布候选）
 
-v1.21.1 改善历史日记与同日多篇的导航和保存、AI 草稿与润色候选跨页保留、今日任务直接专注及数学公式显示，并减少普通问题被误拦截。更新说明与数据备份限制见 [v1.21.1 发布说明](./RELEASE_NOTES.md)。当前为本地发布候选，尚未正式发布。
+v1.22.0 改善多科目章节工作区、章节加入今日与安全撤销、错题连续录入和筛选列表，并完善今日进展、计时状态及键盘操作。更新说明与数据备份限制见 [v1.22.0 发布说明](./RELEASE_NOTES.md)。当前为本地发布候选，尚未正式发布。
 
 ### v1.21.0
 
@@ -150,14 +150,14 @@ v1.19.1（SQLite Schema 8）在 v1.19.0 的重大架构与交互升级基础上�
 
 ## 下载与安装
 
-请前往 [GitHub Releases Latest](https://github.com/gakialter/Minddiary/releases/latest) 下载最新正式安装包。以下为 v1.21.1 发布候选的文件名，尚不表示已有正式下载。
+请前往 [GitHub Releases Latest](https://github.com/gakialter/Minddiary/releases/latest) 下载最新正式安装包。以下为 v1.22.0 发布候选的文件名，尚不表示已有正式下载。
 
 ### Windows
-- **安装版**：`MindDiary-Setup-1.21.1.exe`（支持自动更新，保留本地学习数据）
-- **便携版**：`MindDiary-Portable-1.21.1.exe`（运行即用）
+- **安装版**：`MindDiary-Setup-1.22.0.exe`（支持自动更新，保留本地学习数据）
+- **便携版**：`MindDiary-Portable-1.22.0.exe`（运行即用）
 
 ### macOS
-- **Apple Silicon (ARM64)**：`MindDiary-1.21.1-arm64.dmg` / `MindDiary-1.21.1-arm64-mac.zip`（支持 macOS 12.0+）
+- **Apple Silicon (ARM64)**：`MindDiary-1.22.0-arm64.dmg` / `MindDiary-1.22.0-arm64-mac.zip`（支持 macOS 12.0+）
 
 > [!NOTE]
 > Windows 未签名版本首次运行可能触发 SmartScreen 提示，点击「更多信息 → 仍要运行」即可；macOS 安装包当前为 Ad-hoc 签名，首次打开如遇提示请前往「系统设置 → 隐私与安全性」允许运行。
