@@ -184,7 +184,7 @@ async function importJsonBackup(page: Page, name: string, content: string, prefl
       mimeType: 'application/json',
       buffer: Buffer.from(content, 'utf8'),
     })
-    await expect(page.getByText(preflightError)).toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })).toBeVisible()
     return
   }
   const dialogPromise = page.waitForEvent('dialog')
@@ -435,7 +435,7 @@ test.describe('repeated mistake entry and editing', () => {
       await page.getByRole('button', { name: '设置', exact: true }).click()
       await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
       await importJsonBackup(page, 'MindDiary_Backup_test.json', exportedText)
-      const initialImportToast = page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)
+      const initialImportToast = page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })
       await expect(initialImportToast).toBeVisible()
       await initialImportToast.click()
       await expect(initialImportToast).toBeHidden()
@@ -488,7 +488,7 @@ test.describe('repeated mistake entry and editing', () => {
           JSON.stringify(invalidExport),
           preflightError,
         )
-        const invalidPayloadToast = page.getByText(preflightError)
+        const invalidPayloadToast = page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })
         await expect(invalidPayloadToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
@@ -511,7 +511,7 @@ test.describe('repeated mistake entry and editing', () => {
           JSON.stringify(invalidSubjectExport),
           preflightError,
         )
-        const invalidSubjectToast = page.getByText(preflightError)
+        const invalidSubjectToast = page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })
         await expect(invalidSubjectToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
@@ -549,7 +549,7 @@ test.describe('repeated mistake entry and editing', () => {
         'MindDiary_Backup_subject_mapping.json',
         JSON.stringify(mappedSubjectExport),
       )
-      await expect(page.getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
+      await expect(page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })).toBeVisible()
       const mappedSubjectResult = await page.evaluate(async () => {
         const [subjects, mistakes] = await Promise.all([
           window.api.subjects.getAll(),
