@@ -100,7 +100,7 @@ const PAYLOAD_KEYS = [
 ] as const;
 const STUDY_TASK_TYPES: readonly StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom'];
 const STUDY_TASK_STATUSES: readonly StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped'];
-const STUDY_TASK_SOURCES: readonly StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro'];
+const STUDY_TASK_SOURCES: readonly StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter'];
 const LOWERCASE_UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;

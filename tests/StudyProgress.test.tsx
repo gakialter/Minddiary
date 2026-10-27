@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StudyProgress from '../src/components/StudyProgress'
-import type { Mistake, PomodoroStat, Subject, SubjectChapter } from '../src/types'
+import type { Mistake, PomodoroStat, StudyTask, Subject, SubjectChapter } from '../src/types'
 
 const mocks = vi.hoisted(() => ({
   subjectsGetAll: vi.fn(),
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   tasksGetByDate: vi.fn(),
   tasksFind: vi.fn(),
   tasksCreate: vi.fn(),
+  tasksRemoveChapterFromToday: vi.fn(),
   requestDataRefresh: vi.fn(),
   showToast: vi.fn(),
 }))
@@ -57,6 +58,7 @@ vi.mock('../src/contexts/DiaryContext', () => {
       getByDate: mocks.tasksGetByDate,
       find: mocks.tasksFind,
       create: mocks.tasksCreate,
+      removeChapterFromToday: mocks.tasksRemoveChapterFromToday,
     },
     requestDataRefresh: mocks.requestDataRefresh,
     get dataRefreshVersion() {
@@ -95,6 +97,13 @@ const makeChapter = (overrides: Partial<SubjectChapter> = {}): SubjectChapter =>
   updated_at: overrides.updated_at ?? '2026-06-13T00:00:00.000Z',
 })
 
+const makeTask = (overrides: Partial<StudyTask> = {}): StudyTask => ({
+  id: 1, title: '学习：Math · 第一章 函数', description: '', type: 'focus',
+  subject_id: 7, related_chapter_id: 1, related_entry_id: null, related_mistake_id: null,
+  planned_date: '2026-06-21', estimate_minutes: 25, status: 'todo', source: 'chapter',
+  created_at: '2026-06-21 10:00:00', updated_at: '2026-06-21 10:00:00', ...overrides,
+})
+
 const pomodoroStats: PomodoroStat[] = [{
   subject_name: 'Math',
   color: '#0F766E',
@@ -122,7 +131,7 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
     Object.entries(initialChapters).map(([subjectId, chapters]) => [Number(subjectId), [...chapters]]),
   )
   let nextChapterId = 100
-  let tasks: Array<Record<string, unknown>> = []
+  let tasks: StudyTask[] = []
 
   const syncSubject = (subjectId: number) => {
     const chapters = chaptersBySubject[subjectId] ?? []
@@ -150,10 +159,14 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
       && (query.related_chapter_id === undefined || task.related_chapter_id === query.related_chapter_id)
     ))
   ))
-  mocks.tasksCreate.mockImplementation(async (data: Record<string, unknown>) => {
-    const created = { id: tasks.length + 1, status: 'todo', ...data }
+  mocks.tasksCreate.mockImplementation(async (data: Partial<StudyTask>) => {
+    const created = makeTask({ id: tasks.length + 1, ...data })
     tasks = [...tasks, created]
     return created
+  })
+  mocks.tasksRemoveChapterFromToday.mockImplementation(async ({ taskId }: { taskId: number }) => {
+    tasks = tasks.filter(task => task.id !== taskId)
+    return { status: 'removed', tasks }
   })
   mocks.subjectsCreate.mockImplementation(async (data: Partial<Subject>) => {
     const created = makeSubject({
@@ -253,7 +266,7 @@ function setupStudyProgress(initialSubjects: Subject[], initialChapters: Record<
   })
 
   const view = render(<StudyProgress />)
-  return { view, getSubjects: () => subjects, getChapters: (subjectId: number) => chaptersBySubject[subjectId] ?? [] }
+  return { view, getSubjects: () => subjects, getChapters: (subjectId: number) => chaptersBySubject[subjectId] ?? [], getTasks: () => tasks, setTasks: (next: StudyTask[]) => { tasks = next } }
 }
 
 describe('StudyProgress detailed subject chapters', () => {
@@ -277,10 +290,11 @@ describe('StudyProgress detailed subject chapters', () => {
       button.focus()
       fireEvent.click(button)
       await waitFor(() => expect(within(card).getByTestId(`chapter-added-today-${index + 1}`)).toBe(button))
-      expect(button).toHaveAttribute('aria-disabled', 'true')
+      expect(button).toHaveAttribute('aria-disabled', 'false')
       expect(button).toHaveFocus()
       expect(within(card).getByTestId(`chapter-added-today-${index + 1}`)).toBe(button)
-      expect(button).toHaveTextContent('已加入今日')
+      expect(button).toHaveTextContent('撤销')
+      expect(within(rows[index]!).getByText('已加入')).toBeVisible()
       expect(within(rows[index]!).getByRole('checkbox', { name: `标记为已完成：章节 ${index + 1}` })).not.toBeChecked()
       for (const [rowIndex, row] of rows.entries()) {
         expect(within(card).getByTestId(`chapter-row-${rowIndex + 1}`)).toBe(row)
@@ -386,7 +400,7 @@ describe('StudyProgress detailed subject chapters', () => {
     failingCall.mockRejectedValueOnce(new Error('task failed'))
     const button = await screen.findByTestId('chapter-add-today-1')
     fireEvent.click(button)
-    await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith('task failed', 'error'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('task failed')
     await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'false'))
     expect(screen.queryByTestId('chapter-added-today-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('chapter-add-today-1')).toBe(button)
@@ -414,11 +428,11 @@ describe('StudyProgress detailed subject chapters', () => {
       subject_id: 7,
       related_chapter_id: 1,
       planned_date: '2026-06-21',
-      source: 'manual',
+      source: 'chapter',
     }))
     expect(mocks.tasksFind).toHaveBeenCalledWith({ planned_date: '2026-06-21', related_chapter_id: 1 })
     expect(mocks.requestDataRefresh).toHaveBeenCalled()
-    expect(await screen.findByTestId('chapter-added-today-1')).toHaveAttribute('aria-disabled', 'true')
+    expect(await screen.findByTestId('chapter-added-today-1')).toHaveAttribute('aria-disabled', 'false')
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
     expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
     expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
@@ -429,6 +443,7 @@ describe('StudyProgress detailed subject chapters', () => {
     expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByTestId('chapter-added-today-1'))
+    await screen.findByTestId('chapter-add-today-1')
     expect(mocks.tasksCreate).toHaveBeenCalledTimes(1)
   })
 
@@ -436,16 +451,134 @@ describe('StudyProgress detailed subject chapters', () => {
     setupStudyProgress([makeSubject({ total_chapters: 1, completed_chapters: 0 })], {
       7: [makeChapter({ id: 1, completed: false })],
     })
-    mocks.tasksFind.mockResolvedValueOnce([{ id: 99, planned_date: '2026-06-21', related_chapter_id: 1 }])
+    mocks.tasksFind.mockResolvedValueOnce([makeTask({ id: 99 })])
 
     await screen.findByTestId('subject-card-7')
     fireEvent.click(await screen.findByTestId('chapter-add-today-1'))
 
-    expect(await screen.findByTestId('chapter-added-today-1')).toHaveAttribute('aria-disabled', 'true')
+    expect(await screen.findByTestId('chapter-added-today-1')).toHaveAttribute('aria-disabled', 'false')
     expect(mocks.tasksCreate).not.toHaveBeenCalled()
     expect(mocks.requestDataRefresh).toHaveBeenCalledTimes(1)
     expect(mocks.subjectsGetAll).toHaveBeenCalledTimes(1)
     expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
+  })
+
+  it('undoes and re-adds in place with one completion heading and accurate checkbox names', async () => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const card = await screen.findByTestId('subject-card-7')
+    const row = within(card).getByTestId('chapter-row-1')
+    const body = card.querySelector('.chapter-workspace__body')!
+    body.scrollTop = 240
+    const button = within(row).getByTestId('chapter-add-today-1')
+    expect(within(card).getAllByText('完成', { exact: true })).toHaveLength(1)
+    expect(within(row).queryByText('完成', { exact: true })).not.toBeInTheDocument()
+    expect(within(row).getByRole('checkbox')).toHaveAccessibleName('标记为已完成：第一章 函数')
+    for (let cycle = 0; cycle < 2; cycle++) {
+      button.focus()
+      fireEvent.click(button)
+      await waitFor(() => expect(button).toHaveAccessibleName('撤销加入今日任务：第一章 函数'))
+      expect(screen.getByText(/今日已安排/)).toHaveTextContent('今日已安排 1 章')
+      fireEvent.click(button)
+      await waitFor(() => expect(button).toHaveAccessibleName('加入今日任务：第一章 函数'))
+      expect(screen.getByText(/今日已安排/)).toHaveTextContent('今日已安排 0 章')
+      expect(button).toHaveFocus()
+      expect(body.scrollTop).toBe(240)
+      expect(within(card).getByTestId('chapter-row-1')).toBe(row)
+      expect(setup.getTasks()).toHaveLength(0)
+    }
+    expect(mocks.tasksRemoveChapterFromToday).toHaveBeenCalledWith({ taskId: 1, chapterId: 1, subjectId: 7, date: '2026-06-21' })
+    expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps truthful state after undo failure and allows a retry without remounting', async () => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const button = await screen.findByTestId('chapter-add-today-1')
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-added-today-1')
+    mocks.tasksRemoveChapterFromToday.mockRejectedValueOnce(new Error('删除失败，请重试'))
+    button.focus()
+    fireEvent.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent('删除失败，请重试')
+    expect(screen.getByTestId('chapter-added-today-1')).toBe(button)
+    expect(button).toHaveFocus()
+    expect(setup.getTasks()).toHaveLength(1)
+    await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'false'))
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-add-today-1')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(setup.getTasks()).toHaveLength(0)
+  })
+
+  it.each(['protected', 'changed'] as const)('retains a %s task and explains why undo did not delete it', async status => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const button = await screen.findByTestId('chapter-add-today-1')
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-added-today-1')
+    mocks.tasksRemoveChapterFromToday.mockResolvedValueOnce({ status, tasks: setup.getTasks() })
+    fireEvent.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent(status === 'protected' ? '已保留' : '已变化')
+    expect(screen.getByTestId('chapter-added-today-1')).toBe(button)
+    expect(screen.getByText(/今日已安排/)).toHaveTextContent('今日已安排 1 章')
+  })
+
+  it('blocks repeated pending undo clicks and refreshes external deletion without replacing rows', async () => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const button = await screen.findByTestId('chapter-add-today-1')
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-added-today-1')
+    let finish: ((value: { status: string; tasks: StudyTask[] }) => void) | undefined
+    mocks.tasksRemoveChapterFromToday.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(mocks.tasksRemoveChapterFromToday).toHaveBeenCalledTimes(1)
+    setup.setTasks([])
+    finish!({ status: 'removed', tasks: [] })
+    await screen.findByTestId('chapter-add-today-1')
+    // A later page refresh must also reconcile associations and retain the control.
+    setup.setTasks([makeTask()])
+    mockDataRefreshVersion = 2
+    setup.view.rerender(<StudyProgress />)
+    expect(await screen.findByTestId('chapter-added-today-1')).toBe(button)
+    setup.setTasks([])
+    mockDataRefreshVersion = 3
+    setup.view.rerender(<StudyProgress />)
+    expect(await screen.findByTestId('chapter-add-today-1')).toBe(button)
+  })
+
+  it('ignores an older task read after adding and retains known links when a refresh fails', async () => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const button = await screen.findByTestId('chapter-add-today-1')
+    let finishRead: ((tasks: StudyTask[]) => void) | undefined
+    mocks.tasksGetByDate.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve }))
+    mockDataRefreshVersion = 2
+    setup.view.rerender(<StudyProgress />)
+    await waitFor(() => expect(mocks.tasksGetByDate).toHaveBeenCalledTimes(2))
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-added-today-1')
+    finishRead!([])
+    await waitFor(() => expect(mocks.chaptersGetBySubject).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('chapter-added-today-1')).toBe(button)
+    mocks.tasksGetByDate.mockRejectedValueOnce(new Error('read failed'))
+    mockDataRefreshVersion = 4
+    setup.view.rerender(<StudyProgress />)
+    await waitFor(() => expect(mocks.tasksGetByDate).toHaveBeenCalledTimes(3))
+    expect(screen.getByTestId('chapter-added-today-1')).toBe(button)
+    expect(screen.getByText(/今日已安排/)).toHaveTextContent('今日已安排 1 章')
+  })
+
+  it('reconciles a successful delete whose response failed instead of showing a false link', async () => {
+    const setup = setupStudyProgress([makeSubject()], { 7: [makeChapter()] })
+    const button = await screen.findByTestId('chapter-add-today-1')
+    fireEvent.click(button)
+    await screen.findByTestId('chapter-added-today-1')
+    mocks.tasksRemoveChapterFromToday.mockImplementationOnce(async () => {
+      setup.setTasks([])
+      throw new Error('response failed')
+    })
+    fireEvent.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent('response failed')
+    expect(screen.getByTestId('chapter-add-today-1')).toBe(button)
+    expect(screen.getByText(/今日已安排/)).toHaveTextContent('今日已安排 0 章')
   })
 
   it('updates chapter completion locally without reloading the chapter list', async () => {

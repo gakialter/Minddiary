@@ -1,6 +1,9 @@
 import type Database from 'better-sqlite3';
-import { isDateKey } from '../../src/utils/dateKey';
+import { getLocalDateKey, isDateKey } from '../../src/utils/dateKey';
+import { isUntouchedChapterTodayTask, validateRemoveChapterFromTodayInput } from '../../src/utils/chapterTodayTaskRemoval';
 import type {
+    RemoveChapterFromTodayInput,
+    RemoveChapterFromTodayResult,
     NewStudyTask,
     StudyTask,
     StudyTaskQuery,
@@ -11,7 +14,7 @@ import type {
 
 const STUDY_TASK_TYPES: StudyTaskType[] = ['review', 'focus', 'diary', 'mistake', 'custom'];
 const STUDY_TASK_STATUSES: StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped'];
-const STUDY_TASK_SOURCES: StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro'];
+const STUDY_TASK_SOURCES: StudyTaskSource[] = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter'];
 
 function rowToStudyTask(row: StudyTask): StudyTask {
     return {
@@ -248,6 +251,14 @@ export function createStudyTasksRepository(db: Database.Database) {
         const existing = requireStudyTask(taskId);
         if (fields.length === 0) return existing;
 
+        // Editing retires the undo provenance, including same-second edits and
+        // changes subsequently restored to their original values.
+        if (existing.source === 'chapter' || patch.source === 'chapter') {
+            const sourceField = fields.find(field => field.column === 'source');
+            if (sourceField) sourceField.value = 'manual';
+            else fields.push({ column: 'source', value: 'manual' });
+        }
+
         const finalSubjectId = patch.subject_id !== undefined
             ? normalizeStudyTaskNullableId(patch.subject_id)
             : existing.subject_id;
@@ -268,6 +279,36 @@ export function createStudyTasksRepository(db: Database.Database) {
         const taskId = normalizeStudyTaskId(id);
         const result = db.prepare('DELETE FROM study_tasks WHERE id = ?').run(taskId);
         return result.changes > 0;
+    }
+
+    function removeChapterFromToday(input: RemoveChapterFromTodayInput): RemoveChapterFromTodayResult {
+        const request = validateRemoveChapterFromTodayInput(input);
+        return db.transaction((): RemoveChapterFromTodayResult => {
+            const today = getLocalDateKey();
+            const result = (status: RemoveChapterFromTodayResult['status']): RemoveChapterFromTodayResult => ({
+                status, tasks: getStudyTasksByDate(getLocalDateKey()),
+            });
+            if (request.date !== today) return result('changed');
+            const task = getStudyTaskById(request.taskId);
+            if (!task) return result('missing');
+            if (task.planned_date !== today || task.subject_id !== request.subjectId
+                || task.related_chapter_id !== request.chapterId) return result('changed');
+            const chapter = db.prepare(`
+                SELECT c.title, s.name FROM subject_chapters c
+                JOIN subjects s ON s.id = c.subject_id
+                WHERE c.id = ? AND c.subject_id = ?
+            `).get(request.chapterId, request.subjectId) as { title: string; name: string } | undefined;
+            if (!chapter) return result('changed');
+            if (!isUntouchedChapterTodayTask(task, chapter.name, chapter.title)) return result('protected');
+            const focus = db.prepare('SELECT 1 FROM pomodoro_sessions WHERE task_id = ? LIMIT 1').get(task.id);
+            const receipt = db.prepare('SELECT 1 FROM study_task_action_receipts WHERE task_id = ? LIMIT 1').get(task.id);
+            if (focus || receipt) return result('protected');
+            // Check the local day again immediately before the mutation. The
+            // transaction keeps task, provenance and reference checks atomic.
+            if (getLocalDateKey() !== today) return result('changed');
+            db.prepare('DELETE FROM study_tasks WHERE id = ?').run(task.id);
+            return result('removed');
+        }).immediate();
     }
 
     function completeStudyTask(id: number): StudyTask {
@@ -298,6 +339,7 @@ export function createStudyTasksRepository(db: Database.Database) {
         createStudyTask,
         updateStudyTask,
         deleteStudyTask,
+        removeChapterFromToday,
         completeStudyTask,
         skipStudyTask,
         startStudyTaskFocus,

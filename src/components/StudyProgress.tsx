@@ -7,7 +7,7 @@ import { showToast } from './Toast'
 import { logger } from '../utils/logger'
 import SubjectChapterPanel from './SubjectChapterPanel'
 import { useModalFocus } from '../hooks/useModalFocus'
-import type { Mistake, PomodoroStat, Subject, SubjectChapter } from '../types'
+import type { Mistake, PomodoroStat, StudyTask, Subject, SubjectChapter } from '../types'
 
 interface SubjectForm {
     name: string
@@ -50,8 +50,30 @@ export default function StudyProgress() {
     const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null)
     const [visitedSubjectIds, setVisitedSubjectIds] = useState<Set<number>>(new Set())
     const [subjectQuery, setSubjectQuery] = useState('')
-    const [todayChapterTaskIds, setTodayChapterTaskIds] = useState<Set<number>>(new Set())
+    const [todayTasks, setTodayTasks] = useState<StudyTask[]>([])
+    const todayTasksRequestRef = useRef(0)
+    const todayDateRef = useRef(todayDate)
+    todayDateRef.current = todayDate
     const locallyRequestedRefreshVersionRef = useRef<number | null>(null)
+
+    const todayChapterTasks = useMemo(() => {
+        const result = new Map<number, StudyTask[]>()
+        for (const task of todayTasks) {
+            if (task.planned_date !== todayDate || task.related_chapter_id === null) continue
+            const tasks = result.get(task.related_chapter_id) ?? []
+            tasks.push(task)
+            result.set(task.related_chapter_id, tasks)
+        }
+        return result
+    }, [todayDate, todayTasks])
+
+    const refreshTodayTasks = useCallback(async () => {
+        const request = ++todayTasksRequestRef.current
+        const tasks = await tasksAPI.getByDate(todayDate)
+        if (request === todayTasksRequestRef.current && todayDateRef.current === todayDate) {
+            setTodayTasks(tasks)
+        }
+    }, [tasksAPI, todayDate])
 
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
@@ -60,11 +82,12 @@ export default function StudyProgress() {
     const loadAllData = useCallback(async () => {
         // Refresh in place: mounted workspaces own filters, drafts and scroll position.
         try {
-            const [subjData, pStats, mistData, todayTasks] = await Promise.all([
+            const [subjData, pStats, mistData] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
                 pomodoroAPI.getStats(todayDate).catch(() => [] as PomodoroStat[]),
                 mistakesAPI.getAll({}).catch(() => ({ data: [] })),
-                tasksAPI.getByDate(todayDate).catch(() => []),
+                // A failed task read must not turn known links into an empty state.
+                refreshTodayTasks().catch(error => logger.error(error)),
             ])
             const normalizedSubjects = subjData || []
             const chapterPairs = await Promise.all(
@@ -77,18 +100,13 @@ export default function StudyProgress() {
             setChaptersBySubject(Object.fromEntries(chapterPairs))
             setPomodoroStats(pStats || [])
             setMistakes((mistData && 'data' in mistData ? mistData.data : []) as Mistake[])
-            setTodayChapterTaskIds(new Set(
-                (todayTasks || [])
-                    .map(task => task.related_chapter_id)
-                    .filter((chapterId): chapterId is number => chapterId !== null),
-            ))
         } catch (error) {
             logger.error(error)
             showToast('加载科目进度失败', 'error')
         } finally {
             setLoading(false)
         }
-    }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI, tasksAPI, todayDate])
+    }, [mistakesAPI, pomodoroAPI, refreshTodayTasks, subjectChaptersAPI, subjectsAPI, todayDate])
 
     useEffect(() => {
         if (locallyRequestedRefreshVersionRef.current === dataRefreshVersion) {
@@ -116,29 +134,60 @@ export default function StudyProgress() {
     }, [])
 
     const addChapterToToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
-        const existing = await tasksAPI.find({
-            planned_date: todayDate,
-            related_chapter_id: chapter.id,
-        })
-        if (existing.length === 0) {
-            await tasksAPI.create({
-                title: `学习：${subject.name} · ${chapter.title}`,
-                type: 'focus',
-                subject_id: subject.id,
-                related_chapter_id: chapter.id,
+        ++todayTasksRequestRef.current
+        try {
+            const existing = await tasksAPI.find({
                 planned_date: todayDate,
-                source: 'manual',
+                related_chapter_id: chapter.id,
             })
+            const linkedTasks = existing.filter(task => task.subject_id === subject.id)
+            if (linkedTasks.length === 0) {
+                linkedTasks.push(await tasksAPI.create({
+                    title: `学习：${subject.name} · ${chapter.title}`,
+                    type: 'focus',
+                    subject_id: subject.id,
+                    related_chapter_id: chapter.id,
+                    planned_date: todayDate,
+                    source: 'chapter',
+                }))
+            }
+            ++todayTasksRequestRef.current
+            if (todayDateRef.current === todayDate) {
+                setTodayTasks(previous => [...previous.filter(task => !linkedTasks.some(linked => linked.id === task.id)), ...linkedTasks])
+            }
+            locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
+            requestDataRefresh()
+        } catch (error) {
+            await refreshTodayTasks().catch(refreshError => logger.error(refreshError))
+            throw error
         }
-        setTodayChapterTaskIds(previous => {
-            if (previous.has(chapter.id)) return previous
-            const next = new Set(previous)
-            next.add(chapter.id)
-            return next
-        })
-        locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
-        requestDataRefresh()
-    }, [dataRefreshVersion, requestDataRefresh, tasksAPI, todayDate])
+    }, [dataRefreshVersion, refreshTodayTasks, requestDataRefresh, tasksAPI, todayDate])
+
+    const removeChapterFromToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
+        const linkedTasks = (todayChapterTasks.get(chapter.id) ?? []).filter(task => task.subject_id === subject.id)
+        const task = linkedTasks.find(item => item.source === 'chapter') ?? linkedTasks[0]
+        if (!task) return
+        ++todayTasksRequestRef.current
+        try {
+            const result = await tasksAPI.removeChapterFromToday({ taskId: task.id, subjectId: subject.id, chapterId: chapter.id, date: todayDate })
+            ++todayTasksRequestRef.current
+            if (todayDateRef.current === todayDate) setTodayTasks(result.tasks)
+            locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
+            requestDataRefresh()
+            if (result.status === 'protected') {
+                throw new Error('任务已开始、修改或包含记录，已保留。请到今日安排中处理。')
+            }
+            if (result.status === 'changed') {
+                throw new Error('任务或日期已变化，已更新关联状态，请核对后重试。')
+            }
+            if (result.tasks.some(item => item.planned_date === todayDate && item.related_chapter_id === chapter.id && item.subject_id === subject.id)) {
+                throw new Error('已撤销此任务，但该章节还有其他今日任务。请到今日安排中核对。')
+            }
+        } catch (error) {
+            await refreshTodayTasks().catch(refreshError => logger.error(refreshError))
+            throw error
+        }
+    }, [dataRefreshVersion, refreshTodayTasks, requestDataRefresh, tasksAPI, todayChapterTasks, todayDate])
 
     const { totalChapters, totalCompleted, overallProgress, subjectMetrics } = useMemo(() => {
         const mistakeIndex = new Map<number | null, { total: number; mastered: number }>()
@@ -299,7 +348,7 @@ export default function StudyProgress() {
                     </div>
                 </div>
                 <div className="study-progress__overview-actions">
-                    <span className="study-progress__today-count" role="status">今日已安排 <strong>{todayChapterTaskIds.size}</strong> 章</span>
+                    <span className="study-progress__today-count" role="status">今日已安排 <strong>{todayChapterTasks.size}</strong> 章</span>
                     <button type="button" className="button button-secondary" onClick={() => {
                         setShowForm(true)
                         setEditingId(null)
@@ -472,8 +521,9 @@ export default function StudyProgress() {
                                 )}
                                 <SubjectChapterPanel subject={subject} chapters={chaptersBySubject[subject.id] || []}
                                     api={subjectChaptersAPI} onRefresh={loadAllData}
-                                    onChapterUpdated={updateChapterLocally} todayChapterTaskIds={todayChapterTaskIds}
-                                    onAddToToday={chapter => addChapterToToday(subject, chapter)} />
+                                    onChapterUpdated={updateChapterLocally} todayChapterTasks={todayChapterTasks}
+                                    onAddToToday={chapter => addChapterToToday(subject, chapter)}
+                                    onRemoveFromToday={chapter => removeChapterFromToday(subject, chapter)} />
                             </article>
                         ))}
                     </section>

@@ -135,6 +135,7 @@ const createWindowApiMock = (): ElectronAPI => ({
     getRange: vi.fn().mockResolvedValue([]),
   },
   tasks: {
+    removeChapterFromToday: vi.fn().mockResolvedValue({ status: 'missing', tasks: [] }),
     getByDate: vi.fn().mockResolvedValue([]),
     find: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({

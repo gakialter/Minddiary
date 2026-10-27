@@ -86,7 +86,7 @@ const STUDY_TASK_RESPONSE_KEYS = [
   'updated_at',
 ] as const
 const STUDY_TASK_STATUSES = ['todo', 'doing', 'done', 'skipped'] as const
-const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro'] as const
+const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter'] as const
 
 const TITLE_MAX_LENGTH = 80
 const DESCRIPTION_MAX_LENGTH = 240

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowDown, ArrowUp, CalendarPlus, Check, Edit3, ListPlus, Save, Trash2, X } from 'lucide-react'
-import type { Subject, SubjectChapter, SubjectChapterDraft } from '../types'
+import { ArrowDown, ArrowUp, CalendarPlus, Edit3, ListPlus, Save, Trash2, X } from 'lucide-react'
+import type { StudyTask, Subject, SubjectChapter, SubjectChapterDraft } from '../types'
 import type { SubjectChaptersContextAPI } from '../types/api'
 import {
     calculateChapterStats,
@@ -19,8 +19,9 @@ interface SubjectChapterPanelProps {
     api: SubjectChaptersContextAPI
     onRefresh: () => Promise<void>
     onChapterUpdated: (previousChapter: SubjectChapter, updatedChapter: SubjectChapter) => void
-    todayChapterTaskIds: Set<number>
+    todayChapterTasks: Map<number, StudyTask[]>
     onAddToToday: (chapter: SubjectChapter) => Promise<void>
+    onRemoveFromToday: (chapter: SubjectChapter) => Promise<void>
 }
 
 interface PendingConversion {
@@ -33,8 +34,9 @@ export default function SubjectChapterPanel({
     api,
     onRefresh,
     onChapterUpdated,
-    todayChapterTaskIds,
+    todayChapterTasks,
     onAddToToday,
+    onRemoveFromToday,
 }: SubjectChapterPanelProps) {
     const [filter, setFilter] = useState<ChapterFilter>('open')
     const [management, setManagement] = useState(chapters.length === 0)
@@ -52,6 +54,8 @@ export default function SubjectChapterPanel({
     const [editTitle, setEditTitle] = useState('')
     const [editNotes, setEditNotes] = useState('')
     const [pending, setPending] = useState<string | null>(null)
+    const pendingRef = useRef(false)
+    const [todayErrors, setTodayErrors] = useState<Record<number, string>>({})
     const [conversion, setConversion] = useState<PendingConversion | null>(null)
 
     const stats = useMemo(() => calculateChapterStats(chapters), [chapters])
@@ -94,7 +98,8 @@ export default function SubjectChapterPanel({
     }
 
     const runAction = async (label: string, action: () => Promise<void>) => {
-        if (pending) return
+        if (pendingRef.current) return
+        pendingRef.current = true
         setPending(label)
         try {
             await action()
@@ -103,6 +108,7 @@ export default function SubjectChapterPanel({
             showToast(error instanceof Error ? error.message : '章节操作失败', 'error')
             await onRefresh()
         } finally {
+            pendingRef.current = false
             setPending(null)
         }
     }
@@ -184,11 +190,21 @@ export default function SubjectChapterPanel({
         })
     }
 
-    const addToToday = async (chapter: SubjectChapter) => {
-        if (pending || chapter.completed || todayChapterTaskIds.has(chapter.id)) return
-        await runAction(`today-${chapter.id}`, async () => {
-            await onAddToToday(chapter)
-        })
+    const changeToday = async (chapter: SubjectChapter, added: boolean) => {
+        if (pendingRef.current || (!added && chapter.completed)) return
+        pendingRef.current = true
+        setPending(`today-${chapter.id}`)
+        setTodayErrors(previous => ({ ...previous, [chapter.id]: '' }))
+        try {
+            await (added ? onRemoveFromToday(chapter) : onAddToToday(chapter))
+        } catch (error) {
+            logger.error(error)
+            const message = error instanceof Error ? error.message : '今日任务操作失败，请重试。'
+            setTodayErrors(previous => ({ ...previous, [chapter.id]: message }))
+        } finally {
+            pendingRef.current = false
+            setPending(null)
+        }
     }
 
     const reorder = async (chapter: SubjectChapter, direction: -1 | 1) => {
@@ -358,10 +374,17 @@ export default function SubjectChapterPanel({
                         {query.trim() ? '没有匹配的章节。' : filter === 'open' && stats.open === 0 ? '全部章节都已完成。' : '当前筛选下没有章节。'}
                     </div>
                 )}
+                {visibleChapters.length > 0 && (
+                    <div className="chapter-workspace__columns" aria-hidden="true">
+                        <span className="chapter-workspace__completion-heading">完成</span>
+                        <span className="chapter-workspace__content">章节</span>
+                        <span className="chapter-workspace__today-heading">今日任务</span>
+                    </div>
+                )}
                 {visibleChapters.map(chapter => {
                     const editing = showManagement && editingId === chapter.id
                     const index = orderedChapters.findIndex(item => item.id === chapter.id)
-                    const added = todayChapterTaskIds.has(chapter.id)
+                    const added = (todayChapterTasks.get(chapter.id) ?? []).some(task => task.subject_id === subject.id)
                     return (
                         <div
                             key={chapter.id}
@@ -378,7 +401,6 @@ export default function SubjectChapterPanel({
                                     data-testid={`chapter-toggle-${chapter.id}`}
                                     aria-label={`${chapter.completed ? '标记为未完成' : '标记为已完成'}：${chapter.title}`}
                                 />
-                                <span>{chapter.completed ? '已完成' : '完成'}</span>
                             </label>
                             <div className="chapter-workspace__content">
                                 {editing ? (
@@ -412,21 +434,26 @@ export default function SubjectChapterPanel({
                                     <div className="chapter-workspace__chapter-copy">
                                         <span className="chapter-workspace__title" title={chapter.title}>{chapter.title}</span>
                                         {chapter.notes && <span className="chapter-workspace__notes" title={chapter.notes}>{chapter.notes}</span>}
+                                        {todayErrors[chapter.id] && <span className="chapter-workspace__task-error" role="alert">{todayErrors[chapter.id]}</span>}
                                     </div>
                                 )}
                             </div>
                             {!editing && (
-                                <button
-                                    type="button"
-                                    className="chapter-workspace__button chapter-workspace__today"
-                                    data-state={added ? 'added' : chapter.completed ? 'completed' : 'available'}
-                                    data-testid={added ? `chapter-added-today-${chapter.id}` : `chapter-add-today-${chapter.id}`}
-                                    aria-disabled={!!pending || added || chapter.completed}
-                                    aria-label={`${added ? '已加入今日任务' : chapter.completed ? '章节已完成' : '加入今日任务'}：${chapter.title}`}
-                                    onClick={() => void addToToday(chapter)}
-                                >
-                                    {added ? <><Check size={14} aria-hidden="true" />已加入今日</> : chapter.completed ? '已完成' : <><CalendarPlus size={14} aria-hidden="true" />加入今日</>}
-                                </button>
+                                <div className="chapter-workspace__today-group">
+                                    <span className="chapter-workspace__today-status" hidden={!added}>已加入</span>
+                                    <button
+                                        type="button"
+                                        className="chapter-workspace__button chapter-workspace__today"
+                                        data-state={added ? 'added' : chapter.completed ? 'completed' : 'available'}
+                                        data-testid={added ? `chapter-added-today-${chapter.id}` : `chapter-add-today-${chapter.id}`}
+                                        aria-disabled={!!pending || (!added && chapter.completed)}
+                                        aria-busy={pending === `today-${chapter.id}`}
+                                        aria-label={`${added ? '撤销加入今日任务' : chapter.completed ? '章节已完成' : '加入今日任务'}：${chapter.title}`}
+                                        onClick={() => void changeToday(chapter, added)}
+                                    >
+                                        {added ? '撤销' : chapter.completed ? '已完成' : <><CalendarPlus size={14} aria-hidden="true" />加入今日</>}
+                                    </button>
+                                </div>
                             )}
                             {showManagement && (
                                 <div className="chapter-workspace__row-actions">

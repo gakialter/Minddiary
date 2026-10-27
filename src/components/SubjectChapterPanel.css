@@ -157,8 +157,14 @@
 .chapter-workspace__button:disabled,
 .chapter-workspace__icon:disabled { opacity: .5; cursor: default; }
 .chapter-workspace__today[aria-disabled='true'] { color: var(--color-text-muted); border-color: transparent; cursor: default; }
-.chapter-workspace__today[data-state='added'] { color: var(--color-control-selected-fg); background: var(--color-control-selected-bg); }
-.chapter-workspace__today { width: 108px; font-size: 12px; min-height: 30px; padding: 4px 6px; color: var(--color-accent); }
+.chapter-workspace__today-group { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 108px; flex-shrink: 0; }
+.chapter-workspace__today-status { color: var(--color-text-secondary); white-space: nowrap; font-size: 12px; }
+.chapter-workspace__today { flex: 1; min-width: 0; font-size: 12px; min-height: 32px; padding: 4px 6px; color: var(--color-accent); }
+.chapter-workspace__today[data-state='added'] { flex: 0 0 48px; text-decoration: underline; text-underline-offset: 3px; }
+.chapter-workspace__columns { display: flex; align-items: center; gap: 12px; min-height: 32px; border-bottom: 1px solid var(--color-border-default); color: var(--color-text-muted); font-size: 12px; position: sticky; top: 0; background: var(--color-surface-base); z-index: 1; }
+.chapter-workspace__completion-heading { width: 32px; flex-shrink: 0; text-align: center; }
+.chapter-workspace__today-heading { width: 108px; text-align: center; flex-shrink: 0; }
+.chapter-workspace__task-error { color: var(--color-danger-fg); font-size: 12px; line-height: 18px; }
 
 .chapter-workspace__row {
     display: flex;
@@ -168,7 +174,7 @@
     border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.chapter-workspace__completion { display: inline-flex; align-items: center; gap: 6px; min-width: 64px; min-height: 32px; flex-shrink: 0; font-size: 12px; color: var(--color-text-secondary); cursor: pointer; }
+.chapter-workspace__completion { display: inline-flex; align-items: center; justify-content: center; width: 32px; min-height: 32px; flex-shrink: 0; cursor: pointer; }
 .chapter-workspace__checkbox { appearance: none; position: relative; width: 16px; height: 16px; flex-shrink: 0; margin: 0; border: 1px solid var(--color-text-muted); border-radius: 4px; background: var(--color-surface-base); cursor: pointer; }
 .chapter-workspace__checkbox:checked { background: var(--color-accent); border-color: var(--color-accent); }
 .chapter-workspace__checkbox:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid var(--color-on-accent); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
@@ -191,11 +197,11 @@
 
 @media (max-width: 720px) {
     .chapter-workspace__filters { gap: 12px; }
-    .chapter-workspace__row { gap: 8px; }
+    .chapter-workspace__row, .chapter-workspace__columns { gap: 8px; }
     .chapter-workspace__chapter-copy { gap: 3px; }
     .chapter-workspace__row:has(.chapter-workspace__row-actions) { flex-wrap: wrap; padding: 8px 0; }
-    .chapter-workspace__row:has(.chapter-workspace__row-actions) .chapter-workspace__row-actions { margin-left: 72px; }
-    .chapter-workspace__row--editing .chapter-workspace__content { flex-basis: calc(100% - 72px); }
+    .chapter-workspace__row:has(.chapter-workspace__row-actions) .chapter-workspace__row-actions { margin-left: 40px; }
+    .chapter-workspace__row--editing .chapter-workspace__content { flex-basis: calc(100% - 40px); }
 }
 
 @media (max-width: 440px) {
@@ -222,7 +228,6 @@
     .chapter-workspace__text-button:hover { background: var(--color-surface-interactive); }
     .chapter-workspace__button--primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
     .chapter-workspace__today[aria-disabled='true']:hover { background: transparent; }
-    .chapter-workspace__today[data-state='added']:hover { background: var(--color-control-selected-bg); }
     .chapter-workspace__row:not(.chapter-workspace__row--editing):hover { background: var(--color-surface-subtle); }
 }
 @media (forced-colors: active) {

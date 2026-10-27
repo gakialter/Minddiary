@@ -120,6 +120,7 @@ const makeDataValue = (overrides: Partial<DataValue> = {}): DataValue => ({
     getDailyTotal: vi.fn(),
   },
   tasks: {
+    removeChapterFromToday: vi.fn().mockResolvedValue({ status: 'missing', tasks: [] }),
     getByDate: vi.fn(),
     find: vi.fn(),
     create: vi.fn(),
