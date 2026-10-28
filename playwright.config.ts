@@ -7,6 +7,6 @@ export default defineConfig({
     workers: 1, // Serialize: each spec launches its own Electron instance
     reporter: 'list',
     use: {
-        trace: 'on-first-retry',
+        trace: 'retain-on-failure',
     },
 });

@@ -133,6 +133,8 @@ async function launch(profilePath: string, ownedApps: OwnedElectron[]): Promise<
     env: { ...process.env, NODE_ENV: 'production' },
   })
   ownedApps.push({ app, process: app.process(), profilePath })
+  const actualUserData = await app.evaluate(({ app }) => app.getPath('userData'))
+  expect(path.relative(profilePath, actualUserData)).toBe('')
   const page = await app.firstWindow()
   await page.waitForLoadState('load')
   const startButton = page.getByRole('button', { name: '开始使用' })
@@ -184,6 +186,7 @@ async function importJsonBackup(page: Page, name: string, content: string, prefl
       mimeType: 'application/json',
       buffer: Buffer.from(content, 'utf8'),
     })
+    await expect(page.getByRole('alert').getByText(preflightError)).toBeVisible()
     await expect(page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })).toBeVisible()
     return
   }
@@ -435,10 +438,13 @@ test.describe('repeated mistake entry and editing', () => {
       await page.getByRole('button', { name: '设置', exact: true }).click()
       await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
       await importJsonBackup(page, 'MindDiary_Backup_test.json', exportedText)
+      const initialImportMessage = page.getByRole('status').getByText(/导入完成，处理了 0 篇日记、1 道错题/)
+      await expect(initialImportMessage).toBeVisible()
       const initialImportToast = page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })
       await expect(initialImportToast).toBeVisible()
       await initialImportToast.click()
       await expect(initialImportToast).toBeHidden()
+      await expect(initialImportMessage).toBeHidden()
 
       let restored = await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))
       expect(restored.data).toEqual([
@@ -488,13 +494,13 @@ test.describe('repeated mistake entry and editing', () => {
           JSON.stringify(invalidExport),
           preflightError,
         )
-        const invalidPayloadToast = page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })
+        const invalidPayloadToast = page.getByRole('alert').getByText(preflightError)
         await expect(invalidPayloadToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
-        await invalidPayloadToast.click()
+        await page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) }).click()
         await expect(invalidPayloadToast).toBeHidden()
       }
 
@@ -511,13 +517,13 @@ test.describe('repeated mistake entry and editing', () => {
           JSON.stringify(invalidSubjectExport),
           preflightError,
         )
-        const invalidSubjectToast = page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })
+        const invalidSubjectToast = page.getByRole('alert').getByText(preflightError)
         await expect(invalidSubjectToast).toBeVisible()
         expect(await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))).toMatchObject({
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
-        await invalidSubjectToast.click()
+        await page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) }).click()
         await expect(invalidSubjectToast).toBeHidden()
       }
 
@@ -549,6 +555,7 @@ test.describe('repeated mistake entry and editing', () => {
         'MindDiary_Backup_subject_mapping.json',
         JSON.stringify(mappedSubjectExport),
       )
+      await expect(page.getByRole('status').getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
       await expect(page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })).toBeVisible()
       const mappedSubjectResult = await page.evaluate(async () => {
         const [subjects, mistakes] = await Promise.all([

@@ -43,7 +43,17 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run source-tree Electron E2E
+        id: source-electron-e2e
         run: npm run test:e2e
+
+      - name: Upload source-tree E2E failure diagnostics
+        if: always() && steps.source-electron-e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: source-tree-e2e-failure-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   build-verification:
     timeout-minutes: 120
