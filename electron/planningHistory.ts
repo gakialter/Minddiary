@@ -700,7 +700,7 @@ type BatchPomodoroRow = {
 }
 
 const STUDY_TASK_STATUSES: readonly StudyTaskStatus[] = ['todo', 'doing', 'done', 'skipped']
-const STUDY_TASK_SOURCES: readonly string[] = ['manual', 'dashboard', 'ai', 'pomodoro']
+const STUDY_TASK_SOURCES: readonly string[] = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter']
 
 function batchLoadRelations(
     database: Database.Database,

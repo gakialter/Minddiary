@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { BookOpen, ChevronDown, ChevronUp, Library, Pencil, PlusCircle, Target, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, Library, Pencil, PlusCircle, Search, Trash2 } from 'lucide-react'
 import { useDiary } from '../contexts/DiaryContext'
 import { useCurrentLocalDateKey } from '../contexts/LocalDateContext'
 import { showToast } from './Toast'
 import { logger } from '../utils/logger'
-import { calculateChapterStats } from '../utils/subjectChapters'
 import SubjectChapterPanel from './SubjectChapterPanel'
-import type { Mistake, PomodoroStat, Subject, SubjectChapter } from '../types'
+import { useModalFocus } from '../hooks/useModalFocus'
+import type { Mistake, PomodoroStat, StudyTask, Subject, SubjectChapter } from '../types'
 
 interface SubjectForm {
     name: string
@@ -21,7 +21,6 @@ interface SubjectMetric extends Subject {
     mistakeCount: number
     masteredCount: number
     hasDetailedChapters: boolean
-    nextIncompleteChapter: string | null
 }
 
 const COLORS = ['#0F766E', '#2F8F6B', '#0E7490', '#475569', '#854D0E', '#C65A3A', '#4D7C0F', '#6B7280']
@@ -48,22 +47,47 @@ export default function StudyProgress() {
     const [loading, setLoading] = useState(true)
     const [savingSubject, setSavingSubject] = useState(false)
     const [subjectActionPending, setSubjectActionPending] = useState<string | null>(null)
-    const [expandedSubjectId, setExpandedSubjectId] = useState<number | null>(null)
-    const [todayChapterTaskIds, setTodayChapterTaskIds] = useState<Set<number>>(new Set())
+    const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null)
+    const [visitedSubjectIds, setVisitedSubjectIds] = useState<Set<number>>(new Set())
+    const [subjectQuery, setSubjectQuery] = useState('')
+    const [todayTasks, setTodayTasks] = useState<StudyTask[]>([])
+    const todayTasksRequestRef = useRef(0)
+    const todayDateRef = useRef(todayDate)
+    todayDateRef.current = todayDate
     const locallyRequestedRefreshVersionRef = useRef<number | null>(null)
+
+    const todayChapterTasks = useMemo(() => {
+        const result = new Map<number, StudyTask[]>()
+        for (const task of todayTasks) {
+            if (task.planned_date !== todayDate || task.related_chapter_id === null) continue
+            const tasks = result.get(task.related_chapter_id) ?? []
+            tasks.push(task)
+            result.set(task.related_chapter_id, tasks)
+        }
+        return result
+    }, [todayDate, todayTasks])
+
+    const refreshTodayTasks = useCallback(async () => {
+        const request = ++todayTasksRequestRef.current
+        const tasks = await tasksAPI.getByDate(todayDate)
+        if (request === todayTasksRequestRef.current && todayDateRef.current === todayDate) {
+            setTodayTasks(tasks)
+        }
+    }, [tasksAPI, todayDate])
 
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState<number | null>(null)
     const [form, setForm] = useState<SubjectForm>({ name: '', total_chapters: '', color: '#0F766E' })
 
     const loadAllData = useCallback(async () => {
-        setLoading(true)
+        // Refresh in place: mounted workspaces own filters, drafts and scroll position.
         try {
-            const [subjData, pStats, mistData, todayTasks] = await Promise.all([
+            const [subjData, pStats, mistData] = await Promise.all([
                 subjectsAPI.getAll().catch(() => [] as Subject[]),
                 pomodoroAPI.getStats(todayDate).catch(() => [] as PomodoroStat[]),
                 mistakesAPI.getAll({}).catch(() => ({ data: [] })),
-                tasksAPI.getByDate(todayDate).catch(() => []),
+                // A failed task read must not turn known links into an empty state.
+                refreshTodayTasks().catch(error => logger.error(error)),
             ])
             const normalizedSubjects = subjData || []
             const chapterPairs = await Promise.all(
@@ -76,18 +100,13 @@ export default function StudyProgress() {
             setChaptersBySubject(Object.fromEntries(chapterPairs))
             setPomodoroStats(pStats || [])
             setMistakes((mistData && 'data' in mistData ? mistData.data : []) as Mistake[])
-            setTodayChapterTaskIds(new Set(
-                (todayTasks || [])
-                    .map(task => task.related_chapter_id)
-                    .filter((chapterId): chapterId is number => chapterId !== null),
-            ))
         } catch (error) {
             logger.error(error)
             showToast('加载科目进度失败', 'error')
         } finally {
             setLoading(false)
         }
-    }, [mistakesAPI, pomodoroAPI, subjectChaptersAPI, subjectsAPI, tasksAPI, todayDate])
+    }, [mistakesAPI, pomodoroAPI, refreshTodayTasks, subjectChaptersAPI, subjectsAPI, todayDate])
 
     useEffect(() => {
         if (locallyRequestedRefreshVersionRef.current === dataRefreshVersion) {
@@ -115,32 +134,60 @@ export default function StudyProgress() {
     }, [])
 
     const addChapterToToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
-        const existing = await tasksAPI.find({
-            planned_date: todayDate,
-            related_chapter_id: chapter.id,
-        })
-        if (existing.length === 0) {
-            await tasksAPI.create({
-                title: `学习：${subject.name} · ${chapter.title}`,
-                type: 'focus',
-                subject_id: subject.id,
-                related_chapter_id: chapter.id,
+        ++todayTasksRequestRef.current
+        try {
+            const existing = await tasksAPI.find({
                 planned_date: todayDate,
-                source: 'manual',
+                related_chapter_id: chapter.id,
             })
-            showToast('已加入今日任务', 'success')
-        } else {
-            showToast('该章节已在今日任务中', 'success')
+            const linkedTasks = existing.filter(task => task.subject_id === subject.id)
+            if (linkedTasks.length === 0) {
+                linkedTasks.push(await tasksAPI.create({
+                    title: `学习：${subject.name} · ${chapter.title}`,
+                    type: 'focus',
+                    subject_id: subject.id,
+                    related_chapter_id: chapter.id,
+                    planned_date: todayDate,
+                    source: 'chapter',
+                }))
+            }
+            ++todayTasksRequestRef.current
+            if (todayDateRef.current === todayDate) {
+                setTodayTasks(previous => [...previous.filter(task => !linkedTasks.some(linked => linked.id === task.id)), ...linkedTasks])
+            }
+            locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
+            requestDataRefresh()
+        } catch (error) {
+            await refreshTodayTasks().catch(refreshError => logger.error(refreshError))
+            throw error
         }
-        setTodayChapterTaskIds(previous => {
-            if (previous.has(chapter.id)) return previous
-            const next = new Set(previous)
-            next.add(chapter.id)
-            return next
-        })
-        locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
-        requestDataRefresh()
-    }, [dataRefreshVersion, requestDataRefresh, tasksAPI, todayDate])
+    }, [dataRefreshVersion, refreshTodayTasks, requestDataRefresh, tasksAPI, todayDate])
+
+    const removeChapterFromToday = useCallback(async (subject: Subject, chapter: SubjectChapter) => {
+        const linkedTasks = (todayChapterTasks.get(chapter.id) ?? []).filter(task => task.subject_id === subject.id)
+        const task = linkedTasks.find(item => item.source === 'chapter') ?? linkedTasks[0]
+        if (!task) return
+        ++todayTasksRequestRef.current
+        try {
+            const result = await tasksAPI.removeChapterFromToday({ taskId: task.id, subjectId: subject.id, chapterId: chapter.id, date: todayDate })
+            ++todayTasksRequestRef.current
+            if (todayDateRef.current === todayDate) setTodayTasks(result.tasks)
+            locallyRequestedRefreshVersionRef.current = dataRefreshVersion + 1
+            requestDataRefresh()
+            if (result.status === 'protected') {
+                throw new Error('任务已开始、修改或包含记录，已保留。请到今日安排中处理。')
+            }
+            if (result.status === 'changed') {
+                throw new Error('任务或日期已变化，已更新关联状态，请核对后重试。')
+            }
+            if (result.tasks.some(item => item.planned_date === todayDate && item.related_chapter_id === chapter.id && item.subject_id === subject.id)) {
+                throw new Error('已撤销此任务，但该章节还有其他今日任务。请到今日安排中核对。')
+            }
+        } catch (error) {
+            await refreshTodayTasks().catch(refreshError => logger.error(refreshError))
+            throw error
+        }
+    }, [dataRefreshVersion, refreshTodayTasks, requestDataRefresh, tasksAPI, todayChapterTasks, todayDate])
 
     const { totalChapters, totalCompleted, overallProgress, subjectMetrics } = useMemo(() => {
         const mistakeIndex = new Map<number | null, { total: number; mastered: number }>()
@@ -161,7 +208,6 @@ export default function StudyProgress() {
         let chapterCompleted = 0
         const metrics: SubjectMetric[] = subjects.map(subject => {
             const chapters = chaptersBySubject[subject.id] || []
-            const chapterStats = calculateChapterStats(chapters)
             const total = subject.total_chapters || 0
             const completed = Math.min(subject.completed_chapters || 0, total)
             chapterTotal += total
@@ -175,7 +221,6 @@ export default function StudyProgress() {
                 mistakeCount,
                 masteredCount,
                 hasDetailedChapters: chapters.length > 0,
-                nextIncompleteChapter: chapterStats.nextIncomplete?.title ?? null,
             }
         })
 
@@ -192,6 +237,8 @@ export default function StudyProgress() {
         setShowForm(false)
         setEditingId(null)
     }
+
+    const formRef = useModalFocus(() => { if (!savingSubject) resetForm() }, showForm)
 
     const handleSubmit = async () => {
         if (!form.name.trim() || savingSubject) return
@@ -210,11 +257,13 @@ export default function StudyProgress() {
                     color: form.color,
                 })
             } else {
-                await subjectsAPI.create({
+                const created = await subjectsAPI.create({
                     name: form.name.trim(),
                     total_chapters: total,
                     color: form.color,
                 })
+                selectSubject(created.id)
+                setSubjectQuery('')
             }
             resetForm()
             await loadAllData()
@@ -243,7 +292,7 @@ export default function StudyProgress() {
         setSubjectActionPending(`delete-${id}`)
         try {
             await subjectsAPI.delete(id)
-            if (expandedSubjectId === id) setExpandedSubjectId(null)
+            if (selectedSubjectId === id) setSelectedSubjectId(null)
             await loadAllData()
             showToast('科目已删除', 'success')
         } catch (error) {
@@ -278,56 +327,39 @@ export default function StudyProgress() {
         }
     }
 
+    const activeSubjectId = subjects.find(subject => subject.id === selectedSubjectId)?.id ?? subjects[0]?.id
+    const visibleSubjects = subjectMetrics.filter(subject => subject.name.toLocaleLowerCase().includes(subjectQuery.trim().toLocaleLowerCase()))
+    const selectSubject = (id: number) => {
+        setVisitedSubjectIds(previous => new Set([...previous, ...(activeSubjectId ? [activeSubjectId] : []), id]))
+        setSelectedSubjectId(id)
+    }
+
     return (
         <div className="workspace-page workspace-page--wide study-progress" aria-busy={loading}>
-            <section className="study-progress__overview" aria-labelledby="study-progress-overview-title">
-                <div className="study-progress__overview-header">
-                    <div className="study-progress__overview-copy">
-                        <span className="study-progress__overview-icon" aria-hidden="true">
-                            <Target size={18} />
-                        </span>
-                        <div>
-                            <h2 id="study-progress-overview-title" className="study-progress__overview-title">学习进度</h2>
-                            <p className="study-progress__overview-help">按科目查看章节进展与今日学习证据。</p>
-                        </div>
-                    </div>
-                    {!showForm && (
-                        <button
-                            type="button"
-                            className="button button-primary study-progress__add-subject"
-                            onClick={() => {
-                                setShowForm(true)
-                                setEditingId(null)
-                                setForm({ name: '', total_chapters: '', color: '#0F766E' })
-                            }}
-                        >
-                            <PlusCircle size={16} aria-hidden="true" /> 添加科目
-                        </button>
-                    )}
-                </div>
-
+            <section className="study-progress__overview" aria-label="学习总进度">
                 <div className="study-progress__overall-value">
+                    <span>整体进度</span>
                     <strong>{overallProgress}%</strong>
                     <span>已完成 {totalCompleted} / {totalChapters} 个章节</span>
+                    <div className="study-progress__track" role="progressbar" aria-label="总进度"
+                        aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(overallProgress)}
+                        aria-valuetext={`已完成 ${totalCompleted} / ${totalChapters} 个章节`}>
+                        <span className="study-progress__fill" style={{ width: `${overallProgress}%` }} />
+                    </div>
                 </div>
-                <div
-                    className="study-progress__track study-progress__track--overall"
-                    role="progressbar"
-                    aria-label="总进度"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Number(overallProgress)}
-                    aria-valuetext={`已完成 ${totalCompleted} / ${totalChapters} 个章节`}
-                >
-                    <span className="study-progress__fill" style={{ width: `${overallProgress}%` }} />
+                <div className="study-progress__overview-actions">
+                    <span className="study-progress__today-count" role="status">今日已安排 <strong>{todayChapterTasks.size}</strong> 章</span>
+                    <button type="button" className="button button-secondary" onClick={() => {
+                        setShowForm(true)
+                        setEditingId(null)
+                        setForm({ name: '', total_chapters: '', color: '#0F766E' })
+                    }}><PlusCircle size={15} aria-hidden="true" /> 添加科目</button>
                 </div>
-                {Number(overallProgress) >= 100 && totalChapters > 0 && (
-                    <span className="study-progress__complete-status">全部完成</span>
-                )}
             </section>
 
             {showForm && (
-                <section className="study-progress__form" aria-labelledby="study-progress-form-title">
+                <div className="study-progress__form-backdrop">
+                <div ref={formRef} role="dialog" aria-modal="true" tabIndex={-1} className="study-progress__form" aria-labelledby="study-progress-form-title">
                     <h2 id="study-progress-form-title" className="study-progress__form-title">
                         {editingId
                             ? <><Pencil size={18} aria-hidden="true" /> 编辑科目</>
@@ -389,174 +421,114 @@ export default function StudyProgress() {
                             </button>
                         </div>
                     </div>
-                </section>
+                </div>
+                </div>
             )}
 
-            <section className="study-progress__subjects" aria-label="科目进度">
-                {loading ? (
-                    <div className="study-progress__loading" role="status">
-                        <span>正在加载科目进度...</span>
-                        <div className="study-progress__skeleton-grid" aria-hidden="true">
-                            {Array.from({ length: 4 }).map((_, index) => (
-                                <div key={index} className="study-progress__skeleton">
-                                    <div className="skeleton-line study-progress__skeleton-title" />
-                                    <div className="skeleton-line study-progress__skeleton-track" />
-                                    <div className="skeleton-line study-progress__skeleton-detail" />
-                                </div>
+            {loading ? (
+                <div className="study-progress__loading" role="status">正在加载科目进度...</div>
+            ) : subjects.length === 0 ? (
+                <div className="workspace-empty study-progress__empty">
+                    <Library size={40} aria-hidden="true" />
+                    <h3>暂无科目</h3>
+                    <p>创建科目后，可添加章节或记录完成数量。</p>
+                </div>
+            ) : (
+                <div className="study-progress__planner">
+                    <nav className="study-progress__navigator" aria-label="选择科目">
+                        <div className="study-progress__nav-heading"><h2>我的科目</h2><span>{subjects.length}</span></div>
+                        <label className="study-progress__search">
+                            <Search size={15} aria-hidden="true" />
+                            <input type="search" value={subjectQuery} aria-label="搜索科目" placeholder="搜索科目"
+                                onChange={event => setSubjectQuery(event.target.value)} />
+                        </label>
+                        <div className="study-progress__subject-list">
+                            {visibleSubjects.map(subject => (
+                                <button key={subject.id} type="button" className="study-progress__subject-link"
+                                    data-testid={`subject-select-${subject.id}`} aria-pressed={activeSubjectId === subject.id}
+                                    aria-controls="study-progress-workspaces"
+                                    onClick={() => selectSubject(subject.id)}
+                                    onKeyDown={event => {
+                                        const index = visibleSubjects.findIndex(item => item.id === subject.id)
+                                        const next = event.key === 'ArrowDown' ? visibleSubjects[(index + 1) % visibleSubjects.length]
+                                            : event.key === 'ArrowUp' ? visibleSubjects[(index - 1 + visibleSubjects.length) % visibleSubjects.length]
+                                            : event.key === 'Home' ? visibleSubjects[0]
+                                            : event.key === 'End' ? visibleSubjects[visibleSubjects.length - 1] : undefined
+                                        if (!next) return
+                                        event.preventDefault()
+                                        selectSubject(next.id)
+                                        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-testid="subject-select-${next.id}"]`)?.focus()
+                                    }}>
+                                    <span className="study-progress__subject-marker" style={{ '--subject-color': subject.color || '#0F766E' } as CSSProperties} aria-hidden="true" />
+                                    <span className="study-progress__subject-label"><strong>{subject.name}</strong><span>{subject.completed_chapters || 0} / {subject.total_chapters || 0} 章节</span></span>
+                                    <span className="study-progress__nav-percent">{subject.pct}%</span>
+                                </button>
                             ))}
+                            {visibleSubjects.length === 0 && <p className="study-progress__no-match" role="status">没有匹配的科目</p>}
                         </div>
-                    </div>
-                ) : (
-                    subjectMetrics.map(subject => {
-                        const displayColor = subject.color || '#0F766E'
-                        const expanded = expandedSubjectId === subject.id
-                        return (
-                            <article
-                                key={subject.id}
-                                data-testid={`subject-card-${subject.id}`}
-                                className="study-progress__subject"
-                                style={{ '--subject-color': displayColor } as CSSProperties}
-                                aria-labelledby={`study-progress-subject-${subject.id}`}
-                            >
+                    </nav>
+                    <label className="study-progress__compact-picker">
+                        <span>切换科目</span>
+                        <select className="input" aria-label="切换科目" value={activeSubjectId} onChange={event => selectSubject(Number(event.target.value))}>
+                            {subjectMetrics.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                        </select>
+                    </label>
+                    <section id="study-progress-workspaces" className="study-progress__workspaces" aria-label="科目章节工作区">
+                        {subjectMetrics.filter(subject => subject.id === activeSubjectId || visitedSubjectIds.has(subject.id)).map(subject => (
+                            <article key={subject.id} id={`study-progress-workspace-${subject.id}`} data-testid={`subject-card-${subject.id}`}
+                                className="study-progress__subject" hidden={subject.id !== activeSubjectId}
+                                aria-labelledby={`study-progress-subject-${subject.id}`}>
                                 <header className="study-progress__subject-header">
-                                    <h3 id={`study-progress-subject-${subject.id}`} className="study-progress__subject-title">{subject.name}</h3>
-                                    <div className="study-progress__subject-actions">
-                                        <button
-                                            type="button"
-                                            className="study-progress__icon-action"
-                                            onClick={() => handleEdit(subject)}
-                                            title="编辑科目"
-                                            aria-label={`编辑科目：${subject.name}`}
-                                            disabled={!!subjectActionPending}
-                                        >
-                                            <Pencil size={14} aria-hidden="true" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="study-progress__icon-action study-progress__icon-action--danger"
-                                            onClick={() => void handleDelete(subject.id)}
-                                            title="删除科目"
-                                            aria-label={`删除科目：${subject.name}`}
-                                            disabled={!!subjectActionPending}
-                                        >
-                                            <Trash2 size={14} aria-hidden="true" />
-                                        </button>
+                                    <div className="study-progress__subject-heading">
+                                        <h2 id={`study-progress-subject-${subject.id}`}>{subject.name}</h2>
+                                        <span>已完成 {subject.completed_chapters || 0} / {subject.total_chapters || 0} 章 · {subject.pct}%</span>
                                     </div>
+                                    <details className="study-progress__settings">
+                                        <summary>科目设置 <ChevronDown size={14} aria-hidden="true" /></summary>
+                                        <div className="study-progress__settings-menu">
+                                            <button type="button" className="button button-secondary" title="编辑科目" onClick={event => {
+                                                event.currentTarget.closest('details')?.removeAttribute('open')
+                                                handleEdit(subject)
+                                            }} disabled={!!subjectActionPending}><Pencil size={14} aria-hidden="true" /> 编辑科目</button>
+                                            <button type="button" className="button button-secondary study-progress__delete" title="删除科目"
+                                                onClick={() => void handleDelete(subject.id)} disabled={!!subjectActionPending}><Trash2 size={14} aria-hidden="true" /> 删除科目</button>
+                                        </div>
+                                    </details>
                                 </header>
-
-                                <div className="study-progress__subject-summary">
-                                    <strong>{subject.pct}%</strong>
-                                    <span>{subject.completed_chapters || 0} / {subject.total_chapters || 0} 章节</span>
-                                </div>
-                                <div
-                                    className="study-progress__track"
-                                    role="progressbar"
-                                    aria-label={`${subject.name}章节进度`}
-                                    aria-valuemin={0}
-                                    aria-valuemax={100}
-                                    aria-valuenow={subject.pct}
-                                    aria-valuetext={`已完成 ${subject.completed_chapters || 0} / ${subject.total_chapters || 0} 章节`}
-                                >
+                                <div className="study-progress__track" role="progressbar" aria-label={`${subject.name}章节进度`}
+                                    aria-valuemin={0} aria-valuemax={100} aria-valuenow={subject.pct}
+                                    aria-valuetext={`已完成 ${subject.completed_chapters || 0} / ${subject.total_chapters || 0} 章节`}>
                                     <span className="study-progress__fill" style={{ width: `${subject.pct}%` }} />
                                 </div>
-
-                                <p className="study-progress__next-step">
-                                    {subject.hasDetailedChapters ? (
-                                        subject.nextIncompleteChapter ? (
-                                            <>下一章节：<strong>{subject.nextIncompleteChapter}</strong></>
-                                        ) : (
-                                            <strong className="study-progress__complete-copy">全部章节已完成</strong>
-                                        )
-                                    ) : (
-                                        <>可按数量记录，也可添加章节明细。</>
-                                    )}
-                                </p>
-
-                                <dl className="study-progress__evidence">
-                                    <div>
-                                        <dt>今日专注</dt>
-                                        <dd>{subject.studyTime} 分钟</dd>
-                                    </div>
-                                    <div>
-                                        <dt>未掌握</dt>
-                                        <dd className="study-progress__metric-danger">{subject.mistakeCount - subject.masteredCount}</dd>
-                                    </div>
-                                    <div>
-                                        <dt>已掌握</dt>
-                                        <dd className="study-progress__metric-success">{subject.masteredCount}</dd>
-                                    </div>
-                                </dl>
-
-                                <div className="study-progress__subject-footer">
-                                    {!subject.hasDetailedChapters ? (
-                                        <div className="study-progress__summary-controls" aria-label={`${subject.name}汇总进度调整`}>
-                                            <button
-                                                type="button"
-                                                className="button button-secondary study-progress__summary-control"
-                                                onClick={() => void updateSummaryProgress(subject, -1)}
-                                                disabled={!!subjectActionPending || (subject.completed_chapters || 0) <= 0}
-                                                title={`减少 ${subject.name} 的完成章节数`}
-                                                aria-label={`减少 ${subject.name} 的完成章节数`}
-                                            >
-                                                −
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="button button-primary study-progress__summary-control"
-                                                onClick={() => void updateSummaryProgress(subject, 1)}
-                                                disabled={!!subjectActionPending || (subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
-                                                title={`增加 ${subject.name} 的完成章节数`}
-                                                aria-label={`增加 ${subject.name} 的完成章节数`}
-                                            >
-                                                +
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <span className="study-progress__auto-summary">章节明细会自动更新科目进度</span>
-                                    )}
-                                    <button
-                                        type="button"
-                                        className="button button-secondary study-progress__manage"
-                                        onClick={() => setExpandedSubjectId(expanded ? null : subject.id)}
-                                        aria-expanded={expanded}
-                                        aria-controls={`study-progress-chapters-${subject.id}`}
-                                        title={expanded ? '收起章节' : '管理章节'}
-                                        data-testid={`manage-chapters-${subject.id}`}
-                                    >
-                                        {expanded
-                                            ? <ChevronUp size={15} aria-hidden="true" />
-                                            : <ChevronDown size={15} aria-hidden="true" />}
-                                        {expanded ? '收起' : '管理章节'}
-                                    </button>
+                                <div className="study-progress__evidence" aria-label="今日学习情况">
+                                    <span>今日专注 <strong>{subject.studyTime}</strong> 分钟</span>
+                                    <span>未掌握 <strong>{subject.mistakeCount - subject.masteredCount}</strong></span>
+                                    <span>已掌握 <strong>{subject.masteredCount}</strong></span>
                                 </div>
-
-                                {expanded && (
-                                    <div id={`study-progress-chapters-${subject.id}`} className="study-progress__chapters">
-                                        <SubjectChapterPanel
-                                            subject={subject}
-                                            chapters={chaptersBySubject[subject.id] || []}
-                                            color={displayColor}
-                                            api={subjectChaptersAPI}
-                                            onRefresh={loadAllData}
-                                            onChapterUpdated={updateChapterLocally}
-                                            todayChapterTaskIds={todayChapterTaskIds}
-                                            onAddToToday={chapter => addChapterToToday(subject, chapter)}
-                                        />
+                                {!subject.hasDetailedChapters && (
+                                    <div className="study-progress__summary-controls" aria-label={`${subject.name}汇总进度调整`}>
+                                        <span>按数量记录进度</span>
+                                        <button type="button" className="button button-secondary study-progress__summary-control"
+                                            onClick={() => void updateSummaryProgress(subject, -1)}
+                                            disabled={!!subjectActionPending || (subject.completed_chapters || 0) <= 0}
+                                            title={`减少 ${subject.name} 的完成章节数`} aria-label={`减少 ${subject.name} 的完成章节数`}>−</button>
+                                        <strong>{subject.completed_chapters || 0} / {subject.total_chapters || 0}</strong>
+                                        <button type="button" className="button button-secondary study-progress__summary-control"
+                                            onClick={() => void updateSummaryProgress(subject, 1)}
+                                            disabled={!!subjectActionPending || (subject.completed_chapters || 0) >= (subject.total_chapters || 0)}
+                                            title={`增加 ${subject.name} 的完成章节数`} aria-label={`增加 ${subject.name} 的完成章节数`}>+</button>
                                     </div>
                                 )}
+                                <SubjectChapterPanel subject={subject} chapters={chaptersBySubject[subject.id] || []}
+                                    api={subjectChaptersAPI} onRefresh={loadAllData}
+                                    onChapterUpdated={updateChapterLocally} todayChapterTasks={todayChapterTasks}
+                                    onAddToToday={chapter => addChapterToToday(subject, chapter)}
+                                    onRemoveFromToday={chapter => removeChapterFromToday(subject, chapter)} />
                             </article>
-                        )
-                    })
-                )}
-
-                {!loading && subjectMetrics.length === 0 && !showForm && (
-                    <div className="workspace-empty study-progress__empty">
-                        <Library size={44} aria-hidden="true" />
-                        <h3>暂无科目</h3>
-                        <p>创建科目后，可添加章节或记录完成数量。</p>
-                    </div>
-                )}
-            </section>
+                        ))}
+                    </section>
+                </div>
+            )}
         </div>
     )
 }

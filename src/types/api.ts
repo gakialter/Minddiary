@@ -4,7 +4,7 @@ import type {
   ConvertSubjectChaptersInput, SubjectChapterPatch, Mistake, MistakeFilters,
   Attachment, AttachmentData,
   PomodoroSession, PomodoroStat, PomodoroRangeEntry,
-  StudyTask, NewStudyTask, StudyTaskQuery,
+  StudyTask, NewStudyTask, StudyTaskQuery, RemoveChapterFromTodayInput, RemoveChapterFromTodayResult,
   AppSettings, AIMessage, AIResponse,
   TodayDashboardData, DiaryTemplate, ReviewData, MistakeReviewResult, CountdownEvent,
   FocusWhitelistItem, ActiveAppInfo,
@@ -379,6 +379,7 @@ export interface ElectronTasksAPI {
   ) => Promise<TodayActionCommittedStatus>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
+  removeChapterFromToday: (input: RemoveChapterFromTodayInput) => Promise<RemoveChapterFromTodayResult>
   complete: (id: number) => Promise<StudyTask>
   skip: (id: number) => Promise<StudyTask>
   startFocus: (id: number, date: string) => Promise<StudyTask>
@@ -583,6 +584,7 @@ export interface TasksContextAPI {
   ) => Promise<TodayActionCommittedStatus>
   update: (id: number, patch: Partial<StudyTask>) => Promise<StudyTask>
   delete: (id: number) => Promise<boolean>
+  removeChapterFromToday: (input: RemoveChapterFromTodayInput) => Promise<RemoveChapterFromTodayResult>
   complete: (id: number) => Promise<StudyTask>
   skip: (id: number) => Promise<StudyTask>
   startFocus: (id: number, date: string) => Promise<StudyTask>

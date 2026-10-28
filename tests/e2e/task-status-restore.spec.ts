@@ -151,11 +151,19 @@ test.describe('UX-03 task status restoration through Electron', () => {
       expect(after.tasks).toHaveLength(4)
 
       await navigate(page, '科目进度')
-      await page.getByTestId(`manage-chapters-${seeded.subject.id}`).click()
+      const chapterWorkspace = page.getByTestId(`subject-card-${seeded.subject.id}`)
+      await expect(chapterWorkspace).toBeVisible()
       for (const chapter of [seeded.chapter, seeded.skippedChapter]) {
-        await expect(page.getByTestId(`chapter-added-today-${chapter.id}`)).toBeDisabled()
+        const row = chapterWorkspace.getByTestId(`chapter-row-${chapter.id}`)
+        const undo = row.getByTestId(`chapter-added-today-${chapter.id}`)
+        await expect(undo).toHaveText('撤销')
+        await undo.click()
+        await expect(row.getByRole('alert')).toHaveText('任务已开始、修改或包含记录，已保留。请到今日安排中处理。')
+        await expect(row.getByText('已加入', { exact: true })).toBeVisible()
+        await expect(undo).toBeEnabled()
         expect(restored.filter(task => task.related_chapter_id === chapter.id)).toHaveLength(1)
       }
+      expect(await readTasks(page, seeded.date)).toEqual(restored)
       const chapters = await page.evaluate(id => window.api.subjectChapters.getBySubject(id), seeded.subject.id)
       expect(chapters.map(chapter => chapter.completed)).toEqual([false, false])
 

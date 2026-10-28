@@ -134,7 +134,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         }, requestDataRefresh),
         subjectChapters: createSubjectChaptersApi(subjectsRef, subjectChaptersRef, saveToLocal, tasksRef),
         pomodoro: createPomodoroApi(subjectsRef, tasksRef, pomodoroSessionsRef, saveToLocal),
-        tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef),
+        tasks: createTasksApi(tasksRef, saveToLocal, pomodoroSessionsRef, subjectChaptersRef, subjectsRef),
         dashboard: createDashboardApi(),
         todayDashboard: createTodayDashboardApi(entriesRef, mistakesRef, tasksRef, pomodoroSessionsRef),
         exportUtil: createExportApi(),

@@ -187,6 +187,7 @@ async function importJsonBackup(page: Page, name: string, content: string, prefl
       buffer: Buffer.from(content, 'utf8'),
     })
     await expect(page.getByRole('alert').getByText(preflightError)).toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) })).toBeVisible()
     return
   }
   const dialogPromise = page.waitForEvent('dialog')
@@ -439,7 +440,10 @@ test.describe('repeated mistake entry and editing', () => {
       await importJsonBackup(page, 'MindDiary_Backup_test.json', exportedText)
       const initialImportMessage = page.getByRole('status').getByText(/导入完成，处理了 0 篇日记、1 道错题/)
       await expect(initialImportMessage).toBeVisible()
-      await page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ }).click()
+      const initialImportToast = page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })
+      await expect(initialImportToast).toBeVisible()
+      await initialImportToast.click()
+      await expect(initialImportToast).toBeHidden()
       await expect(initialImportMessage).toBeHidden()
 
       let restored = await page.evaluate(() => window.api.mistakes.getAll({ limit: 20, offset: 0 }))
@@ -496,7 +500,7 @@ test.describe('repeated mistake entry and editing', () => {
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
-        await page.getByRole('button', { name: preflightError }).click()
+        await page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) }).click()
         await expect(invalidPayloadToast).toBeHidden()
       }
 
@@ -519,7 +523,7 @@ test.describe('repeated mistake entry and editing', () => {
           total: 1,
           data: [expect.objectContaining({ question: '导出再导入题目' })],
         })
-        await page.getByRole('button', { name: preflightError }).click()
+        await page.getByRole('button', { name: new RegExp(`^关闭通知：${preflightError.source}`) }).click()
         await expect(invalidSubjectToast).toBeHidden()
       }
 
@@ -552,6 +556,7 @@ test.describe('repeated mistake entry and editing', () => {
         JSON.stringify(mappedSubjectExport),
       )
       await expect(page.getByRole('status').getByText(/导入完成，处理了 0 篇日记、1 道错题/)).toBeVisible()
+      await expect(page.getByRole('button', { name: /^关闭通知：导入完成，处理了 0 篇日记、1 道错题/ })).toBeVisible()
       const mappedSubjectResult = await page.evaluate(async () => {
         const [subjects, mistakes] = await Promise.all([
           window.api.subjects.getAll(),

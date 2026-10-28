@@ -1,0 +1,99 @@
+{
+  "windowMeasurements": {
+    "beforeNarrow": {
+      "viewport": [
+        960,
+        720
+      ],
+      "bodyTop": 447.5,
+      "bodyHeight": 179.5,
+      "fullRows": 3
+    },
+    "afterNarrow": {
+      "viewport": [
+        960,
+        720
+      ],
+      "bodyTop": 343,
+      "bodyHeight": 284,
+      "fullRows": 5,
+      "overflow": false
+    },
+    "afterWide": {
+      "viewport": [
+        1280,
+        800
+      ],
+      "bodyTop": 321,
+      "bodyHeight": 374,
+      "fullRows": 7,
+      "overflow": false
+    }
+  },
+  "consecutive": [
+    {
+      "id": 5,
+      "before": {
+        "scroll": 0,
+        "y": 343
+      },
+      "after": {
+        "scroll": 0,
+        "y": 343
+      },
+      "nodeAndFocus": true,
+      "checked": false
+    },
+    {
+      "id": 6,
+      "before": {
+        "scroll": 0,
+        "y": 389
+      },
+      "after": {
+        "scroll": 0,
+        "y": 389
+      },
+      "nodeAndFocus": true,
+      "checked": false
+    },
+    {
+      "id": 7,
+      "before": {
+        "scroll": 0,
+        "y": 435
+      },
+      "after": {
+        "scroll": 0,
+        "y": 435
+      },
+      "nodeAndFocus": true,
+      "checked": false
+    }
+  ],
+  "managementScroll": {
+    "before": 643,
+    "after": 642
+  },
+  "contrasts": [
+    {
+      "theme": "light",
+      "fg": "rgb(36, 64, 108)",
+      "bg": "rgb(229, 234, 242)",
+      "inputBorder": "rgb(137, 134, 127)",
+      "inputBackground": "rgb(251, 249, 245)",
+      "addedContrast": 8.58,
+      "inputBorderContrast": 3.46
+    },
+    {
+      "theme": "dark",
+      "fg": "rgb(169, 188, 224)",
+      "bg": "rgb(38, 48, 74)",
+      "inputBorder": "rgb(106, 107, 114)",
+      "inputBackground": "rgb(28, 29, 32)",
+      "addedContrast": 6.83,
+      "inputBorderContrast": 3.18
+    }
+  ],
+  "pageErrors": []
+}

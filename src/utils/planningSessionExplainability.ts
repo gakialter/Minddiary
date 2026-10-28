@@ -217,7 +217,7 @@ const FAILED_RESULT_KEYS = ['operationId', 'status', 'code', 'error'] as const
 const UNCERTAIN_RESULT_KEYS = ['operationId', 'status', 'error'] as const
 const STUDY_TASK_TYPES = ['review', 'focus', 'diary', 'mistake', 'custom'] as const
 const STUDY_TASK_STATUSES = ['todo', 'doing', 'done', 'skipped'] as const
-const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro'] as const
+const STUDY_TASK_SOURCES = ['manual', 'dashboard', 'ai', 'pomodoro', 'chapter'] as const
 const STUDY_TASK_FAILURE_CODES = [
   'INVALID_REQUEST',
   'DATE_MISMATCH',

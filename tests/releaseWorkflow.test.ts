@@ -205,6 +205,7 @@ describe('release workflow Windows signing policy', () => {
     expect(releaseNotes).toContain('未配置签名凭据时安装包未签名')
     expect(releaseNotes).toContain('Unknown Publisher')
     expect(releaseNotes).toContain('SmartScreen 提示')
+    expect(releaseNotes).not.toContain('Windows 已签名')
   })
 
   it('keeps published release notes free of release-prep-only state', () => {
